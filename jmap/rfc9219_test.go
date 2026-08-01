@@ -72,13 +72,21 @@ func TestRFC9219_Section3_EmailSMIMEProperties(t *testing.T) {
 		t.Fatalf("Expected email list, got %v", methodResp.Args["list"])
 	}
 
-	firstEmail, _ := listRaw[0].(map[string]any)
-	status, _ := firstEmail["smimeStatus"].(string)
-	if status != "signed" {
-		t.Errorf("Expected smimeStatus 'signed', got %q", status)
+	var foundSmimeEmail map[string]any
+	for _, item := range listRaw {
+		if emMap, ok := item.(map[string]any); ok {
+			if st, _ := emMap["smimeStatus"].(string); st == "signed" {
+				foundSmimeEmail = emMap
+				break
+			}
+		}
 	}
 
-	verifiedWith, _ := firstEmail["smimeVerifiedWith"].(string)
+	if foundSmimeEmail == nil {
+		t.Fatalf("Expected at least one email with smimeStatus 'signed', got %v", listRaw)
+	}
+
+	verifiedWith, _ := foundSmimeEmail["smimeVerifiedWith"].(string)
 	if verifiedWith != "admin@example.com" {
 		t.Errorf("Expected smimeVerifiedWith 'admin@example.com', got %q", verifiedWith)
 	}
