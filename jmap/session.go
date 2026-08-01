@@ -12,6 +12,9 @@ const SmimeCapabilityURI = "urn:ietf:params:jmap:smime"
 // BlobCapabilityURI is the standard JMAP Blob Management capability URI defined in RFC 9404 Section 2.
 const BlobCapabilityURI = "urn:ietf:params:jmap:blob"
 
+// QuotaCapabilityURI is the standard JMAP Quota capability URI defined in RFC 9425 Section 2.
+const QuotaCapabilityURI = "urn:ietf:params:jmap:quota"
+
 // CoreCapability defines the capability object for "urn:ietf:params:jmap:core" per RFC 8620 Section 2.2.
 type CoreCapability struct {
 	MaxSizeUpload         uint64   `json:"maxSizeUpload"`
@@ -48,6 +51,11 @@ type BlobCapability struct {
 	MaxDataAsStream     uint64   `json:"maxDataAsStream"`
 }
 
+// QuotaCapability defines the capability object for "urn:ietf:params:jmap:quota" per RFC 9425 Section 2.
+type QuotaCapability struct {
+	MaxQuotaResources uint64 `json:"maxQuotaResources"`
+}
+
 // Account defines an account object in the JMAP Session per RFC 8620 Section 2.
 type Account struct {
 	Name                string         `json:"name"`
@@ -69,7 +77,7 @@ type Session struct {
 	State           string             `json:"state"`
 }
 
-// DefaultSession creates a default RFC 8620 / RFC 8621 / RFC 9219 / RFC 9404 compliant Session object.
+// DefaultSession creates a default RFC 8620 / 8621 / 9219 / 9404 / 9425 compliant Session object.
 func DefaultSession(baseURL string) *Session {
 	if baseURL == "" {
 		baseURL = "http://localhost:8080"
@@ -104,6 +112,9 @@ func DefaultSession(baseURL string) *Session {
 				SupportedAlgorithms: []string{"sha-256"},
 				MaxDataAsStream:     50000000,
 			},
+			QuotaCapabilityURI: QuotaCapability{
+				MaxQuotaResources: 10,
+			},
 		},
 		Accounts: map[string]Account{
 			"primary": {
@@ -115,6 +126,7 @@ func DefaultSession(baseURL string) *Session {
 					MailCapabilityURI:  struct{}{},
 					SmimeCapabilityURI: struct{}{},
 					BlobCapabilityURI:  struct{}{},
+					QuotaCapabilityURI: struct{}{},
 				},
 			},
 		},
@@ -123,6 +135,7 @@ func DefaultSession(baseURL string) *Session {
 			MailCapabilityURI:  "primary",
 			SmimeCapabilityURI: "primary",
 			BlobCapabilityURI:  "primary",
+			QuotaCapabilityURI: "primary",
 		},
 		Username:       "user@example.com",
 		APIURL:         baseURL + "/jmap",

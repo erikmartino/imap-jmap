@@ -13,6 +13,7 @@ type MemoryBackend struct {
 	mailboxes   map[Id]*Mailbox
 	threads     map[Id]*Thread
 	emails      map[Id]*Email
+	quotas      map[Id]*Quota
 	identities  map[Id]*Identity
 	submissions map[Id]*EmailSubmission
 	idCounter   uint64
@@ -28,9 +29,33 @@ func NewMemoryBackend() *MemoryBackend {
 		mailboxes:   make(map[Id]*Mailbox),
 		threads:     make(map[Id]*Thread),
 		emails:      make(map[Id]*Email),
+		quotas:      make(map[Id]*Quota),
 		identities:  make(map[Id]*Identity),
 		submissions: make(map[Id]*EmailSubmission),
 		state:       "m1",
+	}
+
+	// Create default Quotas per RFC 9425
+	quotaOctetsDesc := "Storage quota in bytes for account"
+	mb.quotas["quota-octets"] = &Quota{
+		ID:           "quota-octets",
+		Name:         "Storage Quota",
+		ResourceType: "octets",
+		Used:         3072,
+		HardLimit:    10737418240, // 10 GB
+		Scope:        "account",
+		Description:  &quotaOctetsDesc,
+	}
+
+	quotaMessagesDesc := "Message count quota for account"
+	mb.quotas["quota-messages"] = &Quota{
+		ID:           "quota-messages",
+		Name:         "Message Count Quota",
+		ResourceType: "messages",
+		Used:         2,
+		HardLimit:    100000,
+		Scope:        "account",
+		Description:  &quotaMessagesDesc,
 	}
 
 	// Create standard default mailboxes per RFC 8621 Section 2
@@ -501,4 +526,34 @@ func (mb *MemoryBackend) GetSubmissions(ctx context.Context, ids []Id) ([]*Email
 		}
 	}
 	return list, notFound, nil
+}
+
+// GetQuotas retrieves requested Quota objects by ID per RFC 9425 Section 4.
+func (mb *MemoryBackend) GetQuotas(ctx context.Context, ids []Id) ([]*Quota, []Id, error) {
+	mb.mu.RLock()
+	defer mb.mu.RUnlock()
+
+	var list []*Quota
+	var notFound []Id
+
+	for _, id := range ids {
+		if q, ok := mb.quotas[id]; ok {
+			list = append(list, q)
+		} else {
+			notFound = append(notFound, id)
+		}
+	}
+	return list, notFound, nil
+}
+
+// GetAllQuotas retrieves all Quota objects per RFC 9425 Section 4.
+func (mb *MemoryBackend) GetAllQuotas(ctx context.Context) ([]*Quota, error) {
+	mb.mu.RLock()
+	defer mb.mu.RUnlock()
+
+	list := make([]*Quota, 0, len(mb.quotas))
+	for _, q := range mb.quotas {
+		list = append(list, q)
+	}
+	return list, nil
 }

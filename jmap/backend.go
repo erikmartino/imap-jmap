@@ -2,7 +2,7 @@ package jmap
 
 import "context"
 
-// MailBackend defines the storage interface for JMAP Mail resources per RFC 8621 & RFC 9219.
+// MailBackend defines the storage interface for JMAP Mail & Quota resources per RFC 8621, RFC 9219, & RFC 9425.
 type MailBackend interface {
 	// State returns the current change state token for mail data.
 	State(ctx context.Context) string
@@ -25,6 +25,10 @@ type MailBackend interface {
 
 	// S/MIME Verification (RFC 9219 Section 4)
 	VerifySmime(ctx context.Context, ids []Id) (verified map[Id]*SmimeVerificationResult, notFound []Id, err error)
+
+	// Quotas (RFC 9425 Section 4)
+	GetQuotas(ctx context.Context, ids []Id) (list []*Quota, notFound []Id, err error)
+	GetAllQuotas(ctx context.Context) ([]*Quota, error)
 
 	// Identities (RFC 8621 Section 6)
 	GetIdentities(ctx context.Context) ([]*Identity, error)

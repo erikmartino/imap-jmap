@@ -53,6 +53,7 @@ func NewServer(session *Session, opts ...Option) *Server {
 
 	RegisterMailHandlers(s.MethodRegistry, s.MailBackend)
 	RegisterBlobHandlers(s.MethodRegistry, s.BlobBackend)
+	RegisterQuotaHandlers(s.MethodRegistry, s.MailBackend)
 
 	return s
 }
