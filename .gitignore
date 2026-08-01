@@ -1,0 +1,47 @@
+# Binaries for programs and tests
+*.exe
+*.exe?
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+imap-jmap
+main
+
+# Test coverage
+*.cover
+*.mo
+coverage.out
+c.out
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Operating System Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE and Editor Files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.bak
+
+# Environment and Secret Files
+.env
+.env.*
+!.env.example
+
+# Temporary and Output Directories
+/bin/
+/dist/
+/tmp/
