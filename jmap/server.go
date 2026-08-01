@@ -56,7 +56,7 @@ func NewServer(session *Session, opts ...Option) *Server {
 	return s
 }
 
-// Handler returns an http.Handler that routes requests.
+// Handler returns an http.Handler wrapped with CORS middleware that routes requests.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/jmap", s.handleWellKnownJMAP)
@@ -64,7 +64,27 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/upload/", s.HandleUpload)
 	mux.HandleFunc("/download/", s.HandleDownload)
 	mux.HandleFunc("/", s.handleNotFound)
-	return mux
+	return s.corsMiddleware(mux)
+}
+
+func (s *Server) corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			origin = "*"
+		}
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept, X-Requested-With, Link")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, PATCH, PUT, DELETE, HEAD, OPTIONS")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) handleWellKnownJMAP(w http.ResponseWriter, r *http.Request) {
@@ -81,7 +101,7 @@ func (s *Server) handleWellKnownJMAP(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(s.Session)
 		}
 	default:
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 	}
 }
@@ -93,7 +113,7 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
+		w.Header().Set("Allow", "POST, OPTIONS")
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
