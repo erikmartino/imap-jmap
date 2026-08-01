@@ -395,3 +395,51 @@ func TestRFC8621_Section7_1_EmailSubmissionGet(t *testing.T) {
 		t.Errorf("Expected response 'EmailSubmission/get', got %q", methodResp.Name)
 	}
 }
+
+// TestRFC8621_Section7_3_EmailSubmissionSet tests sending an email via EmailSubmission/set per RFC 8621 Section 7.3.
+func TestRFC8621_Section7_3_EmailSubmissionSet(t *testing.T) {
+	srv := jmap.NewServer(nil)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	reqPayload := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+		"methodCalls": []any{
+			[]any{"EmailSubmission/set", map[string]any{
+				"accountId": "primary",
+				"create": map[string]any{
+					"sub1": map[string]any{
+						"identityId": "id-primary",
+						"emailId":    "email-1",
+					},
+				},
+			}, "c1"},
+		},
+	}
+	body, _ := json.Marshal(reqPayload)
+
+	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /jmap failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var jmapResp jmap.Response
+	if err := json.NewDecoder(resp.Body).Decode(&jmapResp); err != nil {
+		t.Fatalf("Failed to decode Response: %v", err)
+	}
+
+	if len(jmapResp.MethodResponses) != 1 {
+		t.Fatalf("Expected 1 method response, got %d", len(jmapResp.MethodResponses))
+	}
+
+	methodResp := jmapResp.MethodResponses[0]
+	if methodResp.Name != "EmailSubmission/set" {
+		t.Errorf("Expected response 'EmailSubmission/set', got %q", methodResp.Name)
+	}
+
+	created, ok := methodResp.Args["created"].(map[string]any)
+	if !ok || created["sub1"] == nil {
+		t.Errorf("Expected created submission for key 'sub1', got %v", methodResp.Args["created"])
+	}
+}
