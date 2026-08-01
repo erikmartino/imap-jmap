@@ -11,16 +11,18 @@ import (
 	"sync"
 )
 
-// Blob represents a stored binary blob per RFC 8620 Section 6.
+// Blob represents a stored binary blob per RFC 8620 Section 6 and RFC 9404 Section 4.
 type Blob struct {
-	ID        string `json:"blobId"`
-	AccountID string `json:"accountId"`
-	Type      string `json:"type"`
-	Size      int64  `json:"size"`
-	Data      []byte `json:"-"`
+	ID           string `json:"id"`
+	BlobID       string `json:"blobId,omitempty"`
+	AccountID    string `json:"accountId,omitempty"`
+	Type         string `json:"type"`
+	Size         int64  `json:"size"`
+	DigestSHA256 string `json:"digest:sha-256,omitempty"`
+	Data         []byte `json:"-"`
 }
 
-// MemoryBlobBackend manages in-memory blob storage per RFC 8620 Section 6.
+// MemoryBlobBackend manages in-memory blob storage per RFC 8620 Section 6 & RFC 9404.
 type MemoryBlobBackend struct {
 	mu    sync.RWMutex
 	blobs map[string]*Blob
@@ -42,18 +44,21 @@ func (b *MemoryBlobBackend) PutBlob(ctx context.Context, accountID, contentType 
 	defer b.mu.Unlock()
 
 	hash := sha256.Sum256(data)
-	blobID := hex.EncodeToString(hash[:16])
+	fullHex := hex.EncodeToString(hash[:])
+	blobID := fullHex[:16]
 
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
 
 	blob := &Blob{
-		ID:        blobID,
-		AccountID: accountID,
-		Type:      contentType,
-		Size:      int64(len(data)),
-		Data:      data,
+		ID:           blobID,
+		BlobID:       blobID,
+		AccountID:    accountID,
+		Type:         contentType,
+		Size:         int64(len(data)),
+		DigestSHA256: fullHex,
+		Data:         data,
 	}
 
 	key := accountID + ":" + blobID

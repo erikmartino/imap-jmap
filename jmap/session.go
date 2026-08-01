@@ -9,6 +9,9 @@ const MailCapabilityURI = "urn:ietf:params:jmap:mail"
 // SmimeCapabilityURI is the standard JMAP S/MIME capability URI defined in RFC 9219 Section 2.
 const SmimeCapabilityURI = "urn:ietf:params:jmap:smime"
 
+// BlobCapabilityURI is the standard JMAP Blob Management capability URI defined in RFC 9404 Section 2.
+const BlobCapabilityURI = "urn:ietf:params:jmap:blob"
+
 // CoreCapability defines the capability object for "urn:ietf:params:jmap:core" per RFC 8620 Section 2.2.
 type CoreCapability struct {
 	MaxSizeUpload         uint64   `json:"maxSizeUpload"`
@@ -39,6 +42,12 @@ type SmimeCapability struct {
 	SmimeVerificationSupported bool `json:"smimeVerificationSupported"`
 }
 
+// BlobCapability defines the capability object for "urn:ietf:params:jmap:blob" per RFC 9404 Section 2.
+type BlobCapability struct {
+	SupportedAlgorithms []string `json:"supportedAlgorithms"`
+	MaxDataAsStream     uint64   `json:"maxDataAsStream"`
+}
+
 // Account defines an account object in the JMAP Session per RFC 8620 Section 2.
 type Account struct {
 	Name                string         `json:"name"`
@@ -49,18 +58,18 @@ type Account struct {
 
 // Session represents the JMAP Session resource object per RFC 8620 Section 2.
 type Session struct {
-	Capabilities    map[string]any `json:"capabilities"`
-	Accounts        map[string]Account     `json:"accounts"`
-	PrimaryAccounts map[string]string      `json:"primaryAccounts"`
-	Username        string                 `json:"username"`
-	APIURL          string                 `json:"apiUrl"`
-	DownloadURL     string                 `json:"downloadUrl"`
-	UploadURL       string                 `json:"uploadUrl"`
-	EventSourceURL  string                 `json:"eventSourceUrl"`
-	State           string                 `json:"state"`
+	Capabilities    map[string]any     `json:"capabilities"`
+	Accounts        map[string]Account `json:"accounts"`
+	PrimaryAccounts map[string]string  `json:"primaryAccounts"`
+	Username        string             `json:"username"`
+	APIURL          string             `json:"apiUrl"`
+	DownloadURL     string             `json:"downloadUrl"`
+	UploadURL       string             `json:"uploadUrl"`
+	EventSourceURL  string             `json:"eventSourceUrl"`
+	State           string             `json:"state"`
 }
 
-// DefaultSession creates a default RFC 8620 / RFC 8621 / RFC 9219 compliant Session object.
+// DefaultSession creates a default RFC 8620 / RFC 8621 / RFC 9219 / RFC 9404 compliant Session object.
 func DefaultSession(baseURL string) *Session {
 	if baseURL == "" {
 		baseURL = "http://localhost:8080"
@@ -91,6 +100,10 @@ func DefaultSession(baseURL string) *Session {
 			SmimeCapabilityURI: SmimeCapability{
 				SmimeVerificationSupported: true,
 			},
+			BlobCapabilityURI: BlobCapability{
+				SupportedAlgorithms: []string{"sha-256"},
+				MaxDataAsStream:     50000000,
+			},
 		},
 		Accounts: map[string]Account{
 			"primary": {
@@ -101,6 +114,7 @@ func DefaultSession(baseURL string) *Session {
 					CoreCapabilityURI:  struct{}{},
 					MailCapabilityURI:  struct{}{},
 					SmimeCapabilityURI: struct{}{},
+					BlobCapabilityURI:  struct{}{},
 				},
 			},
 		},
@@ -108,6 +122,7 @@ func DefaultSession(baseURL string) *Session {
 			CoreCapabilityURI:  "primary",
 			MailCapabilityURI:  "primary",
 			SmimeCapabilityURI: "primary",
+			BlobCapabilityURI:  "primary",
 		},
 		Username:       "user@example.com",
 		APIURL:         baseURL + "/jmap",
