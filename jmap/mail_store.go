@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// MemoryBackend implements MailBackend for in-memory stub storage per RFC 8621.
+// MemoryBackend implements MailBackend for in-memory stub storage per RFC 8621 & RFC 9219.
 type MemoryBackend struct {
 	mu          sync.RWMutex
 	mailboxes   map[Id]*Mailbox
@@ -119,17 +119,21 @@ func NewMemoryBackend() *MemoryBackend {
 	mb.identities[defaultIdentity.ID] = defaultIdentity
 
 	// Create stub messages in Inbox
+	stubStatus := "signed"
+	stubVerifiedWith := "admin@example.com"
 	stub1 := &Email{
-		Subject:    "Welcome to JMAP Server",
-		From:       []EmailAddress{{Name: "JMAP Admin", Email: "admin@example.com"}},
-		To:         []EmailAddress{{Name: "Primary User", Email: "user@example.com"}},
-		MailboxIDs: map[Id]bool{"mb-inbox": true},
-		Keywords:   map[string]bool{"$seen": true},
-		Size:       1024,
-		ReceivedAt: "2026-08-01T12:00:00Z",
-		SentAt:     "2026-08-01T11:59:00Z",
-		Preview:    "Welcome to your new JMAP mail server. This server supports RFC 8620 and RFC 8621.",
-		BlobID:     "blob-stub-1",
+		Subject:           "Welcome to JMAP Server",
+		From:              []EmailAddress{{Name: "JMAP Admin", Email: "admin@example.com"}},
+		To:                []EmailAddress{{Name: "Primary User", Email: "user@example.com"}},
+		MailboxIDs:        map[Id]bool{"mb-inbox": true},
+		Keywords:          map[string]bool{"$seen": true},
+		Size:              1024,
+		ReceivedAt:        "2026-08-01T12:00:00Z",
+		SentAt:            "2026-08-01T11:59:00Z",
+		Preview:           "Welcome to your new JMAP mail server. This server supports RFC 8620 and RFC 8621.",
+		BlobID:            "blob-stub-1",
+		SMIMEStatus:       &stubStatus,
+		SMIMEVerifiedWith: &stubVerifiedWith,
 		BodyStructure: EmailBodyPart{
 			PartID: "1",
 			Type:   "text/plain",
@@ -372,6 +376,39 @@ func (mb *MemoryBackend) DeleteEmail(ctx context.Context, id Id) (bool, error) {
 
 	mb.bumpState()
 	return true, nil
+}
+
+// VerifySmime implements RFC 9219 Section 4 Email/verifySmime.
+func (mb *MemoryBackend) VerifySmime(ctx context.Context, ids []Id) (map[Id]*SmimeVerificationResult, []Id, error) {
+	mb.mu.RLock()
+	defer mb.mu.RUnlock()
+
+	verified := make(map[Id]*SmimeVerificationResult)
+	var notFound []Id
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	for _, id := range ids {
+		em, ok := mb.emails[id]
+		if !ok {
+			notFound = append(notFound, id)
+			continue
+		}
+
+		status := "signed"
+		if em.SMIMEStatus != nil {
+			status = *em.SMIMEStatus
+		}
+
+		res := &SmimeVerificationResult{
+			SmimeStatus:       status,
+			SmimeStatusAt:     now,
+			SmimeVerifiedWith: em.SMIMEVerifiedWith,
+			SmimeErrors:       em.SMIMEErrors,
+		}
+		verified[id] = res
+	}
+
+	return verified, notFound, nil
 }
 
 // GetIdentities retrieves all identities.

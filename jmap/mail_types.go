@@ -68,7 +68,15 @@ type EmailBodyValue struct {
 	IsTruncated       bool   `json:"isTruncated,omitempty"`
 }
 
-// Email represents a JMAP Email object per RFC 8621 Section 4.
+// SmimeVerificationResult represents the result of Email/verifySmime per RFC 9219 Section 4.
+type SmimeVerificationResult struct {
+	SmimeStatus       string   `json:"smimeStatus"`
+	SmimeStatusAt     string   `json:"smimeStatusAt"`
+	SmimeErrors       []string `json:"smimeErrors,omitempty"`
+	SmimeVerifiedWith *string  `json:"smimeVerifiedWith,omitempty"`
+}
+
+// Email represents a JMAP Email object per RFC 8621 & RFC 9219.
 type Email struct {
 	ID            Id                        `json:"id"`
 	BlobID        Id                        `json:"blobId"`
@@ -95,6 +103,12 @@ type Email struct {
 	Attachments   []EmailBodyPart           `json:"attachments,omitempty"`
 	HasAttachment bool                      `json:"hasAttachment"`
 	Preview       string                    `json:"preview"`
+
+	// S/MIME Verification Extensions (RFC 9219 Section 3)
+	SMIMEStatus       *string  `json:"smimeStatus,omitempty"`
+	SMIMEStatusAt     *string  `json:"smimeStatusAt,omitempty"`
+	SMIMEErrors       []string `json:"smimeErrors,omitempty"`
+	SMIMEVerifiedWith *string  `json:"smimeVerifiedWith,omitempty"`
 }
 
 // Identity represents a JMAP Identity object per RFC 8621 Section 6.

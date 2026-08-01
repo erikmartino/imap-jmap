@@ -6,6 +6,9 @@ const CoreCapabilityURI = "urn:ietf:params:jmap:core"
 // MailCapabilityURI is the standard JMAP mail capability URI defined in RFC 8621 Section 2.
 const MailCapabilityURI = "urn:ietf:params:jmap:mail"
 
+// SmimeCapabilityURI is the standard JMAP S/MIME capability URI defined in RFC 9219 Section 2.
+const SmimeCapabilityURI = "urn:ietf:params:jmap:smime"
+
 // CoreCapability defines the capability object for "urn:ietf:params:jmap:core" per RFC 8620 Section 2.2.
 type CoreCapability struct {
 	MaxSizeUpload         uint64   `json:"maxSizeUpload"`
@@ -31,6 +34,11 @@ type MailCapability struct {
 	MayCreateTopLevelMailbox bool     `json:"mayCreateTopLevelMailbox"`
 }
 
+// SmimeCapability defines the capability object for "urn:ietf:params:jmap:smime" per RFC 9219 Section 2.
+type SmimeCapability struct {
+	SmimeVerificationSupported bool `json:"smimeVerificationSupported"`
+}
+
 // Account defines an account object in the JMAP Session per RFC 8620 Section 2.
 type Account struct {
 	Name                string         `json:"name"`
@@ -52,7 +60,7 @@ type Session struct {
 	State           string                 `json:"state"`
 }
 
-// DefaultSession creates a default RFC 8620 / RFC 8621 compliant Session object.
+// DefaultSession creates a default RFC 8620 / RFC 8621 / RFC 9219 compliant Session object.
 func DefaultSession(baseURL string) *Session {
 	if baseURL == "" {
 		baseURL = "http://localhost:8080"
@@ -80,6 +88,9 @@ func DefaultSession(baseURL string) *Session {
 				EmailQuerySortOptions:    []string{"receivedAt", "sentAt"},
 				MayCreateTopLevelMailbox: true,
 			},
+			SmimeCapabilityURI: SmimeCapability{
+				SmimeVerificationSupported: true,
+			},
 		},
 		Accounts: map[string]Account{
 			"primary": {
@@ -87,14 +98,16 @@ func DefaultSession(baseURL string) *Session {
 				IsPrimary:  true,
 				IsReadOnly: false,
 				AccountCapabilities: map[string]any{
-					CoreCapabilityURI: struct{}{},
-					MailCapabilityURI: struct{}{},
+					CoreCapabilityURI:  struct{}{},
+					MailCapabilityURI:  struct{}{},
+					SmimeCapabilityURI: struct{}{},
 				},
 			},
 		},
 		PrimaryAccounts: map[string]string{
-			CoreCapabilityURI: "primary",
-			MailCapabilityURI: "primary",
+			CoreCapabilityURI:  "primary",
+			MailCapabilityURI:  "primary",
+			SmimeCapabilityURI: "primary",
 		},
 		Username:       "user@example.com",
 		APIURL:         baseURL + "/jmap",

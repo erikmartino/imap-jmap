@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// RegisterMailHandlers registers all RFC 8621 JMAP Mail methods into MethodRegistry.
+// RegisterMailHandlers registers all RFC 8621 JMAP Mail and RFC 9219 S/MIME methods into MethodRegistry.
 func RegisterMailHandlers(r *MethodRegistry, backend MailBackend) {
 	// Mailbox (Section 2)
 	r.Register("Mailbox/get", handleMailboxGet(backend))
@@ -28,6 +28,9 @@ func RegisterMailHandlers(r *MethodRegistry, backend MailBackend) {
 	r.Register("Email/queryChanges", handleEmailQueryChanges(backend))
 	r.Register("Email/import", handleEmailImport(backend))
 	r.Register("Email/parse", handleEmailParse(backend))
+
+	// S/MIME Verification (RFC 9219 Section 4)
+	r.Register("Email/verifySmime", handleEmailVerifySmime(backend))
 
 	// SearchSnippet (Section 5)
 	r.Register("SearchSnippet/get", handleSearchSnippetGet(backend))
@@ -433,6 +436,36 @@ func handleEmailParse(backend MailBackend) MethodHandler {
 			"accountId": accountID,
 			"parsed":    parsed,
 			"notFound":  []Id{},
+		}
+	}
+}
+
+// S/MIME Verification Handler (RFC 9219 Section 4)
+
+func handleEmailVerifySmime(backend MailBackend) MethodHandler {
+	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
+		accountID, _ := args["accountId"].(string)
+		emailIDsRaw, _ := args["emailIds"].([]any)
+
+		ids := make([]Id, 0, len(emailIDsRaw))
+		for _, item := range emailIDsRaw {
+			if idStr, ok := item.(string); ok {
+				ids = append(ids, Id(idStr))
+			}
+		}
+
+		verified, notFound, _ := backend.VerifySmime(ctx, ids)
+		if verified == nil {
+			verified = make(map[Id]*SmimeVerificationResult)
+		}
+		if notFound == nil {
+			notFound = []Id{}
+		}
+
+		return "Email/verifySmime", map[string]any{
+			"accountId": accountID,
+			"verified":  verified,
+			"notFound":  notFound,
 		}
 	}
 }
