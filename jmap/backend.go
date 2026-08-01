@@ -21,6 +21,7 @@ type MailBackend interface {
 	GetAllEmails(ctx context.Context) ([]*Email, error)
 	CreateEmail(ctx context.Context, em *Email) (*Email, error)
 	DeleteEmail(ctx context.Context, id Id) (bool, error)
+	QueryEmails(ctx context.Context, filter map[string]any, comparators []Comparator, position int, limit *uint64) (ids []Id, total int, err error)
 
 	// S/MIME Verification (RFC 9219 Section 4)
 	VerifySmime(ctx context.Context, ids []Id) (verified map[Id]*SmimeVerificationResult, notFound []Id, err error)

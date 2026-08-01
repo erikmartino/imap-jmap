@@ -443,3 +443,77 @@ func TestRFC8621_Section7_3_EmailSubmissionSet(t *testing.T) {
 		t.Errorf("Expected created submission for key 'sub1', got %v", methodResp.Args["created"])
 	}
 }
+
+// TestRFC8621_Section4_5_1_EmailQueryFilteringAndSorting tests Email/query filtering (inMailbox, text) and sorting per RFC 8621 Section 4.5.
+func TestRFC8621_Section4_5_1_EmailQueryFilteringAndSorting(t *testing.T) {
+	srv := jmap.NewServer(nil)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// 1. Filter by inMailbox: "mb-inbox"
+	reqPayload := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+		"methodCalls": []any{
+			[]any{"Email/query", map[string]any{
+				"accountId": "primary",
+				"filter": map[string]any{
+					"inMailbox": "mb-inbox",
+				},
+				"sort": []any{
+					map[string]any{"property": "receivedAt", "isAscending": false},
+				},
+			}, "c1"},
+		},
+	}
+	body, _ := json.Marshal(reqPayload)
+
+	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /jmap failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var jmapResp jmap.Response
+	if err := json.NewDecoder(resp.Body).Decode(&jmapResp); err != nil {
+		t.Fatalf("Failed to decode Response: %v", err)
+	}
+
+	methodResp := jmapResp.MethodResponses[0]
+	idsRaw, ok := methodResp.Args["ids"].([]any)
+	if !ok || len(idsRaw) != 2 {
+		t.Fatalf("Expected 2 inbox email IDs, got %v", methodResp.Args["ids"])
+	}
+
+	total, _ := methodResp.Args["total"].(float64)
+	if total != 2 {
+		t.Errorf("Expected total 2, got %v", total)
+	}
+
+	// 2. Filter by text search ("Welcome")
+	reqText := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+		"methodCalls": []any{
+			[]any{"Email/query", map[string]any{
+				"accountId": "primary",
+				"filter": map[string]any{
+					"text": "Welcome",
+				},
+			}, "c2"},
+		},
+	}
+	bodyText, _ := json.Marshal(reqText)
+
+	respText, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyText))
+	if err != nil {
+		t.Fatalf("POST /jmap failed: %v", err)
+	}
+	defer respText.Body.Close()
+
+	var jmapRespText jmap.Response
+	_ = json.NewDecoder(respText.Body).Decode(&jmapRespText)
+
+	idsText, ok := jmapRespText.MethodResponses[0].Args["ids"].([]any)
+	if !ok || len(idsText) != 1 {
+		t.Errorf("Expected 1 email matching text 'Welcome', got %v", jmapRespText.MethodResponses[0].Args["ids"])
+	}
+}

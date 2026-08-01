@@ -358,20 +358,49 @@ func handleEmailCopy(backend MailBackend) MethodHandler {
 func handleEmailQuery(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
-		all, _ := backend.GetAllEmails(ctx)
-		ids := make([]Id, len(all))
-		for i, em := range all {
-			ids[i] = em.ID
+		filter, _ := args["filter"].(map[string]any)
+
+		var comparators []Comparator
+		if sortRaw, ok := args["sort"].([]any); ok {
+			for _, item := range sortRaw {
+				if compMap, ok := item.(map[string]any); ok {
+					prop, _ := compMap["property"].(string)
+					asc, isBool := compMap["isAscending"].(bool)
+					if !isBool {
+						asc = true
+					}
+					coll, _ := compMap["collation"].(string)
+					comparators = append(comparators, Comparator{
+						Property:    prop,
+						IsAscending: asc,
+						Collation:   coll,
+					})
+				}
+			}
 		}
 
-		return "Email/query", map[string]any{
+		position := 0
+		if posVal, ok := args["position"].(float64); ok {
+			position = int(posVal)
+		}
+
+		var limit *uint64
+		if limVal, ok := args["limit"].(float64); ok {
+			l := uint64(limVal)
+			limit = &l
+		}
+
+		ids, total, _ := backend.QueryEmails(ctx, filter, comparators, position, limit)
+
+		res := map[string]any{
 			"accountId":           accountID,
 			"queryState":          backend.State(ctx),
 			"canCalculateChanges": true,
-			"position":            0,
+			"position":            position,
 			"ids":                 ids,
-			"total":               len(ids),
+			"total":               total,
 		}
+		return "Email/query", res
 	}
 }
 

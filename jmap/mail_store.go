@@ -378,6 +378,45 @@ func (mb *MemoryBackend) DeleteEmail(ctx context.Context, id Id) (bool, error) {
 	return true, nil
 }
 
+// QueryEmails evaluates filters, sorting, and pagination per RFC 8621 Section 4.5.
+func (mb *MemoryBackend) QueryEmails(ctx context.Context, filter map[string]any, comparators []Comparator, position int, limit *uint64) ([]Id, int, error) {
+	mb.mu.RLock()
+	defer mb.mu.RUnlock()
+
+	var matched []*Email
+	for _, em := range mb.emails {
+		if MatchesFilter(em, filter) {
+			matched = append(matched, em)
+		}
+	}
+
+	total := len(matched)
+	SortEmails(matched, comparators)
+
+	if position < 0 {
+		position = 0
+	}
+	if position > len(matched) {
+		return []Id{}, total, nil
+	}
+
+	end := len(matched)
+	if limit != nil {
+		l := int(*limit)
+		if position+l < end {
+			end = position + l
+		}
+	}
+
+	slice := matched[position:end]
+	ids := make([]Id, len(slice))
+	for i, em := range slice {
+		ids[i] = em.ID
+	}
+
+	return ids, total, nil
+}
+
 // VerifySmime implements RFC 9219 Section 4 Email/verifySmime.
 func (mb *MemoryBackend) VerifySmime(ctx context.Context, ids []Id) (map[Id]*SmimeVerificationResult, []Id, error) {
 	mb.mu.RLock()
