@@ -3,6 +3,7 @@ package jmap
 import (
 	"context"
 	"encoding/json"
+	"errors"
 )
 
 // handleMDNSend processes MDN/send method calls per RFC 9007 Section 3.1.
@@ -60,7 +61,8 @@ func handleMDNParse(backend MailBackend) MethodHandler {
 		blobIDsRaw, _ := args["blobIds"].([]any)
 
 		parsed := make(map[string]*MDN)
-		notParsed := []Id{}
+		var notParsable []Id
+		var notFound []Id
 
 		for _, item := range blobIDsRaw {
 			blobIDStr, ok := item.(string)
@@ -70,17 +72,20 @@ func handleMDNParse(backend MailBackend) MethodHandler {
 
 			blobID := Id(blobIDStr)
 			mdn, err := backend.ParseMDN(ctx, blobID)
-			if err != nil || mdn == nil {
-				notParsed = append(notParsed, blobID)
+			if errors.Is(err, ErrBlobNotFound) {
+				notFound = append(notFound, blobID)
+			} else if err != nil || mdn == nil {
+				notParsable = append(notParsable, blobID)
 			} else {
 				parsed[blobIDStr] = mdn
 			}
 		}
 
 		return "MDN/parse", map[string]any{
-			"accountId": accountID,
-			"parsed":    parsed,
-			"notParsed": notParsed,
+			"accountId":   accountID,
+			"parsed":      parsed,
+			"notParsable": notParsable,
+			"notFound":    notFound,
 		}
 	}
 }

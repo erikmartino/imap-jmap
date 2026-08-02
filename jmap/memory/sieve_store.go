@@ -15,6 +15,7 @@ import (
 type MemorySieveBackend struct {
 	mu      sync.RWMutex
 	scripts map[jmap.Id]*jmap.SieveScript
+	state   *changeTracker
 	nextID  uint64
 }
 
@@ -22,8 +23,19 @@ type MemorySieveBackend struct {
 func NewMemorySieveBackend() *MemorySieveBackend {
 	return &MemorySieveBackend{
 		scripts: make(map[jmap.Id]*jmap.SieveScript),
+		state:   newChangeTracker(1000),
 		nextID:  0,
 	}
+}
+
+// SieveScriptState returns the current change state token per RFC 8620.
+func (b *MemorySieveBackend) SieveScriptState(ctx context.Context) string {
+	return b.state.State()
+}
+
+// SieveScriptChanges returns created/updated/destroyed scripts since the given state per RFC 8620 Section 5.2.
+func (b *MemorySieveBackend) SieveScriptChanges(ctx context.Context, sinceState string) (created, updated, destroyed []jmap.Id, newState string, hasMore bool) {
+	return b.state.Changes(sinceState)
 }
 
 func (b *MemorySieveBackend) ValidateSieveScript(ctx context.Context, content string) (bool, string) {
@@ -95,6 +107,7 @@ func (b *MemorySieveBackend) CreateSieveScript(ctx context.Context, script *jmap
 	}
 
 	b.scripts[script.ID] = script
+	b.state.record(script.ID, "create")
 	return script, nil
 }
 
@@ -129,6 +142,7 @@ func (b *MemorySieveBackend) UpdateSieveScript(ctx context.Context, id jmap.Id, 
 		script.IsActive = isActive
 	}
 
+	b.state.record(id, "update")
 	return script, nil
 }
 
@@ -140,6 +154,7 @@ func (b *MemorySieveBackend) DeleteSieveScript(ctx context.Context, id jmap.Id) 
 		return false, nil
 	}
 	delete(b.scripts, id)
+	b.state.record(id, "destroy")
 	return true, nil
 }
 

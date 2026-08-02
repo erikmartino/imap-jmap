@@ -47,7 +47,7 @@ func handleSieveScriptGet(backend SieveBackend) MethodHandler {
 
 		return "SieveScript/get", map[string]any{
 			"accountId": accountID,
-			"state":     "0",
+			"state":     backend.SieveScriptState(ctx),
 			"list":      list,
 			"notFound":  notFound,
 		}
@@ -57,14 +57,25 @@ func handleSieveScriptGet(backend SieveBackend) MethodHandler {
 func handleSieveScriptChanges(backend SieveBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
+		sinceState, _ := args["sinceState"].(string)
+		created, updated, destroyed, newState, hasMore := backend.SieveScriptChanges(ctx, sinceState)
+		if created == nil {
+			created = []Id{}
+		}
+		if updated == nil {
+			updated = []Id{}
+		}
+		if destroyed == nil {
+			destroyed = []Id{}
+		}
 		return "SieveScript/changes", map[string]any{
 			"accountId":      accountID,
-			"oldState":       args["sinceState"],
-			"newState":       "0",
-			"hasMoreChanges": false,
-			"created":        []Id{},
-			"updated":        []Id{},
-			"destroyed":      []Id{},
+			"oldState":       sinceState,
+			"newState":       newState,
+			"hasMoreChanges": hasMore,
+			"created":        created,
+			"updated":        updated,
+			"destroyed":      destroyed,
 		}
 	}
 }
@@ -72,6 +83,7 @@ func handleSieveScriptChanges(backend SieveBackend) MethodHandler {
 func handleSieveScriptSet(backend SieveBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
+		oldState := backend.SieveScriptState(ctx)
 		created := make(map[string]*SieveScript)
 		updated := make(map[string]map[string]any)
 		destroyed := make([]Id, 0)
@@ -122,8 +134,8 @@ func handleSieveScriptSet(backend SieveBackend) MethodHandler {
 
 		return "SieveScript/set", map[string]any{
 			"accountId":    accountID,
-			"oldState":     "0",
-			"newState":     "0",
+			"oldState":     oldState,
+			"newState":     backend.SieveScriptState(ctx),
 			"created":      created,
 			"updated":      updated,
 			"destroyed":    destroyed,

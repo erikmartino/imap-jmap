@@ -123,7 +123,7 @@ func TestRFC9007_MDNParse(t *testing.T) {
 		"methodCalls": []any{
 			[]any{"MDN/parse", map[string]any{
 				"accountId": "primary",
-				"blobIds":   []any{"blob-1"},
+				"blobIds":   []any{"blob-stub-1", "missing-blob-xyz"},
 			}, "call-1"},
 		},
 	}
@@ -154,7 +154,14 @@ func TestRFC9007_MDNParse(t *testing.T) {
 	args := methodCall[1].(map[string]any)
 	parsedMap, _ := args["parsed"].(map[string]any)
 
-	if _, ok := parsedMap["blob-1"]; !ok {
-		t.Errorf("Expected blob-1 to be in parsed map, got %+v", parsedMap)
+	if _, ok := parsedMap["blob-stub-1"]; !ok {
+		t.Errorf("Expected blob-stub-1 to be in parsed map, got %+v", parsedMap)
+	}
+
+	// A blob id that does not exist must be reported in notFound,
+	// not fabricated (RFC 9007 Section 3.3 example).
+	notFoundRaw, _ := args["notFound"].([]any)
+	if len(notFoundRaw) != 1 || notFoundRaw[0] != "missing-blob-xyz" {
+		t.Errorf("Expected missing-blob-xyz in notFound, got %+v", notFoundRaw)
 	}
 }

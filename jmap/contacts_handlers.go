@@ -51,7 +51,7 @@ func handleAddressBookGet(backend ContactsBackend) MethodHandler {
 
 		return "AddressBook/get", map[string]any{
 			"accountId": accountID,
-			"state":     "0",
+			"state":     backend.AddressBookState(ctx),
 			"list":      list,
 			"notFound":  notFound,
 		}
@@ -61,14 +61,25 @@ func handleAddressBookGet(backend ContactsBackend) MethodHandler {
 func handleAddressBookChanges(backend ContactsBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
+		sinceState, _ := args["sinceState"].(string)
+		created, updated, destroyed, newState, hasMore := backend.AddressBookChanges(ctx, sinceState)
+		if created == nil {
+			created = []Id{}
+		}
+		if updated == nil {
+			updated = []Id{}
+		}
+		if destroyed == nil {
+			destroyed = []Id{}
+		}
 		return "AddressBook/changes", map[string]any{
 			"accountId":      accountID,
-			"oldState":       args["sinceState"],
-			"newState":       "0",
-			"hasMoreChanges": false,
-			"created":        []Id{},
-			"updated":        []Id{},
-			"destroyed":      []Id{},
+			"oldState":       sinceState,
+			"newState":       newState,
+			"hasMoreChanges": hasMore,
+			"created":        created,
+			"updated":        updated,
+			"destroyed":      destroyed,
 		}
 	}
 }
@@ -76,6 +87,7 @@ func handleAddressBookChanges(backend ContactsBackend) MethodHandler {
 func handleAddressBookSet(backend ContactsBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
+		oldState := backend.AddressBookState(ctx)
 		created := make(map[string]*AddressBook)
 		updated := make(map[string]map[string]any)
 		destroyed := make([]Id, 0)
@@ -126,8 +138,8 @@ func handleAddressBookSet(backend ContactsBackend) MethodHandler {
 
 		return "AddressBook/set", map[string]any{
 			"accountId":    accountID,
-			"oldState":     "0",
-			"newState":     "0",
+			"oldState":     oldState,
+			"newState":     backend.AddressBookState(ctx),
 			"created":      created,
 			"updated":      updated,
 			"destroyed":    destroyed,
@@ -168,7 +180,7 @@ func handleCardGet(backend ContactsBackend) MethodHandler {
 
 		return "Card/get", map[string]any{
 			"accountId": accountID,
-			"state":     "0",
+			"state":     backend.CardState(ctx),
 			"list":      list,
 			"notFound":  notFound,
 		}
@@ -178,14 +190,25 @@ func handleCardGet(backend ContactsBackend) MethodHandler {
 func handleCardChanges(backend ContactsBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
+		sinceState, _ := args["sinceState"].(string)
+		created, updated, destroyed, newState, hasMore := backend.CardChanges(ctx, sinceState)
+		if created == nil {
+			created = []Id{}
+		}
+		if updated == nil {
+			updated = []Id{}
+		}
+		if destroyed == nil {
+			destroyed = []Id{}
+		}
 		return "Card/changes", map[string]any{
 			"accountId":      accountID,
-			"oldState":       args["sinceState"],
-			"newState":       "0",
-			"hasMoreChanges": false,
-			"created":        []Id{},
-			"updated":        []Id{},
-			"destroyed":      []Id{},
+			"oldState":       sinceState,
+			"newState":       newState,
+			"hasMoreChanges": hasMore,
+			"created":        created,
+			"updated":        updated,
+			"destroyed":      destroyed,
 		}
 	}
 }
@@ -193,6 +216,7 @@ func handleCardChanges(backend ContactsBackend) MethodHandler {
 func handleCardSet(backend ContactsBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
+		oldState := backend.CardState(ctx)
 		created := make(map[string]*Card)
 		updated := make(map[string]map[string]any)
 		destroyed := make([]Id, 0)
@@ -243,8 +267,8 @@ func handleCardSet(backend ContactsBackend) MethodHandler {
 
 		return "Card/set", map[string]any{
 			"accountId":    accountID,
-			"oldState":     "0",
-			"newState":     "0",
+			"oldState":     oldState,
+			"newState":     backend.CardState(ctx),
 			"created":      created,
 			"updated":      updated,
 			"destroyed":    destroyed,

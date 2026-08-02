@@ -32,7 +32,7 @@ func (b *MemoryBlobBackend) PutBlob(ctx context.Context, accountID, contentType 
 
 	hash := sha256.Sum256(data)
 	fullHex := hex.EncodeToString(hash[:])
-	blobID := fullHex[:16]
+	blobID := fullHex
 
 	if contentType == "" {
 		contentType = "application/octet-stream"

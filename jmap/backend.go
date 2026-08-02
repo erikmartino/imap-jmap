@@ -1,6 +1,13 @@
 package jmap
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// ErrBlobNotFound indicates the blob referenced by an MDN/parse or Email/import
+// request does not exist for the given account, per RFC 9007 Section 2.2.
+var ErrBlobNotFound = errors.New("blob not found")
 
 // MailBackend defines the storage interface for JMAP Mail & Quota resources per RFC 8621, RFC 9219, & RFC 9425.
 type MailBackend interface {
@@ -59,6 +66,8 @@ type BlobBackend interface {
 // ContactsBackend defines the storage interface for JMAP Contacts resources per RFC 9610.
 type ContactsBackend interface {
 	// AddressBooks (RFC 9610 Section 2)
+	AddressBookState(ctx context.Context) string
+	AddressBookChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
 	GetAddressBooks(ctx context.Context, ids []Id) (list []*AddressBook, notFound []Id, err error)
 	GetAllAddressBooks(ctx context.Context) ([]*AddressBook, error)
 	CreateAddressBook(ctx context.Context, ab *AddressBook) (*AddressBook, error)
@@ -66,6 +75,8 @@ type ContactsBackend interface {
 	DeleteAddressBook(ctx context.Context, id Id) (bool, error)
 
 	// Cards (RFC 9610 Section 3)
+	CardState(ctx context.Context) string
+	CardChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
 	GetCards(ctx context.Context, ids []Id) (list []*Card, notFound []Id, err error)
 	GetAllCards(ctx context.Context) ([]*Card, error)
 	CreateCard(ctx context.Context, card *Card) (*Card, error)
@@ -77,6 +88,8 @@ type ContactsBackend interface {
 // CalendarsBackend defines the storage interface for JMAP Calendars & JSCalendar (RFC 8984) resources.
 type CalendarsBackend interface {
 	// Calendars
+	CalendarState(ctx context.Context) string
+	CalendarChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
 	GetCalendars(ctx context.Context, ids []Id) (list []*Calendar, notFound []Id, err error)
 	GetAllCalendars(ctx context.Context) ([]*Calendar, error)
 	CreateCalendar(ctx context.Context, cal *Calendar) (*Calendar, error)
@@ -84,6 +97,8 @@ type CalendarsBackend interface {
 	DeleteCalendar(ctx context.Context, id Id) (bool, error)
 
 	// CalendarEvents (JSCalendar RFC 8984)
+	CalendarEventState(ctx context.Context) string
+	CalendarEventChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
 	GetCalendarEvents(ctx context.Context, ids []Id) (list []*CalendarEvent, notFound []Id, err error)
 	GetAllCalendarEvents(ctx context.Context) ([]*CalendarEvent, error)
 	CreateCalendarEvent(ctx context.Context, event *CalendarEvent) (*CalendarEvent, error)
@@ -94,6 +109,8 @@ type CalendarsBackend interface {
 
 // SieveBackend defines the storage interface for JMAP for Sieve Scripts (RFC 9661) resources.
 type SieveBackend interface {
+	SieveScriptState(ctx context.Context) string
+	SieveScriptChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
 	GetSieveScripts(ctx context.Context, ids []Id) (list []*SieveScript, notFound []Id, err error)
 	GetAllSieveScripts(ctx context.Context) ([]*SieveScript, error)
 	CreateSieveScript(ctx context.Context, script *SieveScript) (*SieveScript, error)
@@ -112,6 +129,3 @@ type IMAPAccessBackend interface {
 	DeleteIMAPAccount(ctx context.Context, id Id) (bool, error)
 	State(ctx context.Context) string
 }
-
-
-

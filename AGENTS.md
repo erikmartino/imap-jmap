@@ -5,6 +5,9 @@ All new features, data model projections, protocol mappers, and payload transfor
 
 Before implementing or modifying any JMAP methods, objects, or patches, inspect the corresponding RFC specifications to ensure full spec compliance (including data types, object maps, JSON Pointers, and capability declarations).
 
+## Data-Loss Prevention on Update & Merge
+When implementing updates, patches, or merges of any stored object (mails, mailboxes, contacts/cards, calendars/events, sieve scripts, blobs, submissions), treat user data as sacrosanct: a partial or malformed patch MUST fail the whole operation (or only that record) rather than silently dropping, overwriting, or zeroing fields that were not explicitly addressed. Never replace an entire object with a server- or client-supplied default, never fabricate values for data that was not provided, and never ignore or truncate existing properties during a merge. Destructive mutations (deletes, moves, role/default changes, privilege changes, token invalidation) MUST be rejected with an error when the target does not exist or cannot be safely located, and MUST never be silently no-oped while pretending success. Preserve server-set fields (created/updated timestamps, IDs) and, where the RFC mandates it, record and return oldState/newState plus notCreated/notUpdated/notDestroyed information so clients can reconcile. When in doubt, choose the operation that preserves data over the one that discards it, and add a regression test proving the previously-missing field survives an update.
+
 ### Official Specification References:
 
 #### Core JMAP Specifications

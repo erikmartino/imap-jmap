@@ -705,6 +705,8 @@ func (mb *MemoryBackend) SendMDN(ctx context.Context, mdn *jmap.MDN) (*jmap.MDN,
 }
 
 // ParseMDN parses a raw blob containing an MDN message per RFC 9007 Section 3.2.
+// The blobID must reference an existing message blob; otherwise the error
+// jmap.ErrBlobNotFound is returned so the caller may report it as notFound.
 func (mb *MemoryBackend) ParseMDN(ctx context.Context, blobID jmap.Id) (*jmap.MDN, error) {
 	mb.mu.RLock()
 	defer mb.mu.RUnlock()
@@ -726,17 +728,7 @@ func (mb *MemoryBackend) ParseMDN(ctx context.Context, blobID jmap.Id) (*jmap.MD
 		}
 	}
 
-	return &jmap.MDN{
-		ID:          jmap.Id("mdn-parsed-" + string(blobID)),
-		ForEmailID:  "email-stub",
-		Subject:     "Disposition Notification",
-		ReportingUA: "imap-jmap-server/1.0",
-		Disposition: jmap.MDNDisposition{
-			ActionMode:  "automatic-action",
-			SendingMode: "MDN-sent-automatically",
-			Type:        "displayed",
-		},
-	}, nil
+	return nil, jmap.ErrBlobNotFound
 }
 
 // GetPushSubscriptions retrieves PushSubscription objects by ID per RFC 8620 Section 7.2.1.

@@ -53,7 +53,7 @@ func handleCalendarGet(backend CalendarsBackend) MethodHandler {
 
 		return "Calendar/get", map[string]any{
 			"accountId": accountID,
-			"state":     "0",
+			"state":     backend.CalendarState(ctx),
 			"list":      list,
 			"notFound":  notFound,
 		}
@@ -63,14 +63,25 @@ func handleCalendarGet(backend CalendarsBackend) MethodHandler {
 func handleCalendarChanges(backend CalendarsBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
+		sinceState, _ := args["sinceState"].(string)
+		created, updated, destroyed, newState, hasMore := backend.CalendarChanges(ctx, sinceState)
+		if created == nil {
+			created = []Id{}
+		}
+		if updated == nil {
+			updated = []Id{}
+		}
+		if destroyed == nil {
+			destroyed = []Id{}
+		}
 		return "Calendar/changes", map[string]any{
 			"accountId":      accountID,
-			"oldState":       args["sinceState"],
-			"newState":       "0",
-			"hasMoreChanges": false,
-			"created":        []Id{},
-			"updated":        []Id{},
-			"destroyed":      []Id{},
+			"oldState":       sinceState,
+			"newState":       newState,
+			"hasMoreChanges": hasMore,
+			"created":        created,
+			"updated":        updated,
+			"destroyed":      destroyed,
 		}
 	}
 }
@@ -78,6 +89,7 @@ func handleCalendarChanges(backend CalendarsBackend) MethodHandler {
 func handleCalendarSet(backend CalendarsBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
+		oldState := backend.CalendarState(ctx)
 		created := make(map[string]*Calendar)
 		updated := make(map[string]map[string]any)
 		destroyed := make([]Id, 0)
@@ -128,8 +140,8 @@ func handleCalendarSet(backend CalendarsBackend) MethodHandler {
 
 		return "Calendar/set", map[string]any{
 			"accountId":    accountID,
-			"oldState":     "0",
-			"newState":     "0",
+			"oldState":     oldState,
+			"newState":     backend.CalendarState(ctx),
 			"created":      created,
 			"updated":      updated,
 			"destroyed":    destroyed,
@@ -170,7 +182,7 @@ func handleCalendarEventGet(backend CalendarsBackend) MethodHandler {
 
 		return "CalendarEvent/get", map[string]any{
 			"accountId": accountID,
-			"state":     "0",
+			"state":     backend.CalendarEventState(ctx),
 			"list":      list,
 			"notFound":  notFound,
 		}
@@ -180,14 +192,25 @@ func handleCalendarEventGet(backend CalendarsBackend) MethodHandler {
 func handleCalendarEventChanges(backend CalendarsBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
+		sinceState, _ := args["sinceState"].(string)
+		created, updated, destroyed, newState, hasMore := backend.CalendarEventChanges(ctx, sinceState)
+		if created == nil {
+			created = []Id{}
+		}
+		if updated == nil {
+			updated = []Id{}
+		}
+		if destroyed == nil {
+			destroyed = []Id{}
+		}
 		return "CalendarEvent/changes", map[string]any{
 			"accountId":      accountID,
-			"oldState":       args["sinceState"],
-			"newState":       "0",
-			"hasMoreChanges": false,
-			"created":        []Id{},
-			"updated":        []Id{},
-			"destroyed":      []Id{},
+			"oldState":       sinceState,
+			"newState":       newState,
+			"hasMoreChanges": hasMore,
+			"created":        created,
+			"updated":        updated,
+			"destroyed":      destroyed,
 		}
 	}
 }
@@ -195,6 +218,7 @@ func handleCalendarEventChanges(backend CalendarsBackend) MethodHandler {
 func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
+		oldState := backend.CalendarEventState(ctx)
 		created := make(map[string]*CalendarEvent)
 		updated := make(map[string]map[string]any)
 		destroyed := make([]Id, 0)
@@ -341,8 +365,8 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend) M
 
 		return "CalendarEvent/set", map[string]any{
 			"accountId":    accountID,
-			"oldState":     "0",
-			"newState":     "0",
+			"oldState":     oldState,
+			"newState":     backend.CalendarEventState(ctx),
 			"created":      created,
 			"updated":      updated,
 			"destroyed":    destroyed,
@@ -374,12 +398,12 @@ func handleCalendarEventQuery(backend CalendarsBackend) MethodHandler {
 		}
 
 		return "CalendarEvent/query", map[string]any{
-			"accountId": accountID,
-			"queryState": "0",
+			"accountId":           accountID,
+			"queryState":          "0",
 			"canCalculateChanges": false,
-			"position":  position,
-			"total":     total,
-			"ids":       ids,
+			"position":            position,
+			"total":               total,
+			"ids":                 ids,
 		}
 	}
 }
@@ -473,4 +497,3 @@ func handleCalendarEventSendResponse(backend CalendarsBackend) MethodHandler {
 		}
 	}
 }
-

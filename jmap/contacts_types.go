@@ -79,6 +79,12 @@ type JSContactNote struct {
 	Note string `json:"note"`
 }
 
+// JSContactNickname defines a nickname property object per RFC 9553 Section 2.2.2.
+type JSContactNickname struct {
+	Name     string          `json:"name"`
+	Contexts map[string]bool `json:"contexts,omitempty"`
+}
+
 // JSContactOnlineService defines an online service / IM handle per RFC 9553 Section 2.3.2.
 type JSContactOnlineService struct {
 	Service  string          `json:"service,omitempty"`
@@ -96,6 +102,7 @@ type Card struct {
 	Created        string                             `json:"created,omitempty"`
 	Updated        string                             `json:"updated,omitempty"`
 	Name           *JSContactName                     `json:"name,omitempty"`
+	Nicknames      map[string]*JSContactNickname      `json:"nicknames,omitempty"`
 	Emails         map[string]*JSContactEmailAddress  `json:"emails,omitempty"`
 	Phones         map[string]*JSContactPhone         `json:"phones,omitempty"`
 	Addresses      map[string]*JSContactAddress       `json:"addresses,omitempty"`
@@ -103,5 +110,6 @@ type Card struct {
 	Titles         map[string]*JSContactTitle         `json:"titles,omitempty"`
 	Notes          map[string]*JSContactNote          `json:"notes,omitempty"`
 	OnlineServices map[string]*JSContactOnlineService `json:"onlineServices,omitempty"`
+	Members        map[string]bool                    `json:"members,omitempty"` // UIDs of group members (RFC 9553 Section 2.1.6)
 	Keywords       map[string]bool                    `json:"keywords,omitempty"`
 }
