@@ -1,0 +1,11 @@
+FROM alpine:latest
+
+RUN apk add --no-cache swaks perl
+
+ENV SMTP_SERVER=127.0.0.1
+ENV SMTP_PORT=1025
+ENV INTERVAL=20
+ENV SMTP_FROM=test-sender@example.com
+ENV SMTP_TO=recipient@example.com
+
+CMD ["sh", "-c", "counter=1; while true; do echo \"[swaks] Sending email #$counter to $SMTP_SERVER:$SMTP_PORT...\"; swaks --to \"$SMTP_TO\" --from \"$SMTP_FROM\" --server \"$SMTP_SERVER\" --port \"$SMTP_PORT\" --header \"Subject: Bulwark Test Push #$counter - $(date -u +'%H:%M:%S UTC')\" --body \"Test email body #$counter sent via swaks for live push update testing.\"; counter=$((counter+1)); sleep \"$INTERVAL\"; done"]
