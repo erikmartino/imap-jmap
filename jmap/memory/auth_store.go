@@ -24,8 +24,8 @@ func NewMemoryAuthBackend() *MemoryAuthBackend {
 
 // Authenticate accepts any username where username == password and returns a random Bearer token.
 func (a *MemoryAuthBackend) Authenticate(ctx context.Context, username, password string) (string, error) {
-	if username == "" || username != password {
-		return "", fmt.Errorf("invalid credentials")
+	if _, err := a.ValidateCredentials(ctx, username, password); err != nil {
+		return "", err
 	}
 
 	token, err := generateToken()
@@ -38,6 +38,15 @@ func (a *MemoryAuthBackend) Authenticate(ctx context.Context, username, password
 	a.mu.Unlock()
 
 	return token, nil
+}
+
+// ValidateCredentials accepts any username where username == password and returns the username
+// as the accountID without issuing a token.
+func (a *MemoryAuthBackend) ValidateCredentials(ctx context.Context, username, password string) (string, error) {
+	if username == "" || username != password {
+		return "", fmt.Errorf("invalid credentials")
+	}
+	return username, nil
 }
 
 // ValidateToken looks up the token and returns the associated accountID (username).

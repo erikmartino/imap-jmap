@@ -6,9 +6,10 @@ import (
 	"strings"
 )
 
-// authMiddleware wraps an http.Handler, enforcing Bearer token authentication per RFC 8620 Section 8.2.
-// It accepts the token either via:
+// authMiddleware wraps an http.Handler, enforcing webmail authentication per RFC 8620 Section 8.2.
+// It accepts credentials either via:
 //   - Authorization: Bearer <token> header (standard, RFC 6750 Section 2.1)
+//   - Authorization: Basic base64(username:password) header (HTTP Basic auth, as used by JMAP clients)
 //   - ?access_token=<token> query parameter (RFC 6750 Section 2.3, needed for SSE and WebSocket)
 func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -24,24 +25,29 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Extract Bearer token — Authorization header takes precedence over query param.
-		token := ""
-		if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
-			token = strings.TrimPrefix(auth, "Bearer ")
+		var accountID string
+		var authErr error
+		authed := false
+
+		auth := r.Header.Get("Authorization")
+		if strings.HasPrefix(auth, "Basic ") {
+			// HTTP Basic: validate username/password directly (used by JMAP webmail clients).
+			username, password, ok := r.BasicAuth()
+			if ok {
+				accountID, authErr = s.AuthBackend.ValidateCredentials(r.Context(), username, password)
+				authed = authErr == nil
+			}
+		} else if strings.HasPrefix(auth, "Bearer ") {
+			accountID, authErr = s.AuthBackend.ValidateToken(r.Context(), strings.TrimPrefix(auth, "Bearer "))
+			authed = authErr == nil
 		} else if qt := r.URL.Query().Get("access_token"); qt != "" {
 			// RFC 6750 Section 2.3: token in URI query (required for browser SSE and WebSocket).
-			token = qt
+			accountID, authErr = s.AuthBackend.ValidateToken(r.Context(), qt)
+			authed = authErr == nil
 		}
 
-		if token == "" {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="jmap"`)
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		accountID, err := s.AuthBackend.ValidateToken(r.Context(), token)
-		if err != nil {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="jmap", error="invalid_token"`)
+		if !authed {
+			w.Header().Set("WWW-Authenticate", `Basic realm="jmap", Bearer realm="jmap"`)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}

@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/memory"
-	"github.com/coder/websocket"
 )
 
 // newAuthTestServer creates a test server with MemoryAuthBackend wired in.
@@ -88,7 +88,10 @@ func TestAuth_Login_EmptyUsername(t *testing.T) {
 	defer ts.Close()
 
 	body, _ := json.Marshal(map[string]string{"username": "", "password": ""})
-	resp, _ := http.Post(ts.URL+"/jmap/login", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/jmap/login", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /jmap/login failed: %v", err)
+	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusUnauthorized {
@@ -114,6 +117,51 @@ func TestAuth_ProtectedEndpoint_NoToken(t *testing.T) {
 
 	if resp.Header.Get("WWW-Authenticate") == "" {
 		t.Error("Expected WWW-Authenticate header to be set on 401")
+	}
+}
+
+// TestAuth_BasicAuth_Valid tests that a valid HTTP Basic username/password grants access.
+func TestAuth_BasicAuth_Valid(t *testing.T) {
+	srv, _ := newAuthTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("GET", ts.URL+"/.well-known/jmap", nil)
+	req.SetBasicAuth("alice", "alice")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /.well-known/jmap failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected 200, got %d", resp.StatusCode)
+	}
+
+	var session jmap.Session
+	if err := json.NewDecoder(resp.Body).Decode(&session); err != nil {
+		t.Errorf("Failed to decode session: %v", err)
+	}
+}
+
+// TestAuth_BasicAuth_InvalidPassword tests that a Basic auth with wrong password returns 401.
+func TestAuth_BasicAuth_InvalidPassword(t *testing.T) {
+	srv, _ := newAuthTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("GET", ts.URL+"/.well-known/jmap", nil)
+	req.SetBasicAuth("alice", "wrong")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /.well-known/jmap failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("Expected 401, got %d", resp.StatusCode)
 	}
 }
 
@@ -259,9 +307,9 @@ func TestAuth_WebSocket_AccessToken(t *testing.T) {
 
 	// Send a simple request to confirm the connection is functional.
 	req := map[string]any{
-		"@type": "Request",
-		"id":    "auth-ws-1",
-		"using": []string{jmap.CoreCapabilityURI},
+		"@type":       "Request",
+		"id":          "auth-ws-1",
+		"using":       []string{jmap.CoreCapabilityURI},
 		"methodCalls": []any{},
 	}
 	reqBytes, _ := json.Marshal(req)

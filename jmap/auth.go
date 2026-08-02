@@ -11,6 +11,9 @@ const authAccountIDKey contextKey = iota
 type AuthBackend interface {
 	// Authenticate validates username/password credentials and returns a Bearer token.
 	Authenticate(ctx context.Context, username, password string) (token string, err error)
+	// ValidateCredentials verifies username/password credentials and returns the authenticated
+	// accountID without issuing a Bearer token (used for HTTP Basic authentication).
+	ValidateCredentials(ctx context.Context, username, password string) (accountID string, err error)
 	// ValidateToken checks a Bearer token and returns the authenticated accountID.
 	ValidateToken(ctx context.Context, token string) (accountID string, err error)
 }
