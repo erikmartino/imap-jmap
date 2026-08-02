@@ -93,6 +93,10 @@ func TestRFC8620_Section7_1_StateChangeBroadcast(t *testing.T) {
 		}
 	}
 
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("Scanner error reading SSE stream: %v", err)
+	}
+
 	if eventLine != "event: state" {
 		t.Errorf("Expected 'event: state', got %q", eventLine)
 	}
