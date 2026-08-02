@@ -10,6 +10,7 @@ type Server struct {
 	Session        *Session
 	BlobBackend    BlobBackend
 	MailBackend    MailBackend
+	AuthBackend    AuthBackend
 	MethodRegistry *MethodRegistry
 	Broadcaster    *Broadcaster
 }
@@ -38,6 +39,13 @@ func WithBlobBackend(bb BlobBackend) Option {
 	}
 }
 
+// WithAuthBackend sets a custom AuthBackend implementation for Bearer token authentication per RFC 8620 Section 8.2.
+func WithAuthBackend(ab AuthBackend) Option {
+	return func(s *Server) {
+		s.AuthBackend = ab
+	}
+}
+
 // NewServer initializes a new Server instance.
 func NewServer(session *Session, opts ...Option) *Server {
 	if session == nil {
@@ -61,6 +69,7 @@ func NewServer(session *Session, opts ...Option) *Server {
 }
 
 // Handler returns an http.Handler wrapped with CORS middleware that routes requests.
+// If an AuthBackend is configured, all endpoints except OPTIONS are protected by Bearer token auth.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/jmap", s.handleWellKnownJMAP)
@@ -70,6 +79,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/download/", s.HandleDownload)
 	mux.HandleFunc("/eventsource", s.HandleEventSource)
 	mux.HandleFunc("/", s.handleNotFound)
+
+	if s.AuthBackend != nil {
+		// Register login endpoint and wrap all routes with auth middleware.
+		mux.HandleFunc("/jmap/login", s.handleLogin)
+		return s.corsMiddleware(s.authMiddleware(mux))
+	}
 	return s.corsMiddleware(mux)
 }
 

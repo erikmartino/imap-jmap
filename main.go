@@ -50,11 +50,13 @@ func main() {
 	session := jmap.DefaultSession(publicURL)
 	memBackend := memory.NewMemoryBackend()
 	memBlobBackend := memory.NewMemoryBlobBackend()
+	authBackend := memory.NewMemoryAuthBackend()
 
 	server := jmap.NewServer(
 		session,
 		jmap.WithMailBackend(memBackend),
 		jmap.WithBlobBackend(memBlobBackend),
+		jmap.WithAuthBackend(authBackend),
 	)
 	memBackend.SetBroadcaster(server.Broadcaster)
 
