@@ -276,7 +276,11 @@ func handleEmailChanges(backend MailBackend) MethodHandler {
 func handleEmailSet(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
+		oldState := backend.State(ctx)
+
 		created := make(map[string]*Email)
+		updated := make(map[string]any)
+		notUpdated := make(map[string]any)
 		destroyed := []Id{}
 
 		if createMap, ok := args["create"].(map[string]any); ok {
@@ -293,9 +297,33 @@ func handleEmailSet(backend MailBackend) MethodHandler {
 							em.MailboxIDs[Id(k)] = true
 						}
 					}
+					if kwMap, ok := emData["keywords"].(map[string]any); ok {
+						em.Keywords = make(map[string]bool)
+						for k, v := range kwMap {
+							if boolVal, ok := v.(bool); ok {
+								em.Keywords[k] = boolVal
+							}
+						}
+					}
 					createdEM, err := backend.CreateEmail(ctx, em)
 					if err == nil {
 						created[clientKey] = createdEM
+					}
+				}
+			}
+		}
+
+		if updateMap, ok := args["update"].(map[string]any); ok {
+			for idStr, patchRaw := range updateMap {
+				if patch, ok := patchRaw.(map[string]any); ok {
+					updatedEM, err := backend.UpdateEmail(ctx, Id(idStr), patch)
+					if err != nil {
+						notUpdated[idStr] = map[string]any{
+							"type":        "notFound",
+							"description": err.Error(),
+						}
+					} else {
+						updated[idStr] = updatedEM
 					}
 				}
 			}
@@ -312,11 +340,13 @@ func handleEmailSet(backend MailBackend) MethodHandler {
 		}
 
 		return "Email/set", map[string]any{
-			"accountId": accountID,
-			"oldState":  backend.State(ctx),
-			"newState":  backend.State(ctx),
-			"created":   created,
-			"destroyed": destroyed,
+			"accountId":  accountID,
+			"oldState":   oldState,
+			"newState":   backend.State(ctx),
+			"created":    created,
+			"updated":    updated,
+			"notUpdated": notUpdated,
+			"destroyed":  destroyed,
 		}
 	}
 }

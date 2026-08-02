@@ -3,6 +3,7 @@ package jmap
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -369,18 +370,103 @@ func (mb *MemoryBackend) CreateEmail(ctx context.Context, em *Email) (*Email, er
 		th.EmailIDs = append(th.EmailIDs, em.ID)
 	}
 
-	// Update Mailbox counters
-	for mbID := range em.MailboxIDs {
-		if box, exists := mb.mailboxes[mbID]; exists {
-			box.TotalEmails++
-			box.TotalThreads = uint64(len(mb.threads))
-			if !em.Keywords["$seen"] {
-				box.UnreadEmails++
+	mb.recalculateMailboxCounts()
+	mb.bumpState("Email")
+	mb.bumpState("Mailbox")
+	return em, nil
+}
+
+func (mb *MemoryBackend) recalculateMailboxCounts() {
+	counts := make(map[Id]*struct{ unread, total uint64 })
+	for mID := range mb.mailboxes {
+		counts[mID] = &struct{ unread, total uint64 }{}
+	}
+
+	for _, em := range mb.emails {
+		isUnread := true
+		if em.Keywords != nil {
+			if val, hasUnread := em.Keywords["$unread"]; hasUnread {
+				isUnread = val
+			} else if val, hasSeen := em.Keywords["$seen"]; hasSeen {
+				isUnread = !val
+			}
+		}
+		for mID := range em.MailboxIDs {
+			if c, ok := counts[mID]; ok {
+				c.total++
+				if isUnread {
+					c.unread++
+				}
 			}
 		}
 	}
 
+	for mID, c := range counts {
+		if box, ok := mb.mailboxes[mID]; ok {
+			box.TotalEmails = c.total
+			box.UnreadEmails = c.unread
+			box.TotalThreads = c.total
+			box.UnreadThreads = c.unread
+		}
+	}
+}
+
+// UpdateEmail applies RFC 8621 Section 4.3 patch objects to an existing Email.
+func (mb *MemoryBackend) UpdateEmail(ctx context.Context, id Id, patch map[string]any) (*Email, error) {
+	mb.mu.Lock()
+	defer mb.mu.Unlock()
+
+	em, ok := mb.emails[id]
+	if !ok {
+		return nil, fmt.Errorf("notFound")
+	}
+
+	if em.Keywords == nil {
+		em.Keywords = make(map[string]bool)
+	}
+	if em.MailboxIDs == nil {
+		em.MailboxIDs = make(map[Id]bool)
+	}
+
+	for path, val := range patch {
+		if path == "keywords" {
+			if kwMap, ok := val.(map[string]any); ok {
+				em.Keywords = make(map[string]bool)
+				for k, v := range kwMap {
+					if boolVal, ok := v.(bool); ok {
+						em.Keywords[k] = boolVal
+					}
+				}
+			}
+		} else if strings.HasPrefix(path, "keywords/") {
+			kw := strings.TrimPrefix(path, "keywords/")
+			if val == nil {
+				delete(em.Keywords, kw)
+			} else if boolVal, ok := val.(bool); ok {
+				em.Keywords[kw] = boolVal
+			}
+		} else if path == "mailboxIds" {
+			if mbMap, ok := val.(map[string]any); ok {
+				em.MailboxIDs = make(map[Id]bool)
+				for k, v := range mbMap {
+					if v != nil {
+						em.MailboxIDs[Id(k)] = true
+					}
+				}
+			}
+		} else if strings.HasPrefix(path, "mailboxIds/") {
+			mID := Id(strings.TrimPrefix(path, "mailboxIds/"))
+			if val == nil {
+				delete(em.MailboxIDs, mID)
+			} else {
+				em.MailboxIDs[mID] = true
+			}
+		}
+	}
+
+	mb.recalculateMailboxCounts()
 	mb.bumpState("Email")
+	mb.bumpState("Mailbox")
 	return em, nil
 }
 
@@ -410,7 +496,9 @@ func (mb *MemoryBackend) DeleteEmail(ctx context.Context, id Id) (bool, error) {
 		}
 	}
 
+	mb.recalculateMailboxCounts()
 	mb.bumpState("Email")
+	mb.bumpState("Mailbox")
 	return true, nil
 }
 
