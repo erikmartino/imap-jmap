@@ -2,6 +2,7 @@ package jmap_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -45,7 +46,7 @@ func TestRFC9404_Section2_Capability(t *testing.T) {
 // TestRFC9404_Section4_BlobGet tests Blob/get method per RFC 9404 Section 4.
 func TestRFC9404_Section4_BlobGet(t *testing.T) {
 	blobBackend := memory.NewMemoryBlobBackend()
-	_, _ = blobBackend.PutBlob(nil, "primary", "text/plain", []byte("Hello RFC 9404"))
+	_, _ = blobBackend.PutBlob(context.TODO(), "primary", "text/plain", []byte("Hello RFC 9404"))
 
 	srv := jmap.NewServer(nil, jmap.WithBlobBackend(blobBackend))
 	ts := httptest.NewServer(srv.Handler())

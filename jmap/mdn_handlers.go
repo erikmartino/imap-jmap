@@ -54,7 +54,7 @@ func handleMDNSend(backend MailBackend) MethodHandler {
 }
 
 // handleMDNParse processes MDN/parse method calls per RFC 9007 Section 3.2.
-func handleMDNParse(backend MailBackend, blobBackend BlobBackend) MethodHandler {
+func handleMDNParse(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		blobIDsRaw, _ := args["blobIds"].([]any)
@@ -75,13 +75,6 @@ func handleMDNParse(backend MailBackend, blobBackend BlobBackend) MethodHandler 
 			} else {
 				parsed[blobIDStr] = mdn
 			}
-		}
-
-		if parsed == nil {
-			parsed = make(map[string]*MDN)
-		}
-		if notParsed == nil {
-			notParsed = []Id{}
 		}
 
 		return "MDN/parse", map[string]any{

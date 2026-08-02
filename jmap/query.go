@@ -31,7 +31,7 @@ type Comparator struct {
 
 // MatchesFilter checks if an email matches a filter object (FilterCondition or FilterOperator) per RFC 8621 Section 4.5.
 func MatchesFilter(em *Email, filter map[string]any) bool {
-	if filter == nil || len(filter) == 0 {
+	if len(filter) == 0 {
 		return true
 	}
 
