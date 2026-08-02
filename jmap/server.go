@@ -11,6 +11,7 @@ type Server struct {
 	Session        *Session
 	BlobBackend    BlobBackend
 	MailBackend    MailBackend
+	ContactsBackend ContactsBackend
 	AuthBackend    AuthBackend
 	MethodRegistry *MethodRegistry
 	Broadcaster    *Broadcaster
@@ -40,6 +41,13 @@ func WithBlobBackend(bb BlobBackend) Option {
 	}
 }
 
+// WithContactsBackend sets a custom ContactsBackend implementation per RFC 9610.
+func WithContactsBackend(cb ContactsBackend) Option {
+	return func(s *Server) {
+		s.ContactsBackend = cb
+	}
+}
+
 // WithAuthBackend sets a custom AuthBackend implementation for Bearer token authentication per RFC 8620 Section 8.2.
 func WithAuthBackend(ab AuthBackend) Option {
 	return func(s *Server) {
@@ -65,6 +73,7 @@ func NewServer(session *Session, opts ...Option) *Server {
 	RegisterMailHandlers(s.MethodRegistry, s.MailBackend)
 	RegisterBlobHandlers(s.MethodRegistry, s.BlobBackend)
 	RegisterQuotaHandlers(s.MethodRegistry, s.MailBackend)
+	RegisterContactsHandlers(s.MethodRegistry, s.ContactsBackend)
 
 	return s
 }

@@ -99,6 +99,12 @@ func MethodErrorArgs(errType string, description string) map[string]any {
 	return args
 }
 
+// SetError defines error object for /set methods per RFC 8620 Section 5.3.
+type SetError struct {
+	Type        string `json:"type"`
+	Description string `json:"description,omitempty"`
+}
+
 const (
 	MethodErrorUnknownMethod          = "unknownMethod"
 	MethodErrorInvalidArguments       = "invalidArguments"

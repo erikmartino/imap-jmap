@@ -55,3 +55,21 @@ type BlobBackend interface {
 	PutBlob(ctx context.Context, accountID, contentType string, data []byte) (*Blob, error)
 	GetBlob(ctx context.Context, accountID, blobID string) (*Blob, bool, error)
 }
+
+// ContactsBackend defines the storage interface for JMAP Contacts resources per RFC 9610.
+type ContactsBackend interface {
+	// AddressBooks (RFC 9610 Section 2)
+	GetAddressBooks(ctx context.Context, ids []Id) (list []*AddressBook, notFound []Id, err error)
+	GetAllAddressBooks(ctx context.Context) ([]*AddressBook, error)
+	CreateAddressBook(ctx context.Context, ab *AddressBook) (*AddressBook, error)
+	UpdateAddressBook(ctx context.Context, id Id, patch map[string]any) (*AddressBook, error)
+	DeleteAddressBook(ctx context.Context, id Id) (bool, error)
+
+	// Cards (RFC 9610 Section 3)
+	GetCards(ctx context.Context, ids []Id) (list []*Card, notFound []Id, err error)
+	GetAllCards(ctx context.Context) ([]*Card, error)
+	CreateCard(ctx context.Context, card *Card) (*Card, error)
+	UpdateCard(ctx context.Context, id Id, patch map[string]any) (*Card, error)
+	DeleteCard(ctx context.Context, id Id) (bool, error)
+	QueryCards(ctx context.Context, filter map[string]any, position int, limit *uint64) (ids []Id, total int, err error)
+}

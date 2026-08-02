@@ -26,6 +26,9 @@ const WebPushVapidCapabilityURI = "urn:ietf:params:jmap:webpush-vapid"
 // WebSocketCapabilityURI is the JMAP capability URI for WebSocket transport per RFC 8887 Section 3.
 const WebSocketCapabilityURI = "urn:ietf:params:jmap:websocket"
 
+// ContactsCapabilityURI is the standard JMAP Contacts capability URI defined in RFC 9610 Section 2.
+const ContactsCapabilityURI = "urn:ietf:params:jmap:contacts"
+
 // CoreCapability defines the capability object for "urn:ietf:params:jmap:core" per RFC 8620 Section 2.2.
 type CoreCapability struct {
 	MaxSizeUpload         uint64   `json:"maxSizeUpload"`
@@ -82,6 +85,12 @@ type WebSocketCapability struct {
 	URL string `json:"url"`
 	// SupportsPush indicates whether the server supports push notifications over the WebSocket per RFC 8887 Section 4.3.5.
 	SupportsPush bool `json:"supportsPush"`
+}
+
+// ContactsCapability defines the capability object for "urn:ietf:params:jmap:contacts" per RFC 9610 Section 2.
+type ContactsCapability struct {
+	MaxAddressBooksPerCard *uint64 `json:"maxAddressBooksPerCard"`
+	MayCreateAddressBook   bool    `json:"mayCreateAddressBook"`
 }
 
 // Account defines an account object in the JMAP Session per RFC 8620 Section 2.
@@ -154,6 +163,11 @@ func DefaultSession(baseURL string) *Session {
 				URL:          strings.Replace(strings.Replace(baseURL, "http://", "ws://", 1), "https://", "wss://", 1) + "/jmap/ws",
 				SupportsPush: true,
 			},
+			// RFC 9610: JMAP for Contacts capability.
+			ContactsCapabilityURI: ContactsCapability{
+				MaxAddressBooksPerCard: nil,
+				MayCreateAddressBook:   true,
+			},
 		},
 		Accounts: map[string]Account{
 			"primary": {
@@ -168,6 +182,7 @@ func DefaultSession(baseURL string) *Session {
 					QuotaCapabilityURI:          struct{}{},
 					MdnCapabilityURI:            struct{}{},
 					WebPushVapidCapabilityURI:   struct{}{},
+					ContactsCapabilityURI:       struct{}{},
 				},
 			},
 		},
@@ -179,6 +194,7 @@ func DefaultSession(baseURL string) *Session {
 			QuotaCapabilityURI:        "primary",
 			MdnCapabilityURI:          "primary",
 			WebPushVapidCapabilityURI: "primary",
+			ContactsCapabilityURI:     "primary",
 		},
 		Username:       "user@example.com",
 		APIURL:         baseURL + "/jmap",
