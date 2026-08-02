@@ -16,12 +16,20 @@ type MemoryBackend struct {
 	quotas      map[Id]*Quota
 	identities  map[Id]*Identity
 	submissions map[Id]*EmailSubmission
+	broadcaster *Broadcaster
 	idCounter   uint64
 	state       string
 }
 
 // Ensure MemoryBackend implements MailBackend interface.
 var _ MailBackend = (*MemoryBackend)(nil)
+
+// SetBroadcaster connects a Broadcaster for SSE state notifications.
+func (mb *MemoryBackend) SetBroadcaster(b *Broadcaster) {
+	mb.mu.Lock()
+	defer mb.mu.Unlock()
+	mb.broadcaster = b
+}
 
 // NewMemoryBackend initializes a new MemoryBackend pre-populated with standard default mailboxes and stub messages.
 func NewMemoryBackend() *MemoryBackend {
@@ -200,8 +208,11 @@ func (mb *MemoryBackend) nextID(prefix string) Id {
 	return Id(fmt.Sprintf("%s-%d", prefix, mb.idCounter))
 }
 
-func (mb *MemoryBackend) bumpState() {
+func (mb *MemoryBackend) bumpState(typeName string) {
 	mb.state = fmt.Sprintf("m%d", time.Now().UnixNano())
+	if mb.broadcaster != nil {
+		mb.broadcaster.PublishStateChange("primary", typeName, mb.state)
+	}
 }
 
 // State returns current mail change state token.
@@ -261,7 +272,7 @@ func (mb *MemoryBackend) CreateMailbox(ctx context.Context, item *Mailbox) (*Mai
 		MaySubmit:      true,
 	}
 	mb.mailboxes[item.ID] = item
-	mb.bumpState()
+	mb.bumpState("Mailbox")
 	return item, nil
 }
 
@@ -274,7 +285,7 @@ func (mb *MemoryBackend) DeleteMailbox(ctx context.Context, id Id) (bool, error)
 		return false, nil
 	}
 	delete(mb.mailboxes, id)
-	mb.bumpState()
+	mb.bumpState("Mailbox")
 	return true, nil
 }
 
@@ -369,7 +380,7 @@ func (mb *MemoryBackend) CreateEmail(ctx context.Context, em *Email) (*Email, er
 		}
 	}
 
-	mb.bumpState()
+	mb.bumpState("Email")
 	return em, nil
 }
 
@@ -399,7 +410,7 @@ func (mb *MemoryBackend) DeleteEmail(ctx context.Context, id Id) (bool, error) {
 		}
 	}
 
-	mb.bumpState()
+	mb.bumpState("Email")
 	return true, nil
 }
 
@@ -506,7 +517,7 @@ func (mb *MemoryBackend) CreateSubmission(ctx context.Context, sub *EmailSubmiss
 	}
 
 	mb.submissions[sub.ID] = sub
-	mb.bumpState()
+	mb.bumpState("EmailSubmission")
 	return sub, nil
 }
 

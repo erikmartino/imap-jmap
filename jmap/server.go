@@ -11,10 +11,18 @@ type Server struct {
 	BlobBackend    BlobBackend
 	MailBackend    MailBackend
 	MethodRegistry *MethodRegistry
+	Broadcaster    *Broadcaster
 }
 
 // Option defines a functional configuration option for Server.
 type Option func(*Server)
+
+// WithBroadcaster sets a custom Broadcaster instance.
+func WithBroadcaster(b *Broadcaster) Option {
+	return func(s *Server) {
+		s.Broadcaster = b
+	}
+}
 
 // WithMailBackend sets a custom MailBackend implementation.
 func WithMailBackend(mb MailBackend) Option {
@@ -38,6 +46,7 @@ func NewServer(session *Session, opts ...Option) *Server {
 	s := &Server{
 		Session:        session,
 		MethodRegistry: NewMethodRegistry(),
+		Broadcaster:    NewBroadcaster(),
 	}
 
 	for _, opt := range opts {
@@ -49,6 +58,11 @@ func NewServer(session *Session, opts ...Option) *Server {
 	}
 	if s.MailBackend == nil {
 		s.MailBackend = NewMemoryBackend()
+	}
+
+	// Connect MemoryBackend broadcaster if possible
+	if mem, ok := s.MailBackend.(*MemoryBackend); ok && mem.broadcaster == nil {
+		mem.SetBroadcaster(s.Broadcaster)
 	}
 
 	RegisterMailHandlers(s.MethodRegistry, s.MailBackend)
@@ -65,6 +79,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/jmap", s.handleAPI)
 	mux.HandleFunc("/upload/", s.HandleUpload)
 	mux.HandleFunc("/download/", s.HandleDownload)
+	mux.HandleFunc("/eventsource", s.HandleEventSource)
 	mux.HandleFunc("/", s.handleNotFound)
 	return s.corsMiddleware(mux)
 }
