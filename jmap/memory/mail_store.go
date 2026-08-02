@@ -12,16 +12,17 @@ import (
 
 // MemoryBackend implements jmap.MailBackend for in-memory stub storage per RFC 8621 & RFC 9219.
 type MemoryBackend struct {
-	mu          sync.RWMutex
-	mailboxes   map[jmap.Id]*jmap.Mailbox
-	threads     map[jmap.Id]*jmap.Thread
-	emails      map[jmap.Id]*jmap.Email
-	quotas      map[jmap.Id]*jmap.Quota
-	identities  map[jmap.Id]*jmap.Identity
-	submissions map[jmap.Id]*jmap.EmailSubmission
-	broadcaster *jmap.Broadcaster
-	idCounter   uint64
-	state       string
+	mu                sync.RWMutex
+	mailboxes         map[jmap.Id]*jmap.Mailbox
+	threads           map[jmap.Id]*jmap.Thread
+	emails            map[jmap.Id]*jmap.Email
+	quotas            map[jmap.Id]*jmap.Quota
+	identities        map[jmap.Id]*jmap.Identity
+	submissions       map[jmap.Id]*jmap.EmailSubmission
+	pushSubscriptions map[jmap.Id]*jmap.PushSubscription
+	broadcaster       *jmap.Broadcaster
+	idCounter         uint64
+	state             string
 }
 
 // Ensure MemoryBackend implements jmap.MailBackend interface.
@@ -37,13 +38,14 @@ func (mb *MemoryBackend) SetBroadcaster(b *jmap.Broadcaster) {
 // NewMemoryBackend initializes a new MemoryBackend pre-populated with standard default mailboxes and stub messages.
 func NewMemoryBackend() *MemoryBackend {
 	mb := &MemoryBackend{
-		mailboxes:   make(map[jmap.Id]*jmap.Mailbox),
-		threads:     make(map[jmap.Id]*jmap.Thread),
-		emails:      make(map[jmap.Id]*jmap.Email),
-		quotas:      make(map[jmap.Id]*jmap.Quota),
-		identities:  make(map[jmap.Id]*jmap.Identity),
-		submissions: make(map[jmap.Id]*jmap.EmailSubmission),
-		state:       "m1",
+		mailboxes:         make(map[jmap.Id]*jmap.Mailbox),
+		threads:           make(map[jmap.Id]*jmap.Thread),
+		emails:            make(map[jmap.Id]*jmap.Email),
+		quotas:            make(map[jmap.Id]*jmap.Quota),
+		identities:        make(map[jmap.Id]*jmap.Identity),
+		submissions:       make(map[jmap.Id]*jmap.EmailSubmission),
+		pushSubscriptions: make(map[jmap.Id]*jmap.PushSubscription),
+		state:             "m1",
 	}
 
 	// Create default Quotas per RFC 9425
@@ -735,4 +737,109 @@ func (mb *MemoryBackend) ParseMDN(ctx context.Context, blobID jmap.Id) (*jmap.MD
 			Type:        "displayed",
 		},
 	}, nil
+}
+
+// GetPushSubscriptions retrieves PushSubscription objects by ID per RFC 8620 Section 7.2.1.
+func (mb *MemoryBackend) GetPushSubscriptions(ctx context.Context, ids []jmap.Id) ([]*jmap.PushSubscription, []jmap.Id, error) {
+	mb.mu.RLock()
+	defer mb.mu.RUnlock()
+
+	var list []*jmap.PushSubscription
+	var notFound []jmap.Id
+
+	for _, id := range ids {
+		if sub, ok := mb.pushSubscriptions[id]; ok {
+			list = append(list, sub)
+		} else {
+			notFound = append(notFound, id)
+		}
+	}
+	return list, notFound, nil
+}
+
+// GetAllPushSubscriptions retrieves all PushSubscription objects per RFC 8620 Section 7.2.1.
+func (mb *MemoryBackend) GetAllPushSubscriptions(ctx context.Context) ([]*jmap.PushSubscription, error) {
+	mb.mu.RLock()
+	defer mb.mu.RUnlock()
+
+	list := make([]*jmap.PushSubscription, 0, len(mb.pushSubscriptions))
+	for _, sub := range mb.pushSubscriptions {
+		list = append(list, sub)
+	}
+	return list, nil
+}
+
+// CreatePushSubscription creates a new PushSubscription per RFC 8620 Section 7.2.2.
+// Upon creation, the server MUST send a PushVerification to the subscription URL.
+func (mb *MemoryBackend) CreatePushSubscription(ctx context.Context, sub *jmap.PushSubscription) (*jmap.PushSubscription, error) {
+	mb.mu.Lock()
+	defer mb.mu.Unlock()
+
+	if sub.ID == "" {
+		mb.idCounter++
+		sub.ID = jmap.Id(fmt.Sprintf("push-%d", mb.idCounter))
+	}
+
+	// Set a verification code per RFC 8620 Section 7.2.2.
+	verificationCode := fmt.Sprintf("verify-%s-%d", sub.ID, mb.idCounter)
+	sub.VerificationCode = &verificationCode
+
+	mb.pushSubscriptions[sub.ID] = sub
+	mb.bumpState("PushSubscription")
+	return sub, nil
+}
+
+// UpdatePushSubscription updates a PushSubscription per RFC 8620 Section 7.2.2.
+// Only "expires", "types", and "verificationCode" are mutable per spec.
+func (mb *MemoryBackend) UpdatePushSubscription(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.PushSubscription, error) {
+	mb.mu.Lock()
+	defer mb.mu.Unlock()
+
+	sub, ok := mb.pushSubscriptions[id]
+	if !ok {
+		return nil, fmt.Errorf("push subscription %s not found", id)
+	}
+
+	if v, ok := patch["verificationCode"]; ok {
+		if s, ok := v.(string); ok {
+			sub.VerificationCode = &s
+		}
+	}
+	if v, ok := patch["expires"]; ok {
+		if s, ok := v.(string); ok {
+			sub.Expires = &s
+		} else if v == nil {
+			sub.Expires = nil
+		}
+	}
+	if v, ok := patch["types"]; ok {
+		if arr, ok := v.([]any); ok {
+			types := make([]string, 0, len(arr))
+			for _, item := range arr {
+				if s, ok := item.(string); ok {
+					types = append(types, s)
+				}
+			}
+			sub.Types = types
+		} else if v == nil {
+			sub.Types = nil
+		}
+	}
+
+	mb.pushSubscriptions[id] = sub
+	mb.bumpState("PushSubscription")
+	return sub, nil
+}
+
+// DeletePushSubscription deletes a PushSubscription per RFC 8620 Section 7.2.2.
+func (mb *MemoryBackend) DeletePushSubscription(ctx context.Context, id jmap.Id) (bool, error) {
+	mb.mu.Lock()
+	defer mb.mu.Unlock()
+
+	if _, ok := mb.pushSubscriptions[id]; !ok {
+		return false, nil
+	}
+	delete(mb.pushSubscriptions, id)
+	mb.bumpState("PushSubscription")
+	return true, nil
 }

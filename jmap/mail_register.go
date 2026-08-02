@@ -44,4 +44,8 @@ func RegisterMailHandlers(r *MethodRegistry, backend MailBackend) {
 	// MDN (RFC 9007 Section 3)
 	r.Register("MDN/send", handleMDNSend(backend))
 	r.Register("MDN/parse", handleMDNParse(backend, nil))
+
+	// PushSubscription (RFC 8620 Section 7.2 + RFC 9749)
+	r.Register("PushSubscription/get", handlePushSubscriptionGet(backend))
+	r.Register("PushSubscription/set", handlePushSubscriptionSet(backend))
 }

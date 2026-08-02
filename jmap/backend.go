@@ -41,6 +41,13 @@ type MailBackend interface {
 	// MDN (RFC 9007 Section 3)
 	SendMDN(ctx context.Context, mdn *MDN) (*MDN, error)
 	ParseMDN(ctx context.Context, blobID Id) (*MDN, error)
+
+	// PushSubscription (RFC 8620 Section 7.2)
+	GetPushSubscriptions(ctx context.Context, ids []Id) (list []*PushSubscription, notFound []Id, err error)
+	GetAllPushSubscriptions(ctx context.Context) ([]*PushSubscription, error)
+	CreatePushSubscription(ctx context.Context, sub *PushSubscription) (*PushSubscription, error)
+	UpdatePushSubscription(ctx context.Context, id Id, patch map[string]any) (*PushSubscription, error)
+	DeletePushSubscription(ctx context.Context, id Id) (bool, error)
 }
 
 // BlobBackend defines the storage interface for binary blobs per RFC 8620 Section 6.

@@ -18,6 +18,9 @@ const QuotaCapabilityURI = "urn:ietf:params:jmap:quota"
 // MdnCapabilityURI is the standard JMAP MDN capability URI defined in RFC 9007 Section 2.
 const MdnCapabilityURI = "urn:ietf:params:jmap:mdn"
 
+// WebPushVapidCapabilityURI is the JMAP capability URI for VAPID Web Push per RFC 9749 Section 3.
+const WebPushVapidCapabilityURI = "urn:ietf:params:jmap:webpush-vapid"
+
 // CoreCapability defines the capability object for "urn:ietf:params:jmap:core" per RFC 8620 Section 2.2.
 type CoreCapability struct {
 	MaxSizeUpload         uint64   `json:"maxSizeUpload"`
@@ -61,6 +64,12 @@ type QuotaCapability struct {
 
 // MdnCapability defines the capability object for "urn:ietf:params:jmap:mdn" per RFC 9007 Section 2.
 type MdnCapability struct{}
+
+// WebPushVapidCapability defines the capability object for "urn:ietf:params:jmap:webpush-vapid" per RFC 9749 Section 3.
+type WebPushVapidCapability struct {
+	// ApplicationServerKey is the base64url-encoded VAPID public key (uncompressed P-256 point) per RFC 9749.
+	ApplicationServerKey string `json:"applicationServerKey"`
+}
 
 // Account defines an account object in the JMAP Session per RFC 8620 Section 2.
 type Account struct {
@@ -122,6 +131,11 @@ func DefaultSession(baseURL string) *Session {
 				MaxQuotaResources: 10,
 			},
 			MdnCapabilityURI: MdnCapability{},
+			// RFC 9749: Advertise VAPID public key for Web Push authentication.
+			// The placeholder key is a no-op base64url-encoded NIST P-256 uncompressed public key point.
+			WebPushVapidCapabilityURI: WebPushVapidCapability{
+				ApplicationServerKey: "BCVxsr7N_eNgVRqvHtD0zTZsEc9-Lkvr-4km-ML7dvHfBQNO-leJAM5bkUtZikUUIaKGZvgVmsBbj56IL57-BgM",
+			},
 		},
 		Accounts: map[string]Account{
 			"primary": {
@@ -129,22 +143,24 @@ func DefaultSession(baseURL string) *Session {
 				IsPrimary:  true,
 				IsReadOnly: false,
 				AccountCapabilities: map[string]any{
-					CoreCapabilityURI:  struct{}{},
-					MailCapabilityURI:  struct{}{},
-					SmimeCapabilityURI: struct{}{},
-					BlobCapabilityURI:  struct{}{},
-					QuotaCapabilityURI: struct{}{},
-					MdnCapabilityURI:  struct{}{},
+					CoreCapabilityURI:           struct{}{},
+					MailCapabilityURI:           struct{}{},
+					SmimeCapabilityURI:          struct{}{},
+					BlobCapabilityURI:           struct{}{},
+					QuotaCapabilityURI:          struct{}{},
+					MdnCapabilityURI:            struct{}{},
+					WebPushVapidCapabilityURI:   struct{}{},
 				},
 			},
 		},
 		PrimaryAccounts: map[string]string{
-			CoreCapabilityURI:  "primary",
-			MailCapabilityURI:  "primary",
-			SmimeCapabilityURI: "primary",
-			BlobCapabilityURI:  "primary",
-			QuotaCapabilityURI: "primary",
-			MdnCapabilityURI:   "primary",
+			CoreCapabilityURI:         "primary",
+			MailCapabilityURI:         "primary",
+			SmimeCapabilityURI:        "primary",
+			BlobCapabilityURI:         "primary",
+			QuotaCapabilityURI:        "primary",
+			MdnCapabilityURI:          "primary",
+			WebPushVapidCapabilityURI: "primary",
 		},
 		Username:       "user@example.com",
 		APIURL:         baseURL + "/jmap",
