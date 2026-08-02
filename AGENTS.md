@@ -46,3 +46,11 @@ Before implementing or modifying any JMAP methods, objects, or patches, inspect 
 - **Internet Message Format**: [RFC 5322](https://www.rfc-editor.org/rfc/rfc5322.html) — *Internet Message Format*
 - **MIME Media Types**: [RFC 2045](https://www.rfc-editor.org/rfc/rfc2045.html) — *Multipurpose Internet Mail Extensions (MIME) Part One*
 
+#### SMTP & Mail Transport Specifications
+- **SMTP**: [RFC 5321](https://www.rfc-editor.org/rfc/rfc5321.html) — *Simple Mail Transfer Protocol*
+- **SMTP Submission**: [RFC 6409](https://www.rfc-editor.org/rfc/rfc6409.html) — *Message Submission for Mail*
+- **SMTP Authentication**: [RFC 4954](https://www.rfc-editor.org/rfc/rfc4954.html) — *SMTP Service Extension for Authentication*
+- **SMTP STARTTLS**: [RFC 3207](https://www.rfc-editor.org/rfc/rfc3207.html) — *SMTP Service Extension for Secure SMTP over Transport Layer Security*
+- **SMTP SIZE Extension**: [RFC 1870](https://www.rfc-editor.org/rfc/rfc1870.html) — *SMTP Service Extension for Message Size Declaration*
+- **SMTP DSN (Delivery Status Notifications)**: [RFC 3461](https://www.rfc-editor.org/rfc/rfc3461.html) — *Simple Mail Transfer Protocol (SMTP) Service Extension for Delivery Status Notifications*
+- **SMTP Internationalized Email (UTF8):** [RFC 6531](https://www.rfc-editor.org/rfc/rfc6531.html) — *SMTP Extension for Internationalized Email*
