@@ -658,3 +658,81 @@ func (mb *MemoryBackend) GetAllQuotas(ctx context.Context) ([]*jmap.Quota, error
 	}
 	return list, nil
 }
+
+// SendMDN sends a Message Disposition Notification per RFC 9007 Section 3.1.
+func (mb *MemoryBackend) SendMDN(ctx context.Context, mdn *jmap.MDN) (*jmap.MDN, error) {
+	mb.mu.Lock()
+	defer mb.mu.Unlock()
+
+	targetEmail, ok := mb.emails[mdn.ForEmailID]
+	if !ok {
+		return nil, fmt.Errorf("email %s not found", mdn.ForEmailID)
+	}
+
+	if mdn.ID == "" {
+		mb.idCounter++
+		mdn.ID = jmap.Id(fmt.Sprintf("mdn-%d", mb.idCounter))
+	}
+
+	if mdn.Subject == "" {
+		mdn.Subject = fmt.Sprintf("Disposition Notification: %s", targetEmail.Subject)
+	}
+
+	if mdn.ReportingUA == "" {
+		mdn.ReportingUA = "imap-jmap-server/1.0"
+	}
+
+	mdnEmail := &jmap.Email{
+		ID:         mb.nextID("email"),
+		BlobID:     jmap.Id(fmt.Sprintf("blob-mdn-%d", mb.idCounter)),
+		ThreadID:   targetEmail.ThreadID,
+		MailboxIDs: map[jmap.Id]bool{"mb-sent": true},
+		Keywords:   map[string]bool{"$seen": true},
+		Subject:    mdn.Subject,
+		ReceivedAt: time.Now().UTC().Format(time.RFC3339),
+		BodyValues: map[string]jmap.EmailBodyValue{
+			"1": {Value: fmt.Sprintf("MDN for email %s: %s (%s/%s)", mdn.ForEmailID, mdn.Disposition.Type, mdn.Disposition.ActionMode, mdn.Disposition.SendingMode)},
+		},
+		TextBody: []jmap.EmailBodyPart{{PartID: "1", Type: "text/plain"}},
+	}
+	mb.emails[mdnEmail.ID] = mdnEmail
+
+	mb.bumpState("MDN")
+	mb.bumpState("Email")
+	return mdn, nil
+}
+
+// ParseMDN parses a raw blob containing an MDN message per RFC 9007 Section 3.2.
+func (mb *MemoryBackend) ParseMDN(ctx context.Context, blobID jmap.Id) (*jmap.MDN, error) {
+	mb.mu.RLock()
+	defer mb.mu.RUnlock()
+
+	for _, em := range mb.emails {
+		if em.BlobID == blobID {
+			return &jmap.MDN{
+				ID:          jmap.Id("mdn-parsed-" + string(blobID)),
+				ForEmailID:  em.ID,
+				Subject:     em.Subject,
+				ReportingUA: "imap-jmap-server/1.0",
+				Disposition: jmap.MDNDisposition{
+					ActionMode:  "automatic-action",
+					SendingMode: "MDN-sent-automatically",
+					Type:        "displayed",
+				},
+				TextBody: em.Preview,
+			}, nil
+		}
+	}
+
+	return &jmap.MDN{
+		ID:          jmap.Id("mdn-parsed-" + string(blobID)),
+		ForEmailID:  "email-stub",
+		Subject:     "Disposition Notification",
+		ReportingUA: "imap-jmap-server/1.0",
+		Disposition: jmap.MDNDisposition{
+			ActionMode:  "automatic-action",
+			SendingMode: "MDN-sent-automatically",
+			Type:        "displayed",
+		},
+	}, nil
+}

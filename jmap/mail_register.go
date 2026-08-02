@@ -40,4 +40,8 @@ func RegisterMailHandlers(r *MethodRegistry, backend MailBackend) {
 	r.Register("EmailSubmission/set", handleEmailSubmissionSet(backend))
 	r.Register("EmailSubmission/query", handleEmailSubmissionQuery(backend))
 	r.Register("EmailSubmission/queryChanges", handleEmailSubmissionQueryChanges(backend))
+
+	// MDN (RFC 9007 Section 3)
+	r.Register("MDN/send", handleMDNSend(backend))
+	r.Register("MDN/parse", handleMDNParse(backend, nil))
 }

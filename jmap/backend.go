@@ -37,6 +37,10 @@ type MailBackend interface {
 	// Submissions (RFC 8621 Section 7)
 	CreateSubmission(ctx context.Context, sub *EmailSubmission) (*EmailSubmission, error)
 	GetSubmissions(ctx context.Context, ids []Id) (list []*EmailSubmission, notFound []Id, err error)
+
+	// MDN (RFC 9007 Section 3)
+	SendMDN(ctx context.Context, mdn *MDN) (*MDN, error)
+	ParseMDN(ctx context.Context, blobID Id) (*MDN, error)
 }
 
 // BlobBackend defines the storage interface for binary blobs per RFC 8620 Section 6.

@@ -15,6 +15,9 @@ const BlobCapabilityURI = "urn:ietf:params:jmap:blob"
 // QuotaCapabilityURI is the standard JMAP Quota capability URI defined in RFC 9425 Section 2.
 const QuotaCapabilityURI = "urn:ietf:params:jmap:quota"
 
+// MdnCapabilityURI is the standard JMAP MDN capability URI defined in RFC 9007 Section 2.
+const MdnCapabilityURI = "urn:ietf:params:jmap:mdn"
+
 // CoreCapability defines the capability object for "urn:ietf:params:jmap:core" per RFC 8620 Section 2.2.
 type CoreCapability struct {
 	MaxSizeUpload         uint64   `json:"maxSizeUpload"`
@@ -55,6 +58,9 @@ type BlobCapability struct {
 type QuotaCapability struct {
 	MaxQuotaResources uint64 `json:"maxQuotaResources"`
 }
+
+// MdnCapability defines the capability object for "urn:ietf:params:jmap:mdn" per RFC 9007 Section 2.
+type MdnCapability struct{}
 
 // Account defines an account object in the JMAP Session per RFC 8620 Section 2.
 type Account struct {
@@ -115,6 +121,7 @@ func DefaultSession(baseURL string) *Session {
 			QuotaCapabilityURI: QuotaCapability{
 				MaxQuotaResources: 10,
 			},
+			MdnCapabilityURI: MdnCapability{},
 		},
 		Accounts: map[string]Account{
 			"primary": {
@@ -127,6 +134,7 @@ func DefaultSession(baseURL string) *Session {
 					SmimeCapabilityURI: struct{}{},
 					BlobCapabilityURI:  struct{}{},
 					QuotaCapabilityURI: struct{}{},
+					MdnCapabilityURI:  struct{}{},
 				},
 			},
 		},
@@ -136,6 +144,7 @@ func DefaultSession(baseURL string) *Session {
 			SmimeCapabilityURI: "primary",
 			BlobCapabilityURI:  "primary",
 			QuotaCapabilityURI: "primary",
+			MdnCapabilityURI:   "primary",
 		},
 		Username:       "user@example.com",
 		APIURL:         baseURL + "/jmap",
