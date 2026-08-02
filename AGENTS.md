@@ -17,18 +17,20 @@ Before implementing or modifying any JMAP methods, objects, or patches, inspect 
 - **JMAP Quotas**: [RFC 9425](https://www.rfc-editor.org/rfc/rfc9425.html) — *JMAP for Quotas*
 - **JMAP for Contacts**: [RFC 9610](https://www.rfc-editor.org/rfc/rfc9610.html) — *JMAP for Contacts*
 - **JMAP for Sieve Scripts**: [RFC 9661](https://www.rfc-editor.org/rfc/rfc9661.html) — *JMAP for Sieve Scripts*
-- **JMAP Sharing**: [RFC 9670](https://www.rfc-editor.org/rfc/rfc9670.html) — *JMAP Sharing*
 - **JMAPACCESS (IMAP)**: [RFC 9698](https://www.rfc-editor.org/rfc/rfc9698.html) — *JMAPACCESS Extension for IMAP*
 - **JMAP Push VAPID**: [RFC 9749](https://www.rfc-editor.org/rfc/rfc9749.html) — *VAPID Identification in JMAP Web Push*
 - **JMAP Keywords & Attributes**: [RFC 9979](https://www.rfc-editor.org/rfc/rfc9979.html) — *IMAP/JMAP Keywords and Mailbox Name Attributes*
+- **Sieve Language**: [RFC 5228](https://www.rfc-editor.org/rfc/rfc5228.html) — *Sieve: An Email Filtering Language*
 
 #### Data Representation Specifications
 - **JSContact (Card Specification)**: [RFC 9553](https://www.rfc-editor.org/rfc/rfc9553.html) — *JSContact: A JSON Representation of Contact Data*
 - **JSCalendar (Calendar Specification)**: [RFC 8984](https://www.rfc-editor.org/rfc/rfc8984.html) — *JSCalendar: A JSON Representation of Calendar Data*
 
 #### CardDAV & CalDAV Protocol Specifications
+- **WebDAV Base**: [RFC 4918](https://www.rfc-editor.org/rfc/rfc4918.html) — *HTTP Extensions for Web Distributed Authoring and Versioning (WebDAV)*
 - **CardDAV**: [RFC 6352](https://www.rfc-editor.org/rfc/rfc6352.html) — *CardDAV: vCard Extensions to WebDAV*
 - **CalDAV**: [RFC 4791](https://www.rfc-editor.org/rfc/rfc4791.html) — *CalDAV: Calendaring Extensions to WebDAV*
+- **CalDAV Scheduling**: [RFC 6638](https://www.rfc-editor.org/rfc/rfc6638.html) — *CalDAV Scheduling Extensions to iTIP*
 - **vCard 4.0**: [RFC 6350](https://www.rfc-editor.org/rfc/rfc6350.html) — *vCard Format Specification*
 - **vCard 3.0**: [RFC 2426](https://www.rfc-editor.org/rfc/rfc2426.html) — *vCard MIME Directory Profile*
 - **iCalendar**: [RFC 5545](https://www.rfc-editor.org/rfc/rfc5545.html) — *Internet Calendaring and Email Object Specification*
@@ -54,3 +56,8 @@ Before implementing or modifying any JMAP methods, objects, or patches, inspect 
 - **SMTP SIZE Extension**: [RFC 1870](https://www.rfc-editor.org/rfc/rfc1870.html) — *SMTP Service Extension for Message Size Declaration*
 - **SMTP DSN (Delivery Status Notifications)**: [RFC 3461](https://www.rfc-editor.org/rfc/rfc3461.html) — *Simple Mail Transfer Protocol (SMTP) Service Extension for Delivery Status Notifications*
 - **SMTP Internationalized Email (UTF8):** [RFC 6531](https://www.rfc-editor.org/rfc/rfc6531.html) — *SMTP Extension for Internationalized Email*
+
+---
+
+### Non-Goals & Out-of-Scope Specifications
+- **JMAP Sharing**: [RFC 9670](https://www.rfc-editor.org/rfc/rfc9670.html) — *JMAP Sharing* (Explicitly set as a Non-Goal for this server implementation).

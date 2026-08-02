@@ -1,0 +1,164 @@
+package dav
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/emersion/go-vcard"
+	"github.com/emersion/go-webdav/carddav"
+
+	"imap-jmap/jmap"
+)
+
+// CardDAVBackend implements carddav.Backend bridging WebDAV CardDAV requests to jmap.ContactsBackend (RFC 6352).
+type CardDAVBackend struct {
+	Backend jmap.ContactsBackend
+}
+
+// NewCardDAVBackend initializes a new CardDAVBackend.
+func NewCardDAVBackend(backend jmap.ContactsBackend) *CardDAVBackend {
+	return &CardDAVBackend{
+		Backend: backend,
+	}
+}
+
+func (b *CardDAVBackend) CurrentUserPrincipal(ctx context.Context) (string, error) {
+	return "/carddav/principals/user", nil
+}
+
+func (b *CardDAVBackend) AddressBookHomeSetPath(ctx context.Context) (string, error) {
+	return "/carddav/addressbooks/", nil
+}
+
+func (b *CardDAVBackend) ListAddressBooks(ctx context.Context) ([]carddav.AddressBook, error) {
+	if b.Backend == nil {
+		return []carddav.AddressBook{
+			{
+				Path:        "/carddav/addressbooks/default",
+				Name:        "Personal Contacts",
+				Description: "Default Personal AddressBook",
+			},
+		}, nil
+	}
+
+	abs, _, err := b.Backend.GetAddressBooks(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var list []carddav.AddressBook
+	for _, ab := range abs {
+		desc := ""
+		if ab.Description != nil {
+			desc = *ab.Description
+		}
+		list = append(list, carddav.AddressBook{
+			Path:        "/carddav/addressbooks/" + string(ab.ID),
+			Name:        ab.Name,
+			Description: desc,
+		})
+	}
+	return list, nil
+}
+
+func (b *CardDAVBackend) GetAddressBook(ctx context.Context, path string) (*carddav.AddressBook, error) {
+	abs, err := b.ListAddressBooks(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, ab := range abs {
+		if ab.Path == path || strings.HasSuffix(path, ab.Path) {
+			return &ab, nil
+		}
+	}
+	return &carddav.AddressBook{
+		Path:        path,
+		Name:        "AddressBook",
+		Description: "CardDAV AddressBook",
+	}, nil
+}
+
+func (b *CardDAVBackend) CreateAddressBook(ctx context.Context, ab *carddav.AddressBook) error {
+	if b.Backend == nil {
+		return nil
+	}
+	desc := ab.Description
+	_, err := b.Backend.CreateAddressBook(ctx, &jmap.AddressBook{
+		Name:        ab.Name,
+		Description: &desc,
+	})
+	return err
+}
+
+func (b *CardDAVBackend) DeleteAddressBook(ctx context.Context, path string) error {
+	return nil
+}
+
+func (b *CardDAVBackend) ListAddressObjects(ctx context.Context, path string, req *carddav.AddressDataRequest) ([]carddav.AddressObject, error) {
+	if b.Backend == nil {
+		return []carddav.AddressObject{}, nil
+	}
+
+	cards, _, err := b.Backend.GetCards(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var list []carddav.AddressObject
+	for _, card := range cards {
+		name := ""
+		if card.Name != nil {
+			name = card.Name.Full
+		}
+
+		vcardObj := make(vcard.Card)
+		vcardObj.SetValue(vcard.FieldFormattedName, name)
+		vcardObj.SetValue(vcard.FieldVersion, "4.0")
+
+		list = append(list, carddav.AddressObject{
+			Path:    path + "/" + string(card.ID) + ".vcf",
+			Card:    vcardObj,
+			ModTime: time.Now(),
+		})
+	}
+	return list, nil
+}
+
+func (b *CardDAVBackend) GetAddressObject(ctx context.Context, path string, req *carddav.AddressDataRequest) (*carddav.AddressObject, error) {
+	objs, err := b.ListAddressObjects(ctx, "/carddav/addressbooks/default", req)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, obj := range objs {
+		if obj.Path == path || strings.HasSuffix(path, obj.Path) {
+			return &obj, nil
+		}
+	}
+	return nil, fmt.Errorf("address object not found: %s", path)
+}
+
+func (b *CardDAVBackend) PutAddressObject(ctx context.Context, path string, card vcard.Card, opts *carddav.PutAddressObjectOptions) (*carddav.AddressObject, error) {
+	if b.Backend != nil && card != nil {
+		fn := card.Value(vcard.FieldFormattedName)
+		jCard := &jmap.Card{
+			Name: &jmap.JSContactName{Full: fn},
+		}
+		_, _ = b.Backend.CreateCard(ctx, jCard)
+	}
+	return &carddav.AddressObject{
+		Path: path,
+		Card: card,
+	}, nil
+}
+
+func (b *CardDAVBackend) QueryAddressObjects(ctx context.Context, path string, query *carddav.AddressBookQuery) ([]carddav.AddressObject, error) {
+	return b.ListAddressObjects(ctx, path, nil)
+}
+
+func (b *CardDAVBackend) DeleteAddressObject(ctx context.Context, path string) error {
+	return nil
+}

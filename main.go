@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 
+	"imap-jmap/dav"
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/memory"
 	"imap-jmap/smtp"
@@ -72,10 +73,18 @@ func main() {
 		}
 	}()
 
-	log.Printf("Starting JMAP server on http://%s (public URL: %s)", addr, publicURL)
-	log.Printf("Discovery endpoint: %s/.well-known/jmap", publicURL)
+	davServer := dav.NewServer(memCalBackend, nil)
+	httpMux := http.NewServeMux()
+	httpMux.Handle("/caldav/", davServer.CalDAVHandler)
+	httpMux.Handle("/carddav/", davServer.CardDAVHandler)
+	httpMux.Handle("/", server.Handler())
 
-	if err := http.ListenAndServe(addr, server.Handler()); err != nil {
+	log.Printf("Starting JMAP & WebDAV server on http://%s (public URL: %s)", addr, publicURL)
+	log.Printf("Discovery endpoint: %s/.well-known/jmap", publicURL)
+	log.Printf("CalDAV endpoint: %s/caldav/", publicURL)
+	log.Printf("CardDAV endpoint: %s/carddav/", publicURL)
+
+	if err := http.ListenAndServe(addr, httpMux); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }
