@@ -35,6 +35,12 @@ const CalendarsCapabilityURI = "urn:ietf:params:jmap:calendars"
 // SieveCapabilityURI is the standard JMAP Sieve capability URI defined in RFC 9661 Section 2.
 const SieveCapabilityURI = "urn:ietf:params:jmap:sieve"
 
+// ImapAccessCapabilityURI is the JMAPACCESS extension for IMAP capability URI defined in RFC 9698 Section 2.
+const ImapAccessCapabilityURI = "urn:ietf:params:jmap:imapaccess"
+
+// ImapAccessCapability defines the capability object for "urn:ietf:params:jmap:imapaccess" per RFC 9698 Section 2.
+type ImapAccessCapability struct{}
+
 // CoreCapability defines the capability object for "urn:ietf:params:jmap:core" per RFC 8620 Section 2.2.
 type CoreCapability struct {
 	MaxSizeUpload         uint64   `json:"maxSizeUpload"`
@@ -196,6 +202,8 @@ func DefaultSession(baseURL string) *Session {
 				MaxScriptSize:   1048576, // 1MB max script size
 				SieveExtensions: []string{"fileinto", "reject", "vacation", "envelope", "subaddress", "encoded-character"},
 			},
+			// RFC 9698: JMAPACCESS Extension for IMAP.
+			ImapAccessCapabilityURI: ImapAccessCapability{},
 		},
 		Accounts: map[string]Account{
 			"primary": {
@@ -213,6 +221,7 @@ func DefaultSession(baseURL string) *Session {
 					ContactsCapabilityURI:     struct{}{},
 					CalendarsCapabilityURI:    struct{}{},
 					SieveCapabilityURI:        struct{}{},
+					ImapAccessCapabilityURI:   struct{}{},
 				},
 			},
 		},
@@ -227,6 +236,7 @@ func DefaultSession(baseURL string) *Session {
 			ContactsCapabilityURI:     "primary",
 			CalendarsCapabilityURI:    "primary",
 			SieveCapabilityURI:        "primary",
+			ImapAccessCapabilityURI:   "primary",
 		},
 		Username:       "user@example.com",
 		APIURL:         baseURL + "/jmap",

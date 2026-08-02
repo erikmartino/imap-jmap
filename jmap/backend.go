@@ -103,4 +103,15 @@ type SieveBackend interface {
 	ValidateSieveScript(ctx context.Context, content string) (isValid bool, errDetail string)
 }
 
+// IMAPAccessBackend defines the storage interface for JMAPACCESS Extension for IMAP (RFC 9698) resources.
+type IMAPAccessBackend interface {
+	GetIMAPAccounts(ctx context.Context, ids []Id) (list []*IMAPAccount, notFound []Id, err error)
+	GetAllIMAPAccounts(ctx context.Context) ([]*IMAPAccount, error)
+	CreateIMAPAccount(ctx context.Context, account *IMAPAccount) (*IMAPAccount, error)
+	UpdateIMAPAccount(ctx context.Context, id Id, patch map[string]any) (*IMAPAccount, error)
+	DeleteIMAPAccount(ctx context.Context, id Id) (bool, error)
+	State(ctx context.Context) string
+}
+
+
 

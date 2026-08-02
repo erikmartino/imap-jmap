@@ -8,15 +8,16 @@ import (
 
 // Server encapsulates the JMAP server handler, session object, blob backend, mail backend, and method registry.
 type Server struct {
-	Session          *Session
-	BlobBackend      BlobBackend
-	MailBackend      MailBackend
-	ContactsBackend  ContactsBackend
-	CalendarsBackend CalendarsBackend
-	SieveBackend     SieveBackend
-	AuthBackend      AuthBackend
-	MethodRegistry   *MethodRegistry
-	Broadcaster      *Broadcaster
+	Session           *Session
+	BlobBackend       BlobBackend
+	MailBackend       MailBackend
+	ContactsBackend   ContactsBackend
+	CalendarsBackend  CalendarsBackend
+	SieveBackend      SieveBackend
+	IMAPAccessBackend IMAPAccessBackend
+	AuthBackend       AuthBackend
+	MethodRegistry    *MethodRegistry
+	Broadcaster       *Broadcaster
 }
 
 // Option defines a functional configuration option for Server.
@@ -64,6 +65,13 @@ func WithSieveBackend(sb SieveBackend) Option {
 	}
 }
 
+// WithIMAPAccessBackend sets a custom IMAPAccessBackend implementation per RFC 9698.
+func WithIMAPAccessBackend(ib IMAPAccessBackend) Option {
+	return func(s *Server) {
+		s.IMAPAccessBackend = ib
+	}
+}
+
 // WithAuthBackend sets a custom AuthBackend implementation for Bearer token authentication per RFC 8620 Section 8.2.
 func WithAuthBackend(ab AuthBackend) Option {
 	return func(s *Server) {
@@ -92,6 +100,7 @@ func NewServer(session *Session, opts ...Option) *Server {
 	RegisterContactsHandlers(s.MethodRegistry, s.ContactsBackend)
 	RegisterCalendarHandlers(s.MethodRegistry, s.CalendarsBackend, s.MailBackend)
 	RegisterSieveHandlers(s.MethodRegistry, s.SieveBackend)
+	RegisterIMAPAccessHandlers(s.MethodRegistry, s.IMAPAccessBackend)
 
 	return s
 }

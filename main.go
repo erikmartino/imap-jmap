@@ -51,6 +51,7 @@ func main() {
 	memBackend := memory.NewMemoryBackend()
 	memBlobBackend := memory.NewMemoryBlobBackend()
 	memCalBackend := memory.NewMemoryCalendarsBackend()
+	memIMAPBackend := memory.NewMemoryIMAPAccessBackend()
 	authBackend := memory.NewMemoryAuthBackend()
 
 	server := jmap.NewServer(
@@ -58,6 +59,7 @@ func main() {
 		jmap.WithMailBackend(memBackend),
 		jmap.WithBlobBackend(memBlobBackend),
 		jmap.WithCalendarsBackend(memCalBackend),
+		jmap.WithIMAPAccessBackend(memIMAPBackend),
 		jmap.WithAuthBackend(authBackend),
 	)
 	memBackend.SetBroadcaster(server.Broadcaster)
