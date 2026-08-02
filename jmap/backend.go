@@ -73,3 +73,22 @@ type ContactsBackend interface {
 	DeleteCard(ctx context.Context, id Id) (bool, error)
 	QueryCards(ctx context.Context, filter map[string]any, position int, limit *uint64) (ids []Id, total int, err error)
 }
+
+// CalendarsBackend defines the storage interface for JMAP Calendars & JSCalendar (RFC 8984) resources.
+type CalendarsBackend interface {
+	// Calendars
+	GetCalendars(ctx context.Context, ids []Id) (list []*Calendar, notFound []Id, err error)
+	GetAllCalendars(ctx context.Context) ([]*Calendar, error)
+	CreateCalendar(ctx context.Context, cal *Calendar) (*Calendar, error)
+	UpdateCalendar(ctx context.Context, id Id, patch map[string]any) (*Calendar, error)
+	DeleteCalendar(ctx context.Context, id Id) (bool, error)
+
+	// CalendarEvents (JSCalendar RFC 8984)
+	GetCalendarEvents(ctx context.Context, ids []Id) (list []*CalendarEvent, notFound []Id, err error)
+	GetAllCalendarEvents(ctx context.Context) ([]*CalendarEvent, error)
+	CreateCalendarEvent(ctx context.Context, event *CalendarEvent) (*CalendarEvent, error)
+	UpdateCalendarEvent(ctx context.Context, id Id, patch map[string]any) (*CalendarEvent, error)
+	DeleteCalendarEvent(ctx context.Context, id Id) (bool, error)
+	QueryCalendarEvents(ctx context.Context, filter map[string]any, position int, limit *uint64) (ids []Id, total int, err error)
+}
+

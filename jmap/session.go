@@ -29,6 +29,9 @@ const WebSocketCapabilityURI = "urn:ietf:params:jmap:websocket"
 // ContactsCapabilityURI is the standard JMAP Contacts capability URI defined in RFC 9610 Section 2.
 const ContactsCapabilityURI = "urn:ietf:params:jmap:contacts"
 
+// CalendarsCapabilityURI is the standard JMAP Calendars capability URI.
+const CalendarsCapabilityURI = "urn:ietf:params:jmap:calendars"
+
 // CoreCapability defines the capability object for "urn:ietf:params:jmap:core" per RFC 8620 Section 2.2.
 type CoreCapability struct {
 	MaxSizeUpload         uint64   `json:"maxSizeUpload"`
@@ -91,6 +94,12 @@ type WebSocketCapability struct {
 type ContactsCapability struct {
 	MaxAddressBooksPerCard *uint64 `json:"maxAddressBooksPerCard"`
 	MayCreateAddressBook   bool    `json:"mayCreateAddressBook"`
+}
+
+// CalendarsCapability defines the capability object for "urn:ietf:params:jmap:calendars".
+type CalendarsCapability struct {
+	MaxCalendarsPerEvent *uint64 `json:"maxCalendarsPerEvent"`
+	MayCreateCalendar    bool    `json:"mayCreateCalendar"`
 }
 
 // Account defines an account object in the JMAP Session per RFC 8620 Section 2.
@@ -168,6 +177,11 @@ func DefaultSession(baseURL string) *Session {
 				MaxAddressBooksPerCard: nil,
 				MayCreateAddressBook:   true,
 			},
+			// JMAP for Calendars capability.
+			CalendarsCapabilityURI: CalendarsCapability{
+				MaxCalendarsPerEvent: nil,
+				MayCreateCalendar:    true,
+			},
 		},
 		Accounts: map[string]Account{
 			"primary": {
@@ -175,14 +189,15 @@ func DefaultSession(baseURL string) *Session {
 				IsPrimary:  true,
 				IsReadOnly: false,
 				AccountCapabilities: map[string]any{
-					CoreCapabilityURI:           struct{}{},
-					MailCapabilityURI:           struct{}{},
-					SmimeCapabilityURI:          struct{}{},
-					BlobCapabilityURI:           struct{}{},
-					QuotaCapabilityURI:          struct{}{},
-					MdnCapabilityURI:            struct{}{},
-					WebPushVapidCapabilityURI:   struct{}{},
-					ContactsCapabilityURI:       struct{}{},
+					CoreCapabilityURI:         struct{}{},
+					MailCapabilityURI:         struct{}{},
+					SmimeCapabilityURI:        struct{}{},
+					BlobCapabilityURI:         struct{}{},
+					QuotaCapabilityURI:        struct{}{},
+					MdnCapabilityURI:          struct{}{},
+					WebPushVapidCapabilityURI: struct{}{},
+					ContactsCapabilityURI:     struct{}{},
+					CalendarsCapabilityURI:    struct{}{},
 				},
 			},
 		},
@@ -195,6 +210,7 @@ func DefaultSession(baseURL string) *Session {
 			MdnCapabilityURI:          "primary",
 			WebPushVapidCapabilityURI: "primary",
 			ContactsCapabilityURI:     "primary",
+			CalendarsCapabilityURI:    "primary",
 		},
 		Username:       "user@example.com",
 		APIURL:         baseURL + "/jmap",
