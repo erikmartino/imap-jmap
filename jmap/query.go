@@ -7,19 +7,19 @@ import (
 
 // FilterCondition represents Email/query filter condition properties per RFC 8621 Section 4.5.1.
 type FilterCondition struct {
-	InMailbox          *Id       `json:"inMailbox,omitempty"`
-	InMailboxOtherThan []Id      `json:"inMailboxOtherThan,omitempty"`
-	Before             *string   `json:"before,omitempty"`
-	After              *string   `json:"after,omitempty"`
-	MinSize            *uint64   `json:"minSize,omitempty"`
-	MaxSize            *uint64   `json:"maxSize,omitempty"`
-	From               *string   `json:"from,omitempty"`
-	To                 *string   `json:"to,omitempty"`
-	CC                 *string   `json:"cc,omitempty"`
-	BCC                *string   `json:"bcc,omitempty"`
-	Subject            *string   `json:"subject,omitempty"`
-	Text               *string   `json:"text,omitempty"`
-	HasAttachment      *bool     `json:"hasAttachment,omitempty"`
+	InMailbox          *Id     `json:"inMailbox,omitempty"`
+	InMailboxOtherThan []Id    `json:"inMailboxOtherThan,omitempty"`
+	Before             *string `json:"before,omitempty"`
+	After              *string `json:"after,omitempty"`
+	MinSize            *uint64 `json:"minSize,omitempty"`
+	MaxSize            *uint64 `json:"maxSize,omitempty"`
+	From               *string `json:"from,omitempty"`
+	To                 *string `json:"to,omitempty"`
+	CC                 *string `json:"cc,omitempty"`
+	BCC                *string `json:"bcc,omitempty"`
+	Subject            *string `json:"subject,omitempty"`
+	Text               *string `json:"text,omitempty"`
+	HasAttachment      *bool   `json:"hasAttachment,omitempty"`
 }
 
 // Comparator defines sorting rules per RFC 8621 Section 4.5.2.

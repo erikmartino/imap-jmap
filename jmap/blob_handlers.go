@@ -106,10 +106,10 @@ func handleBlobLookup(backend BlobBackend) MethodHandler {
 				blob, found, _ := backend.GetBlob(ctx, accountID, blobIDStr)
 				if found {
 					list[blobIDStr] = map[string]any{
-						"id":           blob.ID,
-						"size":         blob.Size,
+						"id":             blob.ID,
+						"size":           blob.Size,
 						"digest:sha-256": blob.DigestSHA256,
-						"type":         blob.Type,
+						"type":           blob.Type,
 					}
 				}
 			}

@@ -82,10 +82,10 @@ type RequestError struct {
 }
 
 const (
-	ErrorInvalidJSON        = "urn:ietf:params:jmap:error:invalidJSON"
-	ErrorUnknownCapability  = "urn:ietf:params:jmap:error:unknownCapability"
-	ErrorNotRequest         = "urn:ietf:params:jmap:error:notRequest"
-	ErrorLimit              = "urn:ietf:params:jmap:error:limit"
+	ErrorInvalidJSON       = "urn:ietf:params:jmap:error:invalidJSON"
+	ErrorUnknownCapability = "urn:ietf:params:jmap:error:unknownCapability"
+	ErrorNotRequest        = "urn:ietf:params:jmap:error:notRequest"
+	ErrorLimit             = "urn:ietf:params:jmap:error:limit"
 )
 
 // MethodErrorArgs returns argument map for a standard method error per RFC 8620 Section 3.6.2.
