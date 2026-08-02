@@ -50,17 +50,19 @@ func main() {
 	session := jmap.DefaultSession(publicURL)
 	memBackend := memory.NewMemoryBackend()
 	memBlobBackend := memory.NewMemoryBlobBackend()
+	memCalBackend := memory.NewMemoryCalendarsBackend()
 	authBackend := memory.NewMemoryAuthBackend()
 
 	server := jmap.NewServer(
 		session,
 		jmap.WithMailBackend(memBackend),
 		jmap.WithBlobBackend(memBlobBackend),
+		jmap.WithCalendarsBackend(memCalBackend),
 		jmap.WithAuthBackend(authBackend),
 	)
 	memBackend.SetBroadcaster(server.Broadcaster)
 
-	smtpServer := smtp.NewServer(smtpAddr, memBackend, memBlobBackend)
+	smtpServer := smtp.NewServer(smtpAddr, memBackend, memBlobBackend, memCalBackend)
 	go func() {
 		log.Printf("Starting SMTP receiver server on %s", smtpAddr)
 		if err := smtpServer.ListenAndServe(); err != nil {

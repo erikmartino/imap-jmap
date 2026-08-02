@@ -45,7 +45,7 @@ func TestSMTPReceiveToJMAPPushIntegration(t *testing.T) {
 	smtpAddr := listener.Addr().String()
 	_ = listener.Close()
 
-	smtpServer := jmapsmtp.NewServer(smtpAddr, memBackend, memBlobBackend)
+	smtpServer := jmapsmtp.NewServer(smtpAddr, memBackend, memBlobBackend, nil)
 	go func() {
 		_ = smtpServer.ListenAndServe()
 	}()

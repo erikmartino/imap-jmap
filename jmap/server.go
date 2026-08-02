@@ -13,6 +13,7 @@ type Server struct {
 	MailBackend      MailBackend
 	ContactsBackend  ContactsBackend
 	CalendarsBackend CalendarsBackend
+	SieveBackend     SieveBackend
 	AuthBackend      AuthBackend
 	MethodRegistry   *MethodRegistry
 	Broadcaster      *Broadcaster
@@ -56,6 +57,13 @@ func WithCalendarsBackend(cb CalendarsBackend) Option {
 	}
 }
 
+// WithSieveBackend sets a custom SieveBackend implementation per RFC 9661.
+func WithSieveBackend(sb SieveBackend) Option {
+	return func(s *Server) {
+		s.SieveBackend = sb
+	}
+}
+
 // WithAuthBackend sets a custom AuthBackend implementation for Bearer token authentication per RFC 8620 Section 8.2.
 func WithAuthBackend(ab AuthBackend) Option {
 	return func(s *Server) {
@@ -82,7 +90,8 @@ func NewServer(session *Session, opts ...Option) *Server {
 	RegisterBlobHandlers(s.MethodRegistry, s.BlobBackend)
 	RegisterQuotaHandlers(s.MethodRegistry, s.MailBackend)
 	RegisterContactsHandlers(s.MethodRegistry, s.ContactsBackend)
-	RegisterCalendarHandlers(s.MethodRegistry, s.CalendarsBackend)
+	RegisterCalendarHandlers(s.MethodRegistry, s.CalendarsBackend, s.MailBackend)
+	RegisterSieveHandlers(s.MethodRegistry, s.SieveBackend)
 
 	return s
 }

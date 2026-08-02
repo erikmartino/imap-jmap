@@ -16,8 +16,8 @@ type Server struct {
 }
 
 // NewServer initializes a new SMTP server instance configured for receiving mail into JMAP storage.
-func NewServer(addr string, mailBackend jmap.MailBackend, blobBackend jmap.BlobBackend) *Server {
-	backend := NewReceiverBackend(mailBackend, blobBackend)
+func NewServer(addr string, mailBackend jmap.MailBackend, blobBackend jmap.BlobBackend, calBackend jmap.CalendarsBackend) *Server {
+	backend := NewReceiverBackend(mailBackend, blobBackend, calBackend)
 
 	s := gosmtp.NewServer(backend)
 	s.Addr = addr

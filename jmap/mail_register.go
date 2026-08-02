@@ -6,6 +6,7 @@ func RegisterMailHandlers(r *MethodRegistry, backend MailBackend) {
 	r.Register("Mailbox/get", handleMailboxGet(backend))
 	r.Register("Mailbox/changes", handleMailboxChanges(backend))
 	r.Register("Mailbox/set", handleMailboxSet(backend))
+	r.Register("Mailbox/copy", handleMailboxCopy(backend))
 	r.Register("Mailbox/query", handleMailboxQuery(backend))
 	r.Register("Mailbox/queryChanges", handleMailboxQueryChanges(backend))
 

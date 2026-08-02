@@ -32,6 +32,9 @@ const ContactsCapabilityURI = "urn:ietf:params:jmap:contacts"
 // CalendarsCapabilityURI is the standard JMAP Calendars capability URI.
 const CalendarsCapabilityURI = "urn:ietf:params:jmap:calendars"
 
+// SieveCapabilityURI is the standard JMAP Sieve capability URI defined in RFC 9661 Section 2.
+const SieveCapabilityURI = "urn:ietf:params:jmap:sieve"
+
 // CoreCapability defines the capability object for "urn:ietf:params:jmap:core" per RFC 8620 Section 2.2.
 type CoreCapability struct {
 	MaxSizeUpload         uint64   `json:"maxSizeUpload"`
@@ -100,6 +103,12 @@ type ContactsCapability struct {
 type CalendarsCapability struct {
 	MaxCalendarsPerEvent *uint64 `json:"maxCalendarsPerEvent"`
 	MayCreateCalendar    bool    `json:"mayCreateCalendar"`
+}
+
+// SieveCapability defines the capability object for "urn:ietf:params:jmap:sieve" per RFC 9661 Section 2.
+type SieveCapability struct {
+	MaxScriptSize   uint64   `json:"maxScriptSize"`
+	SieveExtensions []string `json:"sieveExtensions"`
 }
 
 // Account defines an account object in the JMAP Session per RFC 8620 Section 2.
@@ -182,6 +191,11 @@ func DefaultSession(baseURL string) *Session {
 				MaxCalendarsPerEvent: nil,
 				MayCreateCalendar:    true,
 			},
+			// RFC 9661: JMAP for Sieve Scripts capability.
+			SieveCapabilityURI: SieveCapability{
+				MaxScriptSize:   1048576, // 1MB max script size
+				SieveExtensions: []string{"fileinto", "reject", "vacation", "envelope", "subaddress", "encoded-character"},
+			},
 		},
 		Accounts: map[string]Account{
 			"primary": {
@@ -198,6 +212,7 @@ func DefaultSession(baseURL string) *Session {
 					WebPushVapidCapabilityURI: struct{}{},
 					ContactsCapabilityURI:     struct{}{},
 					CalendarsCapabilityURI:    struct{}{},
+					SieveCapabilityURI:        struct{}{},
 				},
 			},
 		},
@@ -211,6 +226,7 @@ func DefaultSession(baseURL string) *Session {
 			WebPushVapidCapabilityURI: "primary",
 			ContactsCapabilityURI:     "primary",
 			CalendarsCapabilityURI:    "primary",
+			SieveCapabilityURI:        "primary",
 		},
 		Username:       "user@example.com",
 		APIURL:         baseURL + "/jmap",

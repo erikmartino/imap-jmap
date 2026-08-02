@@ -517,3 +517,184 @@ func TestRFC8621_Section4_5_1_EmailQueryFilteringAndSorting(t *testing.T) {
 		t.Errorf("Expected 1 email matching text 'Welcome', got %v", jmapRespText.MethodResponses[0].Args["ids"])
 	}
 }
+
+// TestRFC8621_Section3_ThreadGet tests Thread/get per RFC 8621 Section 3.
+func TestRFC8621_Section3_ThreadGet(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// 1. Get an email to discover its threadID
+	getReq := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+		"methodCalls": []any{
+			[]any{"Email/get", map[string]any{
+				"accountId": "primary",
+				"ids":       []string{"email-1"},
+			}, "c1"},
+		},
+	}
+	bodyGet, _ := json.Marshal(getReq)
+	respGet, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyGet))
+	if err != nil {
+		t.Fatalf("POST /jmap failed: %v", err)
+	}
+	defer respGet.Body.Close()
+
+	var jmapRespGet jmap.Response
+	_ = json.NewDecoder(respGet.Body).Decode(&jmapRespGet)
+
+	listEmail := jmapRespGet.MethodResponses[0].Args["list"].([]any)
+	emObj := listEmail[0].(map[string]any)
+	threadID := emObj["threadId"].(string)
+
+	// 2. Fetch thread using threadID
+	reqPayload := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+		"methodCalls": []any{
+			[]any{"Thread/get", map[string]any{
+				"accountId": "primary",
+				"ids":       []string{threadID},
+			}, "c2"},
+		},
+	}
+	body, _ := json.Marshal(reqPayload)
+
+	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /jmap failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var jmapResp jmap.Response
+	if err := json.NewDecoder(resp.Body).Decode(&jmapResp); err != nil {
+		t.Fatalf("Failed to decode Response: %v", err)
+	}
+
+	methodResp := jmapResp.MethodResponses[0]
+	if methodResp.Name != "Thread/get" {
+		t.Errorf("Expected response 'Thread/get', got %q", methodResp.Name)
+	}
+
+	listRaw, ok := methodResp.Args["list"].([]any)
+	if !ok || len(listRaw) != 1 {
+		t.Fatalf("Expected 1 thread object, got %v", methodResp.Args["list"])
+	}
+
+	thObj := listRaw[0].(map[string]any)
+	if thObj["id"] != threadID {
+		t.Errorf("Expected thread id %q, got %v", threadID, thObj["id"])
+	}
+}
+
+// TestRFC8621_Section2_MailboxCopy tests Mailbox/copy per RFC 8621 Section 2.4.
+func TestRFC8621_Section2_MailboxCopy(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	reqPayload := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+		"methodCalls": []any{
+			[]any{"Mailbox/copy", map[string]any{
+				"accountId": "primary",
+				"create": map[string]any{
+					"mb1": map[string]any{"name": "Copied Mailbox"},
+				},
+			}, "c1"},
+		},
+	}
+	body, _ := json.Marshal(reqPayload)
+
+	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /jmap failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var jmapResp jmap.Response
+	_ = json.NewDecoder(resp.Body).Decode(&jmapResp)
+
+	methodResp := jmapResp.MethodResponses[0]
+	if methodResp.Name != "Mailbox/copy" {
+		t.Errorf("Expected response 'Mailbox/copy', got %q", methodResp.Name)
+	}
+}
+
+// TestRFC8621_Section4_EmailCopy tests Email/copy per RFC 8621 Section 4.5.
+func TestRFC8621_Section4_EmailCopy(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	reqPayload := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+		"methodCalls": []any{
+			[]any{"Email/copy", map[string]any{
+				"accountId": "primary",
+				"create": map[string]any{
+					"em1": map[string]any{"mailboxIds": map[string]bool{"mb-inbox": true}},
+				},
+			}, "c1"},
+		},
+	}
+	body, _ := json.Marshal(reqPayload)
+
+	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /jmap failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var jmapResp jmap.Response
+	_ = json.NewDecoder(resp.Body).Decode(&jmapResp)
+
+	methodResp := jmapResp.MethodResponses[0]
+	if methodResp.Name != "Email/copy" {
+		t.Errorf("Expected response 'Email/copy', got %q", methodResp.Name)
+	}
+}
+
+// TestRFC8621_Section5_SearchSnippetGet tests SearchSnippet/get per RFC 8621 Section 5.
+func TestRFC8621_Section5_SearchSnippetGet(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	reqPayload := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+		"methodCalls": []any{
+			[]any{"SearchSnippet/get", map[string]any{
+				"accountId": "primary",
+				"emailIds":  []string{"email-1"},
+			}, "c1"},
+		},
+	}
+	body, _ := json.Marshal(reqPayload)
+
+	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /jmap failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var jmapResp jmap.Response
+	_ = json.NewDecoder(resp.Body).Decode(&jmapResp)
+
+	methodResp := jmapResp.MethodResponses[0]
+	if methodResp.Name != "SearchSnippet/get" {
+		t.Errorf("Expected response 'SearchSnippet/get', got %q", methodResp.Name)
+	}
+
+	listRaw, ok := methodResp.Args["list"].([]any)
+	if !ok || len(listRaw) != 1 {
+		t.Fatalf("Expected 1 search snippet object, got %v", methodResp.Args["list"])
+	}
+
+	snipObj := listRaw[0].(map[string]any)
+	if snipObj["emailId"] != "email-1" {
+		t.Errorf("Expected emailId 'email-1', got %v", snipObj["emailId"])
+	}
+}
+
+

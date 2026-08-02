@@ -448,6 +448,57 @@ func TestRFC8620_Section6_1_UploadingBlobs(t *testing.T) {
 	}
 }
 
+// TestRFC8620_Section3_7_ResultReferences tests chained result reference resolution (#resultOf, #name, #path) per RFC 8620 Section 3.7.
+func TestRFC8620_Section3_7_ResultReferences(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Batch request: Call 1 runs Email/query -> returns email IDs list.
+	// Call 2 runs Email/get passing #resultOf: "c1", #path: "/ids" into ids parameter.
+	reqPayload := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+		"methodCalls": []any{
+			[]any{"Email/query", map[string]any{"accountId": "primary"}, "c1"},
+			[]any{"Email/get", map[string]any{
+				"accountId": "primary",
+				"#ids": map[string]any{
+					"#resultOf": "c1",
+					"#name":     "Email/query",
+					"#path":     "/ids",
+				},
+			}, "c2"},
+		},
+	}
+
+	body, _ := json.Marshal(reqPayload)
+	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /jmap failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var jmapResp jmap.Response
+	if err := json.NewDecoder(resp.Body).Decode(&jmapResp); err != nil {
+		t.Fatalf("Failed to decode Response: %v", err)
+	}
+
+	if len(jmapResp.MethodResponses) != 2 {
+		t.Fatalf("Expected 2 method responses, got %d", len(jmapResp.MethodResponses))
+	}
+
+	call2 := jmapResp.MethodResponses[1]
+	if call2.Name != "Email/get" {
+		t.Errorf("Expected response 'Email/get', got %q", call2.Name)
+	}
+
+	list, ok := call2.Args["list"].([]any)
+	if !ok || len(list) == 0 {
+		t.Errorf("Expected non-empty email list resolved via chained result reference, got %v", call2.Args["list"])
+	}
+}
+
+
 // TestRFC8620_Section6_2_DownloadingBlobs tests blob downloading per RFC 8620 Section 6.2.
 func TestRFC8620_Section6_2_DownloadingBlobs(t *testing.T) {
 	srv := newTestServer()

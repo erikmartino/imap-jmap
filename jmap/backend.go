@@ -92,3 +92,15 @@ type CalendarsBackend interface {
 	QueryCalendarEvents(ctx context.Context, filter map[string]any, position int, limit *uint64) (ids []Id, total int, err error)
 }
 
+// SieveBackend defines the storage interface for JMAP for Sieve Scripts (RFC 9661) resources.
+type SieveBackend interface {
+	GetSieveScripts(ctx context.Context, ids []Id) (list []*SieveScript, notFound []Id, err error)
+	GetAllSieveScripts(ctx context.Context) ([]*SieveScript, error)
+	CreateSieveScript(ctx context.Context, script *SieveScript) (*SieveScript, error)
+	UpdateSieveScript(ctx context.Context, id Id, patch map[string]any) (*SieveScript, error)
+	DeleteSieveScript(ctx context.Context, id Id) (bool, error)
+	QuerySieveScripts(ctx context.Context, filter map[string]any, position int, limit *uint64) (ids []Id, total int, err error)
+	ValidateSieveScript(ctx context.Context, content string) (isValid bool, errDetail string)
+}
+
+

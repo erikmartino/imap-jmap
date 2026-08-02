@@ -63,7 +63,7 @@ func TestSMTPServerReceive(t *testing.T) {
 	addr := listener.Addr().String()
 	_ = listener.Close()
 
-	srv := jmapsmtp.NewServer(addr, memBackend, memBlobBackend)
+	srv := jmapsmtp.NewServer(addr, memBackend, memBlobBackend, nil)
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- srv.ListenAndServe()
@@ -139,3 +139,84 @@ func TestSMTPServerReceive(t *testing.T) {
 		t.Errorf("expected Inbox unread count > 0 after delivery")
 	}
 }
+
+func TestSMTPServerReceiveIMIPReply(t *testing.T) {
+	memBackend := memory.NewMemoryBackend()
+	memBlobBackend := memory.NewMemoryBlobBackend()
+	memCalBackend := memory.NewMemoryCalendarsBackend()
+
+	// 1. Create a calendar event with external participant
+	ev, err := memCalBackend.CreateCalendarEvent(context.Background(), &jmap.CalendarEvent{
+		ID:    "evt-imip-100",
+		Title: "Project Review",
+		Start: "2026-09-10T14:00:00Z",
+		Participants: map[string]*jmap.JSCalendarParticipant{
+			"client@example.com": {
+				Name:   "Client",
+				Email:  "client@example.com",
+				Status: "needs-action",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateCalendarEvent failed: %v", err)
+	}
+
+	// 2. Start SMTP receiver
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	addr := listener.Addr().String()
+	_ = listener.Close()
+
+	srv := jmapsmtp.NewServer(addr, memBackend, memBlobBackend, memCalBackend)
+	go func() {
+		_ = srv.ListenAndServe()
+	}()
+	defer srv.Close()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// 3. Deliver iMIP METHOD:REPLY email over SMTP from client@example.com
+	from := "client@example.com"
+	to := []string{"organizer@example.com"}
+	imipMsg := []byte("From: <client@example.com>\r\n" +
+		"To: <organizer@example.com>\r\n" +
+		"Subject: Accepted: Project Review\r\n" +
+		"Content-Type: text/calendar; method=REPLY\r\n" +
+		"\r\n" +
+		"BEGIN:VCALENDAR\r\n" +
+		"VERSION:2.0\r\n" +
+		"METHOD:REPLY\r\n" +
+		"BEGIN:VEVENT\r\n" +
+		"UID:evt-imip-100\r\n" +
+		"SUMMARY:Project Review\r\n" +
+		"ATTENDEE;PARTSTAT=ACCEPTED:mailto:client@example.com\r\n" +
+		"END:VEVENT\r\n" +
+		"END:VCALENDAR\r\n")
+
+	err = smtp.SendMail(addr, nil, from, to, imipMsg)
+	if err != nil {
+		t.Fatalf("smtp.SendMail failed: %v", err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	// 4. Verify participant status in memCalBackend was auto-updated to "accepted"
+	events, _, err := memCalBackend.GetCalendarEvents(context.Background(), []jmap.Id{ev.ID})
+	if err != nil || len(events) == 0 {
+		t.Fatalf("GetCalendarEvents failed: %v", err)
+	}
+
+	updatedEv := events[0]
+	p, ok := updatedEv.Participants["client@example.com"]
+	if !ok || p == nil {
+		t.Fatalf("Expected participant client@example.com in event")
+	}
+
+	if p.Status != "accepted" {
+		t.Errorf("Expected participant status 'accepted', got %q", p.Status)
+	}
+}
+
