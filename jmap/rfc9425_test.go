@@ -12,7 +12,7 @@ import (
 
 // TestRFC9425_Section2_Capability tests urn:ietf:params:jmap:quota capability discovery per RFC 9425 Section 2.
 func TestRFC9425_Section2_Capability(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -43,7 +43,7 @@ func TestRFC9425_Section2_Capability(t *testing.T) {
 
 // TestRFC9425_Section4_QuotaGet tests Quota/get method per RFC 9425 Section 4.
 func TestRFC9425_Section4_QuotaGet(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -81,7 +81,7 @@ func TestRFC9425_Section4_QuotaGet(t *testing.T) {
 
 // TestRFC9425_Section5_QuotaQuery tests Quota/query method per RFC 9425 Section 5.
 func TestRFC9425_Section5_QuotaQuery(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 

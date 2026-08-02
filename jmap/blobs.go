@@ -1,14 +1,10 @@
 package jmap
 
 import (
-	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 )
 
 // Blob represents a stored binary blob per RFC 8620 Section 6 and RFC 9404 Section 4.
@@ -20,60 +16,6 @@ type Blob struct {
 	Size         int64  `json:"size"`
 	DigestSHA256 string `json:"digest:sha-256,omitempty"`
 	Data         []byte `json:"-"`
-}
-
-// MemoryBlobBackend manages in-memory blob storage per RFC 8620 Section 6 & RFC 9404.
-type MemoryBlobBackend struct {
-	mu    sync.RWMutex
-	blobs map[string]*Blob
-}
-
-// Ensure MemoryBlobBackend implements BlobBackend interface.
-var _ BlobBackend = (*MemoryBlobBackend)(nil)
-
-// NewMemoryBlobBackend creates a new MemoryBlobBackend instance.
-func NewMemoryBlobBackend() *MemoryBlobBackend {
-	return &MemoryBlobBackend{
-		blobs: make(map[string]*Blob),
-	}
-}
-
-// PutBlob stores data and returns the created Blob metadata.
-func (b *MemoryBlobBackend) PutBlob(ctx context.Context, accountID, contentType string, data []byte) (*Blob, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	hash := sha256.Sum256(data)
-	fullHex := hex.EncodeToString(hash[:])
-	blobID := fullHex[:16]
-
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
-
-	blob := &Blob{
-		ID:           blobID,
-		BlobID:       blobID,
-		AccountID:    accountID,
-		Type:         contentType,
-		Size:         int64(len(data)),
-		DigestSHA256: fullHex,
-		Data:         data,
-	}
-
-	key := accountID + ":" + blobID
-	b.blobs[key] = blob
-	return blob, nil
-}
-
-// GetBlob retrieves blob metadata and data by account ID and blob ID.
-func (b *MemoryBlobBackend) GetBlob(ctx context.Context, accountID, blobID string) (*Blob, bool, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	key := accountID + ":" + blobID
-	blob, ok := b.blobs[key]
-	return blob, ok, nil
 }
 
 // HandleUpload handles POST requests to /upload/{accountId}/ per RFC 8620 Section 6.1.

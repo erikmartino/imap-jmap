@@ -10,7 +10,7 @@ import (
 )
 
 func TestWellKnownJMAP_Get(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -48,7 +48,7 @@ func TestWellKnownJMAP_Get(t *testing.T) {
 }
 
 func TestWellKnownJMAP_Head(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -69,7 +69,7 @@ func TestWellKnownJMAP_Head(t *testing.T) {
 }
 
 func TestWellKnownJMAP_MethodNotAllowed(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -85,7 +85,7 @@ func TestWellKnownJMAP_MethodNotAllowed(t *testing.T) {
 }
 
 func TestOtherRoutes_NotFound(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 

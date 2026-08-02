@@ -53,18 +53,6 @@ func NewServer(session *Session, opts ...Option) *Server {
 		opt(s)
 	}
 
-	if s.BlobBackend == nil {
-		s.BlobBackend = NewMemoryBlobBackend()
-	}
-	if s.MailBackend == nil {
-		s.MailBackend = NewMemoryBackend()
-	}
-
-	// Connect MemoryBackend broadcaster if possible
-	if mem, ok := s.MailBackend.(*MemoryBackend); ok && mem.broadcaster == nil {
-		mem.SetBroadcaster(s.Broadcaster)
-	}
-
 	RegisterMailHandlers(s.MethodRegistry, s.MailBackend)
 	RegisterBlobHandlers(s.MethodRegistry, s.BlobBackend)
 	RegisterQuotaHandlers(s.MethodRegistry, s.MailBackend)

@@ -31,7 +31,7 @@ func TestRFC8620_Section1_6_ObjectIdentifiers(t *testing.T) {
 
 // TestRFC8620_Section2_1_DiscoveringTheJMAPSessionResource tests session discovery per RFC 8620 Section 2.1.
 func TestRFC8620_Section2_1_DiscoveringTheJMAPSessionResource(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -52,7 +52,7 @@ func TestRFC8620_Section2_1_DiscoveringTheJMAPSessionResource(t *testing.T) {
 
 // TestRFC8620_Section2_2_TheJMAPSessionObject tests JMAP Session object structure per RFC 8620 Section 2.2.
 func TestRFC8620_Section2_2_TheJMAPSessionObject(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -80,7 +80,7 @@ func TestRFC8620_Section2_2_TheJMAPSessionObject(t *testing.T) {
 
 // TestRFC8620_Section3_1_StructureOfAJMAPRequest tests JMAP Request object per RFC 8620 Section 3.1.
 func TestRFC8620_Section3_1_StructureOfAJMAPRequest(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -128,7 +128,7 @@ func TestRFC8620_Section3_2_InvocationArrays(t *testing.T) {
 
 // TestRFC8620_Section3_3_ResultReference tests result reference evaluation per RFC 8620 Section 3.3.
 func TestRFC8620_Section3_3_ResultReference(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -173,7 +173,7 @@ func TestRFC8620_Section3_3_ResultReference(t *testing.T) {
 
 // TestRFC8620_Section3_4_ProcessingARequest tests standard request processing per RFC 8620 Section 3.4.
 func TestRFC8620_Section3_4_ProcessingARequest(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -198,7 +198,7 @@ func TestRFC8620_Section3_4_ProcessingARequest(t *testing.T) {
 
 // TestRFC8620_Section3_5_StructureOfAJMAPResponse tests JMAP Response object per RFC 8620 Section 3.5.
 func TestRFC8620_Section3_5_StructureOfAJMAPResponse(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -231,7 +231,7 @@ func TestRFC8620_Section3_5_StructureOfAJMAPResponse(t *testing.T) {
 
 // TestRFC8620_Section3_6_1_RequestErrors_InvalidJSON tests invalidJSON error per RFC 8620 Section 3.6.1.
 func TestRFC8620_Section3_6_1_RequestErrors_InvalidJSON(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -257,7 +257,7 @@ func TestRFC8620_Section3_6_1_RequestErrors_InvalidJSON(t *testing.T) {
 
 // TestRFC8620_Section3_6_1_RequestErrors_UnknownCapability tests unknownCapability error per RFC 8620 Section 3.6.1.
 func TestRFC8620_Section3_6_1_RequestErrors_UnknownCapability(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -289,7 +289,7 @@ func TestRFC8620_Section3_6_1_RequestErrors_UnknownCapability(t *testing.T) {
 
 // TestRFC8620_Section3_6_2_MethodErrors_UnknownMethod tests unknownMethod error per RFC 8620 Section 3.6.2.
 func TestRFC8620_Section3_6_2_MethodErrors_UnknownMethod(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -329,7 +329,7 @@ func TestRFC8620_Section3_6_2_MethodErrors_UnknownMethod(t *testing.T) {
 
 // TestRFC8620_Section3_6_2_MethodErrors_InvalidResultReference tests invalidResultReference error per RFC 8620 Section 3.6.2.
 func TestRFC8620_Section3_6_2_MethodErrors_InvalidResultReference(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -370,7 +370,7 @@ func TestRFC8620_Section3_6_2_MethodErrors_InvalidResultReference(t *testing.T) 
 
 // TestRFC8620_Section3_8_1_CoreEcho tests the Core/echo standard method per RFC 8620 Section 3.8.1.
 func TestRFC8620_Section3_8_1_CoreEcho(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -417,7 +417,7 @@ func TestRFC8620_Section3_8_1_CoreEcho(t *testing.T) {
 
 // TestRFC8620_Section6_1_UploadingBlobs tests blob uploading per RFC 8620 Section 6.1.
 func TestRFC8620_Section6_1_UploadingBlobs(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -450,7 +450,7 @@ func TestRFC8620_Section6_1_UploadingBlobs(t *testing.T) {
 
 // TestRFC8620_Section6_2_DownloadingBlobs tests blob downloading per RFC 8620 Section 6.2.
 func TestRFC8620_Section6_2_DownloadingBlobs(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 

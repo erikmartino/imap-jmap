@@ -12,7 +12,7 @@ import (
 
 // TestRFC8621_Section4_3_EmailSetUpdateKeywords tests Email/set update patch for keywords per RFC 8621 Section 4.3.
 func TestRFC8621_Section4_3_EmailSetUpdateKeywords(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 

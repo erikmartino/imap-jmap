@@ -1,4 +1,4 @@
-package jmap
+package memory
 
 import (
 	"context"
@@ -6,27 +6,29 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"imap-jmap/jmap"
 )
 
-// MemoryBackend implements MailBackend for in-memory stub storage per RFC 8621 & RFC 9219.
+// MemoryBackend implements jmap.MailBackend for in-memory stub storage per RFC 8621 & RFC 9219.
 type MemoryBackend struct {
 	mu          sync.RWMutex
-	mailboxes   map[Id]*Mailbox
-	threads     map[Id]*Thread
-	emails      map[Id]*Email
-	quotas      map[Id]*Quota
-	identities  map[Id]*Identity
-	submissions map[Id]*EmailSubmission
-	broadcaster *Broadcaster
+	mailboxes   map[jmap.Id]*jmap.Mailbox
+	threads     map[jmap.Id]*jmap.Thread
+	emails      map[jmap.Id]*jmap.Email
+	quotas      map[jmap.Id]*jmap.Quota
+	identities  map[jmap.Id]*jmap.Identity
+	submissions map[jmap.Id]*jmap.EmailSubmission
+	broadcaster *jmap.Broadcaster
 	idCounter   uint64
 	state       string
 }
 
-// Ensure MemoryBackend implements MailBackend interface.
-var _ MailBackend = (*MemoryBackend)(nil)
+// Ensure MemoryBackend implements jmap.MailBackend interface.
+var _ jmap.MailBackend = (*MemoryBackend)(nil)
 
 // SetBroadcaster connects a Broadcaster for SSE state notifications.
-func (mb *MemoryBackend) SetBroadcaster(b *Broadcaster) {
+func (mb *MemoryBackend) SetBroadcaster(b *jmap.Broadcaster) {
 	mb.mu.Lock()
 	defer mb.mu.Unlock()
 	mb.broadcaster = b
@@ -35,18 +37,18 @@ func (mb *MemoryBackend) SetBroadcaster(b *Broadcaster) {
 // NewMemoryBackend initializes a new MemoryBackend pre-populated with standard default mailboxes and stub messages.
 func NewMemoryBackend() *MemoryBackend {
 	mb := &MemoryBackend{
-		mailboxes:   make(map[Id]*Mailbox),
-		threads:     make(map[Id]*Thread),
-		emails:      make(map[Id]*Email),
-		quotas:      make(map[Id]*Quota),
-		identities:  make(map[Id]*Identity),
-		submissions: make(map[Id]*EmailSubmission),
+		mailboxes:   make(map[jmap.Id]*jmap.Mailbox),
+		threads:     make(map[jmap.Id]*jmap.Thread),
+		emails:      make(map[jmap.Id]*jmap.Email),
+		quotas:      make(map[jmap.Id]*jmap.Quota),
+		identities:  make(map[jmap.Id]*jmap.Identity),
+		submissions: make(map[jmap.Id]*jmap.EmailSubmission),
 		state:       "m1",
 	}
 
 	// Create default Quotas per RFC 9425
 	quotaOctetsDesc := "Storage quota in bytes for account"
-	mb.quotas["quota-octets"] = &Quota{
+	mb.quotas["quota-octets"] = &jmap.Quota{
 		ID:           "quota-octets",
 		Name:         "Storage Quota",
 		ResourceType: "octets",
@@ -57,7 +59,7 @@ func NewMemoryBackend() *MemoryBackend {
 	}
 
 	quotaMessagesDesc := "Message count quota for account"
-	mb.quotas["quota-messages"] = &Quota{
+	mb.quotas["quota-messages"] = &jmap.Quota{
 		ID:           "quota-messages",
 		Name:         "Message Count Quota",
 		ResourceType: "messages",
@@ -69,7 +71,7 @@ func NewMemoryBackend() *MemoryBackend {
 
 	// Create standard default mailboxes per RFC 8621 Section 2
 	inboxRole := "inbox"
-	inbox := &Mailbox{
+	inbox := &jmap.Mailbox{
 		ID:            "mb-inbox",
 		Name:          "Inbox",
 		Role:          &inboxRole,
@@ -78,7 +80,7 @@ func NewMemoryBackend() *MemoryBackend {
 		UnreadEmails:  0,
 		TotalThreads:  0,
 		UnreadThreads: 0,
-		MyRights: MailboxRights{
+		MyRights: jmap.MailboxRights{
 			MayReadItems:   true,
 			MayAddItems:    true,
 			MayRemoveItems: true,
@@ -93,7 +95,7 @@ func NewMemoryBackend() *MemoryBackend {
 	}
 
 	sentRole := "sent"
-	sent := &Mailbox{
+	sent := &jmap.Mailbox{
 		ID:            "mb-sent",
 		Name:          "Sent",
 		Role:          &sentRole,
@@ -102,7 +104,7 @@ func NewMemoryBackend() *MemoryBackend {
 		UnreadEmails:  0,
 		TotalThreads:  0,
 		UnreadThreads: 0,
-		MyRights: MailboxRights{
+		MyRights: jmap.MailboxRights{
 			MayReadItems:   true,
 			MayAddItems:    true,
 			MayRemoveItems: true,
@@ -117,7 +119,7 @@ func NewMemoryBackend() *MemoryBackend {
 	}
 
 	trashRole := "trash"
-	trash := &Mailbox{
+	trash := &jmap.Mailbox{
 		ID:            "mb-trash",
 		Name:          "Trash",
 		Role:          &trashRole,
@@ -126,7 +128,7 @@ func NewMemoryBackend() *MemoryBackend {
 		UnreadEmails:  0,
 		TotalThreads:  0,
 		UnreadThreads: 0,
-		MyRights: MailboxRights{
+		MyRights: jmap.MailboxRights{
 			MayReadItems:   true,
 			MayAddItems:    true,
 			MayRemoveItems: true,
@@ -145,7 +147,7 @@ func NewMemoryBackend() *MemoryBackend {
 	mb.mailboxes[trash.ID] = trash
 
 	// Default identity
-	defaultIdentity := &Identity{
+	defaultIdentity := &jmap.Identity{
 		ID:    "id-primary",
 		Name:  "Primary User",
 		Email: "user@example.com",
@@ -155,11 +157,11 @@ func NewMemoryBackend() *MemoryBackend {
 	// Create stub messages in Inbox
 	stubStatus := "signed"
 	stubVerifiedWith := "admin@example.com"
-	stub1 := &Email{
+	stub1 := &jmap.Email{
 		Subject:           "Welcome to JMAP Server",
-		From:              []EmailAddress{{Name: "JMAP Admin", Email: "admin@example.com"}},
-		To:                []EmailAddress{{Name: "Primary User", Email: "user@example.com"}},
-		MailboxIDs:        map[Id]bool{"mb-inbox": true},
+		From:              []jmap.EmailAddress{{Name: "JMAP Admin", Email: "admin@example.com"}},
+		To:                []jmap.EmailAddress{{Name: "Primary User", Email: "user@example.com"}},
+		MailboxIDs:        map[jmap.Id]bool{"mb-inbox": true},
 		Keywords:          map[string]bool{"$seen": true},
 		Size:              1024,
 		ReceivedAt:        "2026-08-01T12:00:00Z",
@@ -168,34 +170,34 @@ func NewMemoryBackend() *MemoryBackend {
 		BlobID:            "blob-stub-1",
 		SMIMEStatus:       &stubStatus,
 		SMIMEVerifiedWith: &stubVerifiedWith,
-		BodyStructure: EmailBodyPart{
+		BodyStructure: jmap.EmailBodyPart{
 			PartID: "1",
 			Type:   "text/plain",
 			Size:   75,
 		},
-		BodyValues: map[string]EmailBodyValue{
+		BodyValues: map[string]jmap.EmailBodyValue{
 			"1": {Value: "Welcome to your new JMAP mail server. This server supports RFC 8620 and RFC 8621."},
 		},
 	}
 	_, _ = mb.CreateEmail(context.Background(), stub1)
 
-	stub2 := &Email{
+	stub2 := &jmap.Email{
 		Subject:    "JMAP Core and Mail Specifications",
-		From:       []EmailAddress{{Name: "IETF JMAP WG", Email: "noreply@ietf.org"}},
-		To:         []EmailAddress{{Name: "Primary User", Email: "user@example.com"}},
-		MailboxIDs: map[Id]bool{"mb-inbox": true},
+		From:       []jmap.EmailAddress{{Name: "IETF JMAP WG", Email: "noreply@ietf.org"}},
+		To:         []jmap.EmailAddress{{Name: "Primary User", Email: "user@example.com"}},
+		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
 		Keywords:   map[string]bool{"$flagged": true},
 		Size:       2048,
 		ReceivedAt: "2026-08-01T14:30:00Z",
 		SentAt:     "2026-08-01T14:29:00Z",
 		Preview:    "This email verifies that your server supports RFC 8620 (JMAP Core) and RFC 8621 (JMAP Mail).",
 		BlobID:     "blob-stub-2",
-		BodyStructure: EmailBodyPart{
+		BodyStructure: jmap.EmailBodyPart{
 			PartID: "1",
 			Type:   "text/plain",
 			Size:   92,
 		},
-		BodyValues: map[string]EmailBodyValue{
+		BodyValues: map[string]jmap.EmailBodyValue{
 			"1": {Value: "This email verifies that your server supports RFC 8620 (JMAP Core) and RFC 8621 (JMAP Mail)."},
 		},
 	}
@@ -204,9 +206,9 @@ func NewMemoryBackend() *MemoryBackend {
 	return mb
 }
 
-func (mb *MemoryBackend) nextID(prefix string) Id {
+func (mb *MemoryBackend) nextID(prefix string) jmap.Id {
 	mb.idCounter++
-	return Id(fmt.Sprintf("%s-%d", prefix, mb.idCounter))
+	return jmap.Id(fmt.Sprintf("%s-%d", prefix, mb.idCounter))
 }
 
 func (mb *MemoryBackend) bumpState(typeName string) {
@@ -224,12 +226,12 @@ func (mb *MemoryBackend) State(ctx context.Context) string {
 }
 
 // GetMailboxes retrieves requested mailboxes by ID.
-func (mb *MemoryBackend) GetMailboxes(ctx context.Context, ids []Id) ([]*Mailbox, []Id, error) {
+func (mb *MemoryBackend) GetMailboxes(ctx context.Context, ids []jmap.Id) ([]*jmap.Mailbox, []jmap.Id, error) {
 	mb.mu.RLock()
 	defer mb.mu.RUnlock()
 
-	var list []*Mailbox
-	var notFound []Id
+	var list []*jmap.Mailbox
+	var notFound []jmap.Id
 
 	for _, id := range ids {
 		if item, ok := mb.mailboxes[id]; ok {
@@ -242,11 +244,11 @@ func (mb *MemoryBackend) GetMailboxes(ctx context.Context, ids []Id) ([]*Mailbox
 }
 
 // GetAllMailboxes retrieves all mailboxes.
-func (mb *MemoryBackend) GetAllMailboxes(ctx context.Context) ([]*Mailbox, error) {
+func (mb *MemoryBackend) GetAllMailboxes(ctx context.Context) ([]*jmap.Mailbox, error) {
 	mb.mu.RLock()
 	defer mb.mu.RUnlock()
 
-	list := make([]*Mailbox, 0, len(mb.mailboxes))
+	list := make([]*jmap.Mailbox, 0, len(mb.mailboxes))
 	for _, item := range mb.mailboxes {
 		list = append(list, item)
 	}
@@ -254,14 +256,14 @@ func (mb *MemoryBackend) GetAllMailboxes(ctx context.Context) ([]*Mailbox, error
 }
 
 // CreateMailbox creates a new mailbox.
-func (mb *MemoryBackend) CreateMailbox(ctx context.Context, item *Mailbox) (*Mailbox, error) {
+func (mb *MemoryBackend) CreateMailbox(ctx context.Context, item *jmap.Mailbox) (*jmap.Mailbox, error) {
 	mb.mu.Lock()
 	defer mb.mu.Unlock()
 
 	if item.ID == "" {
 		item.ID = mb.nextID("mb")
 	}
-	item.MyRights = MailboxRights{
+	item.MyRights = jmap.MailboxRights{
 		MayReadItems:   true,
 		MayAddItems:    true,
 		MayRemoveItems: true,
@@ -278,7 +280,7 @@ func (mb *MemoryBackend) CreateMailbox(ctx context.Context, item *Mailbox) (*Mai
 }
 
 // DeleteMailbox deletes a mailbox by ID.
-func (mb *MemoryBackend) DeleteMailbox(ctx context.Context, id Id) (bool, error) {
+func (mb *MemoryBackend) DeleteMailbox(ctx context.Context, id jmap.Id) (bool, error) {
 	mb.mu.Lock()
 	defer mb.mu.Unlock()
 
@@ -291,12 +293,12 @@ func (mb *MemoryBackend) DeleteMailbox(ctx context.Context, id Id) (bool, error)
 }
 
 // GetThreads retrieves threads by ID.
-func (mb *MemoryBackend) GetThreads(ctx context.Context, ids []Id) ([]*Thread, []Id, error) {
+func (mb *MemoryBackend) GetThreads(ctx context.Context, ids []jmap.Id) ([]*jmap.Thread, []jmap.Id, error) {
 	mb.mu.RLock()
 	defer mb.mu.RUnlock()
 
-	var list []*Thread
-	var notFound []Id
+	var list []*jmap.Thread
+	var notFound []jmap.Id
 
 	for _, id := range ids {
 		if item, ok := mb.threads[id]; ok {
@@ -309,12 +311,12 @@ func (mb *MemoryBackend) GetThreads(ctx context.Context, ids []Id) ([]*Thread, [
 }
 
 // GetEmails retrieves emails by ID.
-func (mb *MemoryBackend) GetEmails(ctx context.Context, ids []Id) ([]*Email, []Id, error) {
+func (mb *MemoryBackend) GetEmails(ctx context.Context, ids []jmap.Id) ([]*jmap.Email, []jmap.Id, error) {
 	mb.mu.RLock()
 	defer mb.mu.RUnlock()
 
-	var list []*Email
-	var notFound []Id
+	var list []*jmap.Email
+	var notFound []jmap.Id
 
 	for _, id := range ids {
 		if item, ok := mb.emails[id]; ok {
@@ -327,11 +329,11 @@ func (mb *MemoryBackend) GetEmails(ctx context.Context, ids []Id) ([]*Email, []I
 }
 
 // GetAllEmails retrieves all emails.
-func (mb *MemoryBackend) GetAllEmails(ctx context.Context) ([]*Email, error) {
+func (mb *MemoryBackend) GetAllEmails(ctx context.Context) ([]*jmap.Email, error) {
 	mb.mu.RLock()
 	defer mb.mu.RUnlock()
 
-	list := make([]*Email, 0, len(mb.emails))
+	list := make([]*jmap.Email, 0, len(mb.emails))
 	for _, item := range mb.emails {
 		list = append(list, item)
 	}
@@ -339,7 +341,7 @@ func (mb *MemoryBackend) GetAllEmails(ctx context.Context) ([]*Email, error) {
 }
 
 // CreateEmail creates a new email.
-func (mb *MemoryBackend) CreateEmail(ctx context.Context, em *Email) (*Email, error) {
+func (mb *MemoryBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jmap.Email, error) {
 	mb.mu.Lock()
 	defer mb.mu.Unlock()
 
@@ -350,7 +352,7 @@ func (mb *MemoryBackend) CreateEmail(ctx context.Context, em *Email) (*Email, er
 		em.ThreadID = mb.nextID("thread")
 	}
 	if em.MailboxIDs == nil {
-		em.MailboxIDs = make(map[Id]bool)
+		em.MailboxIDs = make(map[jmap.Id]bool)
 	}
 	if em.Keywords == nil {
 		em.Keywords = make(map[string]bool)
@@ -361,9 +363,9 @@ func (mb *MemoryBackend) CreateEmail(ctx context.Context, em *Email) (*Email, er
 	// Update Thread
 	th, ok := mb.threads[em.ThreadID]
 	if !ok {
-		th = &Thread{
+		th = &jmap.Thread{
 			ID:       em.ThreadID,
-			EmailIDs: []Id{em.ID},
+			EmailIDs: []jmap.Id{em.ID},
 		}
 		mb.threads[em.ThreadID] = th
 	} else {
@@ -377,7 +379,7 @@ func (mb *MemoryBackend) CreateEmail(ctx context.Context, em *Email) (*Email, er
 }
 
 func (mb *MemoryBackend) recalculateMailboxCounts() {
-	counts := make(map[Id]*struct{ unread, total uint64 })
+	counts := make(map[jmap.Id]*struct{ unread, total uint64 })
 	for mID := range mb.mailboxes {
 		counts[mID] = &struct{ unread, total uint64 }{}
 	}
@@ -412,7 +414,7 @@ func (mb *MemoryBackend) recalculateMailboxCounts() {
 }
 
 // UpdateEmail applies RFC 8621 Section 4.3 patch objects to an existing Email.
-func (mb *MemoryBackend) UpdateEmail(ctx context.Context, id Id, patch map[string]any) (*Email, error) {
+func (mb *MemoryBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.Email, error) {
 	mb.mu.Lock()
 	defer mb.mu.Unlock()
 
@@ -425,7 +427,7 @@ func (mb *MemoryBackend) UpdateEmail(ctx context.Context, id Id, patch map[strin
 		em.Keywords = make(map[string]bool)
 	}
 	if em.MailboxIDs == nil {
-		em.MailboxIDs = make(map[Id]bool)
+		em.MailboxIDs = make(map[jmap.Id]bool)
 	}
 
 	for path, val := range patch {
@@ -447,15 +449,15 @@ func (mb *MemoryBackend) UpdateEmail(ctx context.Context, id Id, patch map[strin
 			}
 		} else if path == "mailboxIds" {
 			if mbMap, ok := val.(map[string]any); ok {
-				em.MailboxIDs = make(map[Id]bool)
+				em.MailboxIDs = make(map[jmap.Id]bool)
 				for k, v := range mbMap {
 					if v != nil {
-						em.MailboxIDs[Id(k)] = true
+						em.MailboxIDs[jmap.Id(k)] = true
 					}
 				}
 			}
 		} else if strings.HasPrefix(path, "mailboxIds/") {
-			mID := Id(strings.TrimPrefix(path, "mailboxIds/"))
+			mID := jmap.Id(strings.TrimPrefix(path, "mailboxIds/"))
 			if val == nil {
 				delete(em.MailboxIDs, mID)
 			} else {
@@ -471,7 +473,7 @@ func (mb *MemoryBackend) UpdateEmail(ctx context.Context, id Id, patch map[strin
 }
 
 // DeleteEmail deletes an email by ID.
-func (mb *MemoryBackend) DeleteEmail(ctx context.Context, id Id) (bool, error) {
+func (mb *MemoryBackend) DeleteEmail(ctx context.Context, id jmap.Id) (bool, error) {
 	mb.mu.Lock()
 	defer mb.mu.Unlock()
 
@@ -483,7 +485,7 @@ func (mb *MemoryBackend) DeleteEmail(ctx context.Context, id Id) (bool, error) {
 
 	// Remove from thread
 	if th, ok := mb.threads[em.ThreadID]; ok {
-		newIDs := make([]Id, 0, len(th.EmailIDs))
+		newIDs := make([]jmap.Id, 0, len(th.EmailIDs))
 		for _, eid := range th.EmailIDs {
 			if eid != id {
 				newIDs = append(newIDs, eid)
@@ -503,25 +505,25 @@ func (mb *MemoryBackend) DeleteEmail(ctx context.Context, id Id) (bool, error) {
 }
 
 // QueryEmails evaluates filters, sorting, and pagination per RFC 8621 Section 4.5.
-func (mb *MemoryBackend) QueryEmails(ctx context.Context, filter map[string]any, comparators []Comparator, position int, limit *uint64) ([]Id, int, error) {
+func (mb *MemoryBackend) QueryEmails(ctx context.Context, filter map[string]any, comparators []jmap.Comparator, position int, limit *uint64) ([]jmap.Id, int, error) {
 	mb.mu.RLock()
 	defer mb.mu.RUnlock()
 
-	var matched []*Email
+	var matched []*jmap.Email
 	for _, em := range mb.emails {
-		if MatchesFilter(em, filter) {
+		if jmap.MatchesFilter(em, filter) {
 			matched = append(matched, em)
 		}
 	}
 
 	total := len(matched)
-	SortEmails(matched, comparators)
+	jmap.SortEmails(matched, comparators)
 
 	if position < 0 {
 		position = 0
 	}
 	if position > len(matched) {
-		return []Id{}, total, nil
+		return []jmap.Id{}, total, nil
 	}
 
 	end := len(matched)
@@ -533,7 +535,7 @@ func (mb *MemoryBackend) QueryEmails(ctx context.Context, filter map[string]any,
 	}
 
 	slice := matched[position:end]
-	ids := make([]Id, len(slice))
+	ids := make([]jmap.Id, len(slice))
 	for i, em := range slice {
 		ids[i] = em.ID
 	}
@@ -542,12 +544,12 @@ func (mb *MemoryBackend) QueryEmails(ctx context.Context, filter map[string]any,
 }
 
 // VerifySmime implements RFC 9219 Section 4 Email/verifySmime.
-func (mb *MemoryBackend) VerifySmime(ctx context.Context, ids []Id) (map[Id]*SmimeVerificationResult, []Id, error) {
+func (mb *MemoryBackend) VerifySmime(ctx context.Context, ids []jmap.Id) (map[jmap.Id]*jmap.SmimeVerificationResult, []jmap.Id, error) {
 	mb.mu.RLock()
 	defer mb.mu.RUnlock()
 
-	verified := make(map[Id]*SmimeVerificationResult)
-	var notFound []Id
+	verified := make(map[jmap.Id]*jmap.SmimeVerificationResult)
+	var notFound []jmap.Id
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	for _, id := range ids {
@@ -562,7 +564,7 @@ func (mb *MemoryBackend) VerifySmime(ctx context.Context, ids []Id) (map[Id]*Smi
 			status = *em.SMIMEStatus
 		}
 
-		res := &SmimeVerificationResult{
+		res := &jmap.SmimeVerificationResult{
 			SmimeStatus:       status,
 			SmimeStatusAt:     now,
 			SmimeVerifiedWith: em.SMIMEVerifiedWith,
@@ -575,11 +577,11 @@ func (mb *MemoryBackend) VerifySmime(ctx context.Context, ids []Id) (map[Id]*Smi
 }
 
 // GetIdentities retrieves all identities.
-func (mb *MemoryBackend) GetIdentities(ctx context.Context) ([]*Identity, error) {
+func (mb *MemoryBackend) GetIdentities(ctx context.Context) ([]*jmap.Identity, error) {
 	mb.mu.RLock()
 	defer mb.mu.RUnlock()
 
-	list := make([]*Identity, 0, len(mb.identities))
+	list := make([]*jmap.Identity, 0, len(mb.identities))
 	for _, item := range mb.identities {
 		list = append(list, item)
 	}
@@ -587,7 +589,7 @@ func (mb *MemoryBackend) GetIdentities(ctx context.Context) ([]*Identity, error)
 }
 
 // CreateSubmission creates an EmailSubmission.
-func (mb *MemoryBackend) CreateSubmission(ctx context.Context, sub *EmailSubmission) (*EmailSubmission, error) {
+func (mb *MemoryBackend) CreateSubmission(ctx context.Context, sub *jmap.EmailSubmission) (*jmap.EmailSubmission, error) {
 	mb.mu.Lock()
 	defer mb.mu.Unlock()
 
@@ -610,12 +612,12 @@ func (mb *MemoryBackend) CreateSubmission(ctx context.Context, sub *EmailSubmiss
 }
 
 // GetSubmissions retrieves EmailSubmissions by ID.
-func (mb *MemoryBackend) GetSubmissions(ctx context.Context, ids []Id) ([]*EmailSubmission, []Id, error) {
+func (mb *MemoryBackend) GetSubmissions(ctx context.Context, ids []jmap.Id) ([]*jmap.EmailSubmission, []jmap.Id, error) {
 	mb.mu.RLock()
 	defer mb.mu.RUnlock()
 
-	var list []*EmailSubmission
-	var notFound []Id
+	var list []*jmap.EmailSubmission
+	var notFound []jmap.Id
 
 	for _, id := range ids {
 		if sub, ok := mb.submissions[id]; ok {
@@ -628,12 +630,12 @@ func (mb *MemoryBackend) GetSubmissions(ctx context.Context, ids []Id) ([]*Email
 }
 
 // GetQuotas retrieves requested Quota objects by ID per RFC 9425 Section 4.
-func (mb *MemoryBackend) GetQuotas(ctx context.Context, ids []Id) ([]*Quota, []Id, error) {
+func (mb *MemoryBackend) GetQuotas(ctx context.Context, ids []jmap.Id) ([]*jmap.Quota, []jmap.Id, error) {
 	mb.mu.RLock()
 	defer mb.mu.RUnlock()
 
-	var list []*Quota
-	var notFound []Id
+	var list []*jmap.Quota
+	var notFound []jmap.Id
 
 	for _, id := range ids {
 		if q, ok := mb.quotas[id]; ok {
@@ -646,11 +648,11 @@ func (mb *MemoryBackend) GetQuotas(ctx context.Context, ids []Id) ([]*Quota, []I
 }
 
 // GetAllQuotas retrieves all Quota objects per RFC 9425 Section 4.
-func (mb *MemoryBackend) GetAllQuotas(ctx context.Context) ([]*Quota, error) {
+func (mb *MemoryBackend) GetAllQuotas(ctx context.Context) ([]*jmap.Quota, error) {
 	mb.mu.RLock()
 	defer mb.mu.RUnlock()
 
-	list := make([]*Quota, 0, len(mb.quotas))
+	list := make([]*jmap.Quota, 0, len(mb.quotas))
 	for _, q := range mb.quotas {
 		list = append(list, q)
 	}

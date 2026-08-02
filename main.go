@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"imap-jmap/jmap"
+	"imap-jmap/jmap/memory"
 )
 
 func main() {
@@ -33,7 +34,15 @@ func main() {
 	}
 
 	session := jmap.DefaultSession(publicURL)
-	server := jmap.NewServer(session)
+	memBackend := memory.NewMemoryBackend()
+	memBlobBackend := memory.NewMemoryBlobBackend()
+
+	server := jmap.NewServer(
+		session,
+		jmap.WithMailBackend(memBackend),
+		jmap.WithBlobBackend(memBlobBackend),
+	)
+	memBackend.SetBroadcaster(server.Broadcaster)
 
 	log.Printf("Starting JMAP server on http://%s (public URL: %s)", addr, publicURL)
 	log.Printf("Discovery endpoint: %s/.well-known/jmap", publicURL)

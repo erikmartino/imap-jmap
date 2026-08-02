@@ -8,11 +8,12 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
+	"imap-jmap/jmap/memory"
 )
 
 // TestRFC9404_Section2_Capability tests urn:ietf:params:jmap:blob capability discovery per RFC 9404 Section 2.
 func TestRFC9404_Section2_Capability(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -43,7 +44,7 @@ func TestRFC9404_Section2_Capability(t *testing.T) {
 
 // TestRFC9404_Section4_BlobGet tests Blob/get method per RFC 9404 Section 4.
 func TestRFC9404_Section4_BlobGet(t *testing.T) {
-	blobBackend := jmap.NewMemoryBlobBackend()
+	blobBackend := memory.NewMemoryBlobBackend()
 	_, _ = blobBackend.PutBlob(nil, "primary", "text/plain", []byte("Hello RFC 9404"))
 
 	srv := jmap.NewServer(nil, jmap.WithBlobBackend(blobBackend))
@@ -100,7 +101,7 @@ func TestRFC9404_Section4_BlobGet(t *testing.T) {
 
 // TestRFC9404_Section5_BlobUpload tests Blob/upload method per RFC 9404 Section 5.
 func TestRFC9404_Section5_BlobUpload(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 

@@ -15,7 +15,7 @@ import (
 
 // TestRFC8620_Section7_1_EventSourceConnection tests GET /eventsource streaming connection per RFC 8620 Section 7.1.
 func TestRFC8620_Section7_1_EventSourceConnection(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -43,7 +43,7 @@ func TestRFC8620_Section7_1_EventSourceConnection(t *testing.T) {
 
 // TestRFC8620_Section7_1_StateChangeBroadcast tests StateChange event broadcast on data changes per RFC 8620 Section 7.1.
 func TestRFC8620_Section7_1_StateChangeBroadcast(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 

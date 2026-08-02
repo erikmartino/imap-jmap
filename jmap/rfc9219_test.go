@@ -12,7 +12,7 @@ import (
 
 // TestRFC9219_Section2_Capability tests urn:ietf:params:jmap:smime capability discovery per RFC 9219 Section 2.
 func TestRFC9219_Section2_Capability(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -43,7 +43,7 @@ func TestRFC9219_Section2_Capability(t *testing.T) {
 
 // TestRFC9219_Section3_EmailSMIMEProperties tests S/MIME fields on Email/get per RFC 9219 Section 3.
 func TestRFC9219_Section3_EmailSMIMEProperties(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -94,7 +94,7 @@ func TestRFC9219_Section3_EmailSMIMEProperties(t *testing.T) {
 
 // TestRFC9219_Section4_EmailVerifySmime tests Email/verifySmime method per RFC 9219 Section 4.
 func TestRFC9219_Section4_EmailVerifySmime(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 

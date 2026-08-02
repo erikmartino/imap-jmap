@@ -12,7 +12,7 @@ import (
 
 // TestRFC8621_Section2_1_MailboxGet tests Mailbox/get per RFC 8621 Section 2.1.
 func TestRFC8621_Section2_1_MailboxGet(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -52,7 +52,7 @@ func TestRFC8621_Section2_1_MailboxGet(t *testing.T) {
 
 // TestRFC8621_Section2_3_MailboxSet tests Mailbox/set create and delete per RFC 8621 Section 2.3.
 func TestRFC8621_Section2_3_MailboxSet(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -93,7 +93,7 @@ func TestRFC8621_Section2_3_MailboxSet(t *testing.T) {
 
 // TestRFC8621_Section2_4_MailboxQuery tests Mailbox/query per RFC 8621 Section 2.4.
 func TestRFC8621_Section2_4_MailboxQuery(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -124,7 +124,7 @@ func TestRFC8621_Section2_4_MailboxQuery(t *testing.T) {
 
 // TestRFC8621_Section3_1_ThreadGet tests Thread/get per RFC 8621 Section 3.1.
 func TestRFC8621_Section3_1_ThreadGet(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -155,7 +155,7 @@ func TestRFC8621_Section3_1_ThreadGet(t *testing.T) {
 
 // TestRFC8621_Section4_1_EmailGet tests Email/get returning stub messages per RFC 8621 Section 4.1.
 func TestRFC8621_Section4_1_EmailGet(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -191,7 +191,7 @@ func TestRFC8621_Section4_1_EmailGet(t *testing.T) {
 
 // TestRFC8621_Section4_3_EmailSet tests Email/set create and destroy per RFC 8621 Section 4.3.
 func TestRFC8621_Section4_3_EmailSet(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -235,7 +235,7 @@ func TestRFC8621_Section4_3_EmailSet(t *testing.T) {
 
 // TestRFC8621_Section4_5_EmailQuery tests Email/query per RFC 8621 Section 4.5.
 func TestRFC8621_Section4_5_EmailQuery(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -266,7 +266,7 @@ func TestRFC8621_Section4_5_EmailQuery(t *testing.T) {
 
 // TestRFC8621_Section4_7_EmailImport tests Email/import per RFC 8621 Section 4.7.
 func TestRFC8621_Section4_7_EmailImport(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -302,7 +302,7 @@ func TestRFC8621_Section4_7_EmailImport(t *testing.T) {
 
 // TestRFC8621_Section4_8_EmailParse tests Email/parse per RFC 8621 Section 4.8.
 func TestRFC8621_Section4_8_EmailParse(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -336,7 +336,7 @@ func TestRFC8621_Section4_8_EmailParse(t *testing.T) {
 
 // TestRFC8621_Section6_1_IdentityGet tests Identity/get per RFC 8621 Section 6.1.
 func TestRFC8621_Section6_1_IdentityGet(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -367,7 +367,7 @@ func TestRFC8621_Section6_1_IdentityGet(t *testing.T) {
 
 // TestRFC8621_Section7_1_EmailSubmissionGet tests EmailSubmission/get per RFC 8621 Section 7.1.
 func TestRFC8621_Section7_1_EmailSubmissionGet(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -398,7 +398,7 @@ func TestRFC8621_Section7_1_EmailSubmissionGet(t *testing.T) {
 
 // TestRFC8621_Section7_3_EmailSubmissionSet tests sending an email via EmailSubmission/set per RFC 8621 Section 7.3.
 func TestRFC8621_Section7_3_EmailSubmissionSet(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -446,7 +446,7 @@ func TestRFC8621_Section7_3_EmailSubmissionSet(t *testing.T) {
 
 // TestRFC8621_Section4_5_1_EmailQueryFilteringAndSorting tests Email/query filtering (inMailbox, text) and sorting per RFC 8621 Section 4.5.
 func TestRFC8621_Section4_5_1_EmailQueryFilteringAndSorting(t *testing.T) {
-	srv := jmap.NewServer(nil)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
