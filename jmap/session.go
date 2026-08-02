@@ -1,5 +1,7 @@
 package jmap
 
+import "strings"
+
 // CoreCapabilityURI is the standard JMAP core capability URI defined in RFC 8620 Section 2.2.
 const CoreCapabilityURI = "urn:ietf:params:jmap:core"
 
@@ -20,6 +22,9 @@ const MdnCapabilityURI = "urn:ietf:params:jmap:mdn"
 
 // WebPushVapidCapabilityURI is the JMAP capability URI for VAPID Web Push per RFC 9749 Section 3.
 const WebPushVapidCapabilityURI = "urn:ietf:params:jmap:webpush-vapid"
+
+// WebSocketCapabilityURI is the JMAP capability URI for WebSocket transport per RFC 8887 Section 3.
+const WebSocketCapabilityURI = "urn:ietf:params:jmap:websocket"
 
 // CoreCapability defines the capability object for "urn:ietf:params:jmap:core" per RFC 8620 Section 2.2.
 type CoreCapability struct {
@@ -69,6 +74,14 @@ type MdnCapability struct{}
 type WebPushVapidCapability struct {
 	// ApplicationServerKey is the base64url-encoded VAPID public key (uncompressed P-256 point) per RFC 9749.
 	ApplicationServerKey string `json:"applicationServerKey"`
+}
+
+// WebSocketCapability defines the capability object for "urn:ietf:params:jmap:websocket" per RFC 8887 Section 3.
+type WebSocketCapability struct {
+	// URL is the wss:// URI to use for initiating a JMAP-over-WebSocket handshake per RFC 8887 Section 3.
+	URL string `json:"url"`
+	// SupportsPush indicates whether the server supports push notifications over the WebSocket per RFC 8887 Section 4.3.5.
+	SupportsPush bool `json:"supportsPush"`
 }
 
 // Account defines an account object in the JMAP Session per RFC 8620 Section 2.
@@ -135,6 +148,11 @@ func DefaultSession(baseURL string) *Session {
 			// The placeholder key is a no-op base64url-encoded NIST P-256 uncompressed public key point.
 			WebPushVapidCapabilityURI: WebPushVapidCapability{
 				ApplicationServerKey: "BCVxsr7N_eNgVRqvHtD0zTZsEc9-Lkvr-4km-ML7dvHfBQNO-leJAM5bkUtZikUUIaKGZvgVmsBbj56IL57-BgM",
+			},
+			// RFC 8887: JMAP WebSocket subprotocol capability.
+			WebSocketCapabilityURI: WebSocketCapability{
+				URL:          strings.Replace(strings.Replace(baseURL, "http://", "ws://", 1), "https://", "wss://", 1) + "/jmap/ws",
+				SupportsPush: true,
 			},
 		},
 		Accounts: map[string]Account{

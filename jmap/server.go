@@ -65,6 +65,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/jmap", s.handleWellKnownJMAP)
 	mux.HandleFunc("/jmap", s.handleAPI)
+	mux.HandleFunc("/jmap/ws", s.HandleWebSocket)
 	mux.HandleFunc("/upload/", s.HandleUpload)
 	mux.HandleFunc("/download/", s.HandleDownload)
 	mux.HandleFunc("/eventsource", s.HandleEventSource)
