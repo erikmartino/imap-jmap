@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"imap-jmap/jmap"
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 )
 
 // TestRFC8887_SessionCapability tests that urn:ietf:params:jmap:websocket is present in the session per RFC 8887 Section 3.

@@ -11,7 +11,7 @@ import (
 
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/memory"
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 )
 
 // newAuthTestServer creates a test server with MemoryAuthBackend wired in.
