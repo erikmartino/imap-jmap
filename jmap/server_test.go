@@ -47,6 +47,58 @@ func TestWellKnownJMAP_Get(t *testing.T) {
 	}
 }
 
+func TestWellKnownJMAP_RequestBasedURLs(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	req, err := http.NewRequest("GET", ts.URL+"/.well-known/jmap", nil)
+	if err != nil {
+		t.Fatalf("Failed to create request: %v", err)
+	}
+	req.Host = "jmap.example.com:8443"
+	req.Header.Set("X-Forwarded-Proto", "https")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Failed to execute request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var session jmap.Session
+	if err := json.NewDecoder(resp.Body).Decode(&session); err != nil {
+		t.Fatalf("Failed to decode session JSON: %v", err)
+	}
+
+	expectedPrefix := "https://jmap.example.com:8443"
+	if session.APIURL != expectedPrefix+"/jmap" {
+		t.Errorf("Expected APIURL %q, got %q", expectedPrefix+"/jmap", session.APIURL)
+	}
+	if session.UploadURL != expectedPrefix+"/upload/{accountId}/" {
+		t.Errorf("Expected UploadURL %q, got %q", expectedPrefix+"/upload/{accountId}/", session.UploadURL)
+	}
+	if session.DownloadURL != expectedPrefix+"/download/{accountId}/{blobId}/{name}?type={type}" {
+		t.Errorf("Expected DownloadURL starting with %q, got %q", expectedPrefix, session.DownloadURL)
+	}
+	if session.EventSourceURL != expectedPrefix+"/eventsource?types={types}&closeafter={closeafter}&ping={ping}" {
+		t.Errorf("Expected EventSourceURL starting with %q, got %q", expectedPrefix, session.EventSourceURL)
+	}
+
+	wsCapRaw, ok := session.Capabilities[jmap.WebSocketCapabilityURI]
+	if !ok {
+		t.Fatalf("Expected websocket capability in session")
+	}
+	wsMap, ok := wsCapRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("Expected websocket capability map, got %T", wsCapRaw)
+	}
+	expectedWSURL := "wss://jmap.example.com:8443/jmap/ws"
+	if wsMap["url"] != expectedWSURL {
+		t.Errorf("Expected websocket url %q, got %q", expectedWSURL, wsMap["url"])
+	}
+}
+
 func TestWellKnownJMAP_Head(t *testing.T) {
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())

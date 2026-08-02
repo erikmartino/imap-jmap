@@ -3,6 +3,7 @@ package jmap
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 )
 
 // Server encapsulates the JMAP server handler, session object, blob backend, mail backend, and method registry.
@@ -108,6 +109,57 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+func requestBaseURL(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	host := r.Host
+	if xfh := r.Header.Get("X-Forwarded-Host"); xfh != "" {
+		host = xfh
+	}
+	return scheme + "://" + host
+}
+
+func (s *Server) sessionForRequest(r *http.Request) *Session {
+	if s.Session == nil {
+		return DefaultSession(requestBaseURL(r))
+	}
+
+	baseURL := requestBaseURL(r)
+	sess := *s.Session
+
+	// Clone capabilities map to avoid mutating template session concurrently
+	caps := make(map[string]any, len(s.Session.Capabilities))
+	for k, v := range s.Session.Capabilities {
+		if k == WebSocketCapabilityURI {
+			wsScheme := "ws"
+			if strings.HasPrefix(baseURL, "https://") {
+				wsScheme = "wss"
+			}
+			wsHost := strings.TrimPrefix(strings.TrimPrefix(baseURL, "http://"), "https://")
+			wsCap := WebSocketCapability{
+				URL:          wsScheme + "://" + wsHost + "/jmap/ws",
+				SupportsPush: true,
+			}
+			if origWs, ok := v.(WebSocketCapability); ok {
+				wsCap.SupportsPush = origWs.SupportsPush
+			}
+			caps[k] = wsCap
+		} else {
+			caps[k] = v
+		}
+	}
+	sess.Capabilities = caps
+
+	sess.APIURL = baseURL + "/jmap"
+	sess.DownloadURL = baseURL + "/download/{accountId}/{blobId}/{name}?type={type}"
+	sess.UploadURL = baseURL + "/upload/{accountId}/"
+	sess.EventSourceURL = baseURL + "/eventsource?types={types}&closeafter={closeafter}&ping={ping}"
+
+	return &sess
+}
+
 func (s *Server) handleWellKnownJMAP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/.well-known/jmap" {
 		http.NotFound(w, r)
@@ -119,7 +171,7 @@ func (s *Server) handleWellKnownJMAP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		if r.Method == http.MethodGet {
-			_ = json.NewEncoder(w).Encode(s.Session)
+			_ = json.NewEncoder(w).Encode(s.sessionForRequest(r))
 		}
 	default:
 		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
