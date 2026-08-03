@@ -8,6 +8,9 @@ const CoreCapabilityURI = "urn:ietf:params:jmap:core"
 // MailCapabilityURI is the standard JMAP mail capability URI defined in RFC 8621 Section 2.
 const MailCapabilityURI = "urn:ietf:params:jmap:mail"
 
+// SubmissionCapabilityURI is the standard JMAP submission capability URI defined in RFC 8621 Section 7.
+const SubmissionCapabilityURI = "urn:ietf:params:jmap:submission"
+
 // SmimeCapabilityURI is the standard JMAP S/MIME capability URI defined in RFC 9219 Section 2.
 const SmimeCapabilityURI = "urn:ietf:params:jmap:smime"
 
@@ -146,6 +149,9 @@ type Session struct {
 	State           string             `json:"state"`
 }
 
+// SubmissionCapability defines the capability object for "urn:ietf:params:jmap:submission" per RFC 8621 Section 7.
+type SubmissionCapability struct{}
+
 // DefaultSession creates a default RFC 8620 / 8621 / 9219 / 9404 / 9425 compliant Session object.
 func DefaultSession(baseURL string) *Session {
 	if baseURL == "" {
@@ -174,6 +180,7 @@ func DefaultSession(baseURL string) *Session {
 				EmailQuerySortOptions:    []string{"receivedAt", "sentAt", "size", "subject", "from", "to", "hasKeyword", "allInThreadHaveKeyword", "someInThreadHaveKeyword"},
 				MayCreateTopLevelMailbox: true,
 			},
+			SubmissionCapabilityURI: SubmissionCapability{},
 			SmimeCapabilityURI: SmimeCapability{
 				SmimeVerificationSupported: true,
 			},

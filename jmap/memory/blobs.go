@@ -63,6 +63,21 @@ func (b *MemoryBlobBackend) GetBlob(ctx context.Context, accountID, blobID strin
 	return blob, ok, nil
 }
 
+// GetAllBlobs retrieves all blobs for an account ID.
+func (b *MemoryBlobBackend) GetAllBlobs(ctx context.Context, accountID string) ([]*jmap.Blob, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	var list []*jmap.Blob
+	prefix := accountID + ":"
+	for key, blob := range b.blobs {
+		if accountID == "" || key == prefix || len(key) > len(prefix) && key[:len(prefix)] == prefix {
+			list = append(list, blob)
+		}
+	}
+	return list, nil
+}
+
 // CopyBlob copies a blob from fromAccountID to toAccountID per RFC 9404 Section 4.
 func (b *MemoryBlobBackend) CopyBlob(ctx context.Context, fromAccountID, toAccountID string, blobID string) (*jmap.Blob, error) {
 	b.mu.Lock()

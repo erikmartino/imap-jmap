@@ -14,18 +14,26 @@ import (
 func handleThreadGet(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
-		idsRaw, _ := args["ids"].([]any)
+		idsRaw, hasIDs := args["ids"].([]any)
 		props := parseProperties(args)
 
-		ids := make([]Id, 0, len(idsRaw))
-		for _, item := range idsRaw {
-			if idStr, ok := item.(string); ok {
-				ids = append(ids, Id(idStr))
+		var list []*Thread
+		var notFound []Id
+		var err error
+
+		if hasIDs {
+			ids := make([]Id, 0, len(idsRaw))
+			for _, item := range idsRaw {
+				if idStr, ok := item.(string); ok {
+					ids = append(ids, Id(idStr))
+				}
 			}
+			list, notFound, err = backend.GetThreads(ctx, ids)
+		} else {
+			list, err = backend.GetAllThreads(ctx)
 		}
 
-		list, notFound, _ := backend.GetThreads(ctx, ids)
-		if list == nil {
+		if err != nil || list == nil {
 			list = []*Thread{}
 		}
 		if notFound == nil {
@@ -638,7 +646,7 @@ func handleEmailVerifySmime(backend MailBackend) MethodHandler {
 func handleSearchSnippetGet(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
-		emailIDsRaw, _ := args["emailIds"].([]any)
+		emailIDsRaw, hasIDs := args["emailIds"].([]any)
 
 		var filterText string
 		if filterMap, ok := args["filter"].(map[string]any); ok {
@@ -649,14 +657,25 @@ func handleSearchSnippetGet(backend MailBackend) MethodHandler {
 			}
 		}
 
-		ids := make([]Id, 0, len(emailIDsRaw))
-		for _, item := range emailIDsRaw {
-			if idStr, ok := item.(string); ok {
-				ids = append(ids, Id(idStr))
+		var emails []*Email
+		var notFound []Id
+		var err error
+
+		if hasIDs {
+			ids := make([]Id, 0, len(emailIDsRaw))
+			for _, item := range emailIDsRaw {
+				if idStr, ok := item.(string); ok {
+					ids = append(ids, Id(idStr))
+				}
 			}
+			emails, notFound, err = backend.GetEmails(ctx, ids)
+		} else {
+			emails, err = backend.GetAllEmails(ctx)
 		}
 
-		emails, notFound, _ := backend.GetEmails(ctx, ids)
+		if err != nil || emails == nil {
+			emails = []*Email{}
+		}
 		if notFound == nil {
 			notFound = []Id{}
 		}

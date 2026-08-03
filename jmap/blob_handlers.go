@@ -18,20 +18,24 @@ func RegisterBlobHandlers(r *MethodRegistry, backend BlobBackend, refs BlobRefer
 func handleBlobGet(backend BlobBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
-		idsRaw, _ := args["ids"].([]any)
+		idsRaw, hasIDs := args["ids"].([]any)
 
 		var list []*Blob
 		var notFound []Id
 
-		for _, item := range idsRaw {
-			if idStr, ok := item.(string); ok {
-				blob, ok, _ := backend.GetBlob(ctx, accountID, idStr)
-				if ok {
-					list = append(list, blob)
-				} else {
-					notFound = append(notFound, Id(idStr))
+		if hasIDs {
+			for _, item := range idsRaw {
+				if idStr, ok := item.(string); ok {
+					blob, ok, _ := backend.GetBlob(ctx, accountID, idStr)
+					if ok {
+						list = append(list, blob)
+					} else {
+						notFound = append(notFound, Id(idStr))
+					}
 				}
 			}
+		} else {
+			list, _ = backend.GetAllBlobs(ctx, accountID)
 		}
 
 		if list == nil {
