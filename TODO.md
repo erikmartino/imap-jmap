@@ -22,17 +22,17 @@ DAV: PUT property preservation, REPORT filters, sync-token/etag stability, RFC 6
 - [x] **Missing filter properties:** Mailbox `hasAnyRole`/`isSubscribed` (RFC 8621 §2.4.1); Quota/query ignores `filter` entirely (name/scope/resourceType/type, RFC 9425 §4.4); CalendarEvent `uid`/`updatedBefore`/`updatedAfter`. Implement + pos/neg tests.
 - [x] **`Thread/get` with `ids: null` returns empty list** instead of all threads (email_handlers.go:16) (RFC 8621 §3.1). Same defect class: EmailSubmission/get, SearchSnippet/get, Blob/get, Email/verifySmime.
 - [x] **`EmailSubmission/set` has no `destroy` support** (RFC 8621 §7.3) — backend has no `DeleteSubmission`; `onSuccessUpdate/DestroyEmail` error paths silently swallowed. Implement + tests.
-- [ ] **`EmailSubmission/get`/`Identity/get`/`EmailSubmission/changes`/`Quota/changes`/`Quota/queryChanges`/`Thread/changes`/`Calendar/changes`/`CalendarEvent/changes`/`CalendarEvent/sendResponse`/`ContactCard/*` aliases have zero tests** (several are handler-level-only gaps with backend coverage). Add handler-level tests.
+- [x] **`EmailSubmission/get`/`Identity/get`/`EmailSubmission/changes`/`Quota/changes`/`Quota/queryChanges`/`Thread/changes`/`Calendar/changes`/`CalendarEvent/changes`/`CalendarEvent/sendResponse`/`ContactCard/*` aliases have zero tests** (several are handler-level-only gaps with backend coverage). Add handler-level tests.
 
 ## Then (test coverage backlog — implemented but unexercised)
-- [ ] `stateMismatch` tests for all 9 untested `*/set` handlers (only Email covered).
-- [ ] `notDestroyed` asserted for all 10 handlers (0 tests today); `notUpdated` with correct SetError type (only 1 test, type unasserted).
+- [x] `stateMismatch` tests for all 9 untested `*/set` handlers (only Email covered).
+- [x] `notDestroyed` asserted for all 10 handlers (0 tests today); `notUpdated` with correct SetError type (only 1 test, type unasserted).
 - [ ] `cannotCalculateChanges` tests for all 5 `queryChanges` handlers (0 tests today).
 - [ ] Pagination tests for every `*/query`: position/limit slicing, position beyond end, limit 0, negative position, calculateTotal with filter.
 - [ ] Mixed valid+invalid `ids` → `notFound` tests for every `/get` (only Blob/get, verifySmime, MDN/parse covered).
 - [ ] Sort tests: order assertions (asc/desc, multi-comparator tie-break, default sort) — current test asserts count only.
 - [ ] Filter positive+negative per property: Email `cc`, `bcc`, `header` (name-only and name+value), `hasAttachment`, direct `notKeyword`; Mailbox `role`/`parentId`/`name`; Card 18 of 20 RFC 9610 §3.3.1 conditions untested (only `email`); CalendarEvent `inCalendar`/`description`/`location`/`text`; FileNode `name`/`type`/`isFolder`/`parentId:""`; SieveScript `name`/`isValid`.
-- [ ] PushSubscription/get + set round-trip (create/get/update/destroy, notCreated/notDestroyed) + real `PushVerification` HTTP POST assertion.
+- [x] PushSubscription/get + set round-trip (create/get/update/destroy, notCreated/notDestroyed) + real `PushVerification` HTTP POST assertion.
 - [ ] `Email/import`/`Email/parse` error paths: `blobNotFound`, missing blobId → `invalidProperties`, `notParsable`, `notFound`; client overrides (keywords/mailboxIds/receivedAt) applied.
 - [ ] `Email/verifySmime` payload assertions (result fields), not just key presence.
 - [ ] `Email/copy`: `notCreated` for missing source, new id + new threadId, overrides applied, original survives without `onSuccessDestroyOriginal`.
@@ -40,8 +40,8 @@ DAV: PUT property preservation, REPORT filters, sync-token/etag stability, RFC 6
 - [ ] `CalendarEvent/sendResponse`: participant status persisted, valid iTIP REPLY, notFound error.
 - [ ] `Email/set` data-loss regression over HTTP: partial update (keywords/mailboxIds patch) leaves untouched fields intact.
 - [ ] `maxChanges` truncation + `hasMoreChanges` over HTTP; `sinceQueryState` too old.
-- [ ] JSON pointer escaping (`~0`/`~1`) and invalid pointer paths in result references.
-- [ ] Compile-time assertions `var _ jmap.XxxBackend = (*MemoryXxxBackend)(nil)` for Contacts, Calendar, Sieve, IMAPAccess backends (AGENTS.md requirement).
+- [x] JSON pointer escaping (`~0`/`~1`) and invalid pointer paths in result references.
+- [x] Compile-time assertions `var _ jmap.XxxBackend = (*MemoryXxxBackend)(nil)` for Contacts, Calendar, Sieve, IMAPAccess backends (AGENTS.md requirement).
 
 ## Not a goal
 - RFC 9670 JMAP Sharing (explicitly out of scope in AGENTS.md).
