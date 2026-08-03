@@ -7,10 +7,34 @@ import (
 	"imap-jmap/jmap"
 )
 
-// TestUpdateCard_PreservesUntouchedFields verifies that a partial Card patch
+// TestRFC8620_SeedSampleData verifies that SeedSampleData populates sample emails, calendars, and events.
+func TestRFC8620_SeedSampleData(t *testing.T) {
+	mb := NewMemoryBackend()
+	cb := NewMemoryCalendarsBackend()
+	ctx := context.Background()
+
+	SeedSampleData(mb, cb)
+
+	emails, err := mb.GetAllEmails(ctx)
+	if err != nil || len(emails) < 5 {
+		t.Errorf("Expected at least 5 seeded emails, got %d", len(emails))
+	}
+
+	cals, _, err := cb.GetCalendars(ctx, nil)
+	if err != nil || len(cals) < 2 {
+		t.Errorf("Expected at least 2 seeded calendars, got %d", len(cals))
+	}
+
+	events, _, err := cb.GetCalendarEvents(ctx, nil)
+	if err != nil || len(events) < 3 {
+		t.Errorf("Expected at least 3 seeded calendar events, got %d", len(events))
+	}
+}
+
+// TestRFC9610_UpdateCard_PreservesUntouchedFields verifies that a partial Card patch
 // patches only the addressed fields and never zeroes out properties omitted
-// from the patch (data-loss prevention).
-func TestUpdateCard_PreservesUntouchedFields(t *testing.T) {
+// from the patch (data-loss prevention) per RFC 9610.
+func TestRFC9610_UpdateCard_PreservesUntouchedFields(t *testing.T) {
 	b := NewMemoryContactsBackend()
 	ctx := context.Background()
 
@@ -63,7 +87,8 @@ func TestUpdateCard_PreservesUntouchedFields(t *testing.T) {
 	}
 }
 
-func TestUpdateCard_ChangesTracked(t *testing.T) {
+// TestRFC9610_UpdateCard_ChangesTracked tests RFC 9610 Card state changes.
+func TestRFC9610_UpdateCard_ChangesTracked(t *testing.T) {
 	b := NewMemoryContactsBackend()
 	ctx := context.Background()
 
@@ -92,7 +117,8 @@ func TestUpdateCard_ChangesTracked(t *testing.T) {
 	}
 }
 
-func TestUpdateAddressBook_PreservesUntouchedFields(t *testing.T) {
+// TestRFC9610_UpdateAddressBook_PreservesUntouchedFields tests RFC 9610 AddressBook patch updates.
+func TestRFC9610_UpdateAddressBook_PreservesUntouchedFields(t *testing.T) {
 	b := NewMemoryContactsBackend()
 	ctx := context.Background()
 
@@ -121,7 +147,8 @@ func TestUpdateAddressBook_PreservesUntouchedFields(t *testing.T) {
 	}
 }
 
-func TestQueryCards_FilterEmail(t *testing.T) {
+// TestRFC9610_QueryCards_FilterEmail tests RFC 9610 Card query email filtering.
+func TestRFC9610_QueryCards_FilterEmail(t *testing.T) {
 	b := NewMemoryContactsBackend()
 	ctx := context.Background()
 
@@ -146,7 +173,8 @@ func TestQueryCards_FilterEmail(t *testing.T) {
 	}
 }
 
-func TestUpdateCalendarEvent_FullPatch(t *testing.T) {
+// TestRFC8984_UpdateCalendarEvent_FullPatch tests RFC 8984 CalendarEvent patch updates.
+func TestRFC8984_UpdateCalendarEvent_FullPatch(t *testing.T) {
 	b := NewMemoryCalendarsBackend()
 	ctx := context.Background()
 
@@ -190,7 +218,8 @@ func TestUpdateCalendarEvent_FullPatch(t *testing.T) {
 	}
 }
 
-func TestQueryCalendarEvents_Filters(t *testing.T) {
+// TestRFC8984_QueryCalendarEvents_Filters tests RFC 8984 CalendarEvent query filtering.
+func TestRFC8984_QueryCalendarEvents_Filters(t *testing.T) {
 	b := NewMemoryCalendarsBackend()
 	ctx := context.Background()
 
@@ -220,7 +249,8 @@ func TestQueryCalendarEvents_Filters(t *testing.T) {
 	_ = total
 }
 
-func TestSieveScriptChangesTracked(t *testing.T) {
+// TestRFC9661_SieveScriptChangesTracked tests RFC 9661 SieveScript state change tracking.
+func TestRFC9661_SieveScriptChangesTracked(t *testing.T) {
 	b := NewMemorySieveBackend()
 	ctx := context.Background()
 
@@ -263,7 +293,8 @@ func TestSieveScriptChangesTracked(t *testing.T) {
 	}
 }
 
-func TestParseMDN_UnknownBlobReturnsErr(t *testing.T) {
+// TestRFC9007_ParseMDN_UnknownBlobReturnsErr tests RFC 9007 MDN parsing on unknown blob.
+func TestRFC9007_ParseMDN_UnknownBlobReturnsErr(t *testing.T) {
 	mb := NewMemoryBackend()
 	_, err := mb.ParseMDN(context.Background(), "no-such-blob")
 	if err == nil {
@@ -274,7 +305,8 @@ func TestParseMDN_UnknownBlobReturnsErr(t *testing.T) {
 	}
 }
 
-func TestParseMDN_KnownBlobParses(t *testing.T) {
+// TestRFC9007_ParseMDN_KnownBlobParses tests RFC 9007 MDN parsing on existing blob.
+func TestRFC9007_ParseMDN_KnownBlobParses(t *testing.T) {
 	mb := NewMemoryBackend()
 	mdn, err := mb.ParseMDN(context.Background(), "blob-stub-1")
 	if err != nil {
@@ -283,7 +315,8 @@ func TestParseMDN_KnownBlobParses(t *testing.T) {
 	_ = mdn
 }
 
-func TestAuthTokenExpiryAndRevocation(t *testing.T) {
+// TestRFC8620_AuthTokenExpiryAndRevocation tests RFC 8620 token expiration and revocation.
+func TestRFC8620_AuthTokenExpiryAndRevocation(t *testing.T) {
 	a := NewMemoryAuthBackend()
 	ctx := context.Background()
 

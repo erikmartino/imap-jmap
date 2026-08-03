@@ -101,6 +101,7 @@ func NewServer(session *Session, opts ...Option) *Server {
 	RegisterCalendarHandlers(s.MethodRegistry, s.CalendarsBackend, s.MailBackend)
 	RegisterSieveHandlers(s.MethodRegistry, s.SieveBackend)
 	RegisterIMAPAccessHandlers(s.MethodRegistry, s.IMAPAccessBackend)
+	RegisterFileNodeHandlers(s.MethodRegistry)
 
 	return s
 }

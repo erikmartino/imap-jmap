@@ -38,6 +38,14 @@ const SieveCapabilityURI = "urn:ietf:params:jmap:sieve"
 // ImapAccessCapabilityURI is the JMAPACCESS extension for IMAP capability URI defined in RFC 9698 Section 2.
 const ImapAccessCapabilityURI = "urn:ietf:params:jmap:imapaccess"
 
+// FileNodeCapabilityURI is the JMAP capability URI for FileNode file storage extension.
+const FileNodeCapabilityURI = "urn:ietf:params:jmap:filenode"
+
+// FileNodeCapability defines the capability object for "urn:ietf:params:jmap:filenode".
+type FileNodeCapability struct {
+	MaxFileSize uint64 `json:"maxFileSize,omitempty"`
+}
+
 // ImapAccessCapability defines the capability object for "urn:ietf:params:jmap:imapaccess" per RFC 9698 Section 2.
 type ImapAccessCapability struct{}
 
@@ -204,6 +212,10 @@ func DefaultSession(baseURL string) *Session {
 			},
 			// RFC 9698: JMAPACCESS Extension for IMAP.
 			ImapAccessCapabilityURI: ImapAccessCapability{},
+			// FileNode file storage extension capability.
+			FileNodeCapabilityURI: FileNodeCapability{
+				MaxFileSize: 50000000,
+			},
 		},
 		Accounts: map[string]Account{
 			"primary": {
@@ -222,6 +234,7 @@ func DefaultSession(baseURL string) *Session {
 					CalendarsCapabilityURI:    struct{}{},
 					SieveCapabilityURI:        struct{}{},
 					ImapAccessCapabilityURI:   struct{}{},
+					FileNodeCapabilityURI:     struct{}{},
 				},
 			},
 		},
@@ -237,6 +250,7 @@ func DefaultSession(baseURL string) *Session {
 			CalendarsCapabilityURI:    "primary",
 			SieveCapabilityURI:        "primary",
 			ImapAccessCapabilityURI:   "primary",
+			FileNodeCapabilityURI:     "primary",
 		},
 		Username:       "user@example.com",
 		APIURL:         baseURL + "/jmap",

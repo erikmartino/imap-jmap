@@ -234,7 +234,7 @@ func NewMemoryBackend() *MemoryBackend {
 	}
 	mb.identities[defaultIdentity.ID] = defaultIdentity
 
-	// Create stub messages in Inbox
+	// Create sample emails in Inbox, Sent, Drafts, and Archive
 	stubStatus := "signed"
 	stubVerifiedWith := "admin@example.com"
 	stub1 := &jmap.Email{

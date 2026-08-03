@@ -17,10 +17,10 @@ import (
 	jmapsmtp "imap-jmap/smtp"
 )
 
-// TestSMTPReceiveToJMAPPushIntegration verifies that sending an email over SMTP
+// TestRFC8621_SMTPReceiveToJMAPPushIntegration verifies that sending an email over SMTP
 // triggers an RFC 8620 SSE StateChange push notification over JMAP /eventsource
-// and makes the email queryable via JMAP Email/get.
-func TestSMTPReceiveToJMAPPushIntegration(t *testing.T) {
+// and makes the email queryable via JMAP Email/get per RFC 8621.
+func TestRFC8621_SMTPReceiveToJMAPPushIntegration(t *testing.T) {
 	// 1. Initialize backends & JMAP Server
 	memBackend := memory.NewMemoryBackend()
 	memBlobBackend := memory.NewMemoryBlobBackend()

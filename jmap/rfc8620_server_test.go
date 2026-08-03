@@ -9,7 +9,8 @@ import (
 	"imap-jmap/jmap"
 )
 
-func TestWellKnownJMAP_Get(t *testing.T) {
+// TestRFC8620_WellKnownJMAP_Get tests RFC 8620 Section 2.2 /.well-known/jmap GET session resource discovery.
+func TestRFC8620_WellKnownJMAP_Get(t *testing.T) {
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -47,7 +48,8 @@ func TestWellKnownJMAP_Get(t *testing.T) {
 	}
 }
 
-func TestWellKnownJMAP_RequestBasedURLs(t *testing.T) {
+// TestRFC8620_WellKnownJMAP_RequestBasedURLs tests RFC 8620 Section 2.2 X-Forwarded-Proto dynamic URL generation.
+func TestRFC8620_WellKnownJMAP_RequestBasedURLs(t *testing.T) {
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -99,7 +101,8 @@ func TestWellKnownJMAP_RequestBasedURLs(t *testing.T) {
 	}
 }
 
-func TestWellKnownJMAP_Head(t *testing.T) {
+// TestRFC8620_WellKnownJMAP_Head tests RFC 8620 HEAD request on /.well-known/jmap.
+func TestRFC8620_WellKnownJMAP_Head(t *testing.T) {
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -120,7 +123,8 @@ func TestWellKnownJMAP_Head(t *testing.T) {
 	}
 }
 
-func TestWellKnownJMAP_MethodNotAllowed(t *testing.T) {
+// TestRFC8620_WellKnownJMAP_MethodNotAllowed tests POST on /.well-known/jmap returns 405 Method Not Allowed per RFC 8620.
+func TestRFC8620_WellKnownJMAP_MethodNotAllowed(t *testing.T) {
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -136,7 +140,8 @@ func TestWellKnownJMAP_MethodNotAllowed(t *testing.T) {
 	}
 }
 
-func TestOtherRoutes_NotFound(t *testing.T) {
+// TestRFC8620_OtherRoutes_NotFound tests unmapped endpoints return 404 Not Found per RFC 8620.
+func TestRFC8620_OtherRoutes_NotFound(t *testing.T) {
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()

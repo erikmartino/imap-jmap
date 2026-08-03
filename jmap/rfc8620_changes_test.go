@@ -41,9 +41,9 @@ func postMethod(t *testing.T, srv *jmap.Server, method string, args map[string]a
 	return jmapResp.MethodResponses[0].Args
 }
 
-// TestChangesStatesAdvance verifies that set/get/changes methods no longer hardcode
-// the change state to "0" and that created objects appear in subsequent /changes.
-func TestChangesStatesAdvance(t *testing.T) {
+// TestRFC8620_ChangesStatesAdvance verifies that set/get/changes methods no longer hardcode
+// the change state to "0" and that created objects appear in subsequent /changes per RFC 8620 Section 5.2.
+func TestRFC8620_ChangesStatesAdvance(t *testing.T) {
 	contactsBackend := memory.NewMemoryContactsBackend()
 	srv := jmap.NewServer(nil, jmap.WithContactsBackend(contactsBackend))
 
@@ -79,9 +79,9 @@ func TestChangesStatesAdvance(t *testing.T) {
 	}
 }
 
-// TestMDNParseRejectsMissing uses the MDN capability to ensure blobIds that do
+// TestRFC9007_MDNParseRejectsMissing uses the MDN capability to ensure blobIds that do
 // not exist are reported via notFound and not fabricated (RFC 9007 Section 3.3).
-func TestMDNParseRejectsMissing(t *testing.T) {
+func TestRFC9007_MDNParseRejectsMissing(t *testing.T) {
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -117,9 +117,9 @@ func TestMDNParseRejectsMissing(t *testing.T) {
 	}
 }
 
-// TestCalendarSetOldNewAdvance verifies Calendar/set state tokens advance on the
-// calendar backend as well.
-func TestCalendarStateAdvance(t *testing.T) {
+// TestRFC8984_CalendarStateAdvance verifies Calendar/set state tokens advance on the
+// calendar backend as well per RFC 8984.
+func TestRFC8984_CalendarStateAdvance(t *testing.T) {
 	calBackend := memory.NewMemoryCalendarsBackend()
 	srv := jmap.NewServer(nil, jmap.WithCalendarsBackend(calBackend))
 

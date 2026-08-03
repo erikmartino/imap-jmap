@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/emersion/go-webdav/caldav"
+
 	"imap-jmap/dav"
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/memory"
@@ -153,5 +155,37 @@ func TestRFC4791_CalDAVFullLifecycleAndReport(t *testing.T) {
 	defer respDel.Body.Close()
 	if respDel.StatusCode != http.StatusOK && respDel.StatusCode != http.StatusNoContent {
 		t.Errorf("Expected 200/204 on DELETE, got %d", respDel.StatusCode)
+	}
+}
+
+// TestRFC4791_CalDAVPrincipalAndCalendarManagement tests CalDAV backend principal paths and calendar creation/deletion.
+func TestRFC4791_CalDAVPrincipalAndCalendarManagement(t *testing.T) {
+	calBackend := memory.NewMemoryCalendarsBackend()
+	b := dav.NewCalDAVBackend(calBackend)
+	ctx := context.Background()
+
+	principal, err := b.CurrentUserPrincipal(ctx)
+	if err != nil || principal != "/caldav/principals/user" {
+		t.Errorf("CurrentUserPrincipal = %q, want '/caldav/principals/user'", principal)
+	}
+
+	homeSet, err := b.CalendarHomeSetPath(ctx)
+	if err != nil || homeSet != "/caldav/calendars/" {
+		t.Errorf("CalendarHomeSetPath = %q, want '/caldav/calendars/'", homeSet)
+	}
+
+	// Test CreateCalendar & DeleteCalendar
+	err = b.CreateCalendar(ctx, &caldav.Calendar{
+		Path:        "/caldav/calendars/work-cal",
+		Name:        "Work Cal",
+		Description: "Work events",
+	})
+	if err != nil {
+		t.Fatalf("CreateCalendar failed: %v", err)
+	}
+
+	err = b.DeleteCalendar(ctx, "/caldav/calendars/work-cal")
+	if err != nil {
+		t.Errorf("DeleteCalendar failed: %v", err)
 	}
 }

@@ -263,3 +263,55 @@ func TestRFC9610_Card_GetSetQuery_JSContact(t *testing.T) {
 		t.Fatalf("Expected 1 card in Card/get response, got %d", len(cardList))
 	}
 }
+
+// TestRFC9610_CardAndAddressBookCopy tests Card/copy and AddressBook/copy per RFC 9610 Section 4.
+func TestRFC9610_CardAndAddressBookCopy(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	reqPayload := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.ContactsCapabilityURI},
+		"methodCalls": []any{
+			[]any{"AddressBook/copy", map[string]any{
+				"accountId": "primary",
+				"create": map[string]any{
+					"ab1": map[string]any{"name": "Copied AddressBook"},
+				},
+			}, "c1"},
+			[]any{"Card/copy", map[string]any{
+				"accountId": "primary",
+				"create": map[string]any{
+					"card1": map[string]any{
+						"addressBookIds": map[string]bool{"ab-default": true},
+						"name":           map[string]any{"full": "Copied Contact"},
+					},
+				},
+			}, "c2"},
+		},
+	}
+	body, _ := json.Marshal(reqPayload)
+
+	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /jmap failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var jmapResp jmap.Response
+	_ = json.NewDecoder(resp.Body).Decode(&jmapResp)
+
+	if len(jmapResp.MethodResponses) != 2 {
+		t.Fatalf("Expected 2 method responses, got %d", len(jmapResp.MethodResponses))
+	}
+
+	abResp := jmapResp.MethodResponses[0]
+	if abResp.Name != "AddressBook/copy" {
+		t.Errorf("Expected 'AddressBook/copy', got %q", abResp.Name)
+	}
+
+	cardResp := jmapResp.MethodResponses[1]
+	if cardResp.Name != "Card/copy" {
+		t.Errorf("Expected 'Card/copy', got %q", cardResp.Name)
+	}
+}

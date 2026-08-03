@@ -8,7 +8,8 @@ import (
 	"imap-jmap/jmap"
 )
 
-func TestChangeTracker_CreateUpdateDestroyResolution(t *testing.T) {
+// TestRFC8620_ChangeTracker_CreateUpdateDestroyResolution tests RFC 8620 Section 5.2 state change resolution.
+func TestRFC8620_ChangeTracker_CreateUpdateDestroyResolution(t *testing.T) {
 	tr := newChangeTracker(1000)
 
 	// A card created, updated, then destroyed within the window resolves to nothing.
@@ -47,7 +48,8 @@ func TestChangeTracker_CreateUpdateDestroyResolution(t *testing.T) {
 	}
 }
 
-func TestChangeTrackerHasMoreWhenHistoryDiscarded(t *testing.T) {
+// TestRFC8620_ChangeTrackerHasMoreWhenHistoryDiscarded verifies RFC 8620 Section 5.2 retains window history bounds.
+func TestRFC8620_ChangeTrackerHasMoreWhenHistoryDiscarded(t *testing.T) {
 	tr := newChangeTracker(5)
 	for i := 0; i < 10; i++ {
 		tr.record(jmap.Id("card-a"), "update")
@@ -61,7 +63,8 @@ func TestChangeTrackerHasMoreWhenHistoryDiscarded(t *testing.T) {
 	}
 }
 
-func TestBlobIDFullSHA256Digest(t *testing.T) {
+// TestRFC9404_BlobIDFullSHA256Digest tests RFC 9404 Blob Management SHA-256 digest IDs.
+func TestRFC9404_BlobIDFullSHA256Digest(t *testing.T) {
 	b := NewMemoryBlobBackend()
 	data := []byte("hello world")
 	blob, err := b.PutBlob(context.Background(), "primary", "text/plain", data)

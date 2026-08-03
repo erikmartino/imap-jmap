@@ -13,7 +13,8 @@ import (
 	jmapsmtp "imap-jmap/smtp"
 )
 
-func TestParseMessageToEmail(t *testing.T) {
+// TestRFC5322_ParseMessageToEmail tests parsing raw RFC 5322 messages into JMAP Email objects.
+func TestRFC5322_ParseMessageToEmail(t *testing.T) {
 	rawMsg := []byte("From: Alice <alice@example.com>\r\n" +
 		"To: Bob <bob@example.com>\r\n" +
 		"Subject: Hello World JMAP\r\n" +
@@ -51,7 +52,8 @@ func TestParseMessageToEmail(t *testing.T) {
 	}
 }
 
-func TestSMTPServerReceive(t *testing.T) {
+// TestRFC5321_SMTPServerReceive tests SMTP message ingestion and storage per RFC 5321.
+func TestRFC5321_SMTPServerReceive(t *testing.T) {
 	memBackend := memory.NewMemoryBackend()
 	memBlobBackend := memory.NewMemoryBlobBackend()
 
@@ -140,7 +142,8 @@ func TestSMTPServerReceive(t *testing.T) {
 	}
 }
 
-func TestSMTPServerReceiveIMIPReply(t *testing.T) {
+// TestRFC6047_SMTPServerReceiveIMIPReply tests SMTP intake of RFC 6047 iMIP reply messages.
+func TestRFC6047_SMTPServerReceiveIMIPReply(t *testing.T) {
 	memBackend := memory.NewMemoryBackend()
 	memBlobBackend := memory.NewMemoryBlobBackend()
 	memCalBackend := memory.NewMemoryCalendarsBackend()

@@ -35,8 +35,8 @@ func loginAndGetToken(t *testing.T, ts *httptest.Server, username, password stri
 	return result["token"]
 }
 
-// TestAuth_Login_Success tests that matching username/password returns a Bearer token.
-func TestAuth_Login_Success(t *testing.T) {
+// TestRFC8620_Auth_Login_Success tests that matching username/password returns a Bearer token per RFC 8620.
+func TestRFC8620_Auth_Login_Success(t *testing.T) {
 	srv, _ := newAuthTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -63,8 +63,8 @@ func TestAuth_Login_Success(t *testing.T) {
 	}
 }
 
-// TestAuth_Login_WrongPassword tests that mismatched credentials return 401.
-func TestAuth_Login_WrongPassword(t *testing.T) {
+// TestRFC8620_Auth_Login_WrongPassword tests that mismatched credentials return 401.
+func TestRFC8620_Auth_Login_WrongPassword(t *testing.T) {
 	srv, _ := newAuthTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -81,8 +81,8 @@ func TestAuth_Login_WrongPassword(t *testing.T) {
 	}
 }
 
-// TestAuth_Login_EmptyUsername tests that empty username is rejected.
-func TestAuth_Login_EmptyUsername(t *testing.T) {
+// TestRFC8620_Auth_Login_EmptyUsername tests that empty username is rejected.
+func TestRFC8620_Auth_Login_EmptyUsername(t *testing.T) {
 	srv, _ := newAuthTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -99,8 +99,8 @@ func TestAuth_Login_EmptyUsername(t *testing.T) {
 	}
 }
 
-// TestAuth_ProtectedEndpoint_NoToken tests that /.well-known/jmap returns 401 without a token.
-func TestAuth_ProtectedEndpoint_NoToken(t *testing.T) {
+// TestRFC8620_Auth_ProtectedEndpoint_NoToken tests that /.well-known/jmap returns 401 without a token.
+func TestRFC8620_Auth_ProtectedEndpoint_NoToken(t *testing.T) {
 	srv, _ := newAuthTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -120,8 +120,8 @@ func TestAuth_ProtectedEndpoint_NoToken(t *testing.T) {
 	}
 }
 
-// TestAuth_BasicAuth_Valid tests that a valid HTTP Basic username/password grants access.
-func TestAuth_BasicAuth_Valid(t *testing.T) {
+// TestRFC8620_Auth_BasicAuth_Valid tests that a valid HTTP Basic username/password grants access.
+func TestRFC8620_Auth_BasicAuth_Valid(t *testing.T) {
 	srv, _ := newAuthTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -145,8 +145,8 @@ func TestAuth_BasicAuth_Valid(t *testing.T) {
 	}
 }
 
-// TestAuth_BasicAuth_InvalidPassword tests that a Basic auth with wrong password returns 401.
-func TestAuth_BasicAuth_InvalidPassword(t *testing.T) {
+// TestRFC8620_Auth_BasicAuth_InvalidPassword tests that a Basic auth with wrong password returns 401.
+func TestRFC8620_Auth_BasicAuth_InvalidPassword(t *testing.T) {
 	srv, _ := newAuthTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -165,8 +165,8 @@ func TestAuth_BasicAuth_InvalidPassword(t *testing.T) {
 	}
 }
 
-// TestAuth_ProtectedEndpoint_ValidToken tests that a valid Bearer token grants access.
-func TestAuth_ProtectedEndpoint_ValidToken(t *testing.T) {
+// TestRFC8620_Auth_ProtectedEndpoint_ValidToken tests that a valid Bearer token grants access.
+func TestRFC8620_Auth_ProtectedEndpoint_ValidToken(t *testing.T) {
 	srv, _ := newAuthTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -195,8 +195,8 @@ func TestAuth_ProtectedEndpoint_ValidToken(t *testing.T) {
 	}
 }
 
-// TestAuth_ProtectedEndpoint_InvalidToken tests that an invalid Bearer token returns 401.
-func TestAuth_ProtectedEndpoint_InvalidToken(t *testing.T) {
+// TestRFC8620_Auth_ProtectedEndpoint_InvalidToken tests that an invalid Bearer token returns 401.
+func TestRFC8620_Auth_ProtectedEndpoint_InvalidToken(t *testing.T) {
 	srv, _ := newAuthTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -215,9 +215,9 @@ func TestAuth_ProtectedEndpoint_InvalidToken(t *testing.T) {
 	}
 }
 
-// TestAuth_AccessToken_QueryParam tests that ?access_token= is accepted (RFC 6750 Section 2.3).
+// TestRFC8620_Auth_AccessToken_QueryParam tests that ?access_token= is accepted (RFC 6750 Section 2.3).
 // This is required for browser EventSource which cannot set Authorization headers.
-func TestAuth_AccessToken_QueryParam(t *testing.T) {
+func TestRFC8620_Auth_AccessToken_QueryParam(t *testing.T) {
 	srv, _ := newAuthTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -236,8 +236,8 @@ func TestAuth_AccessToken_QueryParam(t *testing.T) {
 	}
 }
 
-// TestAuth_CORS_Preflight tests that OPTIONS preflight passes through without auth.
-func TestAuth_CORS_Preflight(t *testing.T) {
+// TestRFC8620_Auth_CORS_Preflight tests that OPTIONS preflight passes through without auth.
+func TestRFC8620_Auth_CORS_Preflight(t *testing.T) {
 	srv, _ := newAuthTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -256,8 +256,8 @@ func TestAuth_CORS_Preflight(t *testing.T) {
 	}
 }
 
-// TestAuth_JMAP_API_WithToken tests POST /jmap with valid token processes method calls.
-func TestAuth_JMAP_API_WithToken(t *testing.T) {
+// TestRFC8620_Auth_JMAP_API_WithToken tests POST /jmap with valid token processes method calls.
+func TestRFC8620_Auth_JMAP_API_WithToken(t *testing.T) {
 	srv, _ := newAuthTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -284,8 +284,8 @@ func TestAuth_JMAP_API_WithToken(t *testing.T) {
 	}
 }
 
-// TestAuth_WebSocket_AccessToken tests WebSocket upgrade with ?access_token= query param.
-func TestAuth_WebSocket_AccessToken(t *testing.T) {
+// TestRFC8620_Auth_WebSocket_AccessToken tests WebSocket upgrade with ?access_token= query param.
+func TestRFC8620_Auth_WebSocket_AccessToken(t *testing.T) {
 	srv, _ := newAuthTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -329,8 +329,8 @@ func TestAuth_WebSocket_AccessToken(t *testing.T) {
 	}
 }
 
-// TestAuth_WebSocket_NoToken tests WebSocket upgrade is rejected without a token.
-func TestAuth_WebSocket_NoToken(t *testing.T) {
+// TestRFC8620_Auth_WebSocket_NoToken tests WebSocket upgrade is rejected without a token.
+func TestRFC8620_Auth_WebSocket_NoToken(t *testing.T) {
 	srv, _ := newAuthTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()

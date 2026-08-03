@@ -858,4 +858,81 @@ func TestRFC8621_Section4_5_MayProvisions_CalculateTotalAndUpToId(t *testing.T) 
 	}
 }
 
+// TestRFC8621_Section4_EmailImportAndParse tests Email/import and Email/parse per RFC 8621 Sections 4.8 & 4.9.
+func TestRFC8621_Section4_EmailImportAndParse(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// 1. Upload a blob first for Email/import and Email/parse
+	rawMsg := []byte("From: alice@example.com\r\nTo: bob@example.com\r\nSubject: Test Import & Parse\r\n\r\nHello World JMAP\r\n")
+	reqUp, _ := http.NewRequest("POST", ts.URL+"/upload/primary/", bytes.NewReader(rawMsg))
+	reqUp.Header.Set("Content-Type", "message/rfc822")
+	respUp, err := http.DefaultClient.Do(reqUp)
+	if err != nil {
+		t.Fatalf("POST /upload/ failed: %v", err)
+	}
+	defer respUp.Body.Close()
+
+	var blobObj struct {
+		ID string `json:"id"`
+	}
+	_ = json.NewDecoder(respUp.Body).Decode(&blobObj)
+	if blobObj.ID == "" {
+		t.Fatal("Upload blob failed, empty ID")
+	}
+
+	// 2. Execute Email/import and Email/parse
+	reqPayload := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+		"methodCalls": []any{
+			[]any{"Email/import", map[string]any{
+				"accountId": "primary",
+				"create": map[string]any{
+					"imp1": map[string]any{
+						"blobId":     blobObj.ID,
+						"mailboxIds": map[string]bool{"mb-inbox": true},
+					},
+				},
+			}, "c1"},
+			[]any{"Email/parse", map[string]any{
+				"accountId": "primary",
+				"blobIds":   []string{blobObj.ID},
+			}, "c2"},
+		},
+	}
+	body, _ := json.Marshal(reqPayload)
+
+	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /jmap failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var jmapResp jmap.Response
+	_ = json.NewDecoder(resp.Body).Decode(&jmapResp)
+
+	if len(jmapResp.MethodResponses) != 2 {
+		t.Fatalf("Expected 2 method responses, got %d", len(jmapResp.MethodResponses))
+	}
+
+	impResp := jmapResp.MethodResponses[0]
+	if impResp.Name != "Email/import" {
+		t.Errorf("Expected 'Email/import', got %q", impResp.Name)
+	}
+	createdMap, _ := impResp.Args["created"].(map[string]any)
+	if _, ok := createdMap["imp1"]; !ok {
+		t.Errorf("Expected created email in Email/import response args, got %v", impResp.Args)
+	}
+
+	parseResp := jmapResp.MethodResponses[1]
+	if parseResp.Name != "Email/parse" {
+		t.Errorf("Expected 'Email/parse', got %q", parseResp.Name)
+	}
+	parsedMap, _ := parseResp.Args["parsed"].(map[string]any)
+	if parsedObj, ok := parsedMap[blobObj.ID].(map[string]any); !ok || parsedObj["subject"] != "Test Import & Parse" {
+		t.Errorf("Expected parsed subject 'Test Import & Parse', got %v", parseResp.Args["parsed"])
+	}
+}
+
 

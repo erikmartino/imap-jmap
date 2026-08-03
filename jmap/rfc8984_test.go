@@ -375,3 +375,56 @@ func TestRFC8984_JSCalendarFullEvent(t *testing.T) {
 		t.Errorf("Expected link href 'https://example.com/docs/arch-spec.pdf', got %v", linksMap["l1"])
 	}
 }
+
+// TestRFC8984_CalendarAndEventCopy tests Calendar/copy and CalendarEvent/copy per RFC 8984 Section 4.
+func TestRFC8984_CalendarAndEventCopy(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	reqPayload := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.CalendarsCapabilityURI},
+		"methodCalls": []any{
+			[]any{"Calendar/copy", map[string]any{
+				"accountId": "primary",
+				"create": map[string]any{
+					"cal1": map[string]any{"name": "Copied Calendar"},
+				},
+			}, "c1"},
+			[]any{"CalendarEvent/copy", map[string]any{
+				"accountId": "primary",
+				"create": map[string]any{
+					"ev1": map[string]any{
+						"calendarIds": map[string]bool{"cal-default": true},
+						"title":       "Copied Event",
+						"start":       "2026-11-01T10:00:00Z",
+					},
+				},
+			}, "c2"},
+		},
+	}
+	body, _ := json.Marshal(reqPayload)
+
+	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /jmap failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var jmapResp jmap.Response
+	_ = json.NewDecoder(resp.Body).Decode(&jmapResp)
+
+	if len(jmapResp.MethodResponses) != 2 {
+		t.Fatalf("Expected 2 method responses, got %d", len(jmapResp.MethodResponses))
+	}
+
+	calResp := jmapResp.MethodResponses[0]
+	if calResp.Name != "Calendar/copy" {
+		t.Errorf("Expected 'Calendar/copy', got %q", calResp.Name)
+	}
+
+	evResp := jmapResp.MethodResponses[1]
+	if evResp.Name != "CalendarEvent/copy" {
+		t.Errorf("Expected 'CalendarEvent/copy', got %q", evResp.Name)
+	}
+}

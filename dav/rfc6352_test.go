@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/emersion/go-webdav/carddav"
+
 	"imap-jmap/dav"
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/memory"
@@ -156,5 +158,37 @@ func TestRFC6352_CardDAVFullLifecycleAndReport(t *testing.T) {
 	defer respDel.Body.Close()
 	if respDel.StatusCode != http.StatusOK && respDel.StatusCode != http.StatusNoContent {
 		t.Errorf("Expected 200/204 on DELETE, got %d", respDel.StatusCode)
+	}
+}
+
+// TestRFC6352_CardDAVPrincipalAndAddressBookManagement tests CardDAV backend principal paths and addressbook creation/deletion.
+func TestRFC6352_CardDAVPrincipalAndAddressBookManagement(t *testing.T) {
+	contactsBackend := memory.NewMemoryContactsBackend()
+	b := dav.NewCardDAVBackend(contactsBackend)
+	ctx := context.Background()
+
+	principal, err := b.CurrentUserPrincipal(ctx)
+	if err != nil || principal != "/carddav/principals/user" {
+		t.Errorf("CurrentUserPrincipal = %q, want '/carddav/principals/user'", principal)
+	}
+
+	homeSet, err := b.AddressBookHomeSetPath(ctx)
+	if err != nil || homeSet != "/carddav/addressbooks/" {
+		t.Errorf("AddressBookHomeSetPath = %q, want '/carddav/addressbooks/'", homeSet)
+	}
+
+	// Test CreateAddressBook & DeleteAddressBook
+	err = b.CreateAddressBook(ctx, &carddav.AddressBook{
+		Path:        "/carddav/addressbooks/work-ab",
+		Name:        "Work Contacts",
+		Description: "Work contacts list",
+	})
+	if err != nil {
+		t.Fatalf("CreateAddressBook failed: %v", err)
+	}
+
+	err = b.DeleteAddressBook(ctx, "/carddav/addressbooks/work-ab")
+	if err != nil {
+		t.Errorf("DeleteAddressBook failed: %v", err)
 	}
 }

@@ -57,6 +57,9 @@ func main() {
 	memIMAPBackend := memory.NewMemoryIMAPAccessBackend()
 	authBackend := memory.NewMemoryAuthBackend()
 
+	// Seed realistic sample emails and calendars for server runtime execution
+	memory.SeedSampleData(memBackend, memCalBackend)
+
 	server := jmap.NewServer(
 		session,
 		jmap.WithMailBackend(memBackend),
