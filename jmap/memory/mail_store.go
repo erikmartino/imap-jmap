@@ -71,8 +71,11 @@ func NewMemoryBackend() *MemoryBackend {
 		Description:  &quotaMessagesDesc,
 	}
 
-	// Create standard default mailboxes per RFC 8621 Section 2
-	inboxRole := "inbox"
+	// Create standard default mailboxes per RFC 8621 Section 2.1.
+	// NOTE: RFC 8621 Section 2.1 mandates that the server MUST create an Inbox mailbox (role: "inbox").
+	// Other system mailboxes (sent, trash, drafts, junk, archive) are optional MAY provisions in RFC 8621
+	// that we implement for full client interoperability and completeness.
+	inboxRole := "inbox" // MUST provision per RFC 8621 Section 2.1
 	inbox := &jmap.Mailbox{
 		ID:            "mb-inbox",
 		Name:          "Inbox",
@@ -96,7 +99,7 @@ func NewMemoryBackend() *MemoryBackend {
 		IsSubscribed: true,
 	}
 
-	sentRole := "sent"
+	sentRole := "sent" // MAY provision per RFC 8621 Section 2.1
 	sent := &jmap.Mailbox{
 		ID:            "mb-sent",
 		Name:          "Sent",
@@ -120,7 +123,7 @@ func NewMemoryBackend() *MemoryBackend {
 		IsSubscribed: true,
 	}
 
-	trashRole := "trash"
+	trashRole := "trash" // MAY provision per RFC 8621 Section 2.1
 	trash := &jmap.Mailbox{
 		ID:            "mb-trash",
 		Name:          "Trash",
@@ -144,9 +147,84 @@ func NewMemoryBackend() *MemoryBackend {
 		IsSubscribed: true,
 	}
 
+	draftsRole := "drafts" // MAY provision per RFC 8621 Section 2.1
+	drafts := &jmap.Mailbox{
+		ID:            "mb-drafts",
+		Name:          "Drafts",
+		Role:          &draftsRole,
+		SortOrder:     15,
+		TotalEmails:   0,
+		UnreadEmails:  0,
+		TotalThreads:  0,
+		UnreadThreads: 0,
+		MyRights: jmap.MailboxRights{
+			MayReadItems:   true,
+			MayAddItems:    true,
+			MayRemoveItems: true,
+			MaySetSeen:     true,
+			MaySetKeywords: true,
+			MayCreateChild: true,
+			MayRename:      false,
+			MayDelete:      false,
+			MaySubmit:      false,
+		},
+		IsSubscribed: true,
+	}
+
+	junkRole := "junk" // MAY provision per RFC 8621 Section 2.1
+	junk := &jmap.Mailbox{
+		ID:            "mb-junk",
+		Name:          "Junk",
+		Role:          &junkRole,
+		SortOrder:     25,
+		TotalEmails:   0,
+		UnreadEmails:  0,
+		TotalThreads:  0,
+		UnreadThreads: 0,
+		MyRights: jmap.MailboxRights{
+			MayReadItems:   true,
+			MayAddItems:    true,
+			MayRemoveItems: true,
+			MaySetSeen:     true,
+			MaySetKeywords: true,
+			MayCreateChild: true,
+			MayRename:      false,
+			MayDelete:      false,
+			MaySubmit:      false,
+		},
+		IsSubscribed: true,
+	}
+
+	archiveRole := "archive" // MAY provision per RFC 8621 Section 2.1
+	archive := &jmap.Mailbox{
+		ID:            "mb-archive",
+		Name:          "Archive",
+		Role:          &archiveRole,
+		SortOrder:     35,
+		TotalEmails:   0,
+		UnreadEmails:  0,
+		TotalThreads:  0,
+		UnreadThreads: 0,
+		MyRights: jmap.MailboxRights{
+			MayReadItems:   true,
+			MayAddItems:    true,
+			MayRemoveItems: true,
+			MaySetSeen:     true,
+			MaySetKeywords: true,
+			MayCreateChild: true,
+			MayRename:      false,
+			MayDelete:      false,
+			MaySubmit:      false,
+		},
+		IsSubscribed: true,
+	}
+
 	mb.mailboxes[inbox.ID] = inbox
 	mb.mailboxes[sent.ID] = sent
 	mb.mailboxes[trash.ID] = trash
+	mb.mailboxes[drafts.ID] = drafts
+	mb.mailboxes[junk.ID] = junk
+	mb.mailboxes[archive.ID] = archive
 
 	// Default identity
 	defaultIdentity := &jmap.Identity{

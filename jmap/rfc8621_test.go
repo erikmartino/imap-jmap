@@ -45,8 +45,8 @@ func TestRFC8621_Section2_1_MailboxGet(t *testing.T) {
 	}
 
 	listRaw, ok := methodResp.Args["list"].([]any)
-	if !ok || len(listRaw) < 3 {
-		t.Errorf("Expected at least 3 default mailboxes (Inbox, Sent, Trash), got %v", methodResp.Args["list"])
+	if !ok || len(listRaw) < 6 {
+		t.Errorf("Expected at least 6 default mailboxes (Inbox, Sent, Trash, Drafts, Junk, Archive), got %v", methodResp.Args["list"])
 	}
 }
 
@@ -694,6 +694,62 @@ func TestRFC8621_Section5_SearchSnippetGet(t *testing.T) {
 	snipObj := listRaw[0].(map[string]any)
 	if snipObj["emailId"] != "email-1" {
 		t.Errorf("Expected emailId 'email-1', got %v", snipObj["emailId"])
+	}
+}
+
+// TestRFC8621_Section2_1_MayProvisions_OptionalSystemRoles tests server support for optional MAY mailbox roles
+// (junk, drafts, archive, sent, trash) per RFC 8621 Section 2.1. Note that RFC 8621 Section 2.1 mandates MUST for 'inbox',
+// while pre-creation of additional standard roles (junk, drafts, archive, etc.) is an optional MAY feature for extended compatibility.
+func TestRFC8621_Section2_1_MayProvisions_OptionalSystemRoles(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	reqPayload := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+		"methodCalls": []any{
+			[]any{"Mailbox/get", map[string]any{"accountId": "primary"}, "c1"},
+		},
+	}
+	body, _ := json.Marshal(reqPayload)
+
+	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /jmap failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var jmapResp jmap.Response
+	_ = json.NewDecoder(resp.Body).Decode(&jmapResp)
+
+	methodResp := jmapResp.MethodResponses[0]
+	listRaw, ok := methodResp.Args["list"].([]any)
+	if !ok {
+		t.Fatalf("Expected list of mailboxes")
+	}
+
+	foundRoles := make(map[string]bool)
+	for _, item := range listRaw {
+		mb, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if role, ok := mb["role"].(string); ok {
+			foundRoles[role] = true
+		}
+	}
+
+	// Verify MUST provision per RFC 8621 Section 2.1
+	if !foundRoles["inbox"] {
+		t.Errorf("Expected server to support required MUST role 'inbox' per RFC 8621 Section 2.1")
+	}
+
+	// Verify MAY provisions per RFC 8621 Section 2.1
+	mayRoles := []string{"junk", "drafts", "archive", "sent", "trash"}
+	for _, role := range mayRoles {
+		if !foundRoles[role] {
+			t.Errorf("Expected server to support optional MAY provision role %q per RFC 8621 Section 2.1", role)
+		}
 	}
 }
 
