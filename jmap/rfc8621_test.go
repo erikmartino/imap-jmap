@@ -858,6 +858,88 @@ func TestRFC8621_Section4_5_MayProvisions_CalculateTotalAndUpToId(t *testing.T) 
 	}
 }
 
+// TestRFC8621_Section6_IdentitySet drives Identity/set through the real backend, proving
+// create/update/destroy persist rather than being no-ops (RFC 8621 Section 6.3).
+func TestRFC8621_Section6_IdentitySet(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	post := func(calls []any) jmap.Response {
+		payload := map[string]any{
+			"using":       []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+			"methodCalls": calls,
+		}
+		body, _ := json.Marshal(payload)
+		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST /jmap failed: %v", err)
+		}
+		defer resp.Body.Close()
+		var jr jmap.Response
+		_ = json.NewDecoder(resp.Body).Decode(&jr)
+		return jr
+	}
+
+	// Create.
+	setResp := post([]any{
+		[]any{"Identity/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"i1": map[string]any{"name": "Work", "email": "work@example.com", "textSignature": "BR"},
+			},
+		}, "c1"},
+	})
+	created, ok := setResp.MethodResponses[0].Args["created"].(map[string]any)["i1"].(map[string]any)
+	if !ok {
+		t.Fatalf("Identity/set did not create identity: %#v", setResp.MethodResponses[0].Args)
+	}
+	id := created["id"].(string)
+	if id == "" {
+		t.Fatal("created identity has no id")
+	}
+
+	// Update (partial): change the name, leave email/signature intact.
+	updResp := post([]any{
+		[]any{"Identity/set", map[string]any{
+			"accountId": "primary",
+			"update":    map[string]any{id: map[string]any{"name": "Work Updated"}},
+		}, "c2"},
+	})
+	if upd, ok := updResp.MethodResponses[0].Args["updated"].(map[string]any); !ok || len(upd) != 1 {
+		t.Fatalf("expected 1 updated identity, got %#v", updResp.MethodResponses[0].Args["updated"])
+	}
+
+	// Verify the update persisted and untouched fields survived.
+	getResp := post([]any{
+		[]any{"Identity/get", map[string]any{"accountId": "primary", "ids": []any{id}}, "c3"},
+	})
+	list := getResp.MethodResponses[0].Args["list"].([]any)
+	var found map[string]any
+	for _, item := range list {
+		if m := item.(map[string]any); m["id"] == id {
+			found = m
+		}
+	}
+	if found == nil {
+		t.Fatal("updated identity not found")
+	}
+	if found["name"] != "Work Updated" {
+		t.Errorf("name not updated: %v", found["name"])
+	}
+	if found["email"] != "work@example.com" || found["textSignature"] != "BR" {
+		t.Errorf("partial update dropped untouched fields: %#v", found)
+	}
+
+	// Destroy.
+	delResp := post([]any{
+		[]any{"Identity/set", map[string]any{"accountId": "primary", "destroy": []any{id}}, "c4"},
+	})
+	if d := delResp.MethodResponses[0].Args["destroyed"].([]any); len(d) != 1 || d[0].(string) != id {
+		t.Errorf("expected identity %q destroyed, got %#v", id, d)
+	}
+}
+
 // TestRFC8621_Section4_EmailImportAndParse tests Email/import and Email/parse per RFC 8621 Sections 4.8 & 4.9.
 func TestRFC8621_Section4_EmailImportAndParse(t *testing.T) {
 	srv := newTestServer()
@@ -934,5 +1016,3 @@ func TestRFC8621_Section4_EmailImportAndParse(t *testing.T) {
 		t.Errorf("Expected parsed subject 'Test Import & Parse', got %v", parseResp.Args["parsed"])
 	}
 }
-
-

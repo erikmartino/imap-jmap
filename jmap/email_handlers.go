@@ -2,6 +2,7 @@ package jmap
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 )
@@ -504,10 +505,69 @@ func handleIdentityChanges(backend MailBackend) MethodHandler {
 func handleIdentitySet(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
+		oldState := backend.State(ctx)
+
+		created := make(map[string]*Identity)
+		updated := make(map[string]any)
+		destroyed := make([]Id, 0)
+		notCreated := make(map[string]any)
+		notUpdated := make(map[string]any)
+		notDestroyed := make(map[string]any)
+
+		if createRaw, ok := args["create"].(map[string]any); ok {
+			for creationID, raw := range createRaw {
+				idMap, _ := raw.(map[string]any)
+				idBytes, _ := json.Marshal(idMap)
+				var identity Identity
+				_ = json.Unmarshal(idBytes, &identity)
+				identity.ID = ""
+
+				createdIdentity, err := backend.CreateIdentity(ctx, &identity)
+				if err != nil {
+					notCreated[creationID] = SetError{Type: "invalidProperties", Description: err.Error()}
+				} else {
+					created[creationID] = createdIdentity
+				}
+			}
+		}
+
+		if updateRaw, ok := args["update"].(map[string]any); ok {
+			for idStr, patchRaw := range updateRaw {
+				patch, _ := patchRaw.(map[string]any)
+				_, err := backend.UpdateIdentity(ctx, Id(idStr), patch)
+				if err != nil {
+					notUpdated[idStr] = SetError{Type: "invalidProperties", Description: err.Error()}
+				} else {
+					updated[idStr] = nil
+				}
+			}
+		}
+
+		if destroyRaw, ok := args["destroy"].([]any); ok {
+			for _, item := range destroyRaw {
+				if idStr, ok := item.(string); ok {
+					okDel, err := backend.DeleteIdentity(ctx, Id(idStr))
+					if err != nil {
+						notDestroyed[idStr] = SetError{Type: "serverFail", Description: err.Error()}
+					} else if !okDel {
+						notDestroyed[idStr] = SetError{Type: "notFound", Description: "identity not found"}
+					} else {
+						destroyed = append(destroyed, Id(idStr))
+					}
+				}
+			}
+		}
+
 		return "Identity/set", map[string]any{
-			"accountId": accountID,
-			"oldState":  backend.State(ctx),
-			"newState":  backend.State(ctx),
+			"accountId":    accountID,
+			"oldState":     oldState,
+			"newState":     backend.State(ctx),
+			"created":      created,
+			"updated":      updated,
+			"destroyed":    destroyed,
+			"notCreated":   notCreated,
+			"notUpdated":   notUpdated,
+			"notDestroyed": notDestroyed,
 		}
 	}
 }

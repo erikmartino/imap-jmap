@@ -668,6 +668,66 @@ func (mb *MemoryBackend) GetIdentities(ctx context.Context) ([]*jmap.Identity, e
 	return list, nil
 }
 
+// CreateIdentity creates a new Identity (RFC 8621 Section 6.3).
+func (mb *MemoryBackend) CreateIdentity(ctx context.Context, identity *jmap.Identity) (*jmap.Identity, error) {
+	mb.mu.Lock()
+	if identity.Email == "" {
+		mb.mu.Unlock()
+		return nil, fmt.Errorf("email is required")
+	}
+	if identity.ID == "" {
+		identity.ID = mb.nextID("identity")
+	}
+	mb.identities[identity.ID] = identity
+	mb.mu.Unlock()
+
+	mb.bumpState("Identity")
+	return identity, nil
+}
+
+// UpdateIdentity applies a partial patch to an existing Identity, preserving unaddressed fields.
+func (mb *MemoryBackend) UpdateIdentity(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.Identity, error) {
+	mb.mu.Lock()
+	identity, ok := mb.identities[id]
+	if !ok {
+		mb.mu.Unlock()
+		return nil, fmt.Errorf("identity not found: %s", id)
+	}
+
+	// The "email" property is server-set and immutable per RFC 8621 Section 6.
+	if _, present := patch["email"]; present {
+		mb.mu.Unlock()
+		return nil, fmt.Errorf("email is immutable")
+	}
+	if v, ok := patch["name"].(string); ok {
+		identity.Name = v
+	}
+	if v, ok := patch["textSignature"].(string); ok {
+		identity.TextSignature = v
+	}
+	if v, ok := patch["htmlSignature"].(string); ok {
+		identity.HTMLSignature = v
+	}
+	mb.mu.Unlock()
+
+	mb.bumpState("Identity")
+	return identity, nil
+}
+
+// DeleteIdentity removes an Identity.
+func (mb *MemoryBackend) DeleteIdentity(ctx context.Context, id jmap.Id) (bool, error) {
+	mb.mu.Lock()
+	if _, ok := mb.identities[id]; !ok {
+		mb.mu.Unlock()
+		return false, nil
+	}
+	delete(mb.identities, id)
+	mb.mu.Unlock()
+
+	mb.bumpState("Identity")
+	return true, nil
+}
+
 // CreateSubmission creates an EmailSubmission.
 func (mb *MemoryBackend) CreateSubmission(ctx context.Context, sub *jmap.EmailSubmission) (*jmap.EmailSubmission, error) {
 	mb.mu.Lock()

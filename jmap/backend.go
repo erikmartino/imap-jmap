@@ -40,6 +40,9 @@ type MailBackend interface {
 
 	// Identities (RFC 8621 Section 6)
 	GetIdentities(ctx context.Context) ([]*Identity, error)
+	CreateIdentity(ctx context.Context, identity *Identity) (*Identity, error)
+	UpdateIdentity(ctx context.Context, id Id, patch map[string]any) (*Identity, error)
+	DeleteIdentity(ctx context.Context, id Id) (bool, error)
 
 	// Submissions (RFC 8621 Section 7)
 	CreateSubmission(ctx context.Context, sub *EmailSubmission) (*EmailSubmission, error)
