@@ -168,6 +168,47 @@ func TestRFC6352_CardDAVFullLifecycleAndReport(t *testing.T) {
 	}
 }
 
+// TestRFC6352_CardDAVQueryFilter_TextMatch tests CardDAV QueryAddressObjects text-matching prop-filter logic.
+func TestRFC6352_CardDAVQueryFilter_TextMatch(t *testing.T) {
+	contactsBackend := memory.NewMemoryContactsBackend()
+	_, _ = contactsBackend.CreateCard(context.Background(), &jmap.Card{
+		ID:   "card-bob",
+		Name: &jmap.JSContactName{Full: "Bob Smith"},
+		Emails: map[string]*jmap.JSContactEmailAddress{"e1": {Address: "bob@example.com"}},
+	})
+	_, _ = contactsBackend.CreateCard(context.Background(), &jmap.Card{
+		ID:   "card-charlie",
+		Name: &jmap.JSContactName{Full: "Charlie Brown"},
+		Emails: map[string]*jmap.JSContactEmailAddress{"e1": {Address: "charlie@example.com"}},
+	})
+
+	b := davMemory.NewCardDAVBackend(contactsBackend)
+	ctx := context.Background()
+
+	// Query with PropFilter on FN matching "Charlie"
+	query := &carddav.AddressBookQuery{
+		PropFilters: []carddav.PropFilter{
+			{
+				Name: "FN",
+				TextMatches: []carddav.TextMatch{
+					{Text: "Charlie"},
+				},
+			},
+		},
+	}
+
+	objs, err := b.QueryAddressObjects(ctx, "/carddav/addressbooks/default", query)
+	if err != nil {
+		t.Fatalf("QueryAddressObjects failed: %v", err)
+	}
+	if len(objs) != 1 {
+		t.Fatalf("Expected 1 card matching prop filter, got %d", len(objs))
+	}
+	if !strings.Contains(objs[0].Path, "card-charlie") {
+		t.Errorf("Expected path containing 'card-charlie', got %q", objs[0].Path)
+	}
+}
+
 // TestRFC6352_CardDAVPrincipalAndAddressBookManagement tests CardDAV backend principal paths and addressbook creation/deletion.
 func TestRFC6352_CardDAVPrincipalAndAddressBookManagement(t *testing.T) {
 	contactsBackend := memory.NewMemoryContactsBackend()

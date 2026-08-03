@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/emersion/go-webdav/caldav"
 
@@ -162,6 +163,51 @@ func TestRFC4791_CalDAVFullLifecycleAndReport(t *testing.T) {
 	defer respDel.Body.Close()
 	if respDel.StatusCode != http.StatusOK && respDel.StatusCode != http.StatusNoContent {
 		t.Errorf("Expected 200/204 on DELETE, got %d", respDel.StatusCode)
+	}
+}
+
+// TestRFC4791_CalDAVQueryFilter_DateRange tests CalDAV QueryCalendarObjects date-range filtering logic.
+func TestRFC4791_CalDAVQueryFilter_DateRange(t *testing.T) {
+	calBackend := memory.NewMemoryCalendarsBackend()
+	_, _ = calBackend.CreateCalendarEvent(context.Background(), &jmap.CalendarEvent{
+		ID:    "evt-early",
+		Title: "Early Meeting",
+		Start: "2026-01-01T10:00:00Z",
+	})
+	_, _ = calBackend.CreateCalendarEvent(context.Background(), &jmap.CalendarEvent{
+		ID:    "evt-late",
+		Title: "Late Meeting",
+		Start: "2026-12-01T10:00:00Z",
+	})
+
+	b := davMemory.NewCalDAVBackend(calBackend)
+	ctx := context.Background()
+
+	// Query with date filter range
+	start, _ := time.Parse(time.RFC3339, "2026-11-01T00:00:00Z")
+	end, _ := time.Parse(time.RFC3339, "2026-12-31T23:59:59Z")
+	query := &caldav.CalendarQuery{
+		CompFilter: caldav.CompFilter{
+			Name: "VCALENDAR",
+			Comps: []caldav.CompFilter{
+				{
+					Name:  "VEVENT",
+					Start: start,
+					End:   end,
+				},
+			},
+		},
+	}
+
+	objs, err := b.QueryCalendarObjects(ctx, "/caldav/calendars/default", query)
+	if err != nil {
+		t.Fatalf("QueryCalendarObjects failed: %v", err)
+	}
+	if len(objs) != 1 {
+		t.Fatalf("Expected 1 event matching date filter, got %d", len(objs))
+	}
+	if !strings.Contains(objs[0].Path, "evt-late") {
+		t.Errorf("Expected path containing 'evt-late', got %q", objs[0].Path)
 	}
 }
 
