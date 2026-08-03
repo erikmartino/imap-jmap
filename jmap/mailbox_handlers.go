@@ -62,17 +62,57 @@ func handleMailboxChanges(backend MailBackend) MethodHandler {
 func handleMailboxSet(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
+		oldState := backend.State(ctx)
 		created := make(map[string]*Mailbox)
+		updated := make(map[string]any)
 		destroyed := []Id{}
+		notCreated := make(map[string]any)
+		notUpdated := make(map[string]any)
+		notDestroyed := make(map[string]any)
 
 		if createMap, ok := args["create"].(map[string]any); ok {
 			for clientKey, raw := range createMap {
-				if mbData, ok := raw.(map[string]any); ok {
-					name, _ := mbData["name"].(string)
-					mb, err := backend.CreateMailbox(ctx, &Mailbox{Name: name})
-					if err == nil {
-						created[clientKey] = mb
-					}
+				mbData, ok := raw.(map[string]any)
+				if !ok {
+					notCreated[clientKey] = SetError{Type: "invalidProperties", Description: "invalid Mailbox object"}
+					continue
+				}
+				name, _ := mbData["name"].(string)
+				if name == "" {
+					notCreated[clientKey] = SetError{Type: "invalidProperties", Description: "name is required"}
+					continue
+				}
+				m := &Mailbox{Name: name}
+				if pid, ok := mbData["parentId"].(string); ok && pid != "" {
+					p := Id(pid)
+					m.ParentID = &p
+				}
+				if role, ok := mbData["role"].(string); ok && role != "" {
+					m.Role = &role
+				}
+				if so, ok := mbData["sortOrder"].(float64); ok {
+					m.SortOrder = uint64(so)
+				}
+				if sub, ok := mbData["isSubscribed"].(bool); ok {
+					m.IsSubscribed = sub
+				}
+				mb, err := backend.CreateMailbox(ctx, m)
+				if err != nil {
+					notCreated[clientKey] = SetError{Type: "invalidProperties", Description: err.Error()}
+				} else {
+					created[clientKey] = mb
+				}
+			}
+		}
+
+		if updateMap, ok := args["update"].(map[string]any); ok {
+			for idStr, patchRaw := range updateMap {
+				patch, _ := patchRaw.(map[string]any)
+				_, err := backend.UpdateMailbox(ctx, Id(idStr), patch)
+				if err != nil {
+					notUpdated[idStr] = SetError{Type: "invalidProperties", Description: err.Error()}
+				} else {
+					updated[idStr] = nil
 				}
 			}
 		}
@@ -80,7 +120,12 @@ func handleMailboxSet(backend MailBackend) MethodHandler {
 		if destroyList, ok := args["destroy"].([]any); ok {
 			for _, rawID := range destroyList {
 				if idStr, ok := rawID.(string); ok {
-					if ok, _ := backend.DeleteMailbox(ctx, Id(idStr)); ok {
+					okDel, err := backend.DeleteMailbox(ctx, Id(idStr))
+					if err != nil {
+						notDestroyed[idStr] = SetError{Type: "serverFail", Description: err.Error()}
+					} else if !okDel {
+						notDestroyed[idStr] = SetError{Type: "notFound", Description: "mailbox not found"}
+					} else {
 						destroyed = append(destroyed, Id(idStr))
 					}
 				}
@@ -88,11 +133,15 @@ func handleMailboxSet(backend MailBackend) MethodHandler {
 		}
 
 		return "Mailbox/set", map[string]any{
-			"accountId": accountID,
-			"oldState":  backend.State(ctx),
-			"newState":  backend.State(ctx),
-			"created":   created,
-			"destroyed": destroyed,
+			"accountId":    accountID,
+			"oldState":     oldState,
+			"newState":     backend.State(ctx),
+			"created":      created,
+			"updated":      updated,
+			"destroyed":    destroyed,
+			"notCreated":   notCreated,
+			"notUpdated":   notUpdated,
+			"notDestroyed": notDestroyed,
 		}
 	}
 }

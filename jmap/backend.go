@@ -18,6 +18,7 @@ type MailBackend interface {
 	GetMailboxes(ctx context.Context, ids []Id) (list []*Mailbox, notFound []Id, err error)
 	GetAllMailboxes(ctx context.Context) ([]*Mailbox, error)
 	CreateMailbox(ctx context.Context, mb *Mailbox) (*Mailbox, error)
+	UpdateMailbox(ctx context.Context, id Id, patch map[string]any) (*Mailbox, error)
 	DeleteMailbox(ctx context.Context, id Id) (bool, error)
 
 	// Threads (RFC 8621 Section 3)

@@ -91,6 +91,77 @@ func TestRFC8621_Section2_3_MailboxSet(t *testing.T) {
 	}
 }
 
+// TestRFC8621_Section2_5_MailboxUpdate proves Mailbox/set update renames and re-parents a
+// mailbox through the real backend, preserving untouched fields (RFC 8621 Section 2.5).
+func TestRFC8621_Section2_5_MailboxUpdate(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	post := func(calls []any) jmap.Response {
+		payload := map[string]any{
+			"using":       []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+			"methodCalls": calls,
+		}
+		body, _ := json.Marshal(payload)
+		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST /jmap failed: %v", err)
+		}
+		defer resp.Body.Close()
+		var jr jmap.Response
+		_ = json.NewDecoder(resp.Body).Decode(&jr)
+		return jr
+	}
+
+	createResp := post([]any{
+		[]any{"Mailbox/set", map[string]any{
+			"accountId": "primary",
+			"create":    map[string]any{"m": map[string]any{"name": "Projects", "sortOrder": float64(5)}},
+		}, "c1"},
+	})
+	id := createResp.MethodResponses[0].Args["created"].(map[string]any)["m"].(map[string]any)["id"].(string)
+	if id == "" {
+		t.Fatal("no mailbox id")
+	}
+
+	updResp := post([]any{
+		[]any{"Mailbox/set", map[string]any{
+			"accountId": "primary",
+			"update":    map[string]any{id: map[string]any{"name": "Work", "isSubscribed": true}},
+		}, "c2"},
+	})
+	if upd, ok := updResp.MethodResponses[0].Args["updated"].(map[string]any); !ok || len(upd) != 1 {
+		t.Fatalf("expected 1 updated mailbox, got %#v", updResp.MethodResponses[0].Args)
+	}
+
+	getResp := post([]any{
+		[]any{"Mailbox/get", map[string]any{"accountId": "primary", "ids": []any{id}}, "c3"},
+	})
+	got := getResp.MethodResponses[0].Args["list"].([]any)[0].(map[string]any)
+	if got["name"] != "Work" {
+		t.Errorf("rename not persisted: %v", got["name"])
+	}
+	if got["isSubscribed"] != true {
+		t.Errorf("isSubscribed not persisted: %v", got["isSubscribed"])
+	}
+	// sortOrder set at create MUST survive the partial update that didn't mention it.
+	if got["sortOrder"].(float64) != 5 {
+		t.Errorf("partial update dropped sortOrder: %v", got["sortOrder"])
+	}
+
+	// Updating a non-existent mailbox MUST be reported in notUpdated, not silently ignored.
+	badResp := post([]any{
+		[]any{"Mailbox/set", map[string]any{
+			"accountId": "primary",
+			"update":    map[string]any{"mb-does-not-exist": map[string]any{"name": "X"}},
+		}, "c4"},
+	})
+	if nu, ok := badResp.MethodResponses[0].Args["notUpdated"].(map[string]any); !ok || nu["mb-does-not-exist"] == nil {
+		t.Errorf("expected notUpdated for missing mailbox, got %#v", badResp.MethodResponses[0].Args["notUpdated"])
+	}
+}
+
 // TestRFC8621_Section2_4_MailboxQuery tests Mailbox/query per RFC 8621 Section 2.4.
 func TestRFC8621_Section2_4_MailboxQuery(t *testing.T) {
 	srv := newTestServer()

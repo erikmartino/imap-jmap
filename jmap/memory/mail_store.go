@@ -359,6 +359,75 @@ func (mb *MemoryBackend) CreateMailbox(ctx context.Context, item *jmap.Mailbox) 
 	return item, nil
 }
 
+// UpdateMailbox applies a partial patch to a mailbox (RFC 8621 Section 2.5), preserving
+// unaddressed fields. Counts and rights are server-set and cannot be patched by the client.
+func (mb *MemoryBackend) UpdateMailbox(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.Mailbox, error) {
+	mb.mu.Lock()
+	item, ok := mb.mailboxes[id]
+	if !ok {
+		mb.mu.Unlock()
+		return nil, fmt.Errorf("mailbox not found: %s", id)
+	}
+
+	for prop, val := range patch {
+		switch prop {
+		case "name":
+			name, ok := val.(string)
+			if !ok || name == "" {
+				mb.mu.Unlock()
+				return nil, fmt.Errorf("invalid name")
+			}
+			item.Name = name
+		case "parentId":
+			if val == nil {
+				item.ParentID = nil
+				continue
+			}
+			pid, ok := val.(string)
+			if !ok {
+				mb.mu.Unlock()
+				return nil, fmt.Errorf("invalid parentId")
+			}
+			if jmap.Id(pid) == id {
+				mb.mu.Unlock()
+				return nil, fmt.Errorf("a mailbox cannot be its own parent")
+			}
+			if _, exists := mb.mailboxes[jmap.Id(pid)]; !exists {
+				mb.mu.Unlock()
+				return nil, fmt.Errorf("parent mailbox not found: %s", pid)
+			}
+			p := jmap.Id(pid)
+			item.ParentID = &p
+		case "role":
+			if val == nil {
+				item.Role = nil
+				continue
+			}
+			role, ok := val.(string)
+			if !ok {
+				mb.mu.Unlock()
+				return nil, fmt.Errorf("invalid role")
+			}
+			item.Role = &role
+		case "sortOrder":
+			if f, ok := val.(float64); ok {
+				item.SortOrder = uint64(f)
+			}
+		case "isSubscribed":
+			if b, ok := val.(bool); ok {
+				item.IsSubscribed = b
+			}
+		default:
+			mb.mu.Unlock()
+			return nil, fmt.Errorf("unknown or immutable property: %s", prop)
+		}
+	}
+	mb.mu.Unlock()
+
+	mb.bumpState("Mailbox")
+	return item, nil
+}
+
 // DeleteMailbox deletes a mailbox by ID.
 func (mb *MemoryBackend) DeleteMailbox(ctx context.Context, id jmap.Id) (bool, error) {
 	mb.mu.Lock()
