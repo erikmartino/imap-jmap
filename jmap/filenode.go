@@ -269,8 +269,10 @@ func handleFileNodeQueryChanges(backend FileNodeBackend) MethodHandler {
 		if backend != nil {
 			newQueryState = backend.FileNodeState(ctx)
 
-			// Resolve which objects changed since the client's query state.
-			created, updated, destroyed, _, _ := backend.FileNodeChanges(ctx, sinceQueryState)
+			created, updated, destroyed, _, hasMore := backend.FileNodeChanges(ctx, sinceQueryState)
+			if hasMore {
+				return "error", MethodErrorArgs("cannotCalculateChanges", "sinceQueryState is too old")
+			}
 
 			// Any changed-or-gone object is first removed from the client's view; those still
 			// matching the filter are then re-added at their current position, so moves and

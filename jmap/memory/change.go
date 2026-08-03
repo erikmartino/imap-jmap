@@ -49,10 +49,12 @@ func (t *changeTracker) State() string {
 // parseStateToken parses the numeric component of an opaque state token.
 // Missing state tokens (empty or "0") are treated as the initial state.
 func parseStateToken(s string) (uint64, bool) {
-	s = strings.TrimPrefix(strings.TrimSpace(s), "~")
-	if s == "" {
-		return 0, false
+	s = strings.TrimSpace(s)
+	if s == "" || s == "0" {
+		return 0, true
 	}
+	s = strings.TrimPrefix(s, "~")
+	s = strings.TrimPrefix(s, "state-")
 	var n uint64
 	if _, err := fmt.Sscanf(s, "%d", &n); err != nil {
 		return 0, false
@@ -81,13 +83,16 @@ func (t *changeTracker) Changes(sinceState string) (created, updated, destroyed 
 	defer t.mu.RUnlock()
 
 	newState = fmt.Sprintf("~%d", t.counter)
-	if t.counter == 0 {
-		return nil, nil, nil, newState, false
-	}
 
 	since, ok := parseStateToken(sinceState)
 	if !ok {
-		since = 0
+		return nil, nil, nil, newState, true
+	}
+	if t.counter == 0 {
+		if since == 0 {
+			return nil, nil, nil, newState, false
+		}
+		return nil, nil, nil, newState, true
 	}
 	if since >= t.counter {
 		return nil, nil, nil, newState, false
