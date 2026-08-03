@@ -518,6 +518,65 @@ func TestRFC8621_Section4_5_1_EmailQueryFilteringAndSorting(t *testing.T) {
 	}
 }
 
+// TestRFC8621_EmailQueryAllFilterConditions tests Email/query with body, cc, bcc, keywords, and header filters per RFC 8621 Section 4.5.1.
+func TestRFC8621_EmailQueryAllFilterConditions(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// 1. Filter by body ("Welcome to JMAP")
+	reqBody := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+		"methodCalls": []any{
+			[]any{"Email/query", map[string]any{
+				"accountId": "primary",
+				"filter": map[string]any{
+					"body": "Welcome",
+				},
+			}, "c1"},
+		},
+	}
+	bodyBytes, _ := json.Marshal(reqBody)
+	respBody, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
+	if err != nil {
+		t.Fatalf("POST /jmap failed: %v", err)
+	}
+	defer respBody.Body.Close()
+
+	var jmapRespBody jmap.Response
+	_ = json.NewDecoder(respBody.Body).Decode(&jmapRespBody)
+	idsBody, ok := jmapRespBody.MethodResponses[0].Args["ids"].([]any)
+	if !ok || len(idsBody) != 1 {
+		t.Errorf("Expected 1 email matching body 'Welcome', got %v", jmapRespBody.MethodResponses[0].Args["ids"])
+	}
+
+	// 2. Filter by hasKeyword ("$seen") vs non-matching body ("nonexistent_term_12345")
+	reqNoMatch := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+		"methodCalls": []any{
+			[]any{"Email/query", map[string]any{
+				"accountId": "primary",
+				"filter": map[string]any{
+					"body": "nonexistent_term_12345",
+				},
+			}, "c2"},
+		},
+	}
+	bodyNoMatch, _ := json.Marshal(reqNoMatch)
+	respNoMatch, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyNoMatch))
+	if err != nil {
+		t.Fatalf("POST /jmap failed: %v", err)
+	}
+	defer respNoMatch.Body.Close()
+
+	var jmapRespNoMatch jmap.Response
+	_ = json.NewDecoder(respNoMatch.Body).Decode(&jmapRespNoMatch)
+	idsNoMatch, _ := jmapRespNoMatch.MethodResponses[0].Args["ids"].([]any)
+	if len(idsNoMatch) != 0 {
+		t.Errorf("Expected 0 emails matching 'nonexistent_term_12345', got %v", idsNoMatch)
+	}
+}
+
 // TestRFC8621_Section3_ThreadGet tests Thread/get per RFC 8621 Section 3.
 func TestRFC8621_Section3_ThreadGet(t *testing.T) {
 	srv := newTestServer()

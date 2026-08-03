@@ -85,3 +85,73 @@ func TestRFC4791_CalDAVPutAndGet(t *testing.T) {
 		t.Errorf("Expected event-4791-put with title 'CalDAV Test Event'")
 	}
 }
+
+// TestRFC4791_CalDAVFullLifecycleAndReport tests complete CalDAV object lifecycle (GET, REPORT, DELETE) per RFC 4791.
+func TestRFC4791_CalDAVFullLifecycleAndReport(t *testing.T) {
+	calBackend := memory.NewMemoryCalendarsBackend()
+	_, _ = calBackend.CreateCalendarEvent(context.Background(), &jmap.CalendarEvent{
+		ID:    "evt-4791-lc",
+		Title: "Lifecycle Meeting",
+		Start: "2026-12-01T10:00:00Z",
+	})
+
+	srv := dav.NewServer(calBackend, nil)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// 1. GET existing calendar object
+	reqGet, _ := http.NewRequest("GET", ts.URL+"/caldav/calendars/default/evt-4791-lc.ics", nil)
+	respGet, err := http.DefaultClient.Do(reqGet)
+	if err != nil {
+		t.Fatalf("GET /caldav/ event failed: %v", err)
+	}
+	defer respGet.Body.Close()
+	if respGet.StatusCode != http.StatusOK {
+		t.Errorf("Expected 200 OK on GET, got %d", respGet.StatusCode)
+	}
+
+	// 2. GET non-existent object returns 404
+	reqGet404, _ := http.NewRequest("GET", ts.URL+"/caldav/calendars/default/nonexistent-evt.ics", nil)
+	respGet404, err := http.DefaultClient.Do(reqGet404)
+	if err != nil {
+		t.Fatalf("GET /caldav/ 404 failed: %v", err)
+	}
+	defer respGet404.Body.Close()
+	if respGet404.StatusCode != http.StatusNotFound {
+		t.Errorf("Expected 404 Not Found on non-existent GET, got %d", respGet404.StatusCode)
+	}
+
+	// 3. REPORT calendar-query request
+	reqReport, _ := http.NewRequest("REPORT", ts.URL+"/caldav/calendars/default", strings.NewReader(`<?xml version="1.0" encoding="utf-8" ?>
+<C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <D:prop>
+    <D:getetag/>
+    <C:calendar-data/>
+  </D:prop>
+  <C:filter>
+    <C:comp-filter name="VCALENDAR">
+      <C:comp-filter name="VEVENT"/>
+    </C:comp-filter>
+  </C:filter>
+</C:calendar-query>`))
+	reqReport.Header.Set("Content-Type", "application/xml")
+	respReport, err := http.DefaultClient.Do(reqReport)
+	if err != nil {
+		t.Fatalf("REPORT /caldav/ failed: %v", err)
+	}
+	defer respReport.Body.Close()
+	if respReport.StatusCode != http.StatusMultiStatus && respReport.StatusCode != http.StatusOK {
+		t.Errorf("Expected 207 Multi-Status or 200 OK on REPORT, got %d", respReport.StatusCode)
+	}
+
+	// 4. DELETE calendar object
+	reqDel, _ := http.NewRequest("DELETE", ts.URL+"/caldav/calendars/default/evt-4791-lc.ics", nil)
+	respDel, err := http.DefaultClient.Do(reqDel)
+	if err != nil {
+		t.Fatalf("DELETE /caldav/ event failed: %v", err)
+	}
+	defer respDel.Body.Close()
+	if respDel.StatusCode != http.StatusOK && respDel.StatusCode != http.StatusNoContent {
+		t.Errorf("Expected 200/204 on DELETE, got %d", respDel.StatusCode)
+	}
+}

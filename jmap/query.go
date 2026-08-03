@@ -147,16 +147,49 @@ func MatchesFilter(em *Email, filter map[string]any) bool {
 		}
 	}
 
-	// from
-	if fromRaw, ok := filter["from"].(string); ok && fromRaw != "" {
-		if !matchAddresses(em.From, fromRaw) {
+	// cc
+	if ccRaw, ok := filter["cc"].(string); ok && ccRaw != "" {
+		if !matchAddresses(em.CC, ccRaw) {
 			return false
 		}
 	}
 
-	// to
-	if toRaw, ok := filter["to"].(string); ok && toRaw != "" {
-		if !matchAddresses(em.To, toRaw) {
+	// bcc
+	if bccRaw, ok := filter["bcc"].(string); ok && bccRaw != "" {
+		if !matchAddresses(em.BCC, bccRaw) {
+			return false
+		}
+	}
+
+	// body
+	if bodyRaw, ok := filter["body"].(string); ok && bodyRaw != "" {
+		if !matchBody(em, bodyRaw) {
+			return false
+		}
+	}
+
+	// hasKeyword
+	if kwRaw, ok := filter["hasKeyword"].(string); ok && kwRaw != "" {
+		if em.Keywords == nil || !em.Keywords[kwRaw] {
+			return false
+		}
+	}
+
+	// notKeyword
+	if notKwRaw, ok := filter["notKeyword"].(string); ok && notKwRaw != "" {
+		if em.Keywords != nil && em.Keywords[notKwRaw] {
+			return false
+		}
+	}
+
+	// header
+	if headerRaw, ok := filter["header"].([]any); ok && len(headerRaw) > 0 {
+		headerName, _ := headerRaw[0].(string)
+		headerVal := ""
+		if len(headerRaw) > 1 {
+			headerVal, _ = headerRaw[1].(string)
+		}
+		if !matchHeader(em, headerName, headerVal) {
 			return false
 		}
 	}
@@ -167,13 +200,60 @@ func MatchesFilter(em *Email, filter map[string]any) bool {
 		textMatch := strings.Contains(strings.ToLower(em.Subject), needle) ||
 			strings.Contains(strings.ToLower(em.Preview), needle) ||
 			matchAddresses(em.From, needle) ||
-			matchAddresses(em.To, needle)
+			matchAddresses(em.To, needle) ||
+			matchAddresses(em.CC, needle) ||
+			matchAddresses(em.BCC, needle) ||
+			matchBody(em, needle)
 		if !textMatch {
 			return false
 		}
 	}
 
 	return true
+}
+
+func matchBody(em *Email, needle string) bool {
+	needle = strings.ToLower(needle)
+	if strings.Contains(strings.ToLower(em.Preview), needle) {
+		return true
+	}
+	for _, val := range em.BodyValues {
+		if strings.Contains(strings.ToLower(val.Value), needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func matchHeader(em *Email, headerName, headerValue string) bool {
+	headerName = strings.ToLower(headerName)
+	headerValue = strings.ToLower(headerValue)
+
+	checkHeaders := func(headers []EmailHeader) bool {
+		for _, h := range headers {
+			if strings.ToLower(h.Name) == headerName {
+				if headerValue == "" || strings.Contains(strings.ToLower(h.Value), headerValue) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	if checkHeaders(em.BodyStructure.Headers) {
+		return true
+	}
+	for _, p := range em.TextBody {
+		if checkHeaders(p.Headers) {
+			return true
+		}
+	}
+	for _, p := range em.HTMLBody {
+		if checkHeaders(p.Headers) {
+			return true
+		}
+	}
+	return false
 }
 
 func matchAddresses(addrs []EmailAddress, needle string) bool {

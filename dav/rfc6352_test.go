@@ -88,3 +88,73 @@ func TestRFC6352_CardDAVPutAndGet(t *testing.T) {
 		t.Errorf("Expected card with FN 'Alice Morgan'")
 	}
 }
+
+// TestRFC6352_CardDAVFullLifecycleAndReport tests complete CardDAV object lifecycle (GET, REPORT, DELETE) per RFC 6352.
+func TestRFC6352_CardDAVFullLifecycleAndReport(t *testing.T) {
+	contactsBackend := memory.NewMemoryContactsBackend()
+	_, _ = contactsBackend.CreateCard(context.Background(), &jmap.Card{
+		ID:   "card-6352-lc",
+		Name: &jmap.JSContactName{Full: "Bob Builder"},
+		Emails: map[string]*jmap.JSContactEmailAddress{
+			"e1": {Address: "bob@example.com"},
+		},
+	})
+
+	srv := dav.NewServer(nil, contactsBackend)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// 1. GET existing address object
+	reqGet, _ := http.NewRequest("GET", ts.URL+"/carddav/addressbooks/default/card-6352-lc.vcf", nil)
+	respGet, err := http.DefaultClient.Do(reqGet)
+	if err != nil {
+		t.Fatalf("GET /carddav/ vcard failed: %v", err)
+	}
+	defer respGet.Body.Close()
+	if respGet.StatusCode != http.StatusOK {
+		t.Errorf("Expected 200 OK on GET, got %d", respGet.StatusCode)
+	}
+
+	// 2. GET non-existent address object returns 404
+	reqGet404, _ := http.NewRequest("GET", ts.URL+"/carddav/addressbooks/default/nonexistent-card.vcf", nil)
+	respGet404, err := http.DefaultClient.Do(reqGet404)
+	if err != nil {
+		t.Fatalf("GET /carddav/ 404 failed: %v", err)
+	}
+	defer respGet404.Body.Close()
+	if respGet404.StatusCode != http.StatusNotFound {
+		t.Errorf("Expected 404 Not Found on non-existent GET, got %d", respGet404.StatusCode)
+	}
+
+	// 3. REPORT addressbook-query request
+	reqReport, _ := http.NewRequest("REPORT", ts.URL+"/carddav/addressbooks/default", strings.NewReader(`<?xml version="1.0" encoding="utf-8" ?>
+<C:addressbook-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:carddav">
+  <D:prop>
+    <D:getetag/>
+    <C:address-data/>
+  </D:prop>
+  <C:filter>
+    <C:prop-filter name="FN"/>
+  </C:filter>
+</C:addressbook-query>`))
+	reqReport.Header.Set("Content-Type", "application/xml")
+	respReport, err := http.DefaultClient.Do(reqReport)
+	if err != nil {
+		t.Fatalf("REPORT /carddav/ failed: %v", err)
+	}
+	defer respReport.Body.Close()
+	if respReport.StatusCode != http.StatusMultiStatus && respReport.StatusCode != http.StatusOK {
+		t.Errorf("Expected 207 Multi-Status or 200 OK on REPORT, got %d", respReport.StatusCode)
+	}
+
+	// 4. DELETE address object
+	reqDel, _ := http.NewRequest("DELETE", ts.URL+"/carddav/addressbooks/default/card-6352-lc.vcf", nil)
+	respDel, err := http.DefaultClient.Do(reqDel)
+	if err != nil {
+		t.Fatalf("DELETE /carddav/ vcard failed: %v", err)
+	}
+	defer respDel.Body.Close()
+	if respDel.StatusCode != http.StatusOK && respDel.StatusCode != http.StatusNoContent {
+		t.Errorf("Expected 200/204 on DELETE, got %d", respDel.StatusCode)
+	}
+}
