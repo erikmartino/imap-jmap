@@ -515,6 +515,192 @@ func TestRFC8621_Section7_3_EmailSubmissionSet(t *testing.T) {
 	}
 }
 
+// TestRFC8621_Section7_2_EmailSubmissionQuery tests EmailSubmission/query filters, sort,
+// pagination, and totals per RFC 8621 Section 7.2 against live backend data.
+func TestRFC8621_Section7_2_EmailSubmissionQuery(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Create a target email so we can exercise emailIds/threadIds filters.
+	reqPayload := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+		"methodCalls": []any{
+			[]any{"Email/set", map[string]any{
+				"accountId": "primary",
+				"create": map[string]any{
+					"e1": map[string]any{
+						"mailboxIds": map[string]any{"mb-inbox": true},
+						"subject":    "Submission Target One",
+						"from":       []any{map[string]any{"name": "A", "email": "a@example.com"}},
+						"to":         []any{map[string]any{"name": "B", "email": "b@example.com"}},
+					},
+				},
+			}, "c1"},
+		},
+	}
+	body, _ := json.Marshal(reqPayload)
+	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /jmap failed: %v", err)
+	}
+	var jmapResp jmap.Response
+	if err := json.NewDecoder(resp.Body).Decode(&jmapResp); err != nil {
+		t.Fatalf("Failed to decode Response: %v", err)
+	}
+	resp.Body.Close()
+
+	created := jmapResp.MethodResponses[0].Args["created"].(map[string]any)
+	emailID := created["e1"].(map[string]any)["id"].(string)
+	threadID := created["e1"].(map[string]any)["threadId"].(string)
+	if emailID == "" || threadID == "" {
+		t.Fatalf("Expected created email with id and threadId, got %v", created["e1"])
+	}
+
+	// Create three submissions with distinct sendAt values; one references the seeded email-1.
+	reqPayload = map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+		"methodCalls": []any{
+			[]any{"EmailSubmission/set", map[string]any{
+				"accountId": "primary",
+				"create": map[string]any{
+					"s1": map[string]any{"identityId": "id-primary", "emailId": emailID, "sendAt": "2026-01-15T10:00:00Z"},
+					"s2": map[string]any{"identityId": "id-primary", "emailId": "email-1", "sendAt": "2026-02-15T10:00:00Z"},
+					"s3": map[string]any{"identityId": "id-primary", "emailId": emailID, "sendAt": "2026-03-15T10:00:00Z"},
+				},
+			}, "c1"},
+		},
+	}
+	body, _ = json.Marshal(reqPayload)
+	resp, err = http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /jmap failed: %v", err)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&jmapResp); err != nil {
+		t.Fatalf("Failed to decode Response: %v", err)
+	}
+	resp.Body.Close()
+
+	createdSubs := jmapResp.MethodResponses[0].Args["created"].(map[string]any)
+	subIDs := make(map[string]string, 3)
+	for key, raw := range createdSubs {
+		subIDs[key] = raw.(map[string]any)["id"].(string)
+	}
+	if subIDs["s1"] == "" || subIDs["s2"] == "" || subIDs["s3"] == "" {
+		t.Fatalf("Expected three created submissions, got %v", createdSubs)
+	}
+
+	query := func(filter map[string]any, position int, limit *float64) map[string]any {
+		args := map[string]any{"accountId": "primary"}
+		if filter != nil {
+			args["filter"] = filter
+		}
+		if position > 0 {
+			args["position"] = position
+		}
+		if limit != nil {
+			args["limit"] = *limit
+		}
+		reqPayload := map[string]any{
+			"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+			"methodCalls": []any{
+				[]any{"EmailSubmission/query", args, "c1"},
+			},
+		}
+		body, _ := json.Marshal(reqPayload)
+		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST /jmap failed: %v", err)
+		}
+		defer resp.Body.Close()
+		var jr jmap.Response
+		if err := json.NewDecoder(resp.Body).Decode(&jr); err != nil {
+			t.Fatalf("Failed to decode Response: %v", err)
+		}
+		if jr.MethodResponses[0].Name != "EmailSubmission/query" {
+			t.Fatalf("Expected EmailSubmission/query, got %q: %v", jr.MethodResponses[0].Name, jr.MethodResponses[0].Args)
+		}
+		return jr.MethodResponses[0].Args
+	}
+	idsOf := func(args map[string]any) []string {
+		raw, _ := args["ids"].([]any)
+		out := make([]string, 0, len(raw))
+		for _, v := range raw {
+			out = append(out, v.(string))
+		}
+		return out
+	}
+
+	// Unfiltered: all three, sorted by sendAt descending (latest first: s3).
+	args := query(nil, 0, nil)
+	if got := idsOf(args); len(got) != 3 || got[0] != subIDs["s3"] {
+		t.Errorf("Expected all 3 submissions, newest first, got %v", got)
+	}
+	if args["total"].(float64) != 3 {
+		t.Errorf("Expected total 3, got %v", args["total"])
+	}
+	if _, ok := args["queryState"]; !ok {
+		t.Errorf("Expected queryState in response")
+	}
+
+	// Filter by emailIds: only the two referencing the created email.
+	args = query(map[string]any{"emailIds": []string{emailID}}, 0, nil)
+	if got := idsOf(args); len(got) != 2 {
+		t.Errorf("Expected 2 ids for emailIds filter, got %v", got)
+	}
+	// Filter by emailIds: the seeded email-1 submission only.
+	args = query(map[string]any{"emailIds": []string{"email-1"}}, 0, nil)
+	if got := idsOf(args); len(got) != 1 || got[0] != subIDs["s2"] {
+		t.Errorf("Expected only s2 for emailIds email-1, got %v", got)
+	}
+	// Filter by emailIds: unknown id matches nothing.
+	args = query(map[string]any{"emailIds": []string{"email-does-not-exist"}}, 0, nil)
+	if got := idsOf(args); len(got) != 0 {
+		t.Errorf("Expected no ids for unknown emailIds, got %v", got)
+	}
+
+	// Filter by threadIds: the created email's thread.
+	args = query(map[string]any{"threadIds": []string{threadID}}, 0, nil)
+	if got := idsOf(args); len(got) != 2 {
+		t.Errorf("Expected 2 ids for threadIds filter, got %v", got)
+	}
+
+	// Filter by identityIds: primary matches all, unknown matches none.
+	args = query(map[string]any{"identityIds": []string{"id-primary"}}, 0, nil)
+	if got := idsOf(args); len(got) != 3 {
+		t.Errorf("Expected 3 ids for identityIds id-primary, got %v", got)
+	}
+	args = query(map[string]any{"identityIds": []string{"id-unknown"}}, 0, nil)
+	if got := idsOf(args); len(got) != 0 {
+		t.Errorf("Expected no ids for unknown identityIds, got %v", got)
+	}
+
+	// Filter by before/after (sendAt comparison).
+	args = query(map[string]any{"before": "2026-02-01T00:00:00Z"}, 0, nil)
+	if got := idsOf(args); len(got) != 1 || got[0] != subIDs["s1"] {
+		t.Errorf("Expected only s1 for before filter, got %v", got)
+	}
+	args = query(map[string]any{"after": "2026-02-01T00:00:00Z"}, 0, nil)
+	if got := idsOf(args); len(got) != 2 {
+		t.Errorf("Expected s2+s3 for after filter, got %v", got)
+	}
+
+	// Pagination: limit 2 from start, then position 1.
+	args = query(nil, 0, float64Ptr(2))
+	if got := idsOf(args); len(got) != 2 {
+		t.Errorf("Expected 2 ids with limit 2, got %v", got)
+	}
+	if args["total"].(float64) != 3 {
+		t.Errorf("Expected total 3 with limit, got %v", args["total"])
+	}
+	args = query(nil, 1, float64Ptr(1))
+	if got := idsOf(args); len(got) != 1 || got[0] != subIDs["s2"] {
+		t.Errorf("Expected only s2 at position 1, got %v", got)
+	}
+}
+
+func float64Ptr(v float64) *float64 { return &v }
+
 // TestRFC8621_Section4_5_1_EmailQueryFilteringAndSorting tests Email/query filtering (inMailbox, text) and sorting per RFC 8621 Section 4.5.
 func TestRFC8621_Section4_5_1_EmailQueryFilteringAndSorting(t *testing.T) {
 	srv := newTestServer()

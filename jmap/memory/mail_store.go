@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -905,6 +906,12 @@ func (mb *MemoryBackend) CreateSubmission(ctx context.Context, sub *jmap.EmailSu
 	if sub.SendAt == "" {
 		sub.SendAt = time.Now().UTC().Format(time.RFC3339)
 	}
+	// RFC 8621 Section 7.1: threadId is server-set and must match the referenced email.
+	if sub.ThreadID == "" {
+		if em, ok := mb.emails[sub.EmailID]; ok {
+			sub.ThreadID = em.ThreadID
+		}
+	}
 	sub.UndoStatus = "final"
 	sub.DeliveryStatus = map[string]any{
 		"user@example.com": map[string]any{
@@ -933,6 +940,77 @@ func (mb *MemoryBackend) GetSubmissions(ctx context.Context, ids []jmap.Id) ([]*
 		}
 	}
 	return list, notFound, nil
+}
+
+// QuerySubmissions filters, sorts, and pages EmailSubmissions per RFC 8621 Section 7.2.
+// Supported filter conditions: identityIds, emailIds, threadIds, before, after. Results are
+// sorted by sendAt descending (the RFC 8621 Section 7.2 default).
+func (mb *MemoryBackend) QuerySubmissions(ctx context.Context, filter map[string]any, position int, limit *uint64) ([]jmap.Id, int, error) {
+	mb.mu.RLock()
+	defer mb.mu.RUnlock()
+
+	identityFilter := submissionIDFilter(filter, "identityIds")
+	emailFilter := submissionIDFilter(filter, "emailIds")
+	threadFilter := submissionIDFilter(filter, "threadIds")
+	before, _ := filter["before"].(string)
+	after, _ := filter["after"].(string)
+
+	var matched []*jmap.EmailSubmission
+	for _, sub := range mb.submissions {
+		if len(identityFilter) > 0 && !identityFilter[sub.IdentityID] {
+			continue
+		}
+		if len(emailFilter) > 0 && !emailFilter[sub.EmailID] {
+			continue
+		}
+		if len(threadFilter) > 0 && !threadFilter[sub.ThreadID] {
+			continue
+		}
+		if before != "" && sub.SendAt >= before {
+			continue
+		}
+		if after != "" && sub.SendAt < after {
+			continue
+		}
+		matched = append(matched, sub)
+	}
+
+	// Default sort: sendAt descending per RFC 8621 Section 7.2.
+	sort.SliceStable(matched, func(i, j int) bool {
+		return matched[i].SendAt > matched[j].SendAt
+	})
+
+	total := len(matched)
+	if position > total {
+		return []jmap.Id{}, total, nil
+	}
+
+	end := total
+	if limit != nil {
+		l := int(*limit)
+		if position+l < end {
+			end = position + l
+		}
+	}
+
+	ids := make([]jmap.Id, 0, end-position)
+	for _, sub := range matched[position:end] {
+		ids = append(ids, sub.ID)
+	}
+	return ids, total, nil
+}
+
+// submissionIDFilter builds a set of Ids from an array-valued filter condition.
+func submissionIDFilter(filter map[string]any, key string) map[jmap.Id]bool {
+	set := make(map[jmap.Id]bool)
+	if raw, ok := filter[key].([]any); ok {
+		for _, v := range raw {
+			if s, ok := v.(string); ok {
+				set[jmap.Id(s)] = true
+			}
+		}
+	}
+	return set
 }
 
 // GetQuotas retrieves requested Quota objects by ID per RFC 9425 Section 4.

@@ -74,9 +74,11 @@ func handleEmailSubmissionSet(backend MailBackend) MethodHandler {
 				if subData, ok := raw.(map[string]any); ok {
 					identityID, _ := subData["identityId"].(string)
 					emailID, _ := subData["emailId"].(string)
+					sendAt, _ := subData["sendAt"].(string)
 					sub, err := backend.CreateSubmission(ctx, &EmailSubmission{
 						IdentityID: Id(identityID),
 						EmailID:    Id(emailID),
+						SendAt:     sendAt,
 					})
 					if err == nil {
 						created[clientKey] = sub
@@ -112,13 +114,25 @@ func handleEmailSubmissionQuery(backend MailBackend) MethodHandler {
 			return "error", MethodErrorArgs(MethodErrorInvalidArguments, posErr)
 		}
 
+		var limit *uint64
+		if limVal, ok := args["limit"].(float64); ok {
+			l := uint64(limVal)
+			limit = &l
+		}
+
+		filter, _ := args["filter"].(map[string]any)
+		ids, total, _ := backend.QuerySubmissions(ctx, filter, position, limit)
+		if ids == nil {
+			ids = []Id{}
+		}
+
 		res := map[string]any{
 			"accountId":           accountID,
 			"queryState":          backend.SubmissionState(ctx),
 			"canCalculateChanges": true,
 			"position":            position,
-			"ids":                 []Id{},
-			"total":               0,
+			"ids":                 ids,
+			"total":               total,
 		}
 		if calcTotal, _ := args["calculateTotal"].(bool); calcTotal {
 			res["calculateTotal"] = true
