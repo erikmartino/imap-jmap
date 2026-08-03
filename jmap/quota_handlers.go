@@ -86,6 +86,26 @@ func handleQuotaQuery(backend MailBackend) MethodHandler {
 		accountID, _ := args["accountId"].(string)
 		all, _ := backend.GetAllQuotas(ctx)
 
+		if filterMap, ok := args["filter"].(map[string]any); ok && len(filterMap) > 0 {
+			var filtered []*Quota
+			for _, q := range all {
+				match := true
+				if name, ok := filterMap["name"].(string); ok && q.Name != name {
+					match = false
+				}
+				if scope, ok := filterMap["scope"].(string); ok && q.Scope != scope {
+					match = false
+				}
+				if resType, ok := filterMap["resourceType"].(string); ok && q.ResourceType != resType {
+					match = false
+				}
+				if match {
+					filtered = append(filtered, q)
+				}
+			}
+			all = filtered
+		}
+
 		position, posErr := parseQueryPosition(args)
 		if posErr != "" {
 			return "error", MethodErrorArgs(MethodErrorInvalidArguments, posErr)

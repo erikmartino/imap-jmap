@@ -91,5 +91,6 @@ type CalendarEvent struct {
 	Alerts           map[string]*JSCalendarAlert           `json:"alerts,omitempty"`
 	Created          string                                `json:"created,omitempty"`
 	Updated          string                                `json:"updated,omitempty"`
+	UID              string                                `json:"uid,omitempty"`
 	Keywords         map[string]bool                       `json:"keywords,omitempty"`
 }

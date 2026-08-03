@@ -453,6 +453,21 @@ func MatchCalendarEvent(ev *jmap.CalendarEvent, filter map[string]any) bool {
 			if !eventStartsBefore(ev, s) {
 				return false
 			}
+		case "uid":
+			s, _ := v.(string)
+			if ev.UID != s {
+				return false
+			}
+		case "updatedBefore":
+			s, _ := v.(string)
+			if s != "" && ev.Updated >= s {
+				return false
+			}
+		case "updatedAfter":
+			s, _ := v.(string)
+			if s != "" && ev.Updated < s {
+				return false
+			}
 		}
 	}
 	return true

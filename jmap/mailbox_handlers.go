@@ -195,6 +195,16 @@ func filterMailboxes(all []*Mailbox, filter map[string]any) []*Mailbox {
 					match = false
 				}
 			}
+			if hasAnyRole, ok := filter["hasAnyRole"].(bool); ok {
+				if hasAnyRole != (mb.Role != nil && *mb.Role != "") {
+					match = false
+				}
+			}
+			if isSubscribed, ok := filter["isSubscribed"].(bool); ok {
+				if mb.IsSubscribed != isSubscribed {
+					match = false
+				}
+			}
 		}
 		if match {
 			filtered = append(filtered, mb)
