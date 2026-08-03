@@ -2,6 +2,7 @@ package jmap
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 )
@@ -254,12 +255,12 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	executedMap := make(map[string]Invocation) // clientCallID -> response invocation
 
 	for _, call := range req.MethodCalls {
-		// Resolve Result References in arguments (RFC 8620 Section 3.3)
-		resolvedArgs, refErr := s.resolveResultReferences(call.Args, executedMap)
+		// Resolve Result References in arguments (RFC 8620 Section 3.7)
+		resolvedArgs, refErrType, refErr := s.resolveResultReferences(call.Args, executedMap)
 		if refErr != "" {
 			respInv := Invocation{
 				Name:         "error",
-				Args:         MethodErrorArgs(MethodErrorInvalidResultReference, refErr),
+				Args:         MethodErrorArgs(refErrType, refErr),
 				ClientCallID: call.ClientCallID,
 			}
 			responses = append(responses, respInv)
@@ -299,39 +300,63 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-func (s *Server) resolveResultReferences(args map[string]any, executed map[string]Invocation) (map[string]any, string) {
+// resolveResultReferences replaces every result-reference argument (an argument whose name is
+// prefixed with "#", per RFC 8620 Section 3.7) with the value obtained from the response of an
+// earlier method call in the same request. On failure it returns the JMAP method error type and
+// a description; an empty description means success.
+func (s *Server) resolveResultReferences(args map[string]any, executed map[string]Invocation) (map[string]any, string, string) {
 	if args == nil {
-		return make(map[string]any), ""
+		return make(map[string]any), "", ""
 	}
 
 	resolved := make(map[string]any, len(args))
 	for k, v := range args {
-		m, ok := v.(map[string]any)
-		if ok && IsResultReference(m) {
-			resultOf, _ := m["#resultOf"].(string)
-			reqName, _ := m["#name"].(string)
-			path, _ := m["#path"].(string)
-
-			prevInv, ok := executed[resultOf]
-			if !ok {
-				return nil, "Referenced call ID " + resultOf + " not found"
-			}
-
-			if reqName != "" && prevInv.Name != reqName {
-				return nil, "Referenced method name mismatch: expected " + reqName + ", got " + prevInv.Name
-			}
-
-			val, err := EvaluateJSONPointer(prevInv.Args, path)
-			if err != nil {
-				return nil, "Failed to evaluate JSON pointer: " + err.Error()
-			}
-
-			resolved[k] = val
-		} else {
+		if !strings.HasPrefix(k, "#") {
 			resolved[k] = v
+			continue
 		}
+
+		name := strings.TrimPrefix(k, "#")
+		if _, dup := args[name]; dup {
+			return nil, MethodErrorInvalidArguments,
+				fmt.Sprintf("Argument %q is given in both normal and referenced form", name)
+		}
+
+		m, ok := v.(map[string]any)
+		if !ok || !IsResultReference(m) {
+			return nil, MethodErrorInvalidResultReference,
+				fmt.Sprintf("Argument %q is not a valid ResultReference object", k)
+		}
+
+		val, refErr := s.resolveResultReference(m, executed)
+		if refErr != "" {
+			return nil, MethodErrorInvalidResultReference, refErr
+		}
+		resolved[name] = val
 	}
-	return resolved, ""
+	return resolved, "", ""
+}
+
+func (s *Server) resolveResultReference(m map[string]any, executed map[string]Invocation) (any, string) {
+	resultOf, _ := m["resultOf"].(string)
+	reqName, _ := m["name"].(string)
+	path, _ := m["path"].(string)
+
+	prevInv, ok := executed[resultOf]
+	if !ok {
+		return nil, "Referenced call ID " + resultOf + " not found"
+	}
+
+	if prevInv.Name != reqName {
+		return nil, "Referenced method name mismatch: expected " + reqName + ", got " + prevInv.Name
+	}
+
+	val, err := EvaluateJSONPointer(prevInv.Args, path)
+	if err != nil {
+		return nil, "Failed to evaluate JSON pointer: " + err.Error()
+	}
+
+	return val, ""
 }
 
 func (s *Server) writeRequestError(w http.ResponseWriter, status int, errType string, detail string) {

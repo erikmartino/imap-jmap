@@ -162,11 +162,11 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			executedMap := make(map[string]Invocation)
 
 			for _, call := range req.MethodCalls {
-				resolvedArgs, refErr := s.resolveResultReferences(call.Args, executedMap)
+				resolvedArgs, refErrType, refErr := s.resolveResultReferences(call.Args, executedMap)
 				if refErr != "" {
 					respInv := Invocation{
 						Name:         "error",
-						Args:         MethodErrorArgs(MethodErrorInvalidResultReference, refErr),
+						Args:         MethodErrorArgs(refErrType, refErr),
 						ClientCallID: call.ClientCallID,
 					}
 					responses = append(responses, respInv)

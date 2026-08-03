@@ -126,7 +126,7 @@ func TestRFC8620_Section3_2_InvocationArrays(t *testing.T) {
 	}
 }
 
-// TestRFC8620_Section3_3_ResultReference tests result reference evaluation per RFC 8620 Section 3.3.
+// TestRFC8620_Section3_3_ResultReference tests result reference evaluation per RFC 8620 Section 3.7.
 func TestRFC8620_Section3_3_ResultReference(t *testing.T) {
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
@@ -137,10 +137,10 @@ func TestRFC8620_Section3_3_ResultReference(t *testing.T) {
 		"methodCalls": []any{
 			[]any{"Core/echo", map[string]any{"greeting": "hello"}, "c1"},
 			[]any{"Core/echo", map[string]any{
-				"echoed": map[string]any{
-					"#resultOf": "c1",
-					"#name":     "Core/echo",
-					"#path":     "/greeting",
+				"#echoed": map[string]any{
+					"resultOf": "c1",
+					"name":     "Core/echo",
+					"path":     "/greeting",
 				},
 			}, "c2"},
 		},
@@ -337,9 +337,10 @@ func TestRFC8620_Section3_6_2_MethodErrors_InvalidResultReference(t *testing.T) 
 		"using": []string{jmap.CoreCapabilityURI},
 		"methodCalls": []any{
 			[]any{"Core/echo", map[string]any{
-				"echoed": map[string]any{
-					"#resultOf": "non-existent-id",
-					"#path":     "/foo",
+				"#echoed": map[string]any{
+					"resultOf": "non-existent-id",
+					"name":     "Core/echo",
+					"path":     "/foo",
 				},
 			}, "c1"},
 		},
@@ -448,26 +449,38 @@ func TestRFC8620_Section6_1_UploadingBlobs(t *testing.T) {
 	}
 }
 
-// TestRFC8620_Section3_7_ResultReferences tests chained result reference resolution (#resultOf, #name, #path) per RFC 8620 Section 3.7.
+// TestRFC8620_Section3_7_ResultReferences tests chained result reference resolution
+// (argument name prefixed with "#", ResultReference with resultOf/name/path) per RFC 8620
+// Section 3.7, using the exact request shape real clients (e.g. Bulwark webmail) send:
+// Email/query with an inMailbox filter, then Email/get whose "#ids" argument references
+// "/ids" of the query response. The Email/get response MUST contain exactly the queried
+// mailbox's emails — never a fallback to all emails in the account.
 func TestRFC8620_Section3_7_ResultReferences(t *testing.T) {
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	// Batch request: Call 1 runs Email/query -> returns email IDs list.
-	// Call 2 runs Email/get passing #resultOf: "c1", #path: "/ids" into ids parameter.
 	reqPayload := map[string]any{
 		"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
 		"methodCalls": []any{
-			[]any{"Email/query", map[string]any{"accountId": "primary"}, "c1"},
+			[]any{"Email/query", map[string]any{"accountId": "primary", "filter": map[string]any{"inMailbox": "mb-inbox"}}, "q1"},
 			[]any{"Email/get", map[string]any{
 				"accountId": "primary",
 				"#ids": map[string]any{
-					"#resultOf": "c1",
-					"#name":     "Email/query",
-					"#path":     "/ids",
+					"resultOf": "q1",
+					"name":     "Email/query",
+					"path":     "/ids",
 				},
-			}, "c2"},
+			}, "g1"},
+			[]any{"Email/query", map[string]any{"accountId": "primary", "filter": map[string]any{"inMailbox": "mb-sent"}}, "q2"},
+			[]any{"Email/get", map[string]any{
+				"accountId": "primary",
+				"#ids": map[string]any{
+					"resultOf": "q2",
+					"name":     "Email/query",
+					"path":     "/ids",
+				},
+			}, "g2"},
 		},
 	}
 
@@ -483,21 +496,227 @@ func TestRFC8620_Section3_7_ResultReferences(t *testing.T) {
 		t.Fatalf("Failed to decode Response: %v", err)
 	}
 
-	if len(jmapResp.MethodResponses) != 2 {
-		t.Fatalf("Expected 2 method responses, got %d", len(jmapResp.MethodResponses))
+	if len(jmapResp.MethodResponses) != 4 {
+		t.Fatalf("Expected 4 method responses, got %d", len(jmapResp.MethodResponses))
 	}
 
-	call2 := jmapResp.MethodResponses[1]
-	if call2.Name != "Email/get" {
-		t.Errorf("Expected response 'Email/get', got %q", call2.Name)
+	// Call 2: Email/get must return exactly the inbox query's ids (2 seeded emails).
+	q1IDs := queryIDs(t, jmapResp.MethodResponses[0])
+	if len(q1IDs) == 0 {
+		t.Fatalf("Expected the inbox query to return emails, got %v", q1IDs)
+	}
+	g1 := jmapResp.MethodResponses[1]
+	if g1.Name != "Email/get" {
+		t.Fatalf("Expected response 'Email/get', got %q", g1.Name)
+	}
+	g1IDs := getListIDs(t, g1.Args["list"])
+	if !equalStringSlices(g1IDs, q1IDs) {
+		t.Errorf("Email/get via result reference returned %v, want exactly the query ids %v", g1IDs, q1IDs)
+	}
+	if notFound, _ := g1.Args["notFound"].([]any); len(notFound) != 0 {
+		t.Errorf("Expected notFound to be empty, got %v", notFound)
 	}
 
-	list, ok := call2.Args["list"].([]any)
-	if !ok || len(list) == 0 {
-		t.Errorf("Expected non-empty email list resolved via chained result reference, got %v", call2.Args["list"])
+	// Call 4: Email/get for the (empty) sent mailbox must return an empty list. If the
+	// result reference is not honored, the handler falls back to fetching all emails and
+	// every mailbox would show the same content (the Bulwark symptom).
+	g2 := jmapResp.MethodResponses[3]
+	if g2.Name != "Email/get" {
+		t.Fatalf("Expected response 'Email/get', got %q", g2.Name)
+	}
+	g2IDs := getListIDs(t, g2.Args["list"])
+	if len(g2IDs) != 0 {
+		t.Errorf("Email/get via result reference for empty mailbox returned %v, want an empty list", g2IDs)
 	}
 }
 
+func queryIDs(t *testing.T, inv jmap.Invocation) []string {
+	t.Helper()
+	idsRaw, ok := inv.Args["ids"].([]any)
+	if !ok {
+		t.Fatalf("Expected query response to have ids array, got %v", inv.Args["ids"])
+	}
+	ids := make([]string, 0, len(idsRaw))
+	for _, id := range idsRaw {
+		s, _ := id.(string)
+		ids = append(ids, s)
+	}
+	return ids
+}
+
+func getListIDs(t *testing.T, listRaw any) []string {
+	t.Helper()
+	list, ok := listRaw.([]any)
+	if !ok {
+		t.Fatalf("Expected get response to have list array, got %v", listRaw)
+	}
+	ids := make([]string, 0, len(list))
+	for _, item := range list {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if id, _ := m["id"].(string); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+func equalStringSlices(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// TestRFC8620_Section3_7_ResultReference_StarPointer tests the "*" array mapping in JSON
+// pointers per RFC 8620 Section 3.7: "/list/*/id" maps over every item of the list array and
+// flattens the results into a single array.
+func TestRFC8620_Section3_7_ResultReference_StarPointer(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	reqPayload := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+		"methodCalls": []any{
+			[]any{"Email/query", map[string]any{"accountId": "primary", "filter": map[string]any{"inMailbox": "mb-inbox"}}, "q1"},
+			[]any{"Email/get", map[string]any{
+				"accountId": "primary",
+				"#ids": map[string]any{
+					"resultOf": "q1",
+					"name":     "Email/query",
+					"path":     "/ids",
+				},
+			}, "g1"},
+			[]any{"Core/echo", map[string]any{
+				"#echoed": map[string]any{
+					"resultOf": "g1",
+					"name":     "Email/get",
+					"path":     "/list/*/id",
+				},
+			}, "e1"},
+		},
+	}
+
+	body, _ := json.Marshal(reqPayload)
+	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /jmap failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var jmapResp jmap.Response
+	if err := json.NewDecoder(resp.Body).Decode(&jmapResp); err != nil {
+		t.Fatalf("Failed to decode Response: %v", err)
+	}
+
+	if len(jmapResp.MethodResponses) != 3 {
+		t.Fatalf("Expected 3 method responses, got %d", len(jmapResp.MethodResponses))
+	}
+
+	star := jmapResp.MethodResponses[2]
+	if star.Name != "Core/echo" {
+		t.Fatalf("Expected response 'Core/echo', got %q", star.Name)
+	}
+	want := queryIDs(t, jmapResp.MethodResponses[0])
+	gotRaw, _ := star.Args["echoed"].([]any)
+	got := make([]string, 0, len(gotRaw))
+	for _, id := range gotRaw {
+		s, _ := id.(string)
+		got = append(got, s)
+	}
+	if !equalStringSlices(got, want) {
+		t.Errorf("Star pointer /list/*/id returned %v, want %v", got, want)
+	}
+}
+
+// TestRFC8620_Section3_7_ResultReference_Errors tests the failure modes of result references
+// per RFC 8620 Section 3.7: a non-ResultReference value under a "#" argument yields
+// invalidResultReference, and giving an argument in both normal and referenced form yields
+// invalidArguments.
+func TestRFC8620_Section3_7_ResultReference_Errors(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	cases := []struct {
+		name     string
+		args     map[string]any
+		wantType string
+	}{
+		{
+			name: "referenced argument value is not a ResultReference object",
+			args: map[string]any{
+				"#echoed": "not-a-reference",
+			},
+			wantType: jmap.MethodErrorInvalidResultReference,
+		},
+		{
+			name: "referenced call does not exist",
+			args: map[string]any{
+				"#echoed": map[string]any{"resultOf": "missing", "name": "Core/echo", "path": "/x"},
+			},
+			wantType: jmap.MethodErrorInvalidResultReference,
+		},
+		{
+			name: "response name does not match",
+			args: map[string]any{
+				"#echoed": map[string]any{"resultOf": "c1", "name": "Other/method", "path": "/x"},
+			},
+			wantType: jmap.MethodErrorInvalidResultReference,
+		},
+		{
+			name: "argument given in both normal and referenced form",
+			args: map[string]any{
+				"echoed":  "plain",
+				"#echoed": map[string]any{"resultOf": "c1", "name": "Core/echo", "path": "/greeting"},
+			},
+			wantType: jmap.MethodErrorInvalidArguments,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			methodCalls := []any{[]any{"Core/echo", map[string]any{"greeting": "hello"}, "c1"}}
+			methodCalls = append(methodCalls, []any{"Core/echo", tc.args, "c2"})
+
+			reqPayload := map[string]any{
+				"using":       []string{jmap.CoreCapabilityURI},
+				"methodCalls": methodCalls,
+			}
+			body, _ := json.Marshal(reqPayload)
+			resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+			if err != nil {
+				t.Fatalf("POST /jmap failed: %v", err)
+			}
+			defer resp.Body.Close()
+
+			var jmapResp jmap.Response
+			if err := json.NewDecoder(resp.Body).Decode(&jmapResp); err != nil {
+				t.Fatalf("Failed to decode Response: %v", err)
+			}
+
+			if len(jmapResp.MethodResponses) != 2 {
+				t.Fatalf("Expected 2 method responses, got %d", len(jmapResp.MethodResponses))
+			}
+			second := jmapResp.MethodResponses[1]
+			if second.Name != "error" {
+				t.Fatalf("Expected response name 'error', got %q", second.Name)
+			}
+			errType, _ := second.Args["type"].(string)
+			if errType != tc.wantType {
+				t.Errorf("Expected method error type %q, got %q", tc.wantType, errType)
+			}
+		})
+	}
+}
 
 // TestRFC8620_Section6_2_DownloadingBlobs tests blob downloading per RFC 8620 Section 6.2.
 func TestRFC8620_Section6_2_DownloadingBlobs(t *testing.T) {
