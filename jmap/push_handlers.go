@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 )
@@ -56,6 +57,13 @@ func handlePushSubscriptionGet(backend MailBackend) MethodHandler {
 func handlePushSubscriptionSet(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
+
+		if ifInState, ok := args["ifInState"].(string); ok && ifInState != "" {
+			oldState := backend.State(ctx)
+			if ifInState != oldState {
+				return "error", MethodErrorArgs("stateMismatch", fmt.Sprintf("state token %q does not match current state %q", ifInState, oldState))
+			}
+		}
 
 		created := make(map[string]*PushSubscription)
 		notCreated := make(map[string]any)
