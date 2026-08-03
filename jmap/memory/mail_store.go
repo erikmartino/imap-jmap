@@ -318,13 +318,6 @@ func (mb *MemoryBackend) recordChange(tracker *changeTracker, id jmap.Id, action
 	return newState
 }
 
-func (mb *MemoryBackend) bumpState(typeName string) {
-	mb.state = fmt.Sprintf("m%d", time.Now().UnixNano())
-	if mb.broadcaster != nil {
-		mb.broadcaster.PublishStateChange("primary", typeName, mb.state)
-	}
-}
-
 // State returns current mail change state token.
 func (mb *MemoryBackend) State(ctx context.Context) string {
 	mb.mu.RLock()
@@ -612,7 +605,11 @@ func (mb *MemoryBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jmap
 
 	mb.recalculateMailboxCounts()
 	mb.recordChange(mb.emailState, em.ID, "create", "Email")
-	mb.bumpState("Mailbox")
+	// Mailbox counts changed, so the affected mailboxes' state must advance with the
+	// same token scheme used by Mailbox/changes (RFC 8621 Section 2.3).
+	for mID := range em.MailboxIDs {
+		mb.recordChange(mb.mailboxState, mID, "update", "Mailbox")
+	}
 	return em, nil
 }
 
@@ -668,6 +665,13 @@ func (mb *MemoryBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map[
 		em.MailboxIDs = make(map[jmap.Id]bool)
 	}
 
+	// Record the mailboxes that may have their counts changed, including any that the
+	// patch removes from the email, before applying the patch.
+	affected := make(map[jmap.Id]bool)
+	for mID := range em.MailboxIDs {
+		affected[mID] = true
+	}
+
 	for path, val := range patch {
 		if path == "keywords" {
 			if kwMap, ok := val.(map[string]any); ok {
@@ -716,7 +720,12 @@ func (mb *MemoryBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map[
 
 	mb.recalculateMailboxCounts()
 	mb.recordChange(mb.emailState, id, "update", "Email")
-	mb.bumpState("Mailbox")
+	for mID := range em.MailboxIDs {
+		affected[mID] = true
+	}
+	for mID := range affected {
+		mb.recordChange(mb.mailboxState, mID, "update", "Mailbox")
+	}
 	return em, nil
 }
 
@@ -728,6 +737,12 @@ func (mb *MemoryBackend) DeleteEmail(ctx context.Context, id jmap.Id) (bool, err
 	em, ok := mb.emails[id]
 	if !ok {
 		return false, nil
+	}
+
+	// The mailboxes the email lived in have their counts changed by the deletion.
+	affected := make(map[jmap.Id]bool)
+	for mID := range em.MailboxIDs {
+		affected[mID] = true
 	}
 	delete(mb.emails, id)
 
@@ -750,7 +765,9 @@ func (mb *MemoryBackend) DeleteEmail(ctx context.Context, id jmap.Id) (bool, err
 
 	mb.recalculateMailboxCounts()
 	mb.recordChange(mb.emailState, id, "destroy", "Email")
-	mb.bumpState("Mailbox")
+	for mID := range affected {
+		mb.recordChange(mb.mailboxState, mID, "update", "Mailbox")
+	}
 	return true, nil
 }
 
@@ -1125,8 +1142,12 @@ func (mb *MemoryBackend) SendMDN(ctx context.Context, mdn *jmap.MDN) (*jmap.MDN,
 	}
 	mb.emails[mdnEmail.ID] = mdnEmail
 
-	mb.bumpState("MDN")
-	mb.bumpState("Email")
+	// RFC 9007 Section 3.1: sending an MDN creates an email in the Sent mailbox; the
+	// Email, Thread, and Mailbox types all change state. MDN itself has no state.
+	mb.recalculateMailboxCounts()
+	mb.recordChange(mb.emailState, mdnEmail.ID, "create", "Email")
+	mb.recordChange(mb.threadState, mdnEmail.ThreadID, "update", "Thread")
+	mb.recordChange(mb.mailboxState, "mb-sent", "update", "Mailbox")
 	return mdn, nil
 }
 
@@ -1203,7 +1224,6 @@ func (mb *MemoryBackend) CreatePushSubscription(ctx context.Context, sub *jmap.P
 	sub.VerificationCode = &verificationCode
 
 	mb.pushSubscriptions[sub.ID] = sub
-	mb.bumpState("PushSubscription")
 	return sub, nil
 }
 
@@ -1245,7 +1265,6 @@ func (mb *MemoryBackend) UpdatePushSubscription(ctx context.Context, id jmap.Id,
 	}
 
 	mb.pushSubscriptions[id] = sub
-	mb.bumpState("PushSubscription")
 	return sub, nil
 }
 
@@ -1258,6 +1277,5 @@ func (mb *MemoryBackend) DeletePushSubscription(ctx context.Context, id jmap.Id)
 		return false, nil
 	}
 	delete(mb.pushSubscriptions, id)
-	mb.bumpState("PushSubscription")
 	return true, nil
 }
