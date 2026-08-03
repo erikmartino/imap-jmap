@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
@@ -201,6 +202,16 @@ func (b *MemorySieveBackend) QuerySieveScripts(ctx context.Context, filter map[s
 		}
 		matched = append(matched, s)
 	}
+
+	// Stable server-determined order (RFC 8620 Section 5.5: sort order MUST be stable
+	// between calls to /query): name ascending, tie-broken by id. This keeps the indices
+	// returned by /queryChanges deterministic.
+	sort.SliceStable(matched, func(i, j int) bool {
+		if matched[i].Name != matched[j].Name {
+			return matched[i].Name < matched[j].Name
+		}
+		return matched[i].ID < matched[j].ID
+	})
 
 	total := len(matched)
 	if position >= total {

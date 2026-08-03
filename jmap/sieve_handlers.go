@@ -11,6 +11,7 @@ func RegisterSieveHandlers(r *MethodRegistry, backend SieveBackend) {
 	r.Register("SieveScript/changes", handleSieveScriptChanges(backend))
 	r.Register("SieveScript/set", handleSieveScriptSet(backend))
 	r.Register("SieveScript/query", handleSieveScriptQuery(backend))
+	r.Register("SieveScript/queryChanges", handleSieveScriptQueryChanges(backend))
 	r.Register("SieveScript/validate", handleSieveScriptValidate(backend))
 }
 
@@ -198,6 +199,7 @@ func handleSieveScriptQuery(backend SieveBackend) MethodHandler {
 		var ids []Id
 		var total int
 		var err error
+		queryState := "0"
 
 		if backend != nil {
 			if anchor != "" {
@@ -213,6 +215,7 @@ func handleSieveScriptQuery(backend SieveBackend) MethodHandler {
 			} else {
 				ids, total, err = backend.QuerySieveScripts(ctx, filter, position, limit)
 			}
+			queryState = backend.SieveScriptState(ctx)
 		}
 		if err != nil || ids == nil {
 			ids = []Id{}
@@ -221,12 +224,57 @@ func handleSieveScriptQuery(backend SieveBackend) MethodHandler {
 
 		return "SieveScript/query", map[string]any{
 			"accountId":           accountID,
-			"queryState":          "0",
-			"canCalculateChanges": false,
+			"queryState":          queryState,
+			"canCalculateChanges": true,
 			"position":            position,
 			"total":               total,
 			"ids":                 ids,
 		}
+	}
+}
+
+// handleSieveScriptQueryChanges implements SieveScript/queryChanges per RFC 8620
+// Section 5.6: deltas respect the query's filter, updated or destroyed scripts are removed
+// from the client's view, created or updated scripts still matching the filter are re-added
+// at their real index, and upToId truncates added ids beyond the anchor.
+func handleSieveScriptQueryChanges(backend SieveBackend) MethodHandler {
+	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
+		accountID, _ := args["accountId"].(string)
+		upToID, _ := args["upToId"].(string)
+		sinceState, _ := args["sinceQueryState"].(string)
+		filter, _ := args["filter"].(map[string]any)
+
+		var created, updated, destroyed []Id
+		newQueryState := "0"
+		hasMore := false
+
+		if backend != nil {
+			created, updated, destroyed, newQueryState, hasMore = backend.SieveScriptChanges(ctx, sinceState)
+		}
+		if hasMore {
+			return "error", MethodErrorArgs("cannotCalculateChanges", "sinceQueryState is too old")
+		}
+
+		var currentIDs []Id
+		if backend != nil {
+			currentIDs, _, _ = backend.QuerySieveScripts(ctx, filter, 0, nil)
+		}
+		added, removed := computeQueryChanges(created, updated, destroyed, currentIDs, upToID)
+
+		res := map[string]any{
+			"accountId":     accountID,
+			"oldQueryState": sinceState,
+			"newQueryState": newQueryState,
+			"added":         added,
+			"removed":       removed,
+		}
+		if upToID != "" {
+			res["upToId"] = upToID
+		}
+		if calcTotal, _ := args["calculateTotal"].(bool); calcTotal {
+			res["total"] = len(currentIDs)
+		}
+		return "SieveScript/queryChanges", res
 	}
 }
 

@@ -201,6 +201,151 @@ func TestQueryChangesUpToId(t *testing.T) {
 	}
 }
 
+// TestRFC9661_SieveScriptQueryChanges verifies the registered SieveScript/queryChanges
+// (RFC 9661 Section 2.5 / RFC 8620 Section 5.6): deltas respect the isActive filter,
+// updated/destroyed scripts are removed, created/updated scripts are re-added at their real
+// sorted index, upToId truncates added ids beyond the anchor, and the /query response
+// carries a real query state token so the flow is usable.
+func TestRFC9661_SieveScriptQueryChanges(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	using := []string{jmap.CoreCapabilityURI, jmap.SieveCapabilityURI}
+	post := func(calls []any) jmap.Response {
+		return postJMAP(t, ts.URL, using, calls)
+	}
+
+	validScript := `require ["fileinto"]; if header :contains "X-Spam" "Yes" { fileinto "Junk"; }`
+
+	// 1. Create two scripts and capture the post-create query state. Names sort
+	//    alphabetically ("Alpha" before "Beta"), and the query state must be a real token
+	//    (not a hardcoded "0") so the client can round-trip it into queryChanges.
+	r1 := post([]any{
+		[]any{"SieveScript/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"s1": map[string]any{"name": "Alpha", "content": validScript, "isActive": true},
+				"s2": map[string]any{"name": "Beta", "content": validScript, "isActive": false},
+			},
+		}, "c1"},
+	})
+	createdScripts, _ := r1.MethodResponses[0].Args["created"].(map[string]any)
+	s1Obj, _ := createdScripts["s1"].(map[string]any)
+	s1ID, _ := s1Obj["id"].(string)
+	s2Obj, _ := createdScripts["s2"].(map[string]any)
+	s2ID, _ := s2Obj["id"].(string)
+
+	stateResp := post([]any{
+		[]any{"SieveScript/query", map[string]any{"accountId": "primary"}, "c2"},
+	})
+	qState, _ := stateResp.MethodResponses[0].Args["queryState"].(string)
+	if qState == "" || qState == "0" {
+		t.Fatalf("SieveScript/query must return a real query state token, got %q", qState)
+	}
+
+	// 2. Create Gamma (inactive), activate Beta (which deactivates Alpha), destroy Alpha.
+	//    Activating a script at the same time as creating one would deactivate the new
+	//    script, so Gamma is created inactive.
+	r2 := post([]any{
+		[]any{"SieveScript/set", map[string]any{
+			"accountId": "primary",
+			"create":    map[string]any{"s3": map[string]any{"name": "Gamma", "content": validScript}},
+			"update":    map[string]any{s2ID: map[string]any{"isActive": true}},
+			"destroy":   []any{s1ID},
+		}, "c3"},
+	})
+	destroyed, _ := r2.MethodResponses[0].Args["destroyed"].([]any)
+	if len(destroyed) != 1 || destroyed[0] != s1ID {
+		t.Fatalf("expected script %q destroyed, got %v", s1ID, destroyed)
+	}
+	createdScripts3, _ := r2.MethodResponses[0].Args["created"].(map[string]any)
+	s3Obj, _ := createdScripts3["s3"].(map[string]any)
+	s3ID, _ := s3Obj["id"].(string)
+	if s3ID == "" {
+		t.Fatal("created script has no id")
+	}
+
+	// 3. Deltas since the post-create state with the isActive filter: only Beta (updated to
+	//    active) is re-added at index 0; created Gamma is inactive so the filter excludes
+	//    it; destroyed Alpha is only removed.
+	r3 := post([]any{
+		[]any{"SieveScript/queryChanges", map[string]any{
+			"accountId":       "primary",
+			"sinceQueryState": qState,
+			"filter":          map[string]any{"isActive": true},
+		}, "c4"},
+	})
+	mr := r3.MethodResponses[0]
+	if mr.Name != "SieveScript/queryChanges" {
+		t.Fatalf("SieveScript/queryChanges must be registered, got %q", mr.Name)
+	}
+	added := mr.Args["added"].([]any)
+	if len(added) != 1 {
+		t.Fatalf("Expected 1 added script under isActive filter (updated Beta), got %v", added)
+	}
+	onlyAdded := added[0].(map[string]any)
+	if onlyAdded["id"] != s2ID {
+		t.Errorf("Expected added %q (updated Beta, now active), got %v", s2ID, onlyAdded)
+	}
+	if idx, _ := onlyAdded["index"].(float64); idx != 0 {
+		t.Errorf("Expected added script at index 0, got %v", idx)
+	}
+	removed := mr.Args["removed"].([]any)
+	removedSet := make(map[string]bool, len(removed))
+	for _, raw := range removed {
+		removedSet[raw.(string)] = true
+	}
+	if !removedSet[s1ID] {
+		t.Errorf("Expected destroyed script %q in removed, got %v", s1ID, removed)
+	}
+	if !removedSet[s2ID] {
+		t.Errorf("Expected updated script %q in removed, got %v", s2ID, removed)
+	}
+	if len(removed) != 2 {
+		t.Errorf("Expected exactly removed {updated, destroyed}, got %v", removed)
+	}
+
+	// 4. Without the filter, created Gamma joins updated Beta at its real sorted index 1.
+	r4 := post([]any{
+		[]any{"SieveScript/queryChanges", map[string]any{
+			"accountId":       "primary",
+			"sinceQueryState": qState,
+		}, "c5"},
+	})
+	addedAll := r4.MethodResponses[0].Args["added"].([]any)
+	if len(addedAll) != 2 {
+		t.Fatalf("Expected 2 added scripts without filter (Beta + Gamma), got %v", addedAll)
+	}
+	firstAll := addedAll[0].(map[string]any)
+	if firstAll["id"] != s2ID {
+		t.Errorf("Expected first added %q (name order), got %v", s2ID, firstAll)
+	}
+	secondAll := addedAll[1].(map[string]any)
+	if secondAll["id"] != s3ID {
+		t.Errorf("Expected second added %q (created Gamma), got %v", s3ID, secondAll)
+	}
+	if idx, _ := secondAll["index"].(float64); idx != 1 {
+		t.Errorf("Expected second added script at index 1, got %v", idx)
+	}
+
+	// 5. upToId truncates added ids with a higher index than the anchor (Beta is index 0).
+	r5 := post([]any{
+		[]any{"SieveScript/queryChanges", map[string]any{
+			"accountId":       "primary",
+			"sinceQueryState": qState,
+			"upToId":          s2ID,
+		}, "c6"},
+	})
+	addedUpTo := r5.MethodResponses[0].Args["added"].([]any)
+	if len(addedUpTo) != 1 {
+		t.Fatalf("Expected upToId to truncate sieve added to 1, got %v", addedUpTo)
+	}
+	if upTo := addedUpTo[0].(map[string]any); upTo["id"] != s2ID {
+		t.Errorf("Expected only %q added with upToId, got %v", s2ID, upTo)
+	}
+}
+
 // TestQueryChangesUpdatedReAdded verifies that an updated object is reported in both removed
 // and added (re-added at its current index in the filtered results) per RFC 8620 Section 5.6,
 // and that a destroyed object only appears in removed.
