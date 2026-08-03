@@ -731,25 +731,4 @@ func handleIdentitySet(backend MailBackend) MethodHandler {
 	}
 }
 
-// Mailbox/copy Handler (RFC 8621 Section 2.4)
-func handleMailboxCopy(backend MailBackend) MethodHandler {
-	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
-		accountID, _ := args["accountId"].(string)
-		createRaw, _ := args["create"].(map[string]any)
 
-		copied := make(map[string]*Mailbox)
-		notCopied := make(map[string]SetError)
-
-		for idStr := range createRaw {
-			notCopied[idStr] = SetError{Type: "cannotCalculate", Description: "cross-account copy not supported"}
-		}
-
-		return "Mailbox/copy", map[string]any{
-			"accountId": accountID,
-			"oldState":  backend.State(ctx),
-			"newState":  backend.State(ctx),
-			"copied":    copied,
-			"notCopied": notCopied,
-		}
-	}
-}

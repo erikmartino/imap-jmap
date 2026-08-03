@@ -242,3 +242,62 @@ func handleMailboxQueryChanges(backend MailBackend) MethodHandler {
 		}
 	}
 }
+
+func handleMailboxCopy(backend MailBackend) MethodHandler {
+	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
+		fromAccountID, _ := args["fromAccountId"].(string)
+		accountID, _ := args["accountId"].(string)
+		createMap, _ := args["create"].(map[string]any)
+		onDestroy, _ := args["onSuccessDestroyOriginal"].(bool)
+
+		oldState := backend.MailboxState(ctx)
+		created := make(map[string]*Mailbox)
+		notCreated := make(map[string]SetError)
+
+		for clientKey, raw := range createMap {
+			if mbData, ok := raw.(map[string]any); ok {
+				if idStr, ok := mbData["id"].(string); ok {
+					list, _, _ := backend.GetMailboxes(ctx, []Id{Id(idStr)})
+					if len(list) > 0 {
+						cp := *list[0]
+						cp.ID = ""
+
+						// Apply overrides (RFC 8621 Section 2.5)
+						if nameOverride, ok := mbData["name"].(string); ok && nameOverride != "" {
+							cp.Name = nameOverride
+						}
+						if parentIDOverride, ok := mbData["parentId"].(string); ok {
+							if parentIDOverride == "" {
+								cp.ParentID = nil
+							} else {
+								pid := Id(parentIDOverride)
+								cp.ParentID = &pid
+							}
+						}
+
+						createdMB, err := backend.CreateMailbox(ctx, &cp)
+						if err == nil {
+							created[clientKey] = createdMB
+							if onDestroy {
+								_, _ = backend.DeleteMailbox(ctx, Id(idStr))
+							}
+						} else {
+							notCreated[clientKey] = SetError{Type: "serverFail", Description: err.Error()}
+						}
+					} else {
+						notCreated[clientKey] = SetError{Type: "notFound", Description: "mailbox not found"}
+					}
+				}
+			}
+		}
+
+		return "Mailbox/copy", map[string]any{
+			"fromAccountId": fromAccountID,
+			"accountId":     accountID,
+			"oldState":      oldState,
+			"newState":      backend.MailboxState(ctx),
+			"created":       created,
+			"notCreated":    notCreated,
+		}
+	}
+}

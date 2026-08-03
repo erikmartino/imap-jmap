@@ -1451,5 +1451,48 @@ func TestRFC8621_EmailQueryFilters_PositiveAndNegative(t *testing.T) {
 	}
 }
 
+// TestRFC8621_MailboxCopy verifies Mailbox/copy property overrides and creation per RFC 8621 Section 2.5.
+func TestRFC8621_MailboxCopy(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	payload := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+		"methodCalls": []any{
+			[]any{"Mailbox/copy", map[string]any{
+				"accountId":     "primary",
+				"fromAccountId": "primary",
+				"create": map[string]any{
+					"mbc1": map[string]any{
+						"id":   "mb-inbox",
+						"name": "Cloned Inbox",
+					},
+				},
+			}, "c1"},
+		},
+	}
+	body, _ := json.Marshal(payload)
+	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /jmap Mailbox/copy failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var jmapResp jmap.Response
+	if err := json.NewDecoder(resp.Body).Decode(&jmapResp); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+	createdMap, ok := jmapResp.MethodResponses[0].Args["created"].(map[string]any)
+	if !ok || createdMap["mbc1"] == nil {
+		t.Fatalf("Expected created copied mailbox in Mailbox/copy response, got %v", jmapResp.MethodResponses[0].Args)
+	}
+	mbObj := createdMap["mbc1"].(map[string]any)
+	if name, _ := mbObj["name"].(string); name != "Cloned Inbox" {
+		t.Errorf("Expected name 'Cloned Inbox', got %q", name)
+	}
+}
+
+
 
 
