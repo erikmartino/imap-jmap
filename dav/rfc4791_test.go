@@ -10,6 +10,7 @@ import (
 	"github.com/emersion/go-webdav/caldav"
 
 	"imap-jmap/dav"
+	davMemory "imap-jmap/dav/memory"
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/memory"
 )
@@ -167,7 +168,7 @@ func TestRFC4791_CalDAVFullLifecycleAndReport(t *testing.T) {
 // TestRFC4791_CalDAVPrincipalAndCalendarManagement tests CalDAV backend principal paths and calendar creation/deletion.
 func TestRFC4791_CalDAVPrincipalAndCalendarManagement(t *testing.T) {
 	calBackend := memory.NewMemoryCalendarsBackend()
-	b := dav.NewCalDAVBackend(calBackend)
+	b := davMemory.NewCalDAVBackend(calBackend)
 	ctx := context.Background()
 
 	principal, err := b.CurrentUserPrincipal(ctx)

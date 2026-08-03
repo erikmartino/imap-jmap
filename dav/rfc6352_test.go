@@ -10,6 +10,7 @@ import (
 	"github.com/emersion/go-webdav/carddav"
 
 	"imap-jmap/dav"
+	davMemory "imap-jmap/dav/memory"
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/memory"
 )
@@ -170,7 +171,7 @@ func TestRFC6352_CardDAVFullLifecycleAndReport(t *testing.T) {
 // TestRFC6352_CardDAVPrincipalAndAddressBookManagement tests CardDAV backend principal paths and addressbook creation/deletion.
 func TestRFC6352_CardDAVPrincipalAndAddressBookManagement(t *testing.T) {
 	contactsBackend := memory.NewMemoryContactsBackend()
-	b := dav.NewCardDAVBackend(contactsBackend)
+	b := davMemory.NewCardDAVBackend(contactsBackend)
 	ctx := context.Background()
 
 	principal, err := b.CurrentUserPrincipal(ctx)

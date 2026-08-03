@@ -6,6 +6,7 @@ import (
 	"github.com/emersion/go-webdav/caldav"
 	"github.com/emersion/go-webdav/carddav"
 
+	"imap-jmap/dav/memory"
 	"imap-jmap/jmap"
 )
 
@@ -17,8 +18,8 @@ type Server struct {
 
 // NewServer initializes CalDAV and CardDAV handlers linked to JMAP backends.
 func NewServer(calBackend jmap.CalendarsBackend, contactsBackend jmap.ContactsBackend) *Server {
-	calDAVBackend := NewCalDAVBackend(calBackend)
-	cardDAVBackend := NewCardDAVBackend(contactsBackend)
+	calDAVBackend := memory.NewCalDAVBackend(calBackend)
+	cardDAVBackend := memory.NewCardDAVBackend(contactsBackend)
 
 	return &Server{
 		CalDAVHandler: &caldav.Handler{
