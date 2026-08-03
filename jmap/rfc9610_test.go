@@ -316,6 +316,57 @@ func TestRFC9610_CardAndAddressBookCopy(t *testing.T) {
 	}
 }
 
+// TestRFC9610_ContactCardCanonicalNaming proves the RFC 9610 canonical method names
+// (ContactCard/*) are served, not just the legacy Card/* aliases, so a conformant client
+// never hits unknownMethod. It drives a real set -> get round trip via ContactCard/*.
+func TestRFC9610_ContactCardCanonicalNaming(t *testing.T) {
+	contactsBackend := memory.NewMemoryContactsBackend()
+	srv := jmap.NewServer(nil, jmap.WithContactsBackend(contactsBackend))
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	post := func(calls []any) jmap.Response {
+		payload := map[string]any{
+			"using":       []string{jmap.CoreCapabilityURI, jmap.ContactsCapabilityURI},
+			"methodCalls": calls,
+		}
+		body, _ := json.Marshal(payload)
+		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST /jmap failed: %v", err)
+		}
+		defer resp.Body.Close()
+		var jr jmap.Response
+		_ = json.NewDecoder(resp.Body).Decode(&jr)
+		return jr
+	}
+
+	setResp := post([]any{
+		[]any{"ContactCard/set", map[string]any{
+			"accountId": "primary",
+			"create":    map[string]any{"c": map[string]any{"name": map[string]any{"full": "Bob"}}},
+		}, "c1"},
+	})
+	if setResp.MethodResponses[0].Name != "ContactCard/set" {
+		t.Fatalf("expected response name 'ContactCard/set', got %q", setResp.MethodResponses[0].Name)
+	}
+	created, ok := setResp.MethodResponses[0].Args["created"].(map[string]any)["c"].(map[string]any)
+	if !ok {
+		t.Fatalf("ContactCard/set did not create the card: %#v", setResp.MethodResponses[0].Args)
+	}
+	id := created["id"].(string)
+
+	getResp := post([]any{
+		[]any{"ContactCard/get", map[string]any{"accountId": "primary", "ids": []any{id}}, "c2"},
+	})
+	if getResp.MethodResponses[0].Name != "ContactCard/get" {
+		t.Errorf("expected 'ContactCard/get', got %q", getResp.MethodResponses[0].Name)
+	}
+	if list, _ := getResp.MethodResponses[0].Args["list"].([]any); len(list) != 1 {
+		t.Errorf("expected 1 card via ContactCard/get, got %#v", getResp.MethodResponses[0].Args["list"])
+	}
+}
+
 // TestRFC9610_CardCopyRoundTrip proves Card/copy actually copies an existing card (by source id,
 // with a property override) into a new object, per RFC 8620 Section 5.4.
 func TestRFC9610_CardCopyRoundTrip(t *testing.T) {

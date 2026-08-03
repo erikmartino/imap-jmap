@@ -15,6 +15,14 @@ func RegisterContactsHandlers(r *MethodRegistry, backend ContactsBackend) {
 	r.Register("AddressBook/set", handleAddressBookSet(backend))
 	r.Register("AddressBook/copy", handleAddressBookCopy(backend))
 
+	// RFC 9610 names the object "ContactCard"; register those as the canonical methods.
+	r.Register("ContactCard/get", aliasMethod("ContactCard/get", handleCardGet(backend)))
+	r.Register("ContactCard/changes", aliasMethod("ContactCard/changes", handleCardChanges(backend)))
+	r.Register("ContactCard/set", aliasMethod("ContactCard/set", handleCardSet(backend)))
+	r.Register("ContactCard/query", aliasMethod("ContactCard/query", handleCardQuery(backend)))
+	r.Register("ContactCard/copy", aliasMethod("ContactCard/copy", handleCardCopy(backend)))
+
+	// "Card/*" retained as aliases for backward compatibility with existing clients/tests.
 	r.Register("Card/get", handleCardGet(backend))
 	r.Register("Card/changes", handleCardChanges(backend))
 	r.Register("Card/set", handleCardSet(backend))

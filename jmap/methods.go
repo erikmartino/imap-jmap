@@ -32,6 +32,16 @@ func (r *MethodRegistry) Get(name string) (MethodHandler, bool) {
 	return h, ok
 }
 
+// aliasMethod wraps a handler so it can be registered under an additional method name,
+// overriding the response name to match the alias. Used to expose a method under both an
+// RFC-canonical name and a legacy name (e.g. ContactCard/* and Card/*) from one implementation.
+func aliasMethod(name string, h MethodHandler) MethodHandler {
+	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
+		_, respArgs := h(ctx, args, clientCallID)
+		return name, respArgs
+	}
+}
+
 // handleCoreEcho implements RFC 8620 Section 3.8.1 Core/echo method.
 func handleCoreEcho(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 	if args == nil {
