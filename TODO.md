@@ -12,7 +12,7 @@ ContactCard/* canonical naming, Identity/set, Mailbox/set update.
 
 ## Then
 - [ ] Real `/queryChanges` delta calculations (`added`/`removed` IDs) for `Email`, `Mailbox`, `EmailSubmission`, `Quota`, and `CalendarEvent`.
-- [ ] Positive and negative filter condition test coverage for `MatchesFilter` (`inMailboxOtherThan`, complex headers, attachment criteria).
+- [x] Positive and negative filter condition test coverage for `MatchesFilter` (`inMailboxOtherThan`, complex headers, attachment criteria).
 - [ ] CalDAV & CardDAV `REPORT` query filter matching (date-range, text filter component evaluation).
 - [ ] `Mailbox/copy` implementation and testing for cross-account mailbox duplication.
 - [x] `Email/set` data-loss: create drops `from/to/cc/body*/headers/receivedAt` (violates Data-Loss rule).
