@@ -342,6 +342,14 @@ func (s *Server) resolveResultReferences(args map[string]any, executed map[strin
 		if refErr != "" {
 			return nil, MethodErrorInvalidResultReference, refErr
 		}
+
+		// RFC 8620 Section 3.7: If the result reference evaluates to a single value and the argument
+		// expects an Array (e.g. "ids", "emailIds", "destroy", "properties"), convert to a 1-element array.
+		if _, isSlice := val.([]any); !isSlice && val != nil {
+			if name == "ids" || name == "emailIds" || name == "mailboxIds" || name == "threadIds" || name == "destroy" || name == "typeNames" || name == "properties" {
+				val = []any{val}
+			}
+		}
 		resolved[name] = val
 	}
 	return resolved, "", ""
