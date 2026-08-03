@@ -52,6 +52,8 @@ func main() {
 	memBackend := memory.NewMemoryBackend()
 	memBlobBackend := memory.NewMemoryBlobBackend()
 	memCalBackend := memory.NewMemoryCalendarsBackend()
+	memContactsBackend := memory.NewMemoryContactsBackend()
+	memSieveBackend := memory.NewMemorySieveBackend()
 	memIMAPBackend := memory.NewMemoryIMAPAccessBackend()
 	authBackend := memory.NewMemoryAuthBackend()
 
@@ -60,6 +62,8 @@ func main() {
 		jmap.WithMailBackend(memBackend),
 		jmap.WithBlobBackend(memBlobBackend),
 		jmap.WithCalendarsBackend(memCalBackend),
+		jmap.WithContactsBackend(memContactsBackend),
+		jmap.WithSieveBackend(memSieveBackend),
 		jmap.WithIMAPAccessBackend(memIMAPBackend),
 		jmap.WithAuthBackend(authBackend),
 	)
@@ -73,7 +77,7 @@ func main() {
 		}
 	}()
 
-	davServer := dav.NewServer(memCalBackend, nil)
+	davServer := dav.NewServer(memCalBackend, memContactsBackend)
 	httpMux := http.NewServeMux()
 	httpMux.Handle("/caldav/", davServer.CalDAVHandler)
 	httpMux.Handle("/carddav/", davServer.CardDAVHandler)
