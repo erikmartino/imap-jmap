@@ -135,9 +135,11 @@ func (b *CardDAVBackend) ListAddressObjects(ctx context.Context, path string, re
 			vcardObj.AddValue(vcard.FieldTelephone, ph.Number)
 		}
 
+		etag := "\"" + string(card.ID) + "-" + b.Backend.CardState(ctx) + "\""
 		list = append(list, carddav.AddressObject{
 			Path:    path + "/" + string(card.ID) + ".vcf",
 			Card:    vcardObj,
+			ETag:    etag,
 			ModTime: time.Now(),
 		})
 	}

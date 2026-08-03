@@ -129,9 +129,11 @@ func (b *CalDAVBackend) ListCalendarObjects(ctx context.Context, path string, re
 			continue
 		}
 
+		etag := "\"" + string(ev.ID) + "-" + b.Backend.CalendarEventState(ctx) + "\""
 		list = append(list, caldav.CalendarObject{
 			Path:    path + "/" + string(ev.ID) + ".ics",
 			Data:    calObj,
+			ETag:    etag,
 			ModTime: time.Now(),
 		})
 	}
