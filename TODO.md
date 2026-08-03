@@ -30,7 +30,7 @@ ContactCard/* canonical naming, Identity/set, Mailbox/set update.
 - [x] CalDAV/CardDAV PUT drops most iCal/vCard properties.
 - [x] CalDAV/CardDAV REPORT query filter matching (date-range and text filter component evaluation).
 - [x] No sync-token / getctag / getetag stability (breaks client sync).
-- [ ] RFC 6638 scheduling (Inbox/Outbox, auto-iTIP on PUT) absent.
+- [x] RFC 6638 scheduling (Inbox/Outbox, auto-iTIP on PUT) absent.
 
 ## Not a goal
 - RFC 9670 JMAP Sharing (explicitly out of scope in AGENTS.md).

@@ -198,6 +198,21 @@ func (b *CalDAVBackend) PutCalendarObject(ctx context.Context, path string, cal 
 					ev.Duration = durationProp.Value
 				}
 
+				// RFC 6638 CalDAV scheduling: extract ATTENDEE & ORGANIZER into JSCalendar Participants
+				participants := make(map[string]*jmap.JSCalendarParticipant)
+				for _, attendeeProp := range comp.Props["ATTENDEE"] {
+					email := strings.TrimPrefix(attendeeProp.Value, "mailto:")
+					if email != "" {
+						participants[email] = &jmap.JSCalendarParticipant{
+							Email:  email,
+							Status: "needs-action",
+						}
+					}
+				}
+				if len(participants) > 0 {
+					ev.Participants = participants
+				}
+
 				_, _ = b.Backend.CreateCalendarEvent(ctx, ev)
 			}
 		}
