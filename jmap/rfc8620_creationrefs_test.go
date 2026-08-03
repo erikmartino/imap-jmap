@@ -153,8 +153,8 @@ func TestRFC8620_CreationRefsCrossCall(t *testing.T) {
 	// createdIds when it was given in the request.
 	postRawReq := func(calls []any) jmap.Response {
 		return postRaw(t, ts.URL, map[string]any{
-			"using":      []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
-			"createdIds": map[string]string{},
+			"using":       []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+			"createdIds":  map[string]string{},
 			"methodCalls": calls,
 		})
 	}
