@@ -184,6 +184,11 @@ func handleSieveScriptQuery(backend SieveBackend) MethodHandler {
 			return "error", MethodErrorArgs(MethodErrorInvalidArguments, posErr)
 		}
 
+		anchor, anchorOffset, anchorErr := parseQueryAnchor(args)
+		if anchorErr != "" {
+			return "error", MethodErrorArgs(MethodErrorInvalidArguments, anchorErr)
+		}
+
 		var limit *uint64
 		if limitFloat, ok := args["limit"].(float64); ok {
 			l := uint64(limitFloat)
@@ -195,7 +200,19 @@ func handleSieveScriptQuery(backend SieveBackend) MethodHandler {
 		var err error
 
 		if backend != nil {
-			ids, total, err = backend.QuerySieveScripts(ctx, filter, position, limit)
+			if anchor != "" {
+				var allIDs []Id
+				allIDs, total, err = backend.QuerySieveScripts(ctx, filter, 0, nil)
+				if err == nil {
+					var found bool
+					position, ids, found = applyQueryAnchor(anchor, anchorOffset, allIDs, limit)
+					if !found {
+						return "error", MethodErrorArgs(MethodErrorAnchorNotFound, "anchor not found in results: "+anchor)
+					}
+				}
+			} else {
+				ids, total, err = backend.QuerySieveScripts(ctx, filter, position, limit)
+			}
 		}
 		if err != nil || ids == nil {
 			ids = []Id{}

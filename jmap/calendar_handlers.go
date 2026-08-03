@@ -401,13 +401,31 @@ func handleCalendarEventQuery(backend CalendarsBackend) MethodHandler {
 			return "error", MethodErrorArgs(MethodErrorInvalidArguments, posErr)
 		}
 
+		anchor, anchorOffset, anchorErr := parseQueryAnchor(args)
+		if anchorErr != "" {
+			return "error", MethodErrorArgs(MethodErrorInvalidArguments, anchorErr)
+		}
+
 		var limit *uint64
 		if limitFloat, ok := args["limit"].(float64); ok {
 			l := uint64(limitFloat)
 			limit = &l
 		}
 
-		ids, total, err := backend.QueryCalendarEvents(ctx, filter, position, limit)
+		var ids []Id
+		var total int
+		var err error
+		if anchor != "" {
+			allIDs, allTotal, _ := backend.QueryCalendarEvents(ctx, filter, 0, nil)
+			total = allTotal
+			var found bool
+			position, ids, found = applyQueryAnchor(anchor, anchorOffset, allIDs, limit)
+			if !found {
+				return "error", MethodErrorArgs(MethodErrorAnchorNotFound, "anchor not found in results: "+anchor)
+			}
+		} else {
+			ids, total, err = backend.QueryCalendarEvents(ctx, filter, position, limit)
+		}
 		if err != nil {
 			ids = []Id{}
 			total = 0

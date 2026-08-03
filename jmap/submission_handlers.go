@@ -115,6 +115,11 @@ func handleEmailSubmissionQuery(backend MailBackend) MethodHandler {
 			return "error", MethodErrorArgs(MethodErrorInvalidArguments, posErr)
 		}
 
+		anchor, anchorOffset, anchorErr := parseQueryAnchor(args)
+		if anchorErr != "" {
+			return "error", MethodErrorArgs(MethodErrorInvalidArguments, anchorErr)
+		}
+
 		var limit *uint64
 		if limVal, ok := args["limit"].(float64); ok {
 			l := uint64(limVal)
@@ -122,7 +127,19 @@ func handleEmailSubmissionQuery(backend MailBackend) MethodHandler {
 		}
 
 		filter, _ := args["filter"].(map[string]any)
-		ids, total, _ := backend.QuerySubmissions(ctx, filter, position, limit)
+		var ids []Id
+		var total int
+		if anchor != "" {
+			allIDs, allTotal, _ := backend.QuerySubmissions(ctx, filter, 0, nil)
+			total = allTotal
+			var found bool
+			position, ids, found = applyQueryAnchor(anchor, anchorOffset, allIDs, limit)
+			if !found {
+				return "error", MethodErrorArgs(MethodErrorAnchorNotFound, "anchor not found in results: "+anchor)
+			}
+		} else {
+			ids, total, _ = backend.QuerySubmissions(ctx, filter, position, limit)
+		}
 		if ids == nil {
 			ids = []Id{}
 		}

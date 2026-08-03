@@ -110,6 +110,7 @@ const (
 	MethodErrorInvalidArguments       = "invalidArguments"
 	MethodErrorInvalidResultReference = "invalidResultReference"
 	MethodErrorUnknownDataType        = "unknownDataType"
+	MethodErrorAnchorNotFound         = "anchorNotFound"
 )
 
 // ResultReference represents a result reference object per RFC 8620 Section 3.7.

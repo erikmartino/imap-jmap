@@ -2,6 +2,7 @@ package jmap
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 )
@@ -19,6 +20,60 @@ func parseQueryPosition(args map[string]any) (position int, errMsg string) {
 		return 0, fmt.Sprintf("position must be a non-negative integer, got %v", posVal)
 	}
 	return position, ""
+}
+
+// parseQueryAnchor extracts the "anchor" and "anchorOffset" arguments per RFC 8620
+// Section 5.5. "anchor" must be an Id (string); "anchorOffset" defaults to 0, may be
+// negative, and must be an integer. If no anchor is supplied, any anchorOffset argument
+// is ignored. An empty anchor string is treated as absent.
+func parseQueryAnchor(args map[string]any) (anchor string, offset int, errMsg string) {
+	anchorRaw, hasAnchor := args["anchor"]
+	if !hasAnchor || anchorRaw == nil {
+		return "", 0, ""
+	}
+	anchor, ok := anchorRaw.(string)
+	if !ok {
+		return "", 0, fmt.Sprintf("anchor must be an Id (string), got %v", anchorRaw)
+	}
+	if offsetRaw, ok := args["anchorOffset"].(float64); ok {
+		if offsetRaw != math.Trunc(offsetRaw) {
+			return "", 0, fmt.Sprintf("anchorOffset must be an integer, got %v", offsetRaw)
+		}
+		offset = int(offsetRaw)
+	}
+	return anchor, offset, ""
+}
+
+// applyQueryAnchor positions a fully filtered and sorted id list per RFC 8620 Section 5.5:
+// the index of the anchor within the results plus anchorOffset (clamped to 0 if negative) is
+// used exactly as though it were the "position" argument, then the limit slices from there.
+// It returns false when the anchor is not in the results; the caller MUST then reject the
+// call with an anchorNotFound error.
+func applyQueryAnchor(anchor string, offset int, ids []Id, limit *uint64) (position int, out []Id, found bool) {
+	anchorIdx := -1
+	for i, id := range ids {
+		if string(id) == anchor {
+			anchorIdx = i
+			break
+		}
+	}
+	if anchorIdx == -1 {
+		return 0, nil, false
+	}
+	position = anchorIdx + offset
+	if position < 0 {
+		position = 0
+	}
+	end := len(ids)
+	if limit != nil && position+int(*limit) < end {
+		end = position + int(*limit)
+	}
+	if position >= end {
+		out = []Id{}
+	} else {
+		out = ids[position:end]
+	}
+	return position, out, true
 }
 
 // FilterCondition represents Email/query filter condition properties per RFC 8621 Section 4.5.1.

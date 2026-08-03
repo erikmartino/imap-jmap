@@ -363,13 +363,30 @@ func handleEmailQuery(backend MailBackend) MethodHandler {
 			return "error", MethodErrorArgs(MethodErrorInvalidArguments, posErr)
 		}
 
+		anchor, anchorOffset, anchorErr := parseQueryAnchor(args)
+		if anchorErr != "" {
+			return "error", MethodErrorArgs(MethodErrorInvalidArguments, anchorErr)
+		}
+
 		var limit *uint64
 		if limVal, ok := args["limit"].(float64); ok {
 			l := uint64(limVal)
 			limit = &l
 		}
 
-		ids, total, _ := backend.QueryEmails(ctx, filter, comparators, position, limit)
+		var ids []Id
+		var total int
+		if anchor != "" {
+			allIDs, allTotal, _ := backend.QueryEmails(ctx, filter, comparators, 0, nil)
+			total = allTotal
+			var found bool
+			position, ids, found = applyQueryAnchor(anchor, anchorOffset, allIDs, limit)
+			if !found {
+				return "error", MethodErrorArgs(MethodErrorAnchorNotFound, "anchor not found in results: "+anchor)
+			}
+		} else {
+			ids, total, _ = backend.QueryEmails(ctx, filter, comparators, position, limit)
+		}
 
 		calcTotal, _ := args["calculateTotal"].(bool)
 		res := map[string]any{

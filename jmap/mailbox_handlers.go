@@ -199,9 +199,29 @@ func handleMailboxQuery(backend MailBackend) MethodHandler {
 			return "error", MethodErrorArgs(MethodErrorInvalidArguments, posErr)
 		}
 
+		anchor, anchorOffset, anchorErr := parseQueryAnchor(args)
+		if anchorErr != "" {
+			return "error", MethodErrorArgs(MethodErrorInvalidArguments, anchorErr)
+		}
+
 		total := len(filtered)
 		var pagedIDs []Id
-		if position < total {
+		if anchor != "" {
+			allIDs := make([]Id, 0, len(filtered))
+			for _, mb := range filtered {
+				allIDs = append(allIDs, mb.ID)
+			}
+			var limit *uint64
+			if limVal, ok := args["limit"].(float64); ok && limVal > 0 {
+				l := uint64(limVal)
+				limit = &l
+			}
+			var found bool
+			position, pagedIDs, found = applyQueryAnchor(anchor, anchorOffset, allIDs, limit)
+			if !found {
+				return "error", MethodErrorArgs(MethodErrorAnchorNotFound, "anchor not found in results: "+anchor)
+			}
+		} else if position < total {
 			end := total
 			if limVal, ok := args["limit"].(float64); ok && limVal > 0 {
 				if position+int(limVal) < end {
