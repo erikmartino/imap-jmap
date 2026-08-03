@@ -1491,6 +1491,36 @@ func TestRFC8621_MailboxCopy(t *testing.T) {
 	if name, _ := mbObj["name"].(string); name != "Cloned Inbox" {
 		t.Errorf("Expected name 'Cloned Inbox', got %q", name)
 	}
+
+	// 2. Test onSuccessDestroyOriginal and non-existent source mailbox error
+	payload2 := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+		"methodCalls": []any{
+			[]any{"Mailbox/copy", map[string]any{
+				"accountId":                "primary",
+				"fromAccountId":            "primary",
+				"onSuccessDestroyOriginal": true,
+				"create": map[string]any{
+					"mbc2": map[string]any{"id": "nonexistent-mailbox"},
+				},
+			}, "c2"},
+		},
+	}
+	body2, _ := json.Marshal(payload2)
+	resp2, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body2))
+	if err != nil {
+		t.Fatalf("POST /jmap Mailbox/copy failed: %v", err)
+	}
+	defer resp2.Body.Close()
+
+	var jmapResp2 jmap.Response
+	if err := json.NewDecoder(resp2.Body).Decode(&jmapResp2); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+	notCreatedMap, _ := jmapResp2.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if notCreatedMap["mbc2"] == nil {
+		t.Errorf("Expected notCreated error for non-existent source mailbox, got %v", jmapResp2.MethodResponses[0].Args)
+	}
 }
 
 
