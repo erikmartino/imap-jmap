@@ -1307,7 +1307,7 @@ func TestRFC8621_EmailCopy_SearchSnippet_Sieve_CalendarEvent(t *testing.T) {
 			}, "c7"},
 		})
 		scList, _ := r5.MethodResponses[0].Args["list"].([]any)
-		if len(scList) > 0 {
+	if len(scList) > 0 {
 			sc, _ := scList[0].(map[string]any)
 			if active, ok := sc["isActive"].(bool); !ok || !active {
 				t.Errorf("Expected SieveScript %s to be active, got %v", s2ID, sc["isActive"])
@@ -1315,5 +1315,141 @@ func TestRFC8621_EmailCopy_SearchSnippet_Sieve_CalendarEvent(t *testing.T) {
 		}
 	}
 }
+
+// TestRFC8621_EmailQueryFilters_PositiveAndNegative tests positive matching AND negative filtering
+// for all Email/query FilterCondition properties via HTTP JSON RPC per RFC 8621 Section 4.5.
+func TestRFC8621_EmailQueryFilters_PositiveAndNegative(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	postQuery := func(filter map[string]any) []string {
+		payload := map[string]any{
+			"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+			"methodCalls": []any{
+				[]any{"Email/query", map[string]any{
+					"accountId": "primary",
+					"filter":    filter,
+				}, "c1"},
+			},
+		}
+		body, _ := json.Marshal(payload)
+		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST /jmap Email/query failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		var jmapResp jmap.Response
+		if err := json.NewDecoder(resp.Body).Decode(&jmapResp); err != nil {
+			t.Fatalf("Failed to decode response: %v", err)
+		}
+		idsRaw, _ := jmapResp.MethodResponses[0].Args["ids"].([]any)
+		res := make([]string, len(idsRaw))
+		for i, v := range idsRaw {
+			res[i], _ = v.(string)
+		}
+		return res
+	}
+
+	tests := []struct {
+		name        string
+		filter      map[string]any
+		shouldMatch bool
+	}{
+		// inMailbox
+		{"inMailbox positive", map[string]any{"inMailbox": "mb-inbox"}, true},
+		{"inMailbox negative", map[string]any{"inMailbox": "mb-trash"}, false},
+
+		// inMailboxOtherThan
+		{"inMailboxOtherThan positive", map[string]any{"inMailboxOtherThan": []any{"mb-trash"}}, true},
+		{"inMailboxOtherThan negative", map[string]any{"inMailboxOtherThan": []any{"mb-inbox", "mb-sent", "mb-drafts", "mb-archive", "mb-junk"}}, false},
+
+		// before / after
+		{"before positive", map[string]any{"before": "2030-01-01T00:00:00Z"}, true},
+		{"before negative", map[string]any{"before": "2020-01-01T00:00:00Z"}, false},
+		{"after positive", map[string]any{"after": "2020-01-01T00:00:00Z"}, true},
+		{"after negative", map[string]any{"after": "2030-01-01T00:00:00Z"}, false},
+
+		// minSize / maxSize
+		{"minSize positive", map[string]any{"minSize": float64(10)}, true},
+		{"minSize negative", map[string]any{"minSize": float64(100000)}, false},
+		{"maxSize positive", map[string]any{"maxSize": float64(100000)}, true},
+		{"maxSize negative", map[string]any{"maxSize": float64(10)}, false},
+
+		// subject / cc / bcc / body
+		{"subject positive", map[string]any{"subject": "Welcome"}, true},
+		{"subject negative", map[string]any{"subject": "NonexistentSubject"}, false},
+		{"hasKeyword positive", map[string]any{"hasKeyword": "$seen"}, true},
+		{"hasKeyword negative", map[string]any{"hasKeyword": "$nonexistent"}, false},
+		{"notKeyword positive", map[string]any{"notKeyword": "$nonexistent"}, true},
+		{"notKeyword negative", map[string]any{
+			"operator": "AND",
+			"conditions": []any{
+				map[string]any{"subject": "Welcome"},
+				map[string]any{"notKeyword": "$seen"},
+			},
+		}, false},
+
+		// text
+		{"text positive", map[string]any{"text": "Welcome"}, true},
+		{"text negative", map[string]any{"text": "NonexistentTextTerm"}, false},
+
+		// FilterOperators AND / OR / NOT
+		{"operator AND positive", map[string]any{
+			"operator": "AND",
+			"conditions": []any{
+				map[string]any{"inMailbox": "mb-inbox"},
+				map[string]any{"subject": "Welcome"},
+			},
+		}, true},
+		{"operator AND negative", map[string]any{
+			"operator": "AND",
+			"conditions": []any{
+				map[string]any{"inMailbox": "mb-inbox"},
+				map[string]any{"subject": "NonexistentSubject"},
+			},
+		}, false},
+		{"operator OR positive", map[string]any{
+			"operator": "OR",
+			"conditions": []any{
+				map[string]any{"subject": "NonexistentSubject"},
+				map[string]any{"subject": "Welcome"},
+			},
+		}, true},
+		{"operator OR negative", map[string]any{
+			"operator": "OR",
+			"conditions": []any{
+				map[string]any{"subject": "NonexistentSubject"},
+				map[string]any{"inMailbox": "mb-trash"},
+			},
+		}, false},
+		{"operator NOT positive", map[string]any{
+			"operator": "NOT",
+			"conditions": []any{
+				map[string]any{"subject": "NonexistentSubject"},
+			},
+		}, true},
+		{"operator NOT negative", map[string]any{
+			"operator": "NOT",
+			"conditions": []any{
+				map[string]any{"inMailboxOtherThan": []any{}},
+			},
+		}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ids := postQuery(tt.filter)
+			if tt.shouldMatch && len(ids) == 0 {
+				t.Errorf("Expected query filter %s to match at least 1 email, got 0", tt.name)
+			}
+			if !tt.shouldMatch && len(ids) > 0 {
+				t.Errorf("Expected query filter %s to match 0 emails, got %v", tt.name, ids)
+			}
+		})
+	}
+}
+
 
 
