@@ -55,6 +55,7 @@ func main() {
 	memContactsBackend := memory.NewMemoryContactsBackend()
 	memSieveBackend := memory.NewMemorySieveBackend()
 	memIMAPBackend := memory.NewMemoryIMAPAccessBackend()
+	memFileNodeBackend := memory.NewMemoryFileNodeBackend()
 	authBackend := memory.NewMemoryAuthBackend()
 
 	// Seed realistic sample emails and calendars for server runtime execution
@@ -68,9 +69,11 @@ func main() {
 		jmap.WithContactsBackend(memContactsBackend),
 		jmap.WithSieveBackend(memSieveBackend),
 		jmap.WithIMAPAccessBackend(memIMAPBackend),
+		jmap.WithFileNodeBackend(memFileNodeBackend),
 		jmap.WithAuthBackend(authBackend),
 	)
 	memBackend.SetBroadcaster(server.Broadcaster)
+	memFileNodeBackend.SetBroadcaster(server.Broadcaster)
 
 	smtpServer := smtp.NewServer(smtpAddr, memBackend, memBlobBackend, memCalBackend)
 	go func() {

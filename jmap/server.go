@@ -15,6 +15,7 @@ type Server struct {
 	CalendarsBackend  CalendarsBackend
 	SieveBackend      SieveBackend
 	IMAPAccessBackend IMAPAccessBackend
+	FileNodeBackend   FileNodeBackend
 	AuthBackend       AuthBackend
 	MethodRegistry    *MethodRegistry
 	Broadcaster       *Broadcaster
@@ -72,6 +73,13 @@ func WithIMAPAccessBackend(ib IMAPAccessBackend) Option {
 	}
 }
 
+// WithFileNodeBackend sets a custom FileNodeBackend implementation for the JMAP FileNode file storage extension.
+func WithFileNodeBackend(fb FileNodeBackend) Option {
+	return func(s *Server) {
+		s.FileNodeBackend = fb
+	}
+}
+
 // WithAuthBackend sets a custom AuthBackend implementation for Bearer token authentication per RFC 8620 Section 8.2.
 func WithAuthBackend(ab AuthBackend) Option {
 	return func(s *Server) {
@@ -101,7 +109,7 @@ func NewServer(session *Session, opts ...Option) *Server {
 	RegisterCalendarHandlers(s.MethodRegistry, s.CalendarsBackend, s.MailBackend)
 	RegisterSieveHandlers(s.MethodRegistry, s.SieveBackend)
 	RegisterIMAPAccessHandlers(s.MethodRegistry, s.IMAPAccessBackend)
-	RegisterFileNodeHandlers(s.MethodRegistry)
+	RegisterFileNodeHandlers(s.MethodRegistry, s.FileNodeBackend)
 
 	return s
 }
