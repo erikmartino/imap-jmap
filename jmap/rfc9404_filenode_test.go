@@ -319,6 +319,49 @@ func TestFileNode_CreationReferenceCompositeSet(t *testing.T) {
 	}
 }
 
+// TestFileNode_QueryChanges proves FileNode/queryChanges reports newly-matching objects as
+// added (with an index) and changed/removed objects as removed, driven by the real backend.
+func TestFileNode_QueryChanges(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Baseline query state with no nodes.
+	q0 := doFileNodeRequest(t, ts.URL, []any{
+		[]any{"FileNode/query", map[string]any{"accountId": "primary"}, "c1"},
+	})
+	baseState, _ := q0.MethodResponses[0].Args["queryState"].(string)
+
+	// Create a node after the baseline.
+	setResp := doFileNodeRequest(t, ts.URL, []any{
+		[]any{"FileNode/set", map[string]any{
+			"accountId": "primary",
+			"create":    map[string]any{"f1": map[string]any{"name": "a.txt"}},
+		}, "c1"},
+	})
+	newID := setResp.MethodResponses[0].Args["created"].(map[string]any)["f1"].(map[string]any)["id"].(string)
+
+	// queryChanges since the baseline MUST report the new node as added at index 0.
+	qc := doFileNodeRequest(t, ts.URL, []any{
+		[]any{"FileNode/queryChanges", map[string]any{
+			"accountId":       "primary",
+			"sinceQueryState": baseState,
+		}, "c1"},
+	})
+	args := qc.MethodResponses[0].Args
+	addedRaw, _ := args["added"].([]any)
+	if len(addedRaw) != 1 {
+		t.Fatalf("expected 1 added item, got %#v", args["added"])
+	}
+	added := addedRaw[0].(map[string]any)
+	if added["id"] != newID {
+		t.Errorf("added id = %v, want %q", added["id"], newID)
+	}
+	if added["index"].(float64) != 0 {
+		t.Errorf("added index = %v, want 0", added["index"])
+	}
+}
+
 // TestFileNode_PushStateChangeOnSet proves a FileNode mutation emits an RFC 8620 Section 7.1
 // StateChange push event over the EventSource stream, so a subscribed UI is notified.
 func TestFileNode_PushStateChangeOnSet(t *testing.T) {
