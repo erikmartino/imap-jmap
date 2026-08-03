@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -271,8 +272,12 @@ func handleEmailCopy(backend MailBackend) MethodHandler {
 		fromAccountID, _ := args["fromAccountId"].(string)
 		accountID, _ := args["accountId"].(string)
 		createMap, _ := args["create"].(map[string]any)
+		onSuccessDestroy, _ := args["onSuccessDestroyOriginal"].(bool)
 
+		oldState := backend.EmailState(ctx)
 		created := make(map[string]*Email)
+		notCreated := make(map[string]SetError)
+
 		for clientKey, raw := range createMap {
 			if emData, ok := raw.(map[string]any); ok {
 				if idStr, ok := emData["id"].(string); ok {
@@ -281,10 +286,36 @@ func handleEmailCopy(backend MailBackend) MethodHandler {
 						cp := *list[0]
 						cp.ID = ""
 						cp.ThreadID = ""
+
+						// Apply property overrides if specified (RFC 8621 Section 4.6)
+						if mbMap, ok := emData["mailboxIds"].(map[string]any); ok {
+							cp.MailboxIDs = make(map[Id]bool)
+							for k, v := range mbMap {
+								if v != nil {
+									cp.MailboxIDs[Id(k)] = true
+								}
+							}
+						}
+						if kwMap, ok := emData["keywords"].(map[string]any); ok {
+							cp.Keywords = make(map[string]bool)
+							for k, v := range kwMap {
+								if boolVal, ok := v.(bool); ok {
+									cp.Keywords[k] = boolVal
+								}
+							}
+						}
+
 						createdEM, err := backend.CreateEmail(ctx, &cp)
 						if err == nil {
 							created[clientKey] = createdEM
+							if onSuccessDestroy {
+								_, _ = backend.DeleteEmail(ctx, Id(idStr))
+							}
+						} else {
+							notCreated[clientKey] = SetError{Type: "serverFail", Description: err.Error()}
 						}
+					} else {
+						notCreated[clientKey] = SetError{Type: "notFound", Description: "email not found"}
 					}
 				}
 			}
@@ -293,9 +324,10 @@ func handleEmailCopy(backend MailBackend) MethodHandler {
 		return "Email/copy", map[string]any{
 			"fromAccountId": fromAccountID,
 			"accountId":     accountID,
-			"oldState":      backend.State(ctx),
-			"newState":      backend.State(ctx),
+			"oldState":      oldState,
+			"newState":      backend.EmailState(ctx),
 			"created":       created,
+			"notCreated":    notCreated,
 		}
 	}
 }
@@ -525,6 +557,15 @@ func handleSearchSnippetGet(backend MailBackend) MethodHandler {
 		accountID, _ := args["accountId"].(string)
 		emailIDsRaw, _ := args["emailIds"].([]any)
 
+		var filterText string
+		if filterMap, ok := args["filter"].(map[string]any); ok {
+			if txt, ok := filterMap["text"].(string); ok {
+				filterText = txt
+			} else if body, ok := filterMap["body"].(string); ok {
+				filterText = body
+			}
+		}
+
 		ids := make([]Id, 0, len(emailIDsRaw))
 		for _, item := range emailIDsRaw {
 			if idStr, ok := item.(string); ok {
@@ -532,11 +573,31 @@ func handleSearchSnippetGet(backend MailBackend) MethodHandler {
 			}
 		}
 
-		emails, _, _ := backend.GetEmails(ctx, ids)
+		emails, notFound, _ := backend.GetEmails(ctx, ids)
+		if notFound == nil {
+			notFound = []Id{}
+		}
+
 		var list []SearchSnippet
 		for _, em := range emails {
 			subj := em.Subject
 			prev := em.Preview
+
+			if filterText != "" {
+				// Highlight matching terms with <mark> tags per RFC 8621 Section 5
+				idx := strings.Index(strings.ToLower(subj), strings.ToLower(filterText))
+				if idx >= 0 {
+					matchedText := subj[idx : idx+len(filterText)]
+					subj = subj[:idx] + "<mark>" + matchedText + "</mark>" + subj[idx+len(filterText):]
+				}
+
+				idxP := strings.Index(strings.ToLower(prev), strings.ToLower(filterText))
+				if idxP >= 0 {
+					matchedText := prev[idxP : idxP+len(filterText)]
+					prev = prev[:idxP] + "<mark>" + matchedText + "</mark>" + prev[idxP+len(filterText):]
+				}
+			}
+
 			list = append(list, SearchSnippet{
 				AccountID: accountID,
 				EmailID:   em.ID,
@@ -548,7 +609,7 @@ func handleSearchSnippetGet(backend MailBackend) MethodHandler {
 		return "SearchSnippet/get", map[string]any{
 			"accountId": accountID,
 			"list":      list,
-			"notFound":  []Id{},
+			"notFound":  notFound,
 		}
 	}
 }

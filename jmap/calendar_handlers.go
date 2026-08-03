@@ -19,6 +19,7 @@ func RegisterCalendarHandlers(r *MethodRegistry, backend CalendarsBackend, mailB
 	r.Register("CalendarEvent/changes", handleCalendarEventChanges(backend))
 	r.Register("CalendarEvent/set", handleCalendarEventSet(backend, mailBackend))
 	r.Register("CalendarEvent/query", handleCalendarEventQuery(backend))
+	r.Register("CalendarEvent/queryChanges", handleCalendarEventQueryChanges(backend))
 	r.Register("CalendarEvent/copy", handleCalendarEventCopy(backend))
 	r.Register("CalendarEvent/parseInvitation", handleCalendarEventParseInvitation(backend))
 	r.Register("CalendarEvent/sendResponse", handleCalendarEventSendResponse(backend))
@@ -410,12 +411,30 @@ func handleCalendarEventQuery(backend CalendarsBackend) MethodHandler {
 
 		return "CalendarEvent/query", map[string]any{
 			"accountId":           accountID,
-			"queryState":          "0",
-			"canCalculateChanges": false,
+			"queryState":          backend.CalendarEventState(ctx),
+			"canCalculateChanges": true,
 			"position":            position,
 			"total":               total,
 			"ids":                 ids,
 		}
+	}
+}
+
+func handleCalendarEventQueryChanges(backend CalendarsBackend) MethodHandler {
+	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
+		accountID, _ := args["accountId"].(string)
+		upToID, _ := args["upToId"].(string)
+		res := map[string]any{
+			"accountId":     accountID,
+			"oldQueryState": args["sinceQueryState"],
+			"newQueryState": backend.CalendarEventState(ctx),
+			"added":         []any{},
+			"removed":       []Id{},
+		}
+		if upToID != "" {
+			res["upToId"] = upToID
+		}
+		return "CalendarEvent/queryChanges", res
 	}
 }
 

@@ -137,6 +137,13 @@ func handleSieveScriptSet(backend SieveBackend) MethodHandler {
 				}
 			}
 
+			if actID, ok := args["onSuccessActivateScript"].(string); ok && actID != "" {
+				_, _ = backend.UpdateSieveScript(ctx, Id(actID), map[string]any{"isActive": true})
+			}
+			if deactID, ok := args["onSuccessDeactivateScript"].(string); ok && deactID != "" {
+				_, _ = backend.UpdateSieveScript(ctx, Id(deactID), map[string]any{"isActive": false})
+			}
+
 			if destroyRaw, ok := args["destroy"].([]any); ok {
 				for _, item := range destroyRaw {
 					if idStr, ok := item.(string); ok {

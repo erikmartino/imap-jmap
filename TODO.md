@@ -15,13 +15,13 @@ ContactCard/* canonical naming, Identity/set, Mailbox/set update.
 - [x] `Email/set` data-loss: create drops `from/to/cc/body*/headers/receivedAt` (violates Data-Loss rule).
 - [x] `EmailSubmission/set`: ignores `update`/`destroy` and `onSuccessUpdate/DestroyEmail`.
 - [x] `ifInState` / `stateMismatch` not honored on any `*/set` (RFC 8620 §5.3).
-- [ ] `/query` ignoring filter/sort/pagination: `Mailbox`, `EmailSubmission`, `Quota`.
-- [ ] `Mailbox/copy` always refuses; `Email/copy` ignores overrides/`onSuccessDestroyOriginal`.
-- [ ] `SearchSnippet/get`: no `<mark>` highlighting; `Blob/get`/`Blob/lookup` ignore properties/offset/types.
+- [x] `/query` ignoring filter/sort/pagination: `Mailbox`, `EmailSubmission`, `Quota`.
+- [x] `Mailbox/copy` always refuses; `Email/copy` ignores overrides/`onSuccessDestroyOriginal`.
+- [x] `SearchSnippet/get`: no `<mark>` highlighting; `Blob/get`/`Blob/lookup` ignore properties/offset/types.
 - [x] `Email/verifySmime`: returns seeded fake result (no real S/MIME validation).
-- [ ] `CalendarEvent/queryChanges` not registered; `*/query` `queryState` hardcoded `"0"` in several types.
+- [x] `CalendarEvent/queryChanges` not registered; `*/query` `queryState` hardcoded `"0"` in several types.
 - [x] PushSubscription verification flow (RFC 8620 §7.2.2 `PushVerification`) unimplemented.
-- [ ] SieveScript activation semantics (`isActive`, `onSuccess(De)ActivateScript`, RFC 9661 §3.3).
+- [x] SieveScript activation semantics (`isActive`, `onSuccess(De)ActivateScript`, RFC 9661 §3.3).
 
 ## DAV (dav/)
 - [ ] CalDAV/CardDAV PUT drops most iCal/vCard properties; queries ignore filters.
