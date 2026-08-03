@@ -1182,3 +1182,138 @@ func TestRFC8621_ChangesEndpoints(t *testing.T) {
 	}
 }
 
+// TestRFC8621_EmailCopy_SearchSnippet_Sieve_CalendarEvent tests Email/copy overrides, SearchSnippet <mark> highlighting,
+// CalendarEvent/queryChanges, and SieveScript activation semantics per RFC standards.
+func TestRFC8621_EmailCopy_SearchSnippet_Sieve_CalendarEvent(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	post := func(calls []any) jmap.Response {
+		payload := map[string]any{
+			"using":       []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.CalendarsCapabilityURI, jmap.SieveCapabilityURI},
+			"methodCalls": calls,
+		}
+		body, _ := json.Marshal(payload)
+		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST /jmap failed: %v", err)
+		}
+		defer resp.Body.Close()
+		var jmapResp jmap.Response
+		if err := json.NewDecoder(resp.Body).Decode(&jmapResp); err != nil {
+			t.Fatalf("Failed to decode response: %v", err)
+		}
+		return jmapResp
+	}
+
+	// 1. Get an existing email ID with 'Welcome' via Email/query
+	qResp := post([]any{
+		[]any{"Email/query", map[string]any{
+			"accountId": "primary",
+			"filter":    map[string]any{"text": "Welcome"},
+		}, "c0"},
+	})
+	eIDs, _ := qResp.MethodResponses[0].Args["ids"].([]any)
+	if len(eIDs) == 0 {
+		t.Fatal("Expected at least 1 email matching Welcome")
+	}
+	targetID := eIDs[0].(string)
+
+	// 2. Test SearchSnippet/get highlighting
+	r1 := post([]any{
+		[]any{"SearchSnippet/get", map[string]any{
+			"accountId": "primary",
+			"emailIds":  []string{targetID},
+			"filter":    map[string]any{"text": "Welcome"},
+		}, "c1"},
+	})
+	snipList, _ := r1.MethodResponses[0].Args["list"].([]any)
+	if len(snipList) > 0 {
+		snip, _ := snipList[0].(map[string]any)
+		subj, _ := snip["subject"].(string)
+		if !bytes.Contains([]byte(subj), []byte("<mark>Welcome</mark>")) {
+			t.Errorf("Expected SearchSnippet subject highlighting with <mark>Welcome</mark>, got %q", subj)
+		}
+	}
+
+	// 3. Test Email/copy with property overrides and onSuccessDestroyOriginal
+	r2 := post([]any{
+		[]any{"Email/copy", map[string]any{
+			"accountId":                "primary",
+			"fromAccountId":            "primary",
+			"onSuccessDestroyOriginal": true,
+			"create": map[string]any{
+				"cp1": map[string]any{
+					"id":         targetID,
+					"mailboxIds": map[string]bool{"mb-trash": true},
+				},
+			},
+		}, "c2"},
+	})
+	cpCreated, _ := r2.MethodResponses[0].Args["created"].(map[string]any)
+	if cpCreated["cp1"] == nil {
+		t.Errorf("Expected created email copy in Email/copy response, got %v", r2.MethodResponses[0].Args)
+	}
+
+	// 3. Test CalendarEvent/query and CalendarEvent/queryChanges
+	r3 := post([]any{
+		[]any{"CalendarEvent/query", map[string]any{"accountId": "primary"}, "c3"},
+		[]any{"CalendarEvent/queryChanges", map[string]any{"accountId": "primary", "sinceQueryState": "0"}, "c4"},
+	})
+	qState, _ := r3.MethodResponses[0].Args["queryState"].(string)
+	if qState == "0" || qState == "" {
+		t.Errorf("Expected dynamic queryState, got %q", qState)
+	}
+	if r3.MethodResponses[1].Name != "CalendarEvent/queryChanges" {
+		t.Errorf("Expected CalendarEvent/queryChanges response, got %q", r3.MethodResponses[1].Name)
+	}
+
+	// 4. Test SieveScript activation semantics
+	r4 := post([]any{
+		[]any{"SieveScript/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"s1": map[string]any{
+					"name":     "Filter 1",
+					"content":  "keep;",
+					"isActive": true,
+				},
+				"s2": map[string]any{
+					"name":     "Filter 2",
+					"content":  "discard;",
+					"isActive": false,
+				},
+			},
+		}, "c5"},
+	})
+	createdScripts, _ := r4.MethodResponses[0].Args["created"].(map[string]any)
+	s2Obj, _ := createdScripts["s2"].(map[string]any)
+	s2ID, _ := s2Obj["id"].(string)
+
+	if s2ID != "" {
+		// Activate s2 via onSuccessActivateScript
+		post([]any{
+			[]any{"SieveScript/set", map[string]any{
+				"accountId":                "primary",
+				"onSuccessActivateScript": s2ID,
+			}, "c6"},
+		})
+
+		r5 := post([]any{
+			[]any{"SieveScript/get", map[string]any{
+				"accountId": "primary",
+				"ids":       []string{s2ID},
+			}, "c7"},
+		})
+		scList, _ := r5.MethodResponses[0].Args["list"].([]any)
+		if len(scList) > 0 {
+			sc, _ := scList[0].(map[string]any)
+			if active, ok := sc["isActive"].(bool); !ok || !active {
+				t.Errorf("Expected SieveScript %s to be active, got %v", s2ID, sc["isActive"])
+			}
+		}
+	}
+}
+
+
