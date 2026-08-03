@@ -125,7 +125,7 @@ func handleQuotaQuery(backend MailBackend) MethodHandler {
 				allIDs = append(allIDs, quota.ID)
 			}
 			var limit *uint64
-			if limVal, ok := args["limit"].(float64); ok && limVal > 0 {
+			if limVal, ok := args["limit"].(float64); ok {
 				l := uint64(limVal)
 				limit = &l
 			}
@@ -134,9 +134,9 @@ func handleQuotaQuery(backend MailBackend) MethodHandler {
 			if !found {
 				return "error", MethodErrorArgs(MethodErrorAnchorNotFound, "anchor not found in results: "+anchor)
 			}
-		} else if position < total {
+		} else {
 			end := total
-			if limVal, ok := args["limit"].(float64); ok && limVal > 0 {
+			if limVal, ok := args["limit"].(float64); ok {
 				if position+int(limVal) < end {
 					end = position + int(limVal)
 				}

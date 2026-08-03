@@ -290,20 +290,23 @@ func handleMailboxQuery(backend MailBackend) MethodHandler {
 				allIDs = append(allIDs, mb.ID)
 			}
 			var limit *uint64
-			if limVal, ok := args["limit"].(float64); ok && limVal > 0 {
+			if limVal, ok := args["limit"].(float64); ok {
 				l := uint64(limVal)
 				limit = &l
 			}
-			var found bool
-			position, pagedIDs, found = applyQueryAnchor(anchor, anchorOffset, allIDs, limit)
-			if !found {
-				return "error", MethodErrorArgs(MethodErrorAnchorNotFound, "anchor not found in results: "+anchor)
+			var pos int
+			var ok bool
+			pos, pagedIDs, ok = applyQueryAnchor(anchor, anchorOffset, allIDs, limit)
+			if !ok {
+				return "error", MethodErrorArgs("anchorNotFound", "anchor is not in query results")
 			}
-		} else if position < total {
+			position = pos
+		} else {
 			end := total
-			if limVal, ok := args["limit"].(float64); ok && limVal > 0 {
-				if position+int(limVal) < end {
-					end = position + int(limVal)
+			if limVal, ok := args["limit"].(float64); ok {
+				l := int(limVal)
+				if position+l < end {
+					end = position + l
 				}
 			}
 			for i := position; i < end; i++ {
