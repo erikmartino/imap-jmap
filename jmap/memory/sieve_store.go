@@ -214,6 +214,7 @@ func (b *MemorySieveBackend) QuerySieveScripts(ctx context.Context, filter map[s
 	})
 
 	total := len(matched)
+	position = jmap.NormalizePosition(position, total)
 	if position >= total {
 		return []jmap.Id{}, total, nil
 	}

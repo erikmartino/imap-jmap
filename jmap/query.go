@@ -7,19 +7,28 @@ import (
 	"strings"
 )
 
-// parseQueryPosition extracts the "position" argument per RFC 8620 Section 5.5: a non-negative
-// integer defaulting to 0. A negative value is rejected with an invalidArguments error so no
-// query handler can ever index a slice with a negative position.
+// parseQueryPosition extracts the "position" argument per RFC 8620 Section 5.5: an integer
+// defaulting to 0. A negative value is an offset from the end of the results (it is added to
+// the total and clamped to 0, see NormalizePosition), so it is returned verbatim.
 func parseQueryPosition(args map[string]any) (position int, errMsg string) {
 	posVal, ok := args["position"].(float64)
 	if !ok {
 		return 0, ""
 	}
-	position = int(posVal)
+	return int(posVal), ""
+}
+
+// NormalizePosition applies RFC 8620 Section 5.5 position semantics: a negative position is
+// an offset from the end of the results — it is added to the total, and if still negative,
+// clamped to 0.
+func NormalizePosition(position, total int) int {
 	if position < 0 {
-		return 0, fmt.Sprintf("position must be a non-negative integer, got %v", posVal)
+		position += total
+		if position < 0 {
+			position = 0
+		}
 	}
-	return position, ""
+	return position
 }
 
 // parseQueryAnchor extracts the "anchor" and "anchorOffset" arguments per RFC 8620
@@ -45,10 +54,10 @@ func parseQueryAnchor(args map[string]any) (anchor string, offset int, errMsg st
 }
 
 // applyQueryAnchor positions a fully filtered and sorted id list per RFC 8620 Section 5.5:
-// the index of the anchor within the results plus anchorOffset (clamped to 0 if negative) is
-// used exactly as though it were the "position" argument, then the limit slices from there.
-// It returns false when the anchor is not in the results; the caller MUST then reject the
-// call with an anchorNotFound error.
+// the index of the anchor within the results plus anchorOffset is used exactly as though it
+// were the "position" argument (so a negative result is an offset from the end, clamped to
+// 0), then the limit slices from there. It returns false when the anchor is not in the
+// results; the caller MUST then reject the call with an anchorNotFound error.
 func applyQueryAnchor(anchor string, offset int, ids []Id, limit *uint64) (position int, out []Id, found bool) {
 	anchorIdx := -1
 	for i, id := range ids {
@@ -60,10 +69,7 @@ func applyQueryAnchor(anchor string, offset int, ids []Id, limit *uint64) (posit
 	if anchorIdx == -1 {
 		return 0, nil, false
 	}
-	position = anchorIdx + offset
-	if position < 0 {
-		position = 0
-	}
+	position = NormalizePosition(anchorIdx+offset, len(ids))
 	end := len(ids)
 	if limit != nil && position+int(*limit) < end {
 		end = position + int(*limit)
@@ -93,11 +99,12 @@ type FilterCondition struct {
 	HasAttachment      *bool   `json:"hasAttachment,omitempty"`
 }
 
-// Comparator defines sorting rules per RFC 8621 Section 4.5.2.
+// Comparator defines sorting rules per RFC 8621 Section 4.4.2.
 type Comparator struct {
 	Property    string `json:"property"`
 	IsAscending bool   `json:"isAscending"`
 	Collation   string `json:"collation,omitempty"`
+	Keyword     string `json:"keyword,omitempty"`
 }
 
 // parseComparators parses the "sort" argument per RFC 8621 Section 4.5.2.
@@ -112,15 +119,44 @@ func parseComparators(args map[string]any) []Comparator {
 					asc = true
 				}
 				coll, _ := compMap["collation"].(string)
+				kw, _ := compMap["keyword"].(string)
 				comparators = append(comparators, Comparator{
 					Property:    prop,
 					IsAscending: asc,
 					Collation:   coll,
+					Keyword:     kw,
 				})
 			}
 		}
 	}
 	return comparators
+}
+
+// advertisedCollations are the collation algorithms the server supports (RFC 8620
+// Section 5.5): "i;ascii-casemap" (case-insensitive, the default) and "i;octet"
+// (case-sensitive binary comparison).
+var advertisedCollations = map[string]bool{"i;ascii-casemap": true, "i;octet": true}
+
+// validateComparators enforces RFC 8620 Section 5.5 sort validation: a comparator naming an
+// unsupported property or collation must be rejected with an "unsupportedSort" error, and a
+// keyword sort without its required "keyword" property is invalid (RFC 8621 Section 4.4.2).
+// It returns an empty string when the sort is acceptable.
+func validateComparators(comparators []Comparator, supported map[string]bool) (errType, errMsg string) {
+	for _, c := range comparators {
+		if !supported[c.Property] {
+			return "unsupportedSort", fmt.Sprintf("sort property %q is not supported", c.Property)
+		}
+		if c.Collation != "" && !advertisedCollations[c.Collation] {
+			return "unsupportedSort", fmt.Sprintf("collation %q is not supported", c.Collation)
+		}
+		switch c.Property {
+		case "hasKeyword", "allInThreadHaveKeyword", "someInThreadHaveKeyword":
+			if c.Keyword == "" {
+				return MethodErrorInvalidArguments, fmt.Sprintf("sort property %q requires a \"keyword\" property", c.Property)
+			}
+		}
+	}
+	return "", ""
 }
 
 // computeQueryChanges derives the added/removed deltas for /queryChanges per RFC 8620
@@ -426,8 +462,51 @@ func matchAddresses(addrs []EmailAddress, needle string) bool {
 	return false
 }
 
-// SortEmails sorts emails in-place using RFC 8621 Section 4.5.2 comparators.
+// emailSortableProperties is the set of Email properties the server supports sorting on
+// (RFC 8621 Section 4.4.2): receivedAt (MUST) plus size, from, to, subject, sentAt,
+// hasKeyword, allInThreadHaveKeyword and someInThreadHaveKeyword (SHOULD).
+var emailSortableProperties = map[string]bool{
+	"receivedAt": true, "size": true, "from": true, "to": true, "subject": true,
+	"sentAt": true, "hasKeyword": true, "allInThreadHaveKeyword": true,
+	"someInThreadHaveKeyword": true,
+}
+
+// SortEmails sorts emails in-place using RFC 8621 Section 4.4.2 comparators. Keyword sort
+// properties ("hasKeyword", "allInThreadHaveKeyword", "someInThreadHaveKeyword") require a
+// "keyword" property on the Comparator. Thread sorts evaluate the keyword over the threads
+// present in the given list; queries that must evaluate over the full store use
+// sortEmailsWithContext.
 func SortEmails(emails []*Email, comparators []Comparator) {
+	threadHas := make(map[string]bool)
+	threadLacks := make(map[string]bool)
+	for _, em := range emails {
+		for _, c := range comparators {
+			if c.Property != "allInThreadHaveKeyword" && c.Property != "someInThreadHaveKeyword" {
+				continue
+			}
+			key := threadKeywordKey(em.ThreadID, c.Keyword)
+			if hasKeyword(em, c.Keyword) {
+				threadHas[key] = true
+			} else {
+				threadLacks[key] = true
+			}
+		}
+	}
+	all := make(map[string]bool, len(threadHas))
+	for key := range threadHas {
+		all[key] = !threadLacks[key]
+	}
+	SortEmailsWithContext(emails, comparators, all, threadHas)
+}
+
+func threadKeywordKey(threadID Id, keyword string) string {
+	return string(threadID) + "\x00" + keyword
+}
+
+// SortEmailsWithContext sorts emails per the comparators, using precomputed per-thread
+// keyword answers: all[thread\x00keyword] is true when every Email in the thread has the
+// keyword, any[...] when at least one has it.
+func SortEmailsWithContext(emails []*Email, comparators []Comparator, all, any map[string]bool) {
 	if len(comparators) == 0 {
 		// Default sort: receivedAt descending
 		comparators = []Comparator{
@@ -445,13 +524,23 @@ func SortEmails(emails []*Email, comparators []Comparator) {
 			case "sentAt":
 				cmp = strings.Compare(a.SentAt, b.SentAt)
 			case "subject":
-				cmp = strings.Compare(strings.ToLower(a.Subject), strings.ToLower(b.Subject))
+				cmp = compareStrings(baseSubject(a.Subject), baseSubject(b.Subject), comp.Collation)
 			case "size":
 				if a.Size < b.Size {
 					cmp = -1
 				} else if a.Size > b.Size {
 					cmp = 1
 				}
+			case "from":
+				cmp = compareStrings(firstAddress(a.From), firstAddress(b.From), comp.Collation)
+			case "to":
+				cmp = compareStrings(firstAddress(a.To), firstAddress(b.To), comp.Collation)
+			case "hasKeyword":
+				cmp = compareBools(hasKeyword(a, comp.Keyword), hasKeyword(b, comp.Keyword))
+			case "allInThreadHaveKeyword":
+				cmp = compareBools(all[threadKeywordKey(a.ThreadID, comp.Keyword)], all[threadKeywordKey(b.ThreadID, comp.Keyword)])
+			case "someInThreadHaveKeyword":
+				cmp = compareBools(any[threadKeywordKey(a.ThreadID, comp.Keyword)], any[threadKeywordKey(b.ThreadID, comp.Keyword)])
 			}
 
 			if cmp != 0 {
@@ -463,4 +552,85 @@ func SortEmails(emails []*Email, comparators []Comparator) {
 		}
 		return i < j
 	})
+}
+
+// baseSubject returns the RFC 5256 Section 2.1 "base subject" that RFC 8621 Section 4.4.2
+// uses for "subject" sorting: remove a trailing "(fwd)", then repeatedly strip any leading
+// whitespace, bracketed list tag ("[tag]"), and reply/forward prefixes ("re:", "fwd:",
+// "fw:" and their bracketed counter forms like "fwd[2]:"), case-insensitively.
+func baseSubject(s string) string {
+	t := strings.TrimSpace(s)
+	if len(t) >= 5 && strings.EqualFold(t[len(t)-5:], "(fwd)") {
+		t = strings.TrimSpace(t[:len(t)-5])
+	}
+	for {
+		trimmed := strings.TrimLeft(t, " \t")
+		lower := strings.ToLower(trimmed)
+		stripped := false
+		for _, tag := range []string{"re", "fwd", "fw"} {
+			if strings.HasPrefix(lower, tag+":") {
+				t = trimmed[len(tag)+1:]
+				stripped = true
+				break
+			}
+			counter := tag + "["
+			if strings.HasPrefix(lower, counter) {
+				if end := strings.IndexByte(lower[len(counter):], ']'); end >= 0 {
+					contentStart := len(counter) + end + 1
+					if contentStart < len(lower) && lower[contentStart] == ':' {
+						t = trimmed[contentStart+1:]
+						stripped = true
+						break
+					}
+				}
+			}
+		}
+		if !stripped && len(trimmed) > 0 && trimmed[0] == '[' {
+			if end := strings.IndexByte(trimmed, ']'); end >= 0 {
+				t = trimmed[end+1:]
+				stripped = true
+			}
+		}
+		if !stripped {
+			return trimmed
+		}
+	}
+}
+
+// compareStrings compares two strings per the comparator's collation: "i;octet" is a
+// case-sensitive binary comparison; any other (or default) collation is case-insensitive.
+func compareStrings(a, b, collation string) int {
+	if collation == "i;octet" {
+		return strings.Compare(a, b)
+	}
+	return strings.Compare(strings.ToLower(a), strings.ToLower(b))
+}
+
+// compareBools orders false before true for ascending sorts (RFC 8620 Section 5.5).
+func compareBools(a, b bool) int {
+	if a == b {
+		return 0
+	}
+	if !a {
+		return -1
+	}
+	return 1
+}
+
+// firstAddress returns the "name" property of the first EmailAddress, or its "email"
+// property when the name is null/empty, or the empty string when there is none (RFC 8621
+// Section 4.4.2).
+func firstAddress(addrs []EmailAddress) string {
+	if len(addrs) == 0 {
+		return ""
+	}
+	if addrs[0].Name != "" {
+		return addrs[0].Name
+	}
+	return addrs[0].Email
+}
+
+// hasKeyword reports whether the Email carries the keyword.
+func hasKeyword(em *Email, keyword string) bool {
+	return em.Keywords != nil && em.Keywords[keyword]
 }

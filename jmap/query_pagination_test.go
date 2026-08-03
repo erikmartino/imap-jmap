@@ -10,64 +10,135 @@ import (
 	"imap-jmap/jmap"
 )
 
-// TestQueryNegativePositionRejected verifies that every */query method rejects a negative
-// "position" with an invalidArguments method error instead of panicking (RFC 8620 Section 5.5:
-// position is a non-negative integer). Mailbox/query, Quota/query, and SieveScript/query
-// previously indexed slices with filtered[-1], a remotely triggerable server crash.
-func TestQueryNegativePositionRejected(t *testing.T) {
+// TestQueryNegativePositionFromEnd verifies that a negative "position" counts from the end of
+// the results per RFC 8620 Section 5.5 ("If a negative value is given, the position is counted
+// from the end"): the effective position is total + position, clamped to 0. Every */query
+// method must apply this semantics over live data, never panic or index out of range.
+func TestQueryNegativePositionFromEnd(t *testing.T) {
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
 	cases := []struct {
-		name      string
-		using     []string
-		method    string
-		extraArgs map[string]any
+		name   string
+		using  []string
+		method string
+		filter map[string]any
+		// stableOrder marks methods whose result order is deterministic (sorted).
+		// Quota/query has no sort per RFC 9425 Section 4.4.1, so its order is
+		// server-defined and may differ between calls.
+		stableOrder bool
 	}{
-		{name: "Email/query", using: []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, method: "Email/query"},
-		{name: "Mailbox/query", using: []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, method: "Mailbox/query"},
-		{name: "EmailSubmission/query", using: []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, method: "EmailSubmission/query"},
-		{name: "Quota/query", using: []string{jmap.CoreCapabilityURI, jmap.QuotaCapabilityURI}, method: "Quota/query"},
-		{name: "CalendarEvent/query", using: []string{jmap.CoreCapabilityURI, jmap.CalendarsCapabilityURI}, method: "CalendarEvent/query"},
-		{name: "Card/query", using: []string{jmap.CoreCapabilityURI, jmap.ContactsCapabilityURI}, method: "Card/query"},
-		{name: "SieveScript/query", using: []string{jmap.CoreCapabilityURI, jmap.SieveCapabilityURI}, method: "SieveScript/query"},
-		{name: "FileNode/query", using: []string{jmap.CoreCapabilityURI, jmap.FileNodeCapabilityURI}, method: "FileNode/query"},
+		{name: "Email/query", using: []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, method: "Email/query", filter: map[string]any{"inMailbox": "mb-inbox"}, stableOrder: true},
+		{name: "Mailbox/query", using: []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, method: "Mailbox/query", stableOrder: true},
+		{name: "EmailSubmission/query", using: []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, method: "EmailSubmission/query", stableOrder: true},
+		{name: "Quota/query", using: []string{jmap.CoreCapabilityURI, jmap.QuotaCapabilityURI}, method: "Quota/query", stableOrder: false},
+		{name: "CalendarEvent/query", using: []string{jmap.CoreCapabilityURI, jmap.CalendarsCapabilityURI}, method: "CalendarEvent/query", stableOrder: true},
+		{name: "Card/query", using: []string{jmap.CoreCapabilityURI, jmap.ContactsCapabilityURI}, method: "Card/query", stableOrder: true},
+		{name: "SieveScript/query", using: []string{jmap.CoreCapabilityURI, jmap.SieveCapabilityURI}, method: "SieveScript/query", stableOrder: true},
+		{name: "FileNode/query", using: []string{jmap.CoreCapabilityURI, jmap.FileNodeCapabilityURI}, method: "FileNode/query", stableOrder: true},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			args := map[string]any{"accountId": "primary", "position": -1}
-			for k, v := range tc.extraArgs {
+			post := func(args map[string]any) map[string]any {
+				t.Helper()
+				reqPayload := map[string]any{
+					"using":       tc.using,
+					"methodCalls": []any{[]any{tc.method, args, "c1"}},
+				}
+				body, _ := json.Marshal(reqPayload)
+
+				resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+				if err != nil {
+					t.Fatalf("POST /jmap failed: %v", err)
+				}
+				defer resp.Body.Close()
+
+				var jmapResp jmap.Response
+				if err := json.NewDecoder(resp.Body).Decode(&jmapResp); err != nil {
+					t.Fatalf("Failed to decode Response: %v", err)
+				}
+				if len(jmapResp.MethodResponses) != 1 {
+					t.Fatalf("Expected 1 method response, got %d", len(jmapResp.MethodResponses))
+				}
+				mr := jmapResp.MethodResponses[0]
+				if mr.Name != tc.method {
+					t.Fatalf("Expected %s response, got %q", tc.method, mr.Name)
+				}
+				return mr.Args
+			}
+
+			baseArgs := map[string]any{"accountId": "primary", "calculateTotal": true}
+			for k, v := range tc.filter {
+				baseArgs[k] = v
+			}
+
+			// Learn the baseline result set so assertions hold for any seed data.
+			baseline := post(baseArgs)
+			raw, _ := baseline["ids"].([]any)
+			if len(raw) == 0 {
+				return // nothing to page; negative positions on empty results are vacuously empty
+			}
+			ids := make([]string, 0, len(raw))
+			for _, item := range raw {
+				ids = append(ids, item.(string))
+			}
+			total := len(ids)
+			posOf := func(res map[string]any) int {
+				if pos, _ := res["position"].(float64); pos != 0 {
+					return int(pos)
+				}
+				return 0
+			}
+
+			// position -1: the last result, reported at index total-1.
+			args := map[string]any{"accountId": "primary"}
+			for k, v := range tc.filter {
 				args[k] = v
 			}
-			reqPayload := map[string]any{
-				"using":       tc.using,
-				"methodCalls": []any{[]any{tc.method, args, "c1"}},
+			args["position"] = -1
+			res := post(args)
+			got := []string{}
+			for _, item := range res["ids"].([]any) {
+				got = append(got, item.(string))
 			}
-			body, _ := json.Marshal(reqPayload)
+			if len(got) != 1 {
+				t.Errorf("position -1 must return exactly the last result, got %v", got)
+			}
+			if tc.stableOrder && got[0] != ids[total-1] {
+				t.Errorf("position -1 must return the last result [%s], got %v", ids[total-1], got)
+			}
+			if posOf(res) != total-1 {
+				t.Errorf("expected response position %d for position -1, got %d", total-1, posOf(res))
+			}
 
-			resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
-			if err != nil {
-				t.Fatalf("POST /jmap failed: %v", err)
+			// position -(total+5): beyond the start, clamped to 0 -> the full result set.
+			args["position"] = -(total + 5)
+			res = post(args)
+			got = got[:0]
+			for _, item := range res["ids"].([]any) {
+				got = append(got, item.(string))
 			}
-			defer resp.Body.Close()
+			if len(got) != total {
+				t.Errorf("position -(total+5) must return all %d results, got %v", total, got)
+			}
+			if posOf(res) != 0 {
+				t.Errorf("expected response position 0 for position -(total+5), got %d", posOf(res))
+			}
 
-			var jmapResp jmap.Response
-			if err := json.NewDecoder(resp.Body).Decode(&jmapResp); err != nil {
-				t.Fatalf("Failed to decode Response: %v", err)
-			}
-
-			if len(jmapResp.MethodResponses) != 1 {
-				t.Fatalf("Expected 1 method response, got %d", len(jmapResp.MethodResponses))
-			}
-			methodResp := jmapResp.MethodResponses[0]
-			if methodResp.Name != "error" {
-				t.Fatalf("Expected method error response, got %q (server must not panic on negative position)", methodResp.Name)
-			}
-			errType, _ := methodResp.Args["type"].(string)
-			if errType != jmap.MethodErrorInvalidArguments {
-				t.Errorf("Expected error type %q, got %q", jmap.MethodErrorInvalidArguments, errType)
+			// Negative position combined with a limit slices from the from-end offset.
+			if total >= 2 && tc.stableOrder {
+				args["position"] = -2
+				args["limit"] = 1
+				res = post(args)
+				got = got[:0]
+				for _, item := range res["ids"].([]any) {
+					got = append(got, item.(string))
+				}
+				if len(got) != 1 || got[0] != ids[total-2] {
+					t.Errorf("position -2 limit 1 must return [%s], got %v", ids[total-2], got)
+				}
 			}
 		})
 	}
@@ -238,7 +309,7 @@ func TestQueryAnchorPositioning(t *testing.T) {
 	}{
 		{name: "anchor+offset=1", args: map[string]any{"anchor": allIDs[0], "anchorOffset": 1}, wantIDs: []string{allIDs[1]}, wantPos: 1},
 		{name: "anchor+negative offset", args: map[string]any{"anchor": allIDs[1], "anchorOffset": -1, "limit": 1}, wantIDs: []string{allIDs[0]}, wantPos: 0},
-		{name: "anchor+offset clamped to 0", args: map[string]any{"anchor": allIDs[1], "anchorOffset": -2}, wantIDs: []string{allIDs[0], allIDs[1]}, wantPos: 0},
+		{name: "anchor+offset beyond start counts from end", args: map[string]any{"anchor": allIDs[1], "anchorOffset": -2}, wantIDs: []string{allIDs[1]}, wantPos: 1},
 		{name: "anchor+limit", args: map[string]any{"anchor": allIDs[0], "anchorOffset": 1, "limit": 1}, wantIDs: []string{allIDs[1]}, wantPos: 1},
 		{name: "anchor ignores position", args: map[string]any{"anchor": allIDs[0], "position": 1, "limit": 1}, wantIDs: []string{allIDs[0]}, wantPos: 0},
 		{name: "anchor+offset beyond end", args: map[string]any{"anchor": allIDs[1], "anchorOffset": 5}, wantIDs: []string{}, wantPos: 6},

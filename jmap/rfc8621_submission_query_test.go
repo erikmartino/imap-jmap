@@ -194,7 +194,7 @@ func TestRFC8621_SubmissionQueryFilters(t *testing.T) {
 // (emailId, threadId, sentAt) and the default sendAt-descending sort.
 func TestRFC8621_SubmissionQuerySort(t *testing.T) {
 	c := newSubmissionQueryClient(t)
-	s1ID, s2ID, s3ID, eAID, eBID, _, tBID, _ := c.seed(t)
+	s1ID, s2ID, s3ID, eAID, eBID, tAID, tBID, _ := c.seed(t)
 
 	query := func(sort []any) []string {
 		t.Helper()
@@ -254,22 +254,49 @@ func TestRFC8621_SubmissionQuerySort(t *testing.T) {
 	if got := query([]any{map[string]any{"property": "sentAt", "isAscending": true}}); !eq(got, s2ID, s3ID, s1ID) {
 		t.Errorf("sentAt ascending must be [s2 s3 s1], got %v", got)
 	}
-	// emailId: eA (s1, s3) sorts before eB (s2); the order between equal emailIds is
-	// server dependent but stable (RFC 8620 Section 5.5).
-	if got := query([]any{map[string]any{"property": "emailId", "isAscending": true}}); !eqSet(got, []string{s1ID, s3ID}, []string{s2ID}) {
-		t.Errorf("emailId ascending must group eA submissions before eB, got %v", got)
+	// emailId: submissions with the same email id group together, and the group with the
+	// lexicographically smaller email id sorts first (RFC 8620 Section 5.5). The ids the
+	// server assigns are not creation-ordered, so which of eA/eB is "first" is not fixed.
+	emailGroups := func(firstEmail, secondEmail string) (g1, g2 []string) {
+		for sub, email := range map[string]string{s1ID: eAID, s2ID: eBID, s3ID: eAID} {
+			if email == firstEmail {
+				g1 = append(g1, sub)
+			} else {
+				g2 = append(g2, sub)
+			}
+		}
+		return
 	}
-	// threadId: tA (s1, s3) sorts before tB (s2).
-	if got := query([]any{map[string]any{"property": "threadId", "isAscending": true}}); !eqSet(got, []string{s1ID, s3ID}, []string{s2ID}) {
-		t.Errorf("threadId ascending must group tA submissions before tB, got %v", got)
+	firstEmail, secondEmail := eAID, eBID
+	if eAID > eBID {
+		firstEmail, secondEmail = eBID, eAID
+	}
+	g1, g2 := emailGroups(firstEmail, secondEmail)
+	if got := query([]any{map[string]any{"property": "emailId", "isAscending": true}}); !eqSet(got, g1, g2) {
+		t.Errorf("emailId ascending must group by email id (%v, %v), got %v", g1, g2, got)
+	}
+	// threadId: same grouping rule, over the thread ids.
+	threadGroups := func(firstThread, secondThread string) (g1, g2 []string) {
+		for sub, thread := range map[string]string{s1ID: tAID, s2ID: tBID, s3ID: tAID} {
+			if thread == firstThread {
+				g1 = append(g1, sub)
+			} else {
+				g2 = append(g2, sub)
+			}
+		}
+		return
+	}
+	firstThread, secondThread := tAID, tBID
+	if tAID > tBID {
+		firstThread, secondThread = tBID, tAID
+	}
+	g1, g2 = threadGroups(firstThread, secondThread)
+	if got := query([]any{map[string]any{"property": "threadId", "isAscending": true}}); !eqSet(got, g1, g2) {
+		t.Errorf("threadId ascending must group by thread id (%v, %v), got %v", g1, g2, got)
 	}
 	// Default isAscending (omitted) is ascending per RFC 8620 Section 5.5.
 	if got := query([]any{map[string]any{"property": "sendAt"}}); !eq(got, s2ID, s3ID, s1ID) {
 		t.Errorf("sendAt without isAscending must default to ascending [s2 s3 s1], got %v", got)
-	}
-	// eB is second email; sanity check the ids are distinct.
-	if eAID == eBID || tBID == "" {
-		t.Fatalf("test data setup broken: eAID=%q eBID=%q tBID=%q", eAID, eBID, tBID)
 	}
 }
 

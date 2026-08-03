@@ -6,6 +6,13 @@ import (
 
 // EmailSubmission Handlers (RFC 8621 Section 7)
 
+// submissionSortableProperties is the set of EmailSubmission properties the server supports
+// sorting on (RFC 8621 Section 7.2: emailId, threadId and sentAt MUST be supported; sentAt
+// is accepted as an alias for the sendAt property).
+var submissionSortableProperties = map[string]bool{
+	"emailId": true, "threadId": true, "sendAt": true, "sentAt": true,
+}
+
 func handleEmailSubmissionGet(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
@@ -136,6 +143,9 @@ func handleEmailSubmissionQuery(backend MailBackend) MethodHandler {
 
 		filter, _ := args["filter"].(map[string]any)
 		comparators := parseComparators(args)
+		if errType, errMsg := validateComparators(comparators, submissionSortableProperties); errType != "" {
+			return "error", MethodErrorArgs(errType, errMsg)
+		}
 		var ids []Id
 		var total int
 		if anchor != "" {
@@ -148,6 +158,7 @@ func handleEmailSubmissionQuery(backend MailBackend) MethodHandler {
 			}
 		} else {
 			ids, total, _ = backend.QuerySubmissions(ctx, filter, comparators, position, limit)
+			position = NormalizePosition(position, total)
 		}
 		if ids == nil {
 			ids = []Id{}
@@ -180,7 +191,11 @@ func handleEmailSubmissionQueryChanges(backend MailBackend) MethodHandler {
 			return "error", MethodErrorArgs("cannotCalculateChanges", "sinceQueryState is too old")
 		}
 
-		currentIDs, _, _ := backend.QuerySubmissions(ctx, filter, parseComparators(args), 0, nil)
+		comparators := parseComparators(args)
+		if errType, errMsg := validateComparators(comparators, submissionSortableProperties); errType != "" {
+			return "error", MethodErrorArgs(errType, errMsg)
+		}
+		currentIDs, _, _ := backend.QuerySubmissions(ctx, filter, comparators, 0, nil)
 		added, removed := computeQueryChanges(createdIDs, updatedIDs, destroyedIDs, currentIDs, upToID)
 		res := map[string]any{
 			"accountId":     accountID,

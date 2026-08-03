@@ -203,6 +203,10 @@ func filterMailboxes(all []*Mailbox, filter map[string]any) []*Mailbox {
 	return filtered
 }
 
+// mailboxSortableProperties is the set of Mailbox properties the server supports sorting on
+// (RFC 8621 Section 2.4: sortOrder and name MUST be supported).
+var mailboxSortableProperties = map[string]bool{"sortOrder": true, "name": true}
+
 // sortMailboxes orders the given mailboxes per the RFC 8621 Section 2.4 sort comparators
 // ("sortOrder" and "name"). When no usable comparator is given, the default order is
 // sortOrder ascending, then name ascending; RFC 8620 Section 5.5 requires the default
@@ -251,7 +255,11 @@ func handleMailboxQuery(backend MailBackend) MethodHandler {
 		// the default order (sortOrder then name, both ascending) MUST be applied
 		// consistently so /queryChanges indices stay stable between calls (RFC 8620
 		// Section 5.5). Without this the results follow map iteration order.
-		sortMailboxes(filtered, parseComparators(args))
+		comparators := parseComparators(args)
+		if errType, errMsg := validateComparators(comparators, mailboxSortableProperties); errType != "" {
+			return "error", MethodErrorArgs(errType, errMsg)
+		}
+		sortMailboxes(filtered, comparators)
 
 		position, posErr := parseQueryPosition(args)
 		if posErr != "" {
@@ -264,6 +272,7 @@ func handleMailboxQuery(backend MailBackend) MethodHandler {
 		}
 
 		total := len(filtered)
+		position = NormalizePosition(position, total)
 		var pagedIDs []Id
 		if anchor != "" {
 			allIDs := make([]Id, 0, len(filtered))
@@ -316,6 +325,10 @@ func handleMailboxQueryChanges(backend MailBackend) MethodHandler {
 		upToID, _ := args["upToId"].(string)
 		sinceState, _ := args["sinceQueryState"].(string)
 		filter, _ := args["filter"].(map[string]any)
+		comparators := parseComparators(args)
+		if errType, errMsg := validateComparators(comparators, mailboxSortableProperties); errType != "" {
+			return "error", MethodErrorArgs(errType, errMsg)
+		}
 
 		createdIDs, updatedIDs, destroyedIDs, newState, hasMore := backend.MailboxChanges(ctx, sinceState)
 		if hasMore {
@@ -324,6 +337,7 @@ func handleMailboxQueryChanges(backend MailBackend) MethodHandler {
 
 		all, _ := backend.GetAllMailboxes(ctx)
 		current := filterMailboxes(all, filter)
+		sortMailboxes(current, comparators)
 		currentIDs := make([]Id, 0, len(current))
 		for _, mb := range current {
 			currentIDs = append(currentIDs, mb.ID)

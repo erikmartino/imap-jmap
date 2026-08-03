@@ -257,9 +257,7 @@ func (b *MemoryFileNodeBackend) QueryFileNodes(ctx context.Context, filter map[s
 	sort.Slice(matched, func(i, j int) bool { return matched[i].ID < matched[j].ID })
 
 	total := len(matched)
-	if position < 0 {
-		position = 0
-	}
+	position = jmap.NormalizePosition(position, total)
 	if position >= total {
 		return []jmap.Id{}, total, nil
 	}

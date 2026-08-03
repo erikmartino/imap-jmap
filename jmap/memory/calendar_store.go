@@ -564,9 +564,7 @@ func (b *MemoryCalendarsBackend) QueryCalendarEvents(ctx context.Context, filter
 	}
 
 	total := len(matched)
-	if position < 0 {
-		position = 0
-	}
+	position = jmap.NormalizePosition(position, total)
 	if position >= total {
 		return []jmap.Id{}, total, nil
 	}

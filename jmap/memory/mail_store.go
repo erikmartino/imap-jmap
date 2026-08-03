@@ -783,12 +783,32 @@ func (mb *MemoryBackend) QueryEmails(ctx context.Context, filter map[string]any,
 		}
 	}
 
-	total := len(matched)
-	jmap.SortEmails(matched, comparators)
-
-	if position < 0 {
-		position = 0
+	// Thread keyword sorts evaluate the keyword over every Email in the thread, not just the
+	// filtered results (RFC 8621 Section 4.4.2).
+	threadHas := make(map[string]bool)
+	threadLacks := make(map[string]bool)
+	for _, em := range mb.emails {
+		for _, c := range comparators {
+			if c.Property != "allInThreadHaveKeyword" && c.Property != "someInThreadHaveKeyword" {
+				continue
+			}
+			key := string(em.ThreadID) + "\x00" + c.Keyword
+			if em.Keywords != nil && em.Keywords[c.Keyword] {
+				threadHas[key] = true
+			} else {
+				threadLacks[key] = true
+			}
+		}
 	}
+	all := make(map[string]bool, len(threadHas))
+	for key := range threadHas {
+		all[key] = !threadLacks[key]
+	}
+
+	total := len(matched)
+	jmap.SortEmailsWithContext(matched, comparators, all, threadHas)
+
+	position = jmap.NormalizePosition(position, total)
 	if position > len(matched) {
 		return []jmap.Id{}, total, nil
 	}
@@ -1044,6 +1064,7 @@ func (mb *MemoryBackend) QuerySubmissions(ctx context.Context, filter map[string
 	SortSubmissions(matched, comparators)
 
 	total := len(matched)
+	position = jmap.NormalizePosition(position, total)
 	if position > total {
 		return []jmap.Id{}, total, nil
 	}

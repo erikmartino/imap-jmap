@@ -171,7 +171,7 @@ func DefaultSession(baseURL string) *Session {
 				MaxObjectsInGet:          500,
 				MaxObjectsInSet:          500,
 				CollationAlgorithms:      []string{"i;ascii-casemap", "i;octet"},
-				EmailQuerySortOptions:    []string{"receivedAt", "sentAt"},
+				EmailQuerySortOptions:    []string{"receivedAt", "sentAt", "size", "subject", "from", "to", "hasKeyword", "allInThreadHaveKeyword", "someInThreadHaveKeyword"},
 				MayCreateTopLevelMailbox: true,
 			},
 			SmimeCapabilityURI: SmimeCapability{

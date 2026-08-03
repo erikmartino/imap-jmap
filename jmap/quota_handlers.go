@@ -97,6 +97,7 @@ func handleQuotaQuery(backend MailBackend) MethodHandler {
 		}
 
 		total := len(all)
+		position = NormalizePosition(position, total)
 		var pagedIDs []Id
 		if anchor != "" {
 			allIDs := make([]Id, 0, len(all))

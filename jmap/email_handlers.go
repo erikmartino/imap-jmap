@@ -399,6 +399,9 @@ func handleEmailQuery(backend MailBackend) MethodHandler {
 		filter, _ := args["filter"].(map[string]any)
 
 		comparators := parseComparators(args)
+		if errType, errMsg := validateComparators(comparators, emailSortableProperties); errType != "" {
+			return "error", MethodErrorArgs(errType, errMsg)
+		}
 
 		position, posErr := parseQueryPosition(args)
 		if posErr != "" {
@@ -428,6 +431,7 @@ func handleEmailQuery(backend MailBackend) MethodHandler {
 			}
 		} else {
 			ids, total, _ = backend.QueryEmails(ctx, filter, comparators, position, limit)
+			position = NormalizePosition(position, total)
 		}
 
 		calcTotal, _ := args["calculateTotal"].(bool)
@@ -453,6 +457,9 @@ func handleEmailQueryChanges(backend MailBackend) MethodHandler {
 		sinceState, _ := args["sinceQueryState"].(string)
 		filter, _ := args["filter"].(map[string]any)
 		comparators := parseComparators(args)
+		if errType, errMsg := validateComparators(comparators, emailSortableProperties); errType != "" {
+			return "error", MethodErrorArgs(errType, errMsg)
+		}
 
 		createdIDs, updatedIDs, destroyedIDs, newState, hasMore := backend.EmailChanges(ctx, sinceState)
 		if hasMore {
