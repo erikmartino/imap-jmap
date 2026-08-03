@@ -3,6 +3,7 @@ package jmap
 import (
 	"context"
 	"encoding/json"
+	"errors"
 )
 
 // FileNode represents a FileNode object in the JMAP FileNode extension.
@@ -200,7 +201,11 @@ func handleFileNodeSet(backend FileNodeBackend) MethodHandler {
 					patch, _ := patchRaw.(map[string]any)
 					_, err := backend.UpdateFileNode(ctx, Id(resolvedID), patch)
 					if err != nil {
-						notUpdated[idStr] = SetError{Type: "invalidProperties", Description: err.Error()}
+						if errors.Is(err, ErrNotFound) {
+							notUpdated[idStr] = SetError{Type: "notFound", Description: err.Error()}
+						} else {
+							notUpdated[idStr] = SetError{Type: "invalidProperties", Description: err.Error()}
+						}
 					} else {
 						updated[idStr] = nil
 					}

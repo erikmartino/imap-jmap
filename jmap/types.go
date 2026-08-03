@@ -2,11 +2,16 @@ package jmap
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
 )
+
+// ErrNotFound is returned by backend update methods when the referenced id does not
+// exist. Handlers MUST map it to a "notFound" SetError per RFC 8620 Section 5.3.
+var ErrNotFound = errors.New("not found")
 
 // Id represents a JMAP Id as defined in RFC 8620 Section 1.6 & 1.7.5.
 type Id string

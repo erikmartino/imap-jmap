@@ -446,7 +446,7 @@ func (mb *MemoryBackend) UpdateMailbox(ctx context.Context, id jmap.Id, patch ma
 	item, ok := mb.mailboxes[id]
 	if !ok {
 		mb.mu.Unlock()
-		return nil, fmt.Errorf("mailbox not found: %s", id)
+		return nil, fmt.Errorf("mailbox %s: %w", id, jmap.ErrNotFound)
 	}
 
 	for prop, val := range patch {
@@ -878,7 +878,7 @@ func (mb *MemoryBackend) UpdateIdentity(ctx context.Context, id jmap.Id, patch m
 	identity, ok := mb.identities[id]
 	if !ok {
 		mb.mu.Unlock()
-		return nil, fmt.Errorf("identity not found: %s", id)
+		return nil, fmt.Errorf("identity %s: %w", id, jmap.ErrNotFound)
 	}
 
 	// The "email" property is server-set and immutable per RFC 8621 Section 6.

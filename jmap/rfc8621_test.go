@@ -1796,7 +1796,7 @@ func TestRFC8621_QueryChanges_DeltaCalculations(t *testing.T) {
 		[]any{"Email/set", map[string]any{
 			"accountId": "primary",
 			"create": map[string]any{
-				"e1": map[string]any{"subject": "QueryChanges Test Email"},
+				"e1": map[string]any{"subject": "QueryChanges Test Email", "mailboxIds": map[string]bool{"mb-inbox": true}},
 			},
 		}, "c3"},
 		[]any{"Mailbox/set", map[string]any{
@@ -1830,11 +1830,14 @@ func TestRFC8621_QueryChanges_DeltaCalculations(t *testing.T) {
 	}
 
 	mbAdded, _ := r3.MethodResponses[1].Args["added"].([]any)
-	if len(mbAdded) != 1 {
-		t.Fatalf("Expected 1 added mailbox in Mailbox/queryChanges, got %v", mbAdded)
+	if len(mbAdded) != 2 {
+		t.Fatalf("Expected 2 added mailboxes (created mb + inbox with changed counts), got %v", mbAdded)
 	}
 	addedMbObj, _ := mbAdded[0].(map[string]any)
 	if addedMbObj["id"].(string) != newMbID {
 		t.Errorf("Expected added mailbox ID %s, got %v", newMbID, addedMbObj["id"])
+	}
+	if inboxAdded, _ := mbAdded[1].(map[string]any); inboxAdded["id"].(string) != "mb-inbox" {
+		t.Errorf("Expected updated mb-inbox re-added (email landed in it), got %v", inboxAdded)
 	}
 }

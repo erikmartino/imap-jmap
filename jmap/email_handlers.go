@@ -3,6 +3,7 @@ package jmap
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -148,11 +149,17 @@ func handleEmailSet(backend MailBackend) MethodHandler {
 		created := make(map[string]*Email)
 		updated := make(map[string]any)
 		notUpdated := make(map[string]any)
+		notCreated := make(map[string]any)
 		destroyed := []Id{}
+		notDestroyed := make(map[string]any)
 
 		if createMap, ok := args["create"].(map[string]any); ok {
 			for clientKey, raw := range createMap {
 				if emData, ok := raw.(map[string]any); ok {
+					if problem := validateEmailCreateData(emData); problem != "" {
+						notCreated[clientKey] = SetError{Type: "invalidProperties", Description: problem}
+						continue
+					}
 					subject, _ := emData["subject"].(string)
 					blobIDStr, _ := emData["blobId"].(string)
 					if blobIDStr == "" {
@@ -252,21 +259,65 @@ func handleEmailSet(backend MailBackend) MethodHandler {
 				if idStr, ok := rawID.(string); ok {
 					if ok, _ := backend.DeleteEmail(ctx, Id(idStr)); ok {
 						destroyed = append(destroyed, Id(idStr))
+					} else {
+						notDestroyed[idStr] = SetError{Type: "notFound", Description: "email not found: " + idStr}
 					}
 				}
 			}
 		}
 
 		return "Email/set", map[string]any{
-			"accountId":  accountID,
-			"oldState":   oldState,
-			"newState":   backend.EmailState(ctx),
-			"created":    created,
-			"updated":    updated,
-			"notUpdated": notUpdated,
-			"destroyed":  destroyed,
+			"accountId":    accountID,
+			"oldState":     oldState,
+			"newState":     backend.EmailState(ctx),
+			"created":      created,
+			"updated":      updated,
+			"notUpdated":   notUpdated,
+			"notCreated":   notCreated,
+			"destroyed":    destroyed,
+			"notDestroyed": notDestroyed,
 		}
 	}
+}
+
+// validateEmailCreateData enforces the RFC 8621 Section 4.6 constraints on Email
+// objects submitted for creation, returning a human-readable problem description or
+// "" if the object is acceptable.
+func validateEmailCreateData(emData map[string]any) string {
+	if _, has := emData["headers"]; has {
+		return "the \"headers\" property MUST NOT be given on Email creation (RFC 8621 Section 4.6)"
+	}
+	if _, hasBS := emData["bodyStructure"]; hasBS {
+		if _, has := emData["textBody"]; has {
+			return "if \"bodyStructure\" is given, \"textBody\" MUST NOT be given (RFC 8621 Section 4.6)"
+		}
+		if _, has := emData["htmlBody"]; has {
+			return "if \"bodyStructure\" is given, \"htmlBody\" MUST NOT be given (RFC 8621 Section 4.6)"
+		}
+		if _, has := emData["attachments"]; has {
+			return "if \"bodyStructure\" is given, \"attachments\" MUST NOT be given (RFC 8621 Section 4.6)"
+		}
+	}
+	if parts, ok := emData["textBody"].([]any); ok {
+		if len(parts) != 1 {
+			return "\"textBody\" MUST contain exactly one body part of type \"text/plain\" (RFC 8621 Section 4.6)"
+		}
+		if part, ok := parts[0].(map[string]any); !ok || part["type"] != "text/plain" {
+			return "\"textBody\" MUST contain exactly one body part of type \"text/plain\" (RFC 8621 Section 4.6)"
+		}
+	}
+	if parts, ok := emData["htmlBody"].([]any); ok {
+		if len(parts) != 1 {
+			return "\"htmlBody\" MUST contain exactly one body part of type \"text/html\" (RFC 8621 Section 4.6)"
+		}
+		if part, ok := parts[0].(map[string]any); !ok || part["type"] != "text/html" {
+			return "\"htmlBody\" MUST contain exactly one body part of type \"text/html\" (RFC 8621 Section 4.6)"
+		}
+	}
+	if mbMap, ok := emData["mailboxIds"].(map[string]any); !ok || len(mbMap) == 0 {
+		return "an Email in the mail store MUST belong to one or more Mailboxes; \"mailboxIds\" is required (RFC 8621 Section 4.1.1)"
+	}
+	return ""
 }
 
 func handleEmailCopy(backend MailBackend) MethodHandler {
@@ -712,7 +763,11 @@ func handleIdentitySet(backend MailBackend) MethodHandler {
 				patch, _ := patchRaw.(map[string]any)
 				_, err := backend.UpdateIdentity(ctx, Id(idStr), patch)
 				if err != nil {
-					notUpdated[idStr] = SetError{Type: "invalidProperties", Description: err.Error()}
+					if errors.Is(err, ErrNotFound) {
+						notUpdated[idStr] = SetError{Type: "notFound", Description: err.Error()}
+					} else {
+						notUpdated[idStr] = SetError{Type: "invalidProperties", Description: err.Error()}
+					}
 				} else {
 					updated[idStr] = nil
 				}

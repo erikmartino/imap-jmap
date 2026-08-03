@@ -3,6 +3,7 @@ package jmap
 import (
 	"context"
 	"encoding/json"
+	"errors"
 )
 
 // RegisterSieveHandlers registers RFC 9661 JMAP for Sieve Scripts method handlers into MethodRegistry.
@@ -131,7 +132,11 @@ func handleSieveScriptSet(backend SieveBackend) MethodHandler {
 					patch, _ := patchRaw.(map[string]any)
 					updatedScript, err := backend.UpdateSieveScript(ctx, Id(idStr), patch)
 					if err != nil {
-						notUpdated[idStr] = SetError{Type: "invalidScript", Description: err.Error()}
+						if errors.Is(err, ErrNotFound) {
+							notUpdated[idStr] = SetError{Type: "notFound", Description: err.Error()}
+						} else {
+							notUpdated[idStr] = SetError{Type: "invalidScript", Description: err.Error()}
+						}
 					} else {
 						_ = updatedScript
 						updated[idStr] = nil

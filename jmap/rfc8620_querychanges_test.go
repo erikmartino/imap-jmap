@@ -37,7 +37,7 @@ func TestQueryChangesFilterReevaluation(t *testing.T) {
 		[]any{"Email/set", map[string]any{
 			"accountId": "primary",
 			"create": map[string]any{
-				"e1": map[string]any{"subject": "Filtered Out Email"},
+				"e1": map[string]any{"subject": "Filtered Out Email", "mailboxIds": map[string]any{"mb-archive": true}},
 				"e2": map[string]any{"subject": "Filtered In Email", "mailboxIds": map[string]any{"mb-inbox": true}},
 			},
 		}, "c3"},

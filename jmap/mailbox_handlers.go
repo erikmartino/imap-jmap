@@ -2,6 +2,7 @@ package jmap
 
 import (
 	"context"
+	"errors"
 )
 
 // Mailbox Handlers (RFC 8621 Section 2)
@@ -127,7 +128,11 @@ func handleMailboxSet(backend MailBackend) MethodHandler {
 				patch, _ := patchRaw.(map[string]any)
 				_, err := backend.UpdateMailbox(ctx, Id(idStr), patch)
 				if err != nil {
-					notUpdated[idStr] = SetError{Type: "invalidProperties", Description: err.Error()}
+					if errors.Is(err, ErrNotFound) {
+						notUpdated[idStr] = SetError{Type: "notFound", Description: err.Error()}
+					} else {
+						notUpdated[idStr] = SetError{Type: "invalidProperties", Description: err.Error()}
+					}
 				} else {
 					updated[idStr] = nil
 				}

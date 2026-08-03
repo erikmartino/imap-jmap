@@ -69,7 +69,8 @@ func TestRFC8620_Section7_1_StateChangeBroadcast(t *testing.T) {
 					"accountId": "primary",
 					"create": map[string]any{
 						"e1": map[string]any{
-							"subject": "SSE Notification Test",
+							"subject":    "SSE Notification Test",
+							"mailboxIds": map[string]bool{"mb-inbox": true},
 						},
 					},
 				}, "c1"},

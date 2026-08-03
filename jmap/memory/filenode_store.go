@@ -131,7 +131,7 @@ func (b *MemoryFileNodeBackend) UpdateFileNode(ctx context.Context, id jmap.Id, 
 
 	node, ok := b.nodes[id]
 	if !ok {
-		return nil, fmt.Errorf("filenode not found: %s", id)
+		return nil, fmt.Errorf("filenode %s: %w", id, jmap.ErrNotFound)
 	}
 
 	// Work on a copy so a malformed patch never partially mutates stored data.

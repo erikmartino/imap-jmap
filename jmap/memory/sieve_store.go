@@ -139,7 +139,7 @@ func (b *MemorySieveBackend) UpdateSieveScript(ctx context.Context, id jmap.Id, 
 
 	script, ok := b.scripts[id]
 	if !ok {
-		return nil, fmt.Errorf("sieve script not found: %s", id)
+		return nil, fmt.Errorf("sieve script %s: %w", id, jmap.ErrNotFound)
 	}
 
 	if content, ok := patch["content"].(string); ok {
