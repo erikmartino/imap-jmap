@@ -104,7 +104,8 @@ func NewServer(session *Session, opts ...Option) *Server {
 	}
 
 	RegisterMailHandlers(s.MethodRegistry, s.MailBackend, s.BlobBackend)
-	RegisterBlobHandlers(s.MethodRegistry, s.BlobBackend)
+	refs, _ := s.MailBackend.(BlobReferenceBackend)
+	RegisterBlobHandlers(s.MethodRegistry, s.BlobBackend, refs)
 	RegisterQuotaHandlers(s.MethodRegistry, s.MailBackend)
 	RegisterContactsHandlers(s.MethodRegistry, s.ContactsBackend)
 	RegisterCalendarHandlers(s.MethodRegistry, s.CalendarsBackend, s.MailBackend)

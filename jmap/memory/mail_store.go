@@ -36,6 +36,9 @@ type MemoryBackend struct {
 // Ensure MemoryBackend implements jmap.MailBackend interface.
 var _ jmap.MailBackend = (*MemoryBackend)(nil)
 
+// Ensure MemoryBackend implements jmap.BlobReferenceBackend interface.
+var _ jmap.BlobReferenceBackend = (*MemoryBackend)(nil)
+
 // SetBroadcaster connects a Broadcaster for SSE state notifications.
 func (mb *MemoryBackend) SetBroadcaster(b *jmap.Broadcaster) {
 	mb.mu.Lock()
@@ -940,6 +943,47 @@ func (mb *MemoryBackend) GetSubmissions(ctx context.Context, ids []jmap.Id) ([]*
 		}
 	}
 	return list, notFound, nil
+}
+
+// LookupBlobReferences implements jmap.BlobReferenceBackend per RFC 9404 Section 4.3: for a
+// blob id, which objects of the requested JMAP data types reference it.
+func (mb *MemoryBackend) LookupBlobReferences(ctx context.Context, typeNames []string, blobID jmap.Id) (map[string][]jmap.Id, error) {
+	mb.mu.RLock()
+	defer mb.mu.RUnlock()
+
+	matched := make(map[string][]jmap.Id)
+	for _, tn := range typeNames {
+		switch tn {
+		case "Email":
+			for _, em := range mb.emails {
+				if em.BlobID == blobID || emailReferencesBlob(em, blobID) {
+					matched["Email"] = append(matched["Email"], em.ID)
+				}
+			}
+		case "Thread":
+			for _, th := range mb.threads {
+				for _, emailID := range th.EmailIDs {
+					if em, ok := mb.emails[emailID]; ok && (em.BlobID == blobID || emailReferencesBlob(em, blobID)) {
+						matched["Thread"] = append(matched["Thread"], th.ID)
+						break
+					}
+				}
+			}
+		case "Mailbox":
+			// No Mailbox property currently references blobs, so nothing can match.
+		}
+	}
+	return matched, nil
+}
+
+// emailReferencesBlob reports whether an email references a blob via its attachments.
+func emailReferencesBlob(em *jmap.Email, blobID jmap.Id) bool {
+	for _, att := range em.Attachments {
+		if att.BlobID == blobID {
+			return true
+		}
+	}
+	return false
 }
 
 // QuerySubmissions filters, sorts, and pages EmailSubmissions per RFC 8621 Section 7.2.

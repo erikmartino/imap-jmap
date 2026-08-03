@@ -81,6 +81,12 @@ type BlobBackend interface {
 	CopyBlob(ctx context.Context, fromAccountID, toAccountID string, blobID string) (*Blob, error)
 }
 
+// BlobReferenceBackend performs the reverse lookup of which typed objects reference a blob,
+// per RFC 9404 Section 4.3. Implemented by the data store that holds the referencing types.
+type BlobReferenceBackend interface {
+	LookupBlobReferences(ctx context.Context, typeNames []string, blobID Id) (map[string][]Id, error)
+}
+
 // ContactsBackend defines the storage interface for JMAP Contacts resources per RFC 9610.
 type ContactsBackend interface {
 	// AddressBooks (RFC 9610 Section 2)
