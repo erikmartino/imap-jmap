@@ -1523,6 +1523,84 @@ func TestRFC8621_MailboxCopy(t *testing.T) {
 	}
 }
 
+// TestRFC8621_QueryChanges_DeltaCalculations verifies real added and removed deltas returned by /queryChanges.
+func TestRFC8621_QueryChanges_DeltaCalculations(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	post := func(calls []any) jmap.Response {
+		payload := map[string]any{
+			"using":       []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.CalendarsCapabilityURI},
+			"methodCalls": calls,
+		}
+		body, _ := json.Marshal(payload)
+		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST /jmap failed: %v", err)
+		}
+		defer resp.Body.Close()
+		var jmapResp jmap.Response
+		_ = json.NewDecoder(resp.Body).Decode(&jmapResp)
+		return jmapResp
+	}
+
+	// 1. Fetch initial states
+	r1 := post([]any{
+		[]any{"Email/query", map[string]any{"accountId": "primary"}, "c1"},
+		[]any{"Mailbox/query", map[string]any{"accountId": "primary"}, "c2"},
+	})
+	eState0, _ := r1.MethodResponses[0].Args["queryState"].(string)
+	mbState0, _ := r1.MethodResponses[1].Args["queryState"].(string)
+
+	// 2. Perform mutations (create email + create mailbox)
+	r2 := post([]any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"e1": map[string]any{"subject": "QueryChanges Test Email"},
+			},
+		}, "c3"},
+		[]any{"Mailbox/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"mb1": map[string]any{"name": "QueryChanges Test MB"},
+			},
+		}, "c4"},
+	})
+	createdEmMap, _ := r2.MethodResponses[0].Args["created"].(map[string]any)
+	createdEmObj, _ := createdEmMap["e1"].(map[string]any)
+	newEmailID, _ := createdEmObj["id"].(string)
+
+	createdMbMap, _ := r2.MethodResponses[1].Args["created"].(map[string]any)
+	createdMbObj, _ := createdMbMap["mb1"].(map[string]any)
+	newMbID, _ := createdMbObj["id"].(string)
+
+	// 3. Query Email/queryChanges and Mailbox/queryChanges
+	r3 := post([]any{
+		[]any{"Email/queryChanges", map[string]any{"accountId": "primary", "sinceQueryState": eState0}, "c5"},
+		[]any{"Mailbox/queryChanges", map[string]any{"accountId": "primary", "sinceQueryState": mbState0}, "c6"},
+	})
+
+	eAdded, _ := r3.MethodResponses[0].Args["added"].([]any)
+	if len(eAdded) != 1 {
+		t.Fatalf("Expected 1 added email in Email/queryChanges, got %v", eAdded)
+	}
+	addedEmObj, _ := eAdded[0].(map[string]any)
+	if addedEmObj["id"].(string) != newEmailID {
+		t.Errorf("Expected added email ID %s, got %v", newEmailID, addedEmObj["id"])
+	}
+
+	mbAdded, _ := r3.MethodResponses[1].Args["added"].([]any)
+	if len(mbAdded) != 1 {
+		t.Fatalf("Expected 1 added mailbox in Mailbox/queryChanges, got %v", mbAdded)
+	}
+	addedMbObj, _ := mbAdded[0].(map[string]any)
+	if addedMbObj["id"].(string) != newMbID {
+		t.Errorf("Expected added mailbox ID %s, got %v", newMbID, addedMbObj["id"])
+	}
+}
+
 
 
 

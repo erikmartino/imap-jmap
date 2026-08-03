@@ -11,7 +11,7 @@ ContactCard/* canonical naming, Identity/set, Mailbox/set update.
       then add `EmailChanges`/`MailboxChanges`/… and wire the handlers. Unblocks the items below.
 
 ## Then
-- [ ] Real `/queryChanges` delta calculations (`added`/`removed` IDs) for `Email`, `Mailbox`, `EmailSubmission`, `Quota`, and `CalendarEvent`.
+- [x] Real `/queryChanges` delta calculations (`added`/`removed` IDs) for `Email`, `Mailbox`, `EmailSubmission`, `Quota`, and `CalendarEvent`.
 - [x] Positive and negative filter condition test coverage for `MatchesFilter` (`inMailboxOtherThan`, complex headers, attachment criteria).
 - [ ] CalDAV & CardDAV `REPORT` query filter matching (date-range, text filter component evaluation).
 - [x] `Mailbox/copy` implementation and testing for cross-account mailbox duplication.
