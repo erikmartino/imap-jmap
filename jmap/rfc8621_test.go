@@ -701,6 +701,58 @@ func TestRFC8621_Section7_2_EmailSubmissionQuery(t *testing.T) {
 
 func float64Ptr(v float64) *float64 { return &v }
 
+// TestRFC8621_Section4_5_1_EmailQueryFromToFilters tests the from and to filter conditions of
+// Email/query per RFC 8621 Section 4.5.1, both positively and negatively.
+func TestRFC8621_Section4_5_1_EmailQueryFromToFilters(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	queryFiltered := func(filter map[string]any) []string {
+		reqPayload := map[string]any{
+			"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+			"methodCalls": []any{
+				[]any{"Email/query", map[string]any{"accountId": "primary", "filter": filter}, "c1"},
+			},
+		}
+		body, _ := json.Marshal(reqPayload)
+		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST /jmap failed: %v", err)
+		}
+		defer resp.Body.Close()
+		var jr jmap.Response
+		if err := json.NewDecoder(resp.Body).Decode(&jr); err != nil {
+			t.Fatalf("Failed to decode Response: %v", err)
+		}
+		args := jr.MethodResponses[0].Args
+		raw, _ := args["ids"].([]any)
+		out := make([]string, 0, len(raw))
+		for _, v := range raw {
+			out = append(out, v.(string))
+		}
+		return out
+	}
+
+	// Seeded emails: email-1 From admin@example.com, email-3 From noreply@ietf.org,
+	// both To user@example.com.
+	if got := queryFiltered(map[string]any{"from": "admin@example.com"}); len(got) != 1 || got[0] != "email-1" {
+		t.Errorf("Expected email-1 for from admin@example.com, got %v", got)
+	}
+	if got := queryFiltered(map[string]any{"from": "ietf.org"}); len(got) != 1 || got[0] != "email-3" {
+		t.Errorf("Expected email-3 for from ietf.org, got %v", got)
+	}
+	if got := queryFiltered(map[string]any{"from": "user@example.com"}); len(got) != 0 {
+		t.Errorf("Expected no emails for from user@example.com, got %v", got)
+	}
+	if got := queryFiltered(map[string]any{"to": "user@example.com"}); len(got) != 2 {
+		t.Errorf("Expected 2 emails for to user@example.com, got %v", got)
+	}
+	if got := queryFiltered(map[string]any{"to": "admin@example.com"}); len(got) != 0 {
+		t.Errorf("Expected no emails for to admin@example.com, got %v", got)
+	}
+}
+
 // TestRFC8621_Section4_5_1_EmailQueryFilteringAndSorting tests Email/query filtering (inMailbox, text) and sorting per RFC 8621 Section 4.5.
 func TestRFC8621_Section4_5_1_EmailQueryFilteringAndSorting(t *testing.T) {
 	srv := newTestServer()

@@ -163,6 +163,20 @@ func MatchesFilter(em *Email, filter map[string]any) bool {
 		}
 	}
 
+	// from
+	if fromRaw, ok := filter["from"].(string); ok && fromRaw != "" {
+		if !matchAddresses(em.From, fromRaw) {
+			return false
+		}
+	}
+
+	// to
+	if toRaw, ok := filter["to"].(string); ok && toRaw != "" {
+		if !matchAddresses(em.To, toRaw) {
+			return false
+		}
+	}
+
 	// cc
 	if ccRaw, ok := filter["cc"].(string); ok && ccRaw != "" {
 		if !matchAddresses(em.CC, ccRaw) {
