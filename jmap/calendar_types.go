@@ -54,24 +54,42 @@ type JSCalendarAlert struct {
 	Description string `json:"description,omitempty"`
 }
 
+// JSCalendarLink defines a link or attachment object per RFC 8984 Section 4.2.3.
+type JSCalendarLink struct {
+	Href  string `json:"href"`
+	Cid   string `json:"cid,omitempty"`
+	Rel   string `json:"rel,omitempty"`   // "enclosure", "describedby", etc.
+	Type  string `json:"type,omitempty"`  // Content type e.g. "application/pdf"
+	Title string `json:"title,omitempty"`
+}
+
+// JSCalendarVirtualLocation defines a virtual location object per RFC 8984 Section 4.2.2.
+type JSCalendarVirtualLocation struct {
+	URI         string `json:"uri"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
 // CalendarEvent represents a JSCalendar Event object per RFC 8984 & JMAP for Calendars.
 type CalendarEvent struct {
-	ID              Id                                 `json:"id"`
-	CalendarIDs     map[Id]bool                        `json:"calendarIds"`
-	Type            string                             `json:"@type"` // Always "Event"
-	Title           string                             `json:"title"`
-	Description     string                             `json:"description,omitempty"`
-	Start           string                             `json:"start"`
-	Duration        string                             `json:"duration,omitempty"`
-	TimeZone        string                             `json:"timeZone,omitempty"`
-	Location        *JSCalendarLocation                `json:"location,omitempty"`
-	Status          string                             `json:"status,omitempty"`         // "confirmed", "tentative", "cancelled"
-	FreeBusyStatus  string                             `json:"freeBusyStatus,omitempty"` // "free", "busy", "tentative"
-	Privacy         string                             `json:"privacy,omitempty"`        // "public", "private", "secret"
-	Participants    map[string]*JSCalendarParticipant  `json:"participants,omitempty"`
-	RecurrenceRules []*JSCalendarRecurrenceRule        `json:"recurrenceRules,omitempty"`
-	Alerts          map[string]*JSCalendarAlert        `json:"alerts,omitempty"`
-	Created         string                             `json:"created,omitempty"`
-	Updated         string                             `json:"updated,omitempty"`
-	Keywords        map[string]bool                    `json:"keywords,omitempty"`
+	ID               Id                                   `json:"id"`
+	CalendarIDs      map[Id]bool                          `json:"calendarIds"`
+	Type             string                               `json:"@type"` // Always "Event"
+	Title            string                               `json:"title"`
+	Description      string                               `json:"description,omitempty"`
+	Start            string                               `json:"start"`
+	Duration         string                               `json:"duration,omitempty"`
+	TimeZone         string                               `json:"timeZone,omitempty"`
+	Location         *JSCalendarLocation                  `json:"location,omitempty"`
+	VirtualLocations map[string]*JSCalendarVirtualLocation `json:"virtualLocations,omitempty"`
+	Links            map[string]*JSCalendarLink           `json:"links,omitempty"`
+	Status           string                               `json:"status,omitempty"`         // "confirmed", "tentative", "cancelled"
+	FreeBusyStatus   string                               `json:"freeBusyStatus,omitempty"` // "free", "busy", "tentative"
+	Privacy          string                               `json:"privacy,omitempty"`        // "public", "private", "secret"
+	Participants     map[string]*JSCalendarParticipant    `json:"participants,omitempty"`
+	RecurrenceRules  []*JSCalendarRecurrenceRule          `json:"recurrenceRules,omitempty"`
+	Alerts           map[string]*JSCalendarAlert          `json:"alerts,omitempty"`
+	Created          string                               `json:"created,omitempty"`
+	Updated          string                               `json:"updated,omitempty"`
+	Keywords         map[string]bool                      `json:"keywords,omitempty"`
 }

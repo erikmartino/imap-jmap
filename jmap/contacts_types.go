@@ -92,24 +92,63 @@ type JSContactOnlineService struct {
 	Contexts map[string]bool `json:"contexts,omitempty"`
 }
 
+// JSContactLink defines a web link or URI per RFC 9553 Section 2.3.4.
+type JSContactLink struct {
+	URI      string          `json:"uri"`
+	Contexts map[string]bool `json:"contexts,omitempty"`
+	Label    string          `json:"label,omitempty"`
+	Pref     uint32          `json:"pref,omitempty"`
+}
+
+// JSContactMedia defines a photo, video, or audio media attachment per RFC 9553 Section 2.6.2.
+type JSContactMedia struct {
+	URI      string          `json:"uri"`
+	Contexts map[string]bool `json:"contexts,omitempty"`
+	Kind     string          `json:"kind,omitempty"` // "photo", "logo", "sound"
+	Pref     uint32          `json:"pref,omitempty"`
+}
+
+// JSContactGender defines gender information per RFC 9553 Section 2.2.5.
+type JSContactGender struct {
+	Grammatical string `json:"grammatical,omitempty"`
+	Identity    string `json:"identity,omitempty"`
+}
+
+// JSContactSpeakToAs defines grammatical gender / pronouns per RFC 9553 Section 2.2.6.
+type JSContactSpeakToAs struct {
+	Pronouns map[string]bool `json:"pronouns,omitempty"`
+}
+
+// JSContactAnniversary defines an anniversary date per RFC 9553 Section 2.6.1.
+type JSContactAnniversary struct {
+	Date  string `json:"date"`
+	Kind  string `json:"kind,omitempty"` // "birth", "wedding", "other"
+	Label string `json:"label,omitempty"`
+}
+
 // Card represents a JSContact Card object per RFC 9553 & RFC 9610 Section 3.
 type Card struct {
-	ID             Id                                 `json:"id"`
-	AddressBookIDs map[Id]bool                        `json:"addressBookIds"`
-	Type           string                             `json:"@type"` // Always "Card"
-	Kind           string                             `json:"kind,omitempty"`
-	Uid            string                             `json:"uid,omitempty"`
-	Created        string                             `json:"created,omitempty"`
-	Updated        string                             `json:"updated,omitempty"`
-	Name           *JSContactName                     `json:"name,omitempty"`
-	Nicknames      map[string]*JSContactNickname      `json:"nicknames,omitempty"`
-	Emails         map[string]*JSContactEmailAddress  `json:"emails,omitempty"`
-	Phones         map[string]*JSContactPhone         `json:"phones,omitempty"`
-	Addresses      map[string]*JSContactAddress       `json:"addresses,omitempty"`
-	Organizations  map[string]*JSContactOrganization  `json:"organizations,omitempty"`
-	Titles         map[string]*JSContactTitle         `json:"titles,omitempty"`
-	Notes          map[string]*JSContactNote          `json:"notes,omitempty"`
-	OnlineServices map[string]*JSContactOnlineService `json:"onlineServices,omitempty"`
-	Members        map[string]bool                    `json:"members,omitempty"` // UIDs of group members (RFC 9553 Section 2.1.6)
-	Keywords       map[string]bool                    `json:"keywords,omitempty"`
+	ID             Id                                  `json:"id"`
+	AddressBookIDs map[Id]bool                         `json:"addressBookIds"`
+	Type           string                              `json:"@type"` // Always "Card"
+	Kind           string                              `json:"kind,omitempty"`
+	Uid            string                              `json:"uid,omitempty"`
+	Created        string                              `json:"created,omitempty"`
+	Updated        string                              `json:"updated,omitempty"`
+	Name           *JSContactName                      `json:"name,omitempty"`
+	Nicknames      map[string]*JSContactNickname       `json:"nicknames,omitempty"`
+	Emails         map[string]*JSContactEmailAddress   `json:"emails,omitempty"`
+	Phones         map[string]*JSContactPhone          `json:"phones,omitempty"`
+	Addresses      map[string]*JSContactAddress        `json:"addresses,omitempty"`
+	Organizations  map[string]*JSContactOrganization   `json:"organizations,omitempty"`
+	Titles         map[string]*JSContactTitle          `json:"titles,omitempty"`
+	Notes          map[string]*JSContactNote           `json:"notes,omitempty"`
+	OnlineServices map[string]*JSContactOnlineService  `json:"onlineServices,omitempty"`
+	Links          map[string]*JSContactLink           `json:"links,omitempty"`
+	Media          map[string]*JSContactMedia          `json:"media,omitempty"`
+	Gender         *JSContactGender                    `json:"gender,omitempty"`
+	SpeakToAs      *JSContactSpeakToAs                 `json:"speakToAs,omitempty"`
+	Anniversaries  map[string]*JSContactAnniversary    `json:"anniversaries,omitempty"`
+	Members        map[string]bool                     `json:"members,omitempty"` // UIDs of group members (RFC 9553 Section 2.1.6)
+	Keywords       map[string]bool                     `json:"keywords,omitempty"`
 }

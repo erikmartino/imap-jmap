@@ -271,3 +271,107 @@ func TestRFC8984_CalendarEvent_GetSetQuery(t *testing.T) {
 		t.Errorf("Expected @type 'Event', got %v", evData["@type"])
 	}
 }
+
+// TestRFC8984_JSCalendarFullEvent tests links and virtualLocations in JSCalendar events per RFC 8984.
+func TestRFC8984_JSCalendarFullEvent(t *testing.T) {
+	calBackend := memory.NewMemoryCalendarsBackend()
+	srv := jmap.NewServer(nil, jmap.WithCalendarsBackend(calBackend))
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	createReq := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.CalendarsCapabilityURI},
+		"methodCalls": []any{
+			[]any{
+				"CalendarEvent/set",
+				map[string]any{
+					"accountId": "primary",
+					"create": map[string]any{
+						"evFull": map[string]any{
+							"title":       "Architecture Review",
+							"start":       "2026-10-10T14:00:00Z",
+							"duration":    "PT2H",
+							"timeZone":    "UTC",
+							"description": "Design review for new specs",
+							"virtualLocations": map[string]any{
+								"vl1": map[string]any{
+									"uri":         "https://meet.example.com/arch-review",
+									"name":        "Video Conference Room",
+									"description": "Join via web browser",
+								},
+							},
+							"links": map[string]any{
+								"l1": map[string]any{
+									"href":  "https://example.com/docs/arch-spec.pdf",
+									"rel":   "enclosure",
+									"type":  "application/pdf",
+									"title": "Architecture Specification",
+								},
+							},
+						},
+					},
+				},
+				"c1",
+			},
+		},
+	}
+
+	bodyBytes, _ := json.Marshal(createReq)
+	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
+	if err != nil {
+		t.Fatalf("CalendarEvent/set failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var createResp jmap.Response
+	if err := json.NewDecoder(resp.Body).Decode(&createResp); err != nil {
+		t.Fatalf("Decode CalendarEvent/set response failed: %v", err)
+	}
+
+	createdMap := createResp.MethodResponses[0].Args["created"].(map[string]any)
+	createdEv := createdMap["evFull"].(map[string]any)
+	evID := createdEv["id"].(string)
+
+	// Fetch event via CalendarEvent/get
+	getReq := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.CalendarsCapabilityURI},
+		"methodCalls": []any{
+			[]any{
+				"CalendarEvent/get",
+				map[string]any{
+					"accountId": "primary",
+					"ids":       []string{evID},
+				},
+				"c2",
+			},
+		},
+	}
+
+	bodyBytesGet, _ := json.Marshal(getReq)
+	respGet, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytesGet))
+	if err != nil {
+		t.Fatalf("CalendarEvent/get failed: %v", err)
+	}
+	defer respGet.Body.Close()
+
+	var getResp jmap.Response
+	if err := json.NewDecoder(respGet.Body).Decode(&getResp); err != nil {
+		t.Fatalf("Decode CalendarEvent/get failed: %v", err)
+	}
+
+	list := getResp.MethodResponses[0].Args["list"].([]any)
+	if len(list) != 1 {
+		t.Fatalf("Expected 1 event, got %d", len(list))
+	}
+
+	evData := list[0].(map[string]any)
+	vlMap := evData["virtualLocations"].(map[string]any)
+	if vl1, ok := vlMap["vl1"].(map[string]any); !ok || vl1["uri"] != "https://meet.example.com/arch-review" {
+		t.Errorf("Expected virtualLocation uri 'https://meet.example.com/arch-review', got %v", vlMap["vl1"])
+	}
+
+	linksMap := evData["links"].(map[string]any)
+	if l1, ok := linksMap["l1"].(map[string]any); !ok || l1["href"] != "https://example.com/docs/arch-spec.pdf" {
+		t.Errorf("Expected link href 'https://example.com/docs/arch-spec.pdf', got %v", linksMap["l1"])
+	}
+}
