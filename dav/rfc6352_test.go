@@ -55,7 +55,7 @@ func TestRFC6352_CardDAVPutAndGet(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	vcardData := "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Alice Morgan\r\nEMAIL:alice.m@example.com\r\nTEL:+15559876543\r\nEND:VCARD\r\n"
+	vcardData := "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Alice Morgan\r\nNICKNAME:Ali\r\nORG:ACME Corp\r\nEMAIL:alice.m@example.com\r\nTEL:+15559876543\r\nEND:VCARD\r\n"
 
 	// 1. PUT vCard object
 	reqPut, _ := http.NewRequest("PUT", ts.URL+"/carddav/addressbooks/default/alice.vcf", strings.NewReader(vcardData))
@@ -82,6 +82,12 @@ func TestRFC6352_CardDAVPutAndGet(t *testing.T) {
 			found = true
 			if e1, ok := c.Emails["e1"]; !ok || e1.Address != "alice.m@example.com" {
 				t.Errorf("Expected email 'alice.m@example.com', got %v", c.Emails)
+			}
+			if n1, ok := c.Nicknames["n1"]; !ok || n1.Name != "Ali" {
+				t.Errorf("Expected nickname 'Ali', got %v", c.Nicknames)
+			}
+			if o1, ok := c.Organizations["o1"]; !ok || o1.Name != "ACME Corp" {
+				t.Errorf("Expected organization 'ACME Corp', got %v", c.Organizations)
 			}
 			break
 		}

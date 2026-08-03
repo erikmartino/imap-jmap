@@ -55,7 +55,7 @@ func TestRFC4791_CalDAVPutAndGet(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	icsData := "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Example Corp.//EN\r\nBEGIN:VEVENT\r\nUID:event-4791-put\r\nSUMMARY:CalDAV Test Event\r\nDTSTART:20261101T090000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+	icsData := "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Example Corp.//EN\r\nBEGIN:VEVENT\r\nUID:event-4791-put\r\nSUMMARY:CalDAV Test Event\r\nDESCRIPTION:Extended description for CalDAV event\r\nDURATION:PT1H\r\nDTSTART:20261101T090000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
 
 	// 1. PUT iCalendar object
 	reqPut, _ := http.NewRequest("PUT", ts.URL+"/caldav/calendars/default/event-4791-put.ics", strings.NewReader(icsData))
@@ -80,6 +80,12 @@ func TestRFC4791_CalDAVPutAndGet(t *testing.T) {
 	for _, ev := range events {
 		if ev.ID == "event-4791-put" || ev.Title == "CalDAV Test Event" {
 			found = true
+			if ev.Description != "Extended description for CalDAV event" {
+				t.Errorf("Expected Description 'Extended description for CalDAV event', got %q", ev.Description)
+			}
+			if ev.Duration != "PT1H" {
+				t.Errorf("Expected Duration 'PT1H', got %q", ev.Duration)
+			}
 			break
 		}
 	}
