@@ -16,18 +16,26 @@ var submissionSortableProperties = map[string]bool{
 func handleEmailSubmissionGet(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
-		idsRaw, _ := args["ids"].([]any)
+		idsRaw, hasIDs := args["ids"].([]any)
 		props := parseProperties(args)
 
-		ids := make([]Id, 0, len(idsRaw))
-		for _, item := range idsRaw {
-			if idStr, ok := item.(string); ok {
-				ids = append(ids, Id(idStr))
+		var list []*EmailSubmission
+		var notFound []Id
+		var err error
+
+		if hasIDs {
+			ids := make([]Id, 0, len(idsRaw))
+			for _, item := range idsRaw {
+				if idStr, ok := item.(string); ok {
+					ids = append(ids, Id(idStr))
+				}
 			}
+			list, notFound, err = backend.GetSubmissions(ctx, ids)
+		} else {
+			list, err = backend.GetAllSubmissions(ctx)
 		}
 
-		list, notFound, _ := backend.GetSubmissions(ctx, ids)
-		if list == nil {
+		if err != nil || list == nil {
 			list = []*EmailSubmission{}
 		}
 		if notFound == nil {
@@ -77,6 +85,10 @@ func handleEmailSubmissionSet(backend MailBackend) MethodHandler {
 		oldState := backend.SubmissionState(ctx)
 		created := make(map[string]*EmailSubmission)
 		notCreated := make(map[string]any)
+		updated := make(map[string]*EmailSubmission)
+		notUpdated := make(map[string]any)
+		var destroyed []Id
+		notDestroyed := make(map[string]any)
 
 		// creationRefs maps a creation id to the real id the server assigned (seeded from
 		// the request-scoped createdIds map), so #creationId references in this call and
@@ -88,6 +100,11 @@ func handleEmailSubmissionSet(backend MailBackend) MethodHandler {
 				identityID, _ := subData["identityId"].(string)
 				emailID, _ := subData["emailId"].(string)
 				sendAt, _ := subData["sendAt"].(string)
+
+				// Resolve creation ref if emailID or identityID uses #creationId
+				emailID = resolveCreationID(emailID, creationRefs)
+				identityID = resolveCreationID(identityID, creationRefs)
+
 				sub, err := backend.CreateSubmission(ctx, &EmailSubmission{
 					IdentityID: Id(identityID),
 					EmailID:    Id(emailID),
@@ -101,22 +118,69 @@ func handleEmailSubmissionSet(backend MailBackend) MethodHandler {
 
 				// RFC 8621 Section 7.5: onSuccessUpdateEmail
 				if patch, ok := subData["onSuccessUpdateEmail"].(map[string]any); ok && emailID != "" {
-					_, _ = backend.UpdateEmail(ctx, Id(emailID), patch)
+					if _, err := backend.UpdateEmail(ctx, Id(emailID), patch); err != nil {
+						// Email update failed
+						delete(created, clientKey)
+						_, _ = backend.DeleteSubmission(ctx, sub.ID)
+						return "", err
+					}
 				}
 				// RFC 8621 Section 7.5: onSuccessDestroyEmail
 				if destroy, ok := subData["onSuccessDestroyEmail"].(bool); ok && destroy && emailID != "" {
-					_, _ = backend.DeleteEmail(ctx, Id(emailID))
+					if _, err := backend.DeleteEmail(ctx, Id(emailID)); err != nil {
+						delete(created, clientKey)
+						_, _ = backend.DeleteSubmission(ctx, sub.ID)
+						return "", err
+					}
 				}
 				return string(sub.ID), nil
 			})
 		}
 
+		// RFC 8621 Section 7.3: EmailSubmissions cannot be updated after creation
+		if updateMap, ok := args["update"].(map[string]any); ok {
+			for clientKey := range updateMap {
+				resolvedID := resolveCreationID(clientKey, creationRefs)
+				notUpdated[resolvedID] = SetError{
+					Type: "invalidProperties",
+					Description: "EmailSubmission objects cannot be updated",
+				}
+			}
+		}
+
+		// RFC 8621 Section 7.3: destroy cancels / deletes submissions
+		if destroySlice, ok := args["destroy"].([]any); ok {
+			destroyed = make([]Id, 0, len(destroySlice))
+			for _, item := range destroySlice {
+				if idStr, ok := item.(string); ok {
+					resolvedID := resolveCreationID(idStr, creationRefs)
+					ok, err := backend.DeleteSubmission(ctx, Id(resolvedID))
+					if err != nil || !ok {
+						notDestroyed[resolvedID] = SetError{
+							Type: "notFound",
+							Description: "EmailSubmission not found or cannot be destroyed",
+						}
+					} else {
+						destroyed = append(destroyed, Id(resolvedID))
+					}
+				}
+			}
+		}
+
+		if destroyed == nil {
+			destroyed = []Id{}
+		}
+
 		return "EmailSubmission/set", map[string]any{
-			"accountId":  accountID,
-			"oldState":   oldState,
-			"newState":   backend.SubmissionState(ctx),
-			"created":    created,
-			"notCreated": notCreated,
+			"accountId":    accountID,
+			"oldState":     oldState,
+			"newState":     backend.SubmissionState(ctx),
+			"created":      created,
+			"notCreated":   notCreated,
+			"updated":      updated,
+			"notUpdated":   notUpdated,
+			"destroyed":    destroyed,
+			"notDestroyed": notDestroyed,
 		}
 	}
 }

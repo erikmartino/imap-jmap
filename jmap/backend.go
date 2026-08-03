@@ -27,6 +27,7 @@ type MailBackend interface {
 	ThreadState(ctx context.Context) string
 	ThreadChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
 	GetThreads(ctx context.Context, ids []Id) (list []*Thread, notFound []Id, err error)
+	GetAllThreads(ctx context.Context) ([]*Thread, error)
 
 	// Emails (RFC 8621 Section 4)
 	EmailState(ctx context.Context) string
@@ -59,7 +60,9 @@ type MailBackend interface {
 	SubmissionState(ctx context.Context) string
 	SubmissionChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
 	CreateSubmission(ctx context.Context, sub *EmailSubmission) (*EmailSubmission, error)
+	DeleteSubmission(ctx context.Context, id Id) (bool, error)
 	GetSubmissions(ctx context.Context, ids []Id) (list []*EmailSubmission, notFound []Id, err error)
+	GetAllSubmissions(ctx context.Context) ([]*EmailSubmission, error)
 	QuerySubmissions(ctx context.Context, filter map[string]any, comparators []Comparator, position int, limit *uint64) ([]Id, int, error)
 
 	// MDN (RFC 9007 Section 3)
@@ -78,6 +81,7 @@ type MailBackend interface {
 type BlobBackend interface {
 	PutBlob(ctx context.Context, accountID, contentType string, data []byte) (*Blob, error)
 	GetBlob(ctx context.Context, accountID, blobID string) (*Blob, bool, error)
+	GetAllBlobs(ctx context.Context, accountID string) ([]*Blob, error)
 	CopyBlob(ctx context.Context, fromAccountID, toAccountID string, blobID string) (*Blob, error)
 }
 

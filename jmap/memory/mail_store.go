@@ -539,6 +539,18 @@ func (mb *MemoryBackend) GetThreads(ctx context.Context, ids []jmap.Id) ([]*jmap
 	return list, notFound, nil
 }
 
+// GetAllThreads retrieves all threads.
+func (mb *MemoryBackend) GetAllThreads(ctx context.Context) ([]*jmap.Thread, error) {
+	mb.mu.RLock()
+	defer mb.mu.RUnlock()
+
+	list := make([]*jmap.Thread, 0, len(mb.threads))
+	for _, item := range mb.threads {
+		list = append(list, item)
+	}
+	return list, nil
+}
+
 // GetEmails retrieves emails by ID.
 func (mb *MemoryBackend) GetEmails(ctx context.Context, ids []jmap.Id) ([]*jmap.Email, []jmap.Id, error) {
 	mb.mu.RLock()
@@ -964,6 +976,19 @@ func (mb *MemoryBackend) CreateSubmission(ctx context.Context, sub *jmap.EmailSu
 	return sub, nil
 }
 
+// DeleteSubmission deletes an EmailSubmission.
+func (mb *MemoryBackend) DeleteSubmission(ctx context.Context, id jmap.Id) (bool, error) {
+	mb.mu.Lock()
+	defer mb.mu.Unlock()
+
+	if _, ok := mb.submissions[id]; !ok {
+		return false, nil
+	}
+	delete(mb.submissions, id)
+	mb.recordChange(mb.submissionState, id, "destroy", "EmailSubmission")
+	return true, nil
+}
+
 // GetSubmissions retrieves EmailSubmissions by ID.
 func (mb *MemoryBackend) GetSubmissions(ctx context.Context, ids []jmap.Id) ([]*jmap.EmailSubmission, []jmap.Id, error) {
 	mb.mu.RLock()
@@ -980,6 +1005,18 @@ func (mb *MemoryBackend) GetSubmissions(ctx context.Context, ids []jmap.Id) ([]*
 		}
 	}
 	return list, notFound, nil
+}
+
+// GetAllSubmissions retrieves all EmailSubmissions.
+func (mb *MemoryBackend) GetAllSubmissions(ctx context.Context) ([]*jmap.EmailSubmission, error) {
+	mb.mu.RLock()
+	defer mb.mu.RUnlock()
+
+	list := make([]*jmap.EmailSubmission, 0, len(mb.submissions))
+	for _, sub := range mb.submissions {
+		list = append(list, sub)
+	}
+	return list, nil
 }
 
 // LookupBlobReferences implements jmap.BlobReferenceBackend per RFC 9404 Section 4.3: for a
