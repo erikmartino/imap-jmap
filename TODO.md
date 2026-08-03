@@ -28,7 +28,7 @@ ContactCard/* canonical naming, Identity/set, Mailbox/set update.
 
 ## DAV (dav/)
 - [x] CalDAV/CardDAV PUT drops most iCal/vCard properties.
-- [ ] CalDAV/CardDAV REPORT query filter matching (date-range and text filter component evaluation).
+- [x] CalDAV/CardDAV REPORT query filter matching (date-range and text filter component evaluation).
 - [ ] No sync-token / getctag / getetag stability (breaks client sync).
 - [ ] RFC 6638 scheduling (Inbox/Outbox, auto-iTIP on PUT) absent.
 

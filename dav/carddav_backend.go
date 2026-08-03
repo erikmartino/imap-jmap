@@ -188,7 +188,43 @@ func (b *CardDAVBackend) PutAddressObject(ctx context.Context, path string, card
 }
 
 func (b *CardDAVBackend) QueryAddressObjects(ctx context.Context, path string, query *carddav.AddressBookQuery) ([]carddav.AddressObject, error) {
-	return b.ListAddressObjects(ctx, path, nil)
+	objs, err := b.ListAddressObjects(ctx, path, nil)
+	if err != nil || query == nil {
+		return objs, err
+	}
+
+	var filtered []carddav.AddressObject
+	for _, obj := range objs {
+		if len(query.PropFilters) == 0 {
+			filtered = append(filtered, obj)
+			continue
+		}
+
+		matchAll := true
+		for _, pf := range query.PropFilters {
+			if obj.Card == nil {
+				matchAll = false
+				break
+			}
+			val := obj.Card.Value(pf.Name)
+			if val == "" {
+				matchAll = false
+				break
+			}
+			if len(pf.TextMatches) > 0 {
+				for _, tm := range pf.TextMatches {
+					if tm.Text != "" && !strings.Contains(strings.ToLower(val), strings.ToLower(tm.Text)) {
+						matchAll = false
+						break
+					}
+				}
+			}
+		}
+		if matchAll {
+			filtered = append(filtered, obj)
+		}
+	}
+	return filtered, nil
 }
 
 func (b *CardDAVBackend) DeleteAddressObject(ctx context.Context, path string) error {

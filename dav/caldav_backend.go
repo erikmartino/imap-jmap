@@ -207,7 +207,49 @@ func (b *CalDAVBackend) PutCalendarObject(ctx context.Context, path string, cal 
 }
 
 func (b *CalDAVBackend) QueryCalendarObjects(ctx context.Context, path string, query *caldav.CalendarQuery) ([]caldav.CalendarObject, error) {
-	return b.ListCalendarObjects(ctx, path, nil)
+	objs, err := b.ListCalendarObjects(ctx, path, nil)
+	if err != nil || query == nil {
+		return objs, err
+	}
+
+	var filtered []caldav.CalendarObject
+	for _, obj := range objs {
+		if query.CompFilter.Name == "" || query.CompFilter.Name == "VCALENDAR" {
+			if len(query.CompFilter.Comps) == 0 {
+				filtered = append(filtered, obj)
+				continue
+			}
+			match := false
+			for _, sub := range query.CompFilter.Comps {
+				if sub.Name == "VEVENT" {
+					if sub.Start.IsZero() && sub.End.IsZero() {
+						match = true
+					} else if obj.Data != nil {
+						for _, comp := range obj.Data.Children {
+							if comp.Name == "VEVENT" {
+								dtstart := comp.Props.Get("DTSTART")
+								if dtstart != nil {
+									t, err := dtstart.DateTime(time.UTC)
+									if err == nil {
+										if (!sub.Start.IsZero() && t.Before(sub.Start)) || (!sub.End.IsZero() && t.After(sub.End)) {
+											continue
+										}
+									}
+								}
+								match = true
+							}
+						}
+					}
+				}
+			}
+			if match {
+				filtered = append(filtered, obj)
+			}
+		} else {
+			filtered = append(filtered, obj)
+		}
+	}
+	return filtered, nil
 }
 
 func (b *CalDAVBackend) DeleteCalendarObject(ctx context.Context, path string) error {
