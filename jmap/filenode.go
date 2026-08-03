@@ -149,50 +149,26 @@ func handleFileNodeSet(backend FileNodeBackend) MethodHandler {
 		notUpdated := make(map[string]any)
 		notDestroyed := make(map[string]any)
 
-		// creationRefs maps a creation id to the real id the server assigned, so that
-		// #creationId references elsewhere in this same /set resolve (RFC 8620 Section 5.3).
-		creationRefs := make(map[string]Id)
+		// creationRefs maps a creation id to the real id the server assigned (seeded from
+		// the request-scoped createdIds map), so #creationId references in this call and
+		// in later method calls of the same request resolve (RFC 8620 Section 5.3).
+		creationRefs := newSetCreationRefs(ctx)
 
 		if backend != nil {
 			if createRaw, ok := args["create"].(map[string]any); ok {
-				// Track which creations are still pending so forward references can be deferred.
-				pending := make(map[string]struct{}, len(createRaw))
-				for creationID := range createRaw {
-					pending[creationID] = struct{}{}
-				}
+				notCreated = runCreateLoop(createRaw, creationRefs, func(creationID string, resolvedMap map[string]any) (string, error) {
+					nodeBytes, _ := json.Marshal(resolvedMap)
+					var node FileNode
+					_ = json.Unmarshal(nodeBytes, &node)
 
-				// Process creations, deferring any whose #creationId references are not yet
-				// satisfied, until no further progress can be made (missing or cyclic refs).
-				for len(pending) > 0 {
-					progressed := false
-					for creationID := range pending {
-						nodeMap, _ := createRaw[creationID].(map[string]any)
-						resolvedMap, deferred := resolveNodeCreationRefs(nodeMap, creationRefs, pending)
-						if deferred {
-							continue
-						}
-
-						nodeBytes, _ := json.Marshal(resolvedMap)
-						var node FileNode
-						_ = json.Unmarshal(nodeBytes, &node)
-
-						createdNode, err := backend.CreateFileNode(ctx, &node)
-						if err != nil {
-							notCreated[creationID] = SetError{Type: "invalidProperties", Description: err.Error()}
-						} else {
-							created[creationID] = createdNode
-							creationRefs[creationID] = createdNode.ID
-						}
-						delete(pending, creationID)
-						progressed = true
+					createdNode, err := backend.CreateFileNode(ctx, &node)
+					if err != nil {
+						return "", err
 					}
-					if !progressed {
-						for creationID := range pending {
-							notCreated[creationID] = SetError{Type: "invalidProperties", Description: "unresolved creation reference"}
-							delete(pending, creationID)
-						}
-					}
-				}
+					created[creationID] = createdNode
+					recordCreationRefs(ctx, creationRefs, creationID, createdNode.ID)
+					return string(createdNode.ID), nil
+				})
 			}
 
 			if updateRaw, ok := args["update"].(map[string]any); ok {
@@ -202,12 +178,12 @@ func handleFileNodeSet(backend FileNodeBackend) MethodHandler {
 					_, err := backend.UpdateFileNode(ctx, Id(resolvedID), patch)
 					if err != nil {
 						if errors.Is(err, ErrNotFound) {
-							notUpdated[idStr] = SetError{Type: "notFound", Description: err.Error()}
+							notUpdated[string(resolvedID)] = SetError{Type: "notFound", Description: err.Error()}
 						} else {
-							notUpdated[idStr] = SetError{Type: "invalidProperties", Description: err.Error()}
+							notUpdated[string(resolvedID)] = SetError{Type: "invalidProperties", Description: err.Error()}
 						}
 					} else {
-						updated[idStr] = nil
+						updated[string(resolvedID)] = nil
 					}
 				}
 			}
@@ -218,9 +194,9 @@ func handleFileNodeSet(backend FileNodeBackend) MethodHandler {
 						resolvedID := resolveCreationID(idStr, creationRefs)
 						okDel, err := backend.DeleteFileNode(ctx, Id(resolvedID))
 						if err != nil {
-							notDestroyed[idStr] = SetError{Type: "serverFail", Description: err.Error()}
+							notDestroyed[string(resolvedID)] = SetError{Type: "serverFail", Description: err.Error()}
 						} else if !okDel {
-							notDestroyed[idStr] = SetError{Type: "notFound", Description: "filenode not found"}
+							notDestroyed[string(resolvedID)] = SetError{Type: "notFound", Description: "filenode not found"}
 						} else {
 							destroyed = append(destroyed, Id(resolvedID))
 						}

@@ -3,6 +3,8 @@ package jmap
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sort"
 )
 
 // Mailbox Handlers (RFC 8621 Section 2)
@@ -88,53 +90,55 @@ func handleMailboxSet(backend MailBackend) MethodHandler {
 		notUpdated := make(map[string]any)
 		notDestroyed := make(map[string]any)
 
+		// creationRefs maps a creation id to the real id the server assigned (seeded from
+		// the request-scoped createdIds map), so #creationId references in this call and
+		// in later method calls of the same request resolve (RFC 8620 Section 5.3).
+		creationRefs := newSetCreationRefs(ctx)
+
 		if createMap, ok := args["create"].(map[string]any); ok {
-			for clientKey, raw := range createMap {
-				mbData, ok := raw.(map[string]any)
-				if !ok {
-					notCreated[clientKey] = SetError{Type: "invalidProperties", Description: "invalid Mailbox object"}
-					continue
-				}
-				name, _ := mbData["name"].(string)
+			notCreated = runCreateLoop(createMap, creationRefs, func(clientKey string, m map[string]any) (string, error) {
+				name, _ := m["name"].(string)
 				if name == "" {
-					notCreated[clientKey] = SetError{Type: "invalidProperties", Description: "name is required"}
-					continue
+					return "", fmt.Errorf("name is required")
 				}
-				m := &Mailbox{Name: name}
-				if pid, ok := mbData["parentId"].(string); ok && pid != "" {
+				mb := &Mailbox{Name: name}
+				if pid, ok := m["parentId"].(string); ok && pid != "" {
 					p := Id(pid)
-					m.ParentID = &p
+					mb.ParentID = &p
 				}
-				if role, ok := mbData["role"].(string); ok && role != "" {
-					m.Role = &role
+				if role, ok := m["role"].(string); ok && role != "" {
+					mb.Role = &role
 				}
-				if so, ok := mbData["sortOrder"].(float64); ok {
-					m.SortOrder = uint64(so)
+				if so, ok := m["sortOrder"].(float64); ok {
+					mb.SortOrder = uint64(so)
 				}
-				if sub, ok := mbData["isSubscribed"].(bool); ok {
-					m.IsSubscribed = sub
+				if sub, ok := m["isSubscribed"].(bool); ok {
+					mb.IsSubscribed = sub
 				}
-				mb, err := backend.CreateMailbox(ctx, m)
+				createdMB, err := backend.CreateMailbox(ctx, mb)
 				if err != nil {
-					notCreated[clientKey] = SetError{Type: "invalidProperties", Description: err.Error()}
-				} else {
-					created[clientKey] = mb
+					return "", err
 				}
-			}
+				created[clientKey] = createdMB
+				recordCreationRefs(ctx, creationRefs, clientKey, createdMB.ID)
+				return string(createdMB.ID), nil
+			})
 		}
 
 		if updateMap, ok := args["update"].(map[string]any); ok {
 			for idStr, patchRaw := range updateMap {
-				patch, _ := patchRaw.(map[string]any)
-				_, err := backend.UpdateMailbox(ctx, Id(idStr), patch)
+				rawPatch, _ := patchRaw.(map[string]any)
+				patch := resolvePatchCreationRefs(rawPatch, creationRefs)
+				resolvedID := resolveCreationID(idStr, creationRefs)
+				_, err := backend.UpdateMailbox(ctx, Id(resolvedID), patch)
 				if err != nil {
 					if errors.Is(err, ErrNotFound) {
-						notUpdated[idStr] = SetError{Type: "notFound", Description: err.Error()}
+						notUpdated[string(resolvedID)] = SetError{Type: "notFound", Description: err.Error()}
 					} else {
-						notUpdated[idStr] = SetError{Type: "invalidProperties", Description: err.Error()}
+						notUpdated[string(resolvedID)] = SetError{Type: "invalidProperties", Description: err.Error()}
 					}
 				} else {
-					updated[idStr] = nil
+					updated[string(resolvedID)] = nil
 				}
 			}
 		}
@@ -142,13 +146,14 @@ func handleMailboxSet(backend MailBackend) MethodHandler {
 		if destroyList, ok := args["destroy"].([]any); ok {
 			for _, rawID := range destroyList {
 				if idStr, ok := rawID.(string); ok {
-					okDel, err := backend.DeleteMailbox(ctx, Id(idStr))
+					resolvedID := resolveCreationID(idStr, creationRefs)
+					okDel, err := backend.DeleteMailbox(ctx, Id(resolvedID))
 					if err != nil {
-						notDestroyed[idStr] = SetError{Type: "serverFail", Description: err.Error()}
+						notDestroyed[string(resolvedID)] = SetError{Type: "serverFail", Description: err.Error()}
 					} else if !okDel {
-						notDestroyed[idStr] = SetError{Type: "notFound", Description: "mailbox not found"}
+						notDestroyed[string(resolvedID)] = SetError{Type: "notFound", Description: "mailbox not found"}
 					} else {
-						destroyed = append(destroyed, Id(idStr))
+						destroyed = append(destroyed, Id(resolvedID))
 					}
 				}
 			}
@@ -198,6 +203,42 @@ func filterMailboxes(all []*Mailbox, filter map[string]any) []*Mailbox {
 	return filtered
 }
 
+// sortMailboxes orders the given mailboxes per the RFC 8621 Section 2.4 sort comparators
+// ("sortOrder" and "name"). When no usable comparator is given, the default order is
+// sortOrder ascending, then name ascending; RFC 8620 Section 5.5 requires the default
+// order to be consistent across calls so queryChanges indices remain stable. Equal
+// sortOrder values are ordered alphabetically by name, as recommended by RFC 8621
+// Section 2 (Mailbox "sortOrder" description).
+func sortMailboxes(all []*Mailbox, comparators []Comparator) {
+	usable := false
+	for _, c := range comparators {
+		if c.Property == "sortOrder" || c.Property == "name" {
+			usable = true
+		}
+	}
+	if !usable {
+		comparators = []Comparator{{Property: "sortOrder", IsAscending: true}, {Property: "name", IsAscending: true}}
+	}
+	sort.SliceStable(all, func(i, j int) bool {
+		for _, c := range comparators {
+			var less, equal bool
+			switch c.Property {
+			case "sortOrder":
+				less, equal = all[i].SortOrder < all[j].SortOrder, all[i].SortOrder == all[j].SortOrder
+			case "name":
+				less, equal = all[i].Name < all[j].Name, all[i].Name == all[j].Name
+			default:
+				continue
+			}
+			if equal {
+				continue
+			}
+			return less == c.IsAscending
+		}
+		return false
+	})
+}
+
 func handleMailboxQuery(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
@@ -205,6 +246,12 @@ func handleMailboxQuery(backend MailBackend) MethodHandler {
 
 		filter, _ := args["filter"].(map[string]any)
 		filtered := filterMailboxes(all, filter)
+
+		// RFC 8621 Section 2.4 requires support for sorting by "sortOrder" and "name";
+		// the default order (sortOrder then name, both ascending) MUST be applied
+		// consistently so /queryChanges indices stay stable between calls (RFC 8620
+		// Section 5.5). Without this the results follow map iteration order.
+		sortMailboxes(filtered, parseComparators(args))
 
 		position, posErr := parseQueryPosition(args)
 		if posErr != "" {

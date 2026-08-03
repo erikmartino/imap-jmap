@@ -104,6 +104,7 @@ func handleCalendarSet(backend CalendarsBackend) MethodHandler {
 		notCreated := make(map[string]any)
 		notUpdated := make(map[string]any)
 		notDestroyed := make(map[string]any)
+		creationRefs := newSetCreationRefs(ctx)
 
 		if createRaw, ok := args["create"].(map[string]any); ok {
 			for creationID, calMap := range createRaw {
@@ -116,6 +117,7 @@ func handleCalendarSet(backend CalendarsBackend) MethodHandler {
 					notCreated[creationID] = SetError{Type: "invalidProperties", Description: err.Error()}
 				} else {
 					created[creationID] = createdCal
+					recordCreationRefs(ctx, creationRefs, creationID, createdCal.ID)
 				}
 			}
 		}
@@ -123,12 +125,13 @@ func handleCalendarSet(backend CalendarsBackend) MethodHandler {
 		if updateRaw, ok := args["update"].(map[string]any); ok {
 			for idStr, patchRaw := range updateRaw {
 				patch, _ := patchRaw.(map[string]any)
-				updatedCal, err := backend.UpdateCalendar(ctx, Id(idStr), patch)
+				resolvedID := resolveCreationID(idStr, creationRefs)
+				updatedCal, err := backend.UpdateCalendar(ctx, Id(resolvedID), resolvePatchCreationRefs(patch, creationRefs))
 				if err != nil {
-					notUpdated[idStr] = SetError{Type: "notFound", Description: err.Error()}
+					notUpdated[string(resolvedID)] = SetError{Type: "notFound", Description: err.Error()}
 				} else {
 					_ = updatedCal
-					updated[idStr] = nil
+					updated[string(resolvedID)] = nil
 				}
 			}
 		}
@@ -136,11 +139,12 @@ func handleCalendarSet(backend CalendarsBackend) MethodHandler {
 		if destroyRaw, ok := args["destroy"].([]any); ok {
 			for _, item := range destroyRaw {
 				if idStr, ok := item.(string); ok {
-					okDel, err := backend.DeleteCalendar(ctx, Id(idStr))
+					resolvedID := resolveCreationID(idStr, creationRefs)
+					okDel, err := backend.DeleteCalendar(ctx, Id(resolvedID))
 					if err != nil || !okDel {
-						notDestroyed[idStr] = SetError{Type: "notFound", Description: "calendar cannot be deleted"}
+						notDestroyed[string(resolvedID)] = SetError{Type: "notFound", Description: "calendar cannot be deleted"}
 					} else {
-						destroyed = append(destroyed, Id(idStr))
+						destroyed = append(destroyed, Id(resolvedID))
 					}
 				}
 			}
@@ -240,60 +244,68 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend) M
 		notUpdated := make(map[string]any)
 		notDestroyed := make(map[string]any)
 
+		// creationRefs maps a creation id to the real id the server assigned (seeded from
+		// the request-scoped createdIds map), so #creationId references in this call and
+		// in later method calls of the same request resolve (RFC 8620 Section 5.3).
+		creationRefs := newSetCreationRefs(ctx)
+
 		if createRaw, ok := args["create"].(map[string]any); ok {
-			for creationID, evMap := range createRaw {
-				evBytes, _ := json.Marshal(evMap)
+			notCreated = runCreateLoop(createRaw, creationRefs, func(creationID string, resolvedMap map[string]any) (string, error) {
+				evBytes, _ := json.Marshal(resolvedMap)
 				var ev CalendarEvent
 				_ = json.Unmarshal(evBytes, &ev)
 
 				createdEv, err := backend.CreateCalendarEvent(ctx, &ev)
 				if err != nil {
-					notCreated[creationID] = SetError{Type: "invalidProperties", Description: err.Error()}
-				} else {
-					created[creationID] = createdEv
+					return "", err
+				}
+				created[creationID] = createdEv
+				recordCreationRefs(ctx, creationRefs, creationID, createdEv.ID)
 
-					// Auto-dispatch iMIP email invitation to external participants if mailBackend is available
-					if mailBackend != nil && len(createdEv.Participants) > 0 {
-						reqICS, _ := BuildITIPRequest(createdEv, accountID)
-						for emailStr, p := range createdEv.Participants {
-							recipientEmail := emailStr
-							if p != nil && p.Email != "" {
-								recipientEmail = p.Email
+				// Auto-dispatch iMIP email invitation to external participants if mailBackend is available
+				if mailBackend != nil && len(createdEv.Participants) > 0 {
+					reqICS, _ := BuildITIPRequest(createdEv, accountID)
+					for emailStr, p := range createdEv.Participants {
+						recipientEmail := emailStr
+						if p != nil && p.Email != "" {
+							recipientEmail = p.Email
+						}
+						if recipientEmail != "" {
+							inviteEmail := &Email{
+								Subject: "Invitation: " + createdEv.Title,
+								To:      []EmailAddress{{Email: recipientEmail}},
+								TextBody: []EmailBodyPart{{
+									Type: "text/calendar; method=REQUEST",
+									Size: uint64(len(reqICS)),
+								}},
+								BodyValues: map[string]EmailBodyValue{
+									"1": {Value: reqICS},
+								},
 							}
-							if recipientEmail != "" {
-								inviteEmail := &Email{
-									Subject: "Invitation: " + createdEv.Title,
-									To:      []EmailAddress{{Email: recipientEmail}},
-									TextBody: []EmailBodyPart{{
-										Type: "text/calendar; method=REQUEST",
-										Size: uint64(len(reqICS)),
-									}},
-									BodyValues: map[string]EmailBodyValue{
-										"1": {Value: reqICS},
-									},
-								}
-								savedEmail, err := mailBackend.CreateEmail(ctx, inviteEmail)
-								if err == nil && savedEmail != nil {
-									_, _ = mailBackend.CreateSubmission(ctx, &EmailSubmission{
-										EmailID:  savedEmail.ID,
-										ThreadID: savedEmail.ThreadID,
-									})
-								}
+							savedEmail, err := mailBackend.CreateEmail(ctx, inviteEmail)
+							if err == nil && savedEmail != nil {
+								_, _ = mailBackend.CreateSubmission(ctx, &EmailSubmission{
+									EmailID:  savedEmail.ID,
+									ThreadID: savedEmail.ThreadID,
+								})
 							}
 						}
 					}
 				}
-			}
+				return string(createdEv.ID), nil
+			})
 		}
 
 		if updateRaw, ok := args["update"].(map[string]any); ok {
 			for idStr, patchRaw := range updateRaw {
-				patch, _ := patchRaw.(map[string]any)
-				updatedEv, err := backend.UpdateCalendarEvent(ctx, Id(idStr), patch)
+				rawPatch, _ := patchRaw.(map[string]any)
+				patch := resolvePatchCreationRefs(rawPatch, creationRefs)
+				resolvedID := resolveCreationID(idStr, creationRefs)
+				updatedEv, err := backend.UpdateCalendarEvent(ctx, Id(resolvedID), patch)
 				if err != nil {
-					notUpdated[idStr] = SetError{Type: "notFound", Description: err.Error()}
+					notUpdated[string(resolvedID)] = SetError{Type: "notFound", Description: err.Error()}
 				} else {
-					updated[idStr] = nil
+					updated[string(resolvedID)] = nil
 
 					// Auto-dispatch iMIP email invitation to participants if updated event has participants
 					if mailBackend != nil && updatedEv != nil && len(updatedEv.Participants) > 0 {
@@ -332,12 +344,12 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend) M
 		if destroyRaw, ok := args["destroy"].([]any); ok {
 			for _, item := range destroyRaw {
 				if idStr, ok := item.(string); ok {
-					evID := Id(idStr)
+					evID := Id(resolveCreationID(idStr, creationRefs))
 					events, _, _ := backend.GetCalendarEvents(ctx, []Id{evID})
 
 					okDel, err := backend.DeleteCalendarEvent(ctx, evID)
 					if err != nil || !okDel {
-						notDestroyed[idStr] = SetError{Type: "notFound", Description: "calendar event not found"}
+						notDestroyed[string(evID)] = SetError{Type: "notFound", Description: "calendar event not found"}
 					} else {
 						destroyed = append(destroyed, evID)
 

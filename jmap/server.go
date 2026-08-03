@@ -255,6 +255,11 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	var responses []Invocation
 	executedMap := make(map[string]Invocation) // clientCallID -> response invocation
 
+	// Request-scoped creation id map: created in one method call may be referenced by a
+	// "#creationId" in a later call (RFC 8620 Sections 3.3 & 5.3).
+	refs := NewCreationRefs(req.CreatedIds)
+	reqCtx := WithCreationRefs(r.Context(), refs)
+
 	for _, call := range req.MethodCalls {
 		// Resolve Result References in arguments (RFC 8620 Section 3.7)
 		resolvedArgs, refErrType, refErr := s.resolveResultReferences(call.Args, executedMap)
@@ -281,7 +286,7 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		respName, respArgs := handler(r.Context(), resolvedArgs, call.ClientCallID)
+		respName, respArgs := handler(reqCtx, resolvedArgs, call.ClientCallID)
 		respInv := Invocation{
 			Name:         respName,
 			Args:         respArgs,
@@ -294,6 +299,10 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	resp := Response{
 		MethodResponses: responses,
 		SessionState:    s.Session.State,
+	}
+	// RFC 8620 Section 3.4: echo the createdIds map back if the client supplied it.
+	if req.CreatedIds != nil {
+		resp.CreatedIds = refs.Snapshot()
 	}
 
 	w.Header().Set("Content-Type", "application/json")

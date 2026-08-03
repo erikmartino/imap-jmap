@@ -69,39 +69,47 @@ func handleEmailSubmissionSet(backend MailBackend) MethodHandler {
 		accountID, _ := args["accountId"].(string)
 		oldState := backend.SubmissionState(ctx)
 		created := make(map[string]*EmailSubmission)
+		notCreated := make(map[string]any)
+
+		// creationRefs maps a creation id to the real id the server assigned (seeded from
+		// the request-scoped createdIds map), so #creationId references in this call and
+		// in later method calls of the same request resolve (RFC 8620 Section 5.3).
+		creationRefs := newSetCreationRefs(ctx)
 
 		if createMap, ok := args["create"].(map[string]any); ok {
-			for clientKey, raw := range createMap {
-				if subData, ok := raw.(map[string]any); ok {
-					identityID, _ := subData["identityId"].(string)
-					emailID, _ := subData["emailId"].(string)
-					sendAt, _ := subData["sendAt"].(string)
-					sub, err := backend.CreateSubmission(ctx, &EmailSubmission{
-						IdentityID: Id(identityID),
-						EmailID:    Id(emailID),
-						SendAt:     sendAt,
-					})
-					if err == nil {
-						created[clientKey] = sub
-
-						// RFC 8621 Section 7.5: onSuccessUpdateEmail
-						if patch, ok := subData["onSuccessUpdateEmail"].(map[string]any); ok && emailID != "" {
-							_, _ = backend.UpdateEmail(ctx, Id(emailID), patch)
-						}
-						// RFC 8621 Section 7.5: onSuccessDestroyEmail
-						if destroy, ok := subData["onSuccessDestroyEmail"].(bool); ok && destroy && emailID != "" {
-							_, _ = backend.DeleteEmail(ctx, Id(emailID))
-						}
-					}
+			notCreated = runCreateLoop(createMap, creationRefs, func(clientKey string, subData map[string]any) (string, error) {
+				identityID, _ := subData["identityId"].(string)
+				emailID, _ := subData["emailId"].(string)
+				sendAt, _ := subData["sendAt"].(string)
+				sub, err := backend.CreateSubmission(ctx, &EmailSubmission{
+					IdentityID: Id(identityID),
+					EmailID:    Id(emailID),
+					SendAt:     sendAt,
+				})
+				if err != nil {
+					return "", err
 				}
-			}
+				created[clientKey] = sub
+				recordCreationRefs(ctx, creationRefs, clientKey, sub.ID)
+
+				// RFC 8621 Section 7.5: onSuccessUpdateEmail
+				if patch, ok := subData["onSuccessUpdateEmail"].(map[string]any); ok && emailID != "" {
+					_, _ = backend.UpdateEmail(ctx, Id(emailID), patch)
+				}
+				// RFC 8621 Section 7.5: onSuccessDestroyEmail
+				if destroy, ok := subData["onSuccessDestroyEmail"].(bool); ok && destroy && emailID != "" {
+					_, _ = backend.DeleteEmail(ctx, Id(emailID))
+				}
+				return string(sub.ID), nil
+			})
 		}
 
 		return "EmailSubmission/set", map[string]any{
-			"accountId": accountID,
-			"oldState":  oldState,
-			"newState":  backend.SubmissionState(ctx),
-			"created":   created,
+			"accountId":  accountID,
+			"oldState":   oldState,
+			"newState":   backend.SubmissionState(ctx),
+			"created":    created,
+			"notCreated": notCreated,
 		}
 	}
 }

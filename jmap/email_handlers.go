@@ -153,102 +153,109 @@ func handleEmailSet(backend MailBackend) MethodHandler {
 		destroyed := []Id{}
 		notDestroyed := make(map[string]any)
 
-		if createMap, ok := args["create"].(map[string]any); ok {
-			for clientKey, raw := range createMap {
-				if emData, ok := raw.(map[string]any); ok {
-					if problem := validateEmailCreateData(emData); problem != "" {
-						notCreated[clientKey] = SetError{Type: "invalidProperties", Description: problem}
-						continue
-					}
-					subject, _ := emData["subject"].(string)
-					blobIDStr, _ := emData["blobId"].(string)
-					if blobIDStr == "" {
-						blobIDStr = fmt.Sprintf("blob-%d", time.Now().UnixNano())
-					}
-					receivedAt, _ := emData["receivedAt"].(string)
-					if receivedAt == "" {
-						receivedAt = time.Now().UTC().Format(time.RFC3339)
-					}
-					sentAt, _ := emData["sentAt"].(string)
+		// creationRefs maps a creation id to the real id the server assigned (seeded from
+		// the request-scoped createdIds map), so #creationId references in this call and
+		// in later method calls of the same request resolve (RFC 8620 Section 5.3).
+		creationRefs := newSetCreationRefs(ctx)
 
-					parseAddresses := func(key string) []EmailAddress {
-						var res []EmailAddress
-						if list, ok := emData[key].([]any); ok {
-							for _, item := range list {
-								if addrMap, ok := item.(map[string]any); ok {
-									name, _ := addrMap["name"].(string)
-									email, _ := addrMap["email"].(string)
-									if email != "" {
-										res = append(res, EmailAddress{Name: name, Email: email})
-									}
+		if createMap, ok := args["create"].(map[string]any); ok {
+			notCreated = runCreateLoop(createMap, creationRefs, func(clientKey string, emData map[string]any) (string, error) {
+				if problem := validateEmailCreateData(emData); problem != "" {
+					return "", fmt.Errorf("%s", problem)
+				}
+				subject, _ := emData["subject"].(string)
+				blobIDStr, _ := emData["blobId"].(string)
+				if blobIDStr == "" {
+					blobIDStr = fmt.Sprintf("blob-%d", time.Now().UnixNano())
+				}
+				receivedAt, _ := emData["receivedAt"].(string)
+				if receivedAt == "" {
+					receivedAt = time.Now().UTC().Format(time.RFC3339)
+				}
+				sentAt, _ := emData["sentAt"].(string)
+
+				parseAddresses := func(key string) []EmailAddress {
+					var res []EmailAddress
+					if list, ok := emData[key].([]any); ok {
+						for _, item := range list {
+							if addrMap, ok := item.(map[string]any); ok {
+								name, _ := addrMap["name"].(string)
+								email, _ := addrMap["email"].(string)
+								if email != "" {
+									res = append(res, EmailAddress{Name: name, Email: email})
 								}
 							}
 						}
-						return res
 					}
+					return res
+				}
 
-					em := &Email{
-						Subject:    subject,
-						BlobID:     Id(blobIDStr),
-						ReceivedAt: receivedAt,
-						SentAt:     sentAt,
-						From:       parseAddresses("from"),
-						To:         parseAddresses("to"),
-						CC:         parseAddresses("cc"),
-						BCC:        parseAddresses("bcc"),
-						ReplyTo:    parseAddresses("replyTo"),
-						Sender:     parseAddresses("sender"),
-					}
+				em := &Email{
+					Subject:    subject,
+					BlobID:     Id(blobIDStr),
+					ReceivedAt: receivedAt,
+					SentAt:     sentAt,
+					From:       parseAddresses("from"),
+					To:         parseAddresses("to"),
+					CC:         parseAddresses("cc"),
+					BCC:        parseAddresses("bcc"),
+					ReplyTo:    parseAddresses("replyTo"),
+					Sender:     parseAddresses("sender"),
+				}
 
-					if mbMap, ok := emData["mailboxIds"].(map[string]any); ok {
-						em.MailboxIDs = make(map[Id]bool)
-						for k := range mbMap {
-							em.MailboxIDs[Id(k)] = true
-						}
-					}
-					if kwMap, ok := emData["keywords"].(map[string]any); ok {
-						em.Keywords = make(map[string]bool)
-						for k, v := range kwMap {
-							if boolVal, ok := v.(bool); ok {
-								em.Keywords[k] = boolVal
-							}
-						}
-					}
-
-					if textBody, ok := emData["textBody"].(string); ok {
-						em.BodyValues = map[string]EmailBodyValue{"1": {Value: textBody}}
-						em.TextBody = []EmailBodyPart{{PartID: "1", Type: "text/plain", Size: uint64(len(textBody))}}
-						em.Preview = textBody
-					} else if bodyValObj, ok := emData["bodyValues"].(map[string]any); ok {
-						bvMap := make(map[string]EmailBodyValue)
-						for k, v := range bodyValObj {
-							if bvData, ok := v.(map[string]any); ok {
-								val, _ := bvData["value"].(string)
-								bvMap[k] = EmailBodyValue{Value: val}
-							}
-						}
-						em.BodyValues = bvMap
-					}
-
-					createdEM, err := backend.CreateEmail(ctx, em)
-					if err == nil {
-						created[clientKey] = createdEM
+				if mbMap, ok := emData["mailboxIds"].(map[string]any); ok {
+					em.MailboxIDs = make(map[Id]bool)
+					for k := range mbMap {
+						em.MailboxIDs[Id(k)] = true
 					}
 				}
-			}
+				if kwMap, ok := emData["keywords"].(map[string]any); ok {
+					em.Keywords = make(map[string]bool)
+					for k, v := range kwMap {
+						if boolVal, ok := v.(bool); ok {
+							em.Keywords[k] = boolVal
+						}
+					}
+				}
+
+				if textBody, ok := emData["textBody"].(string); ok {
+					em.BodyValues = map[string]EmailBodyValue{"1": {Value: textBody}}
+					em.TextBody = []EmailBodyPart{{PartID: "1", Type: "text/plain", Size: uint64(len(textBody))}}
+					em.Preview = textBody
+				} else if bodyValObj, ok := emData["bodyValues"].(map[string]any); ok {
+					bvMap := make(map[string]EmailBodyValue)
+					for k, v := range bodyValObj {
+						if bvData, ok := v.(map[string]any); ok {
+							val, _ := bvData["value"].(string)
+							bvMap[k] = EmailBodyValue{Value: val}
+						}
+					}
+					em.BodyValues = bvMap
+				}
+
+				createdEM, err := backend.CreateEmail(ctx, em)
+				if err != nil {
+					return "", err
+				}
+				created[clientKey] = createdEM
+				recordCreationRefs(ctx, creationRefs, clientKey, createdEM.ID)
+				return string(createdEM.ID), nil
+			})
 		}
 
 		if updateMap, ok := args["update"].(map[string]any); ok {
 			for idStr, patchRaw := range updateMap {
-				if patch, ok := patchRaw.(map[string]any); ok {
-					updatedEM, err := backend.UpdateEmail(ctx, Id(idStr), patch)
+				if rawPatch, ok := patchRaw.(map[string]any); ok {
+					patch := resolvePatchCreationRefs(rawPatch, creationRefs)
+					resolvedID := resolveCreationID(idStr, creationRefs)
+					updatedEM, err := backend.UpdateEmail(ctx, Id(resolvedID), patch)
 					if err != nil {
-						notUpdated[idStr] = map[string]any{
+						notUpdated[string(resolvedID)] = map[string]any{
 							"type":        "notFound",
 							"description": err.Error(),
 						}
 					} else {
-						updated[idStr] = updatedEM
+						updated[string(resolvedID)] = updatedEM
 					}
 				}
 			}
@@ -257,10 +264,11 @@ func handleEmailSet(backend MailBackend) MethodHandler {
 		if destroyList, ok := args["destroy"].([]any); ok {
 			for _, rawID := range destroyList {
 				if idStr, ok := rawID.(string); ok {
-					if ok, _ := backend.DeleteEmail(ctx, Id(idStr)); ok {
-						destroyed = append(destroyed, Id(idStr))
+					resolvedID := resolveCreationID(idStr, creationRefs)
+					if ok, _ := backend.DeleteEmail(ctx, Id(resolvedID)); ok {
+						destroyed = append(destroyed, Id(resolvedID))
 					} else {
-						notDestroyed[idStr] = SetError{Type: "notFound", Description: "email not found: " + idStr}
+						notDestroyed[string(resolvedID)] = SetError{Type: "notFound", Description: "email not found: " + string(resolvedID)}
 					}
 				}
 			}
@@ -740,6 +748,7 @@ func handleIdentitySet(backend MailBackend) MethodHandler {
 		notCreated := make(map[string]any)
 		notUpdated := make(map[string]any)
 		notDestroyed := make(map[string]any)
+		creationRefs := newSetCreationRefs(ctx)
 
 		if createRaw, ok := args["create"].(map[string]any); ok {
 			for creationID, raw := range createRaw {
@@ -754,6 +763,7 @@ func handleIdentitySet(backend MailBackend) MethodHandler {
 					notCreated[creationID] = SetError{Type: "invalidProperties", Description: err.Error()}
 				} else {
 					created[creationID] = createdIdentity
+					recordCreationRefs(ctx, creationRefs, creationID, createdIdentity.ID)
 				}
 			}
 		}
@@ -761,15 +771,16 @@ func handleIdentitySet(backend MailBackend) MethodHandler {
 		if updateRaw, ok := args["update"].(map[string]any); ok {
 			for idStr, patchRaw := range updateRaw {
 				patch, _ := patchRaw.(map[string]any)
-				_, err := backend.UpdateIdentity(ctx, Id(idStr), patch)
+				resolvedID := resolveCreationID(idStr, creationRefs)
+				_, err := backend.UpdateIdentity(ctx, Id(resolvedID), resolvePatchCreationRefs(patch, creationRefs))
 				if err != nil {
 					if errors.Is(err, ErrNotFound) {
-						notUpdated[idStr] = SetError{Type: "notFound", Description: err.Error()}
+						notUpdated[string(resolvedID)] = SetError{Type: "notFound", Description: err.Error()}
 					} else {
-						notUpdated[idStr] = SetError{Type: "invalidProperties", Description: err.Error()}
+						notUpdated[string(resolvedID)] = SetError{Type: "invalidProperties", Description: err.Error()}
 					}
 				} else {
-					updated[idStr] = nil
+					updated[string(resolvedID)] = nil
 				}
 			}
 		}
@@ -777,13 +788,14 @@ func handleIdentitySet(backend MailBackend) MethodHandler {
 		if destroyRaw, ok := args["destroy"].([]any); ok {
 			for _, item := range destroyRaw {
 				if idStr, ok := item.(string); ok {
-					okDel, err := backend.DeleteIdentity(ctx, Id(idStr))
+					resolvedID := resolveCreationID(idStr, creationRefs)
+					okDel, err := backend.DeleteIdentity(ctx, Id(resolvedID))
 					if err != nil {
-						notDestroyed[idStr] = SetError{Type: "serverFail", Description: err.Error()}
+						notDestroyed[string(resolvedID)] = SetError{Type: "serverFail", Description: err.Error()}
 					} else if !okDel {
-						notDestroyed[idStr] = SetError{Type: "notFound", Description: "identity not found"}
+						notDestroyed[string(resolvedID)] = SetError{Type: "notFound", Description: "identity not found"}
 					} else {
-						destroyed = append(destroyed, Id(idStr))
+						destroyed = append(destroyed, Id(resolvedID))
 					}
 				}
 			}

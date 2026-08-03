@@ -136,9 +136,10 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		default:
 			// RFC 8887 Section 4.3.2: treat as a JMAP Request object.
 			var req struct {
-				RequestID   string       `json:"id"`
-				Using       []string     `json:"using"`
-				MethodCalls []Invocation `json:"methodCalls"`
+				RequestID   string            `json:"id"`
+				Using       []string          `json:"using"`
+				MethodCalls []Invocation      `json:"methodCalls"`
+				CreatedIds  map[string]string `json:"createdIds,omitempty"`
 			}
 			if err := json.Unmarshal(data, &req); err != nil {
 				writeWSError(ctx, conn, "", ErrorInvalidJSON, "The request body could not be parsed as a JMAP Request.")
@@ -160,6 +161,9 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 			var responses []Invocation
 			executedMap := make(map[string]Invocation)
+
+			refs := NewCreationRefs(req.CreatedIds)
+			reqCtx := WithCreationRefs(ctx, refs)
 
 			for _, call := range req.MethodCalls {
 				resolvedArgs, refErrType, refErr := s.resolveResultReferences(call.Args, executedMap)
@@ -186,7 +190,7 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 
-				respName, respArgs := handler(ctx, resolvedArgs, call.ClientCallID)
+				respName, respArgs := handler(reqCtx, resolvedArgs, call.ClientCallID)
 				respInv := Invocation{
 					Name:         respName,
 					Args:         respArgs,
@@ -202,6 +206,9 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 				"requestId":       req.RequestID,
 				"methodResponses": responses,
 				"sessionState":    s.Session.State,
+			}
+			if req.CreatedIds != nil {
+				resp["createdIds"] = refs.Snapshot()
 			}
 			msg, _ := json.Marshal(resp)
 			if err := conn.Write(ctx, websocket.MessageText, msg); err != nil {
