@@ -17,6 +17,8 @@ type MemoryIMAPAccessBackend struct {
 	idCounter uint64
 }
 
+var _ jmap.IMAPAccessBackend = (*MemoryIMAPAccessBackend)(nil)
+
 // NewMemoryIMAPAccessBackend initializes a new MemoryIMAPAccessBackend with a default IMAP account.
 func NewMemoryIMAPAccessBackend() *MemoryIMAPAccessBackend {
 	b := &MemoryIMAPAccessBackend{
