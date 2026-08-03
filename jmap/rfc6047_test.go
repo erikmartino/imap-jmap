@@ -2,6 +2,7 @@ package jmap_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -64,7 +65,7 @@ func TestRFC6047_AutoSendInvitationAndCancellation(t *testing.T) {
 	evID := createdEv["id"].(string)
 
 	// Verify iMIP REQUEST email created in MailBackend
-	emails, err := mailBackend.GetAllEmails(nil)
+	emails, err := mailBackend.GetAllEmails(context.Background())
 	if err != nil || len(emails) == 0 {
 		t.Fatalf("Expected RFC 6047 iMIP email in MailBackend, got 0")
 	}
@@ -104,7 +105,7 @@ func TestRFC6047_AutoSendInvitationAndCancellation(t *testing.T) {
 	}
 	defer respDestroy.Body.Close()
 
-	emailsAfterDestroy, _ := mailBackend.GetAllEmails(nil)
+	emailsAfterDestroy, _ := mailBackend.GetAllEmails(context.Background())
 	foundCancel := false
 	for _, em := range emailsAfterDestroy {
 		if strings.Contains(em.Subject, "Cancelled: RFC 6047 iMIP Sync") {
