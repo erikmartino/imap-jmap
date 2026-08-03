@@ -13,6 +13,7 @@ func RegisterCalendarHandlers(r *MethodRegistry, backend CalendarsBackend, mailB
 	r.Register("Calendar/get", handleCalendarGet(backend))
 	r.Register("Calendar/changes", handleCalendarChanges(backend))
 	r.Register("Calendar/set", handleCalendarSet(backend))
+	r.Register("Calendar/copy", handleCalendarCopy(backend))
 
 	r.Register("CalendarEvent/get", handleCalendarEventGet(backend))
 	r.Register("CalendarEvent/changes", handleCalendarEventChanges(backend))
@@ -408,14 +409,109 @@ func handleCalendarEventQuery(backend CalendarsBackend) MethodHandler {
 	}
 }
 
+// handleCalendarCopy implements Calendar/copy per RFC 8620 Section 5.4: each create entry names a
+// source calendar by id, optionally overriding properties, and is recreated in the target account.
+func handleCalendarCopy(backend CalendarsBackend) MethodHandler {
+	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
+		accountID, _ := args["accountId"].(string)
+		fromAccountID, _ := args["fromAccountId"].(string)
+		if fromAccountID == "" {
+			fromAccountID = accountID
+		}
+		oldState := backend.CalendarState(ctx)
+
+		created := make(map[string]*Calendar)
+		notCreated := make(map[string]any)
+
+		if createRaw, ok := args["create"].(map[string]any); ok {
+			for creationID, raw := range createRaw {
+				m, _ := raw.(map[string]any)
+				srcID, _ := m["id"].(string)
+				if srcID == "" {
+					notCreated[creationID] = SetError{Type: "invalidProperties", Description: "copy create entry must reference a source id"}
+					continue
+				}
+				srcs, notFound, _ := backend.GetCalendars(ctx, []Id{Id(srcID)})
+				if len(srcs) == 0 || len(notFound) > 0 {
+					notCreated[creationID] = SetError{Type: "notFound", Description: "source calendar not found: " + srcID}
+					continue
+				}
+
+				merged := mergeCopyOverrides(srcs[0], m)
+				calBytes, _ := json.Marshal(merged)
+				var cal Calendar
+				_ = json.Unmarshal(calBytes, &cal)
+				cal.ID = ""
+
+				newCal, err := backend.CreateCalendar(ctx, &cal)
+				if err != nil {
+					notCreated[creationID] = SetError{Type: "invalidProperties", Description: err.Error()}
+				} else {
+					created[creationID] = newCal
+				}
+			}
+		}
+
+		return "Calendar/copy", map[string]any{
+			"fromAccountId": fromAccountID,
+			"accountId":     accountID,
+			"oldState":      oldState,
+			"newState":      backend.CalendarState(ctx),
+			"created":       created,
+			"notCreated":    notCreated,
+		}
+	}
+}
+
+// handleCalendarEventCopy implements CalendarEvent/copy per RFC 8620 Section 5.4.
 func handleCalendarEventCopy(backend CalendarsBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
+		fromAccountID, _ := args["fromAccountId"].(string)
+		if fromAccountID == "" {
+			fromAccountID = accountID
+		}
+		oldState := backend.CalendarEventState(ctx)
+
+		created := make(map[string]*CalendarEvent)
+		notCreated := make(map[string]any)
+
+		if createRaw, ok := args["create"].(map[string]any); ok {
+			for creationID, raw := range createRaw {
+				m, _ := raw.(map[string]any)
+				srcID, _ := m["id"].(string)
+				if srcID == "" {
+					notCreated[creationID] = SetError{Type: "invalidProperties", Description: "copy create entry must reference a source id"}
+					continue
+				}
+				srcs, notFound, _ := backend.GetCalendarEvents(ctx, []Id{Id(srcID)})
+				if len(srcs) == 0 || len(notFound) > 0 {
+					notCreated[creationID] = SetError{Type: "notFound", Description: "source event not found: " + srcID}
+					continue
+				}
+
+				merged := mergeCopyOverrides(srcs[0], m)
+				evBytes, _ := json.Marshal(merged)
+				var ev CalendarEvent
+				_ = json.Unmarshal(evBytes, &ev)
+				ev.ID = ""
+
+				newEv, err := backend.CreateCalendarEvent(ctx, &ev)
+				if err != nil {
+					notCreated[creationID] = SetError{Type: "invalidProperties", Description: err.Error()}
+				} else {
+					created[creationID] = newEv
+				}
+			}
+		}
+
 		return "CalendarEvent/copy", map[string]any{
-			"accountId": accountID,
-			"oldState":  "0",
-			"newState":  "0",
-			"created":   map[string]*CalendarEvent{},
+			"fromAccountId": fromAccountID,
+			"accountId":     accountID,
+			"oldState":      oldState,
+			"newState":      backend.CalendarEventState(ctx),
+			"created":       created,
+			"notCreated":    notCreated,
 		}
 	}
 }

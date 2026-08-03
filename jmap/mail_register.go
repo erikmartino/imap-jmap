@@ -1,7 +1,8 @@
 package jmap
 
 // RegisterMailHandlers registers all RFC 8621 JMAP Mail and RFC 9219 S/MIME methods into MethodRegistry.
-func RegisterMailHandlers(r *MethodRegistry, backend MailBackend) {
+// blobBackend is used by Email/import and Email/parse to read raw RFC 5322 message blobs.
+func RegisterMailHandlers(r *MethodRegistry, backend MailBackend, blobBackend BlobBackend) {
 	// Mailbox (Section 2)
 	r.Register("Mailbox/get", handleMailboxGet(backend))
 	r.Register("Mailbox/changes", handleMailboxChanges(backend))
@@ -21,8 +22,8 @@ func RegisterMailHandlers(r *MethodRegistry, backend MailBackend) {
 	r.Register("Email/copy", handleEmailCopy(backend))
 	r.Register("Email/query", handleEmailQuery(backend))
 	r.Register("Email/queryChanges", handleEmailQueryChanges(backend))
-	r.Register("Email/import", handleEmailImport(backend))
-	r.Register("Email/parse", handleEmailParse(backend))
+	r.Register("Email/import", handleEmailImport(backend, blobBackend))
+	r.Register("Email/parse", handleEmailParse(backend, blobBackend))
 
 	// S/MIME Verification (RFC 9219 Section 4)
 	r.Register("Email/verifySmime", handleEmailVerifySmime(backend))

@@ -428,3 +428,79 @@ func TestRFC8984_CalendarAndEventCopy(t *testing.T) {
 		t.Errorf("Expected 'CalendarEvent/copy', got %q", evResp.Name)
 	}
 }
+
+// TestRFC8984_CalendarCopyRoundTrip proves Calendar/copy actually copies an existing calendar
+// (by source id, with a property override) into a new object, per RFC 8620 Section 5.4.
+func TestRFC8984_CalendarCopyRoundTrip(t *testing.T) {
+	calBackend := memory.NewMemoryCalendarsBackend()
+	srv := jmap.NewServer(nil, jmap.WithCalendarsBackend(calBackend))
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	post := func(calls []any) jmap.Response {
+		payload := map[string]any{
+			"using":       []string{jmap.CoreCapabilityURI, jmap.CalendarsCapabilityURI},
+			"methodCalls": calls,
+		}
+		body, _ := json.Marshal(payload)
+		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST /jmap failed: %v", err)
+		}
+		defer resp.Body.Close()
+		var jr jmap.Response
+		_ = json.NewDecoder(resp.Body).Decode(&jr)
+		return jr
+	}
+
+	// Create the source calendar.
+	createResp := post([]any{
+		[]any{"Calendar/set", map[string]any{
+			"accountId": "primary",
+			"create":    map[string]any{"orig": map[string]any{"name": "Original"}},
+		}, "c1"},
+	})
+	srcID := createResp.MethodResponses[0].Args["created"].(map[string]any)["orig"].(map[string]any)["id"].(string)
+	if srcID == "" {
+		t.Fatal("no source calendar id")
+	}
+
+	// Copy it, overriding the name.
+	copyResp := post([]any{
+		[]any{"Calendar/copy", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"dup": map[string]any{"id": srcID, "name": "Copied Calendar"},
+			},
+		}, "c2"},
+	})
+	args := copyResp.MethodResponses[0].Args
+	if nc, ok := args["notCreated"].(map[string]any); ok && len(nc) != 0 {
+		t.Fatalf("copy reported failures: %#v", nc)
+	}
+	dup, ok := args["created"].(map[string]any)["dup"].(map[string]any)
+	if !ok {
+		t.Fatalf("copy did not create 'dup': %#v", args["created"])
+	}
+	if dup["id"] == srcID || dup["id"] == "" {
+		t.Errorf("copy MUST assign a new id, got %v (src %q)", dup["id"], srcID)
+	}
+	if dup["name"] != "Copied Calendar" {
+		t.Errorf("override not applied: got name %v", dup["name"])
+	}
+
+	// Both the original and the copy MUST now exist.
+	getResp := post([]any{
+		[]any{"Calendar/get", map[string]any{"accountId": "primary"}, "c3"},
+	})
+	list, _ := getResp.MethodResponses[0].Args["list"].([]any)
+	ids := map[string]bool{}
+	for _, item := range list {
+		if c, ok := item.(map[string]any); ok {
+			ids[c["id"].(string)] = true
+		}
+	}
+	if !ids[srcID] || !ids[dup["id"].(string)] {
+		t.Errorf("expected both original %q and copy %q to exist, got ids %v", srcID, dup["id"], ids)
+	}
+}

@@ -13,6 +13,7 @@ func RegisterContactsHandlers(r *MethodRegistry, backend ContactsBackend) {
 	r.Register("AddressBook/get", handleAddressBookGet(backend))
 	r.Register("AddressBook/changes", handleAddressBookChanges(backend))
 	r.Register("AddressBook/set", handleAddressBookSet(backend))
+	r.Register("AddressBook/copy", handleAddressBookCopy(backend))
 
 	r.Register("Card/get", handleCardGet(backend))
 	r.Register("Card/changes", handleCardChanges(backend))
@@ -311,18 +312,109 @@ func handleCardQuery(backend ContactsBackend) MethodHandler {
 	}
 }
 
+// handleAddressBookCopy implements AddressBook/copy per RFC 8620 Section 5.4.
+func handleAddressBookCopy(backend ContactsBackend) MethodHandler {
+	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
+		accountID, _ := args["accountId"].(string)
+		fromAccountID, _ := args["fromAccountId"].(string)
+		if fromAccountID == "" {
+			fromAccountID = accountID
+		}
+		oldState := backend.AddressBookState(ctx)
+
+		created := make(map[string]*AddressBook)
+		notCreated := make(map[string]any)
+
+		if createRaw, ok := args["create"].(map[string]any); ok {
+			for creationID, raw := range createRaw {
+				m, _ := raw.(map[string]any)
+				srcID, _ := m["id"].(string)
+				if srcID == "" {
+					notCreated[creationID] = SetError{Type: "invalidProperties", Description: "copy create entry must reference a source id"}
+					continue
+				}
+				srcs, notFound, _ := backend.GetAddressBooks(ctx, []Id{Id(srcID)})
+				if len(srcs) == 0 || len(notFound) > 0 {
+					notCreated[creationID] = SetError{Type: "notFound", Description: "source address book not found: " + srcID}
+					continue
+				}
+
+				merged := mergeCopyOverrides(srcs[0], m)
+				abBytes, _ := json.Marshal(merged)
+				var ab AddressBook
+				_ = json.Unmarshal(abBytes, &ab)
+				ab.ID = ""
+
+				newAB, err := backend.CreateAddressBook(ctx, &ab)
+				if err != nil {
+					notCreated[creationID] = SetError{Type: "invalidProperties", Description: err.Error()}
+				} else {
+					created[creationID] = newAB
+				}
+			}
+		}
+
+		return "AddressBook/copy", map[string]any{
+			"fromAccountId": fromAccountID,
+			"accountId":     accountID,
+			"oldState":      oldState,
+			"newState":      backend.AddressBookState(ctx),
+			"created":       created,
+			"notCreated":    notCreated,
+		}
+	}
+}
+
+// handleCardCopy implements Card/copy per RFC 8620 Section 5.4: each create entry names a source
+// card by id, optionally overriding properties, and is recreated in the target account.
 func handleCardCopy(backend ContactsBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
-		fromAccountID, _ := args["fromAccountId"].(string)
 		accountID, _ := args["accountId"].(string)
+		fromAccountID, _ := args["fromAccountId"].(string)
+		if fromAccountID == "" {
+			fromAccountID = accountID
+		}
+		oldState := backend.CardState(ctx)
+
+		created := make(map[string]*Card)
+		notCreated := make(map[string]any)
+
+		if createRaw, ok := args["create"].(map[string]any); ok {
+			for creationID, raw := range createRaw {
+				m, _ := raw.(map[string]any)
+				srcID, _ := m["id"].(string)
+				if srcID == "" {
+					notCreated[creationID] = SetError{Type: "invalidProperties", Description: "copy create entry must reference a source id"}
+					continue
+				}
+				srcs, notFound, _ := backend.GetCards(ctx, []Id{Id(srcID)})
+				if len(srcs) == 0 || len(notFound) > 0 {
+					notCreated[creationID] = SetError{Type: "notFound", Description: "source card not found: " + srcID}
+					continue
+				}
+
+				merged := mergeCopyOverrides(srcs[0], m)
+				cardBytes, _ := json.Marshal(merged)
+				var card Card
+				_ = json.Unmarshal(cardBytes, &card)
+				card.ID = ""
+
+				newCard, err := backend.CreateCard(ctx, &card)
+				if err != nil {
+					notCreated[creationID] = SetError{Type: "invalidProperties", Description: err.Error()}
+				} else {
+					created[creationID] = newCard
+				}
+			}
+		}
 
 		return "Card/copy", map[string]any{
 			"fromAccountId": fromAccountID,
 			"accountId":     accountID,
-			"oldState":      "0",
-			"newState":      "0",
-			"created":       map[string]*Card{},
-			"notCreated":    map[string]any{},
+			"oldState":      oldState,
+			"newState":      backend.CardState(ctx),
+			"created":       created,
+			"notCreated":    notCreated,
 		}
 	}
 }

@@ -289,54 +289,119 @@ func handleEmailQueryChanges(backend MailBackend) MethodHandler {
 	}
 }
 
-func handleEmailImport(backend MailBackend) MethodHandler {
+func handleEmailImport(backend MailBackend, blobBackend BlobBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		createMap, _ := args["create"].(map[string]any)
 		created := make(map[string]*Email)
+		notCreated := make(map[string]any)
+		oldState := backend.State(ctx)
 
 		for clientKey, raw := range createMap {
-			if emData, ok := raw.(map[string]any); ok {
-				blobID, _ := emData["blobId"].(string)
-				em, err := backend.CreateEmail(ctx, &Email{
-					BlobID:  Id(blobID),
-					Subject: "Imported Message",
-				})
-				if err == nil {
-					created[clientKey] = em
+			emData, ok := raw.(map[string]any)
+			if !ok {
+				notCreated[clientKey] = SetError{Type: "invalidProperties", Description: "invalid EmailImport object"}
+				continue
+			}
+			blobID, _ := emData["blobId"].(string)
+			if blobID == "" {
+				notCreated[clientKey] = SetError{Type: "invalidProperties", Description: "blobId is required"}
+				continue
+			}
+
+			// Parse the raw message blob so the imported Email carries real headers/body,
+			// not a fabricated subject.
+			em := &Email{BlobID: Id(blobID)}
+			if blobBackend != nil {
+				if blob, found, _ := blobBackend.GetBlob(ctx, accountID, blobID); found && blob != nil {
+					if parsed, err := parseRFC822(blob.Data); err == nil {
+						em = parsed
+						em.BlobID = Id(blobID)
+					}
+				} else {
+					notCreated[clientKey] = SetError{Type: "blobNotFound", Description: "blob not found: " + blobID}
+					continue
 				}
+			}
+
+			// Apply the client-supplied mailboxIds, keywords, and receivedAt (RFC 8621 Section 4.8).
+			if mbIDs, ok := emData["mailboxIds"].(map[string]any); ok {
+				em.MailboxIDs = make(map[Id]bool, len(mbIDs))
+				for id, v := range mbIDs {
+					if b, ok := v.(bool); ok {
+						em.MailboxIDs[Id(id)] = b
+					}
+				}
+			}
+			if kws, ok := emData["keywords"].(map[string]any); ok {
+				em.Keywords = make(map[string]bool, len(kws))
+				for k, v := range kws {
+					if b, ok := v.(bool); ok {
+						em.Keywords[k] = b
+					}
+				}
+			}
+			if recvAt, ok := emData["receivedAt"].(string); ok {
+				em.ReceivedAt = recvAt
+			}
+
+			imported, err := backend.CreateEmail(ctx, em)
+			if err != nil {
+				notCreated[clientKey] = SetError{Type: "invalidProperties", Description: err.Error()}
+			} else {
+				created[clientKey] = imported
 			}
 		}
 
 		return "Email/import", map[string]any{
-			"accountId": accountID,
-			"oldState":  backend.State(ctx),
-			"newState":  backend.State(ctx),
-			"created":   created,
+			"accountId":  accountID,
+			"oldState":   oldState,
+			"newState":   backend.State(ctx),
+			"created":    created,
+			"notCreated": notCreated,
 		}
 	}
 }
 
-func handleEmailParse(backend MailBackend) MethodHandler {
+func handleEmailParse(backend MailBackend, blobBackend BlobBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		blobIDs, _ := args["blobIds"].([]any)
 		parsed := make(map[string]*Email)
+		notParsable := make([]Id, 0)
+		notFound := make([]Id, 0)
 
 		for _, item := range blobIDs {
-			if blobIDStr, ok := item.(string); ok {
-				parsed[blobIDStr] = &Email{
-					ID:      Id("parsed-" + blobIDStr),
-					BlobID:  Id(blobIDStr),
-					Subject: "Parsed Email Subject",
-				}
+			blobIDStr, ok := item.(string)
+			if !ok {
+				continue
 			}
+
+			if blobBackend == nil {
+				notFound = append(notFound, Id(blobIDStr))
+				continue
+			}
+			blob, found, _ := blobBackend.GetBlob(ctx, accountID, blobIDStr)
+			if !found || blob == nil {
+				notFound = append(notFound, Id(blobIDStr))
+				continue
+			}
+
+			em, err := parseRFC822(blob.Data)
+			if err != nil {
+				notParsable = append(notParsable, Id(blobIDStr))
+				continue
+			}
+			// A parsed Email is not a stored object: it has a blobId but no server id (RFC 8621 §4.9).
+			em.BlobID = Id(blobIDStr)
+			parsed[blobIDStr] = em
 		}
 
 		return "Email/parse", map[string]any{
-			"accountId": accountID,
-			"parsed":    parsed,
-			"notFound":  []Id{},
+			"accountId":   accountID,
+			"parsed":      parsed,
+			"notParsable": notParsable,
+			"notFound":    notFound,
 		}
 	}
 }
@@ -469,5 +534,3 @@ func handleMailboxCopy(backend MailBackend) MethodHandler {
 		}
 	}
 }
-
-

@@ -315,3 +315,70 @@ func TestRFC9610_CardAndAddressBookCopy(t *testing.T) {
 		t.Errorf("Expected 'Card/copy', got %q", cardResp.Name)
 	}
 }
+
+// TestRFC9610_CardCopyRoundTrip proves Card/copy actually copies an existing card (by source id,
+// with a property override) into a new object, per RFC 8620 Section 5.4.
+func TestRFC9610_CardCopyRoundTrip(t *testing.T) {
+	contactsBackend := memory.NewMemoryContactsBackend()
+	srv := jmap.NewServer(nil, jmap.WithContactsBackend(contactsBackend))
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	post := func(calls []any) jmap.Response {
+		payload := map[string]any{
+			"using":       []string{jmap.CoreCapabilityURI, jmap.ContactsCapabilityURI},
+			"methodCalls": calls,
+		}
+		body, _ := json.Marshal(payload)
+		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST /jmap failed: %v", err)
+		}
+		defer resp.Body.Close()
+		var jr jmap.Response
+		_ = json.NewDecoder(resp.Body).Decode(&jr)
+		return jr
+	}
+
+	createResp := post([]any{
+		[]any{"Card/set", map[string]any{
+			"accountId": "primary",
+			"create":    map[string]any{"orig": map[string]any{"name": map[string]any{"full": "Alice"}}},
+		}, "c1"},
+	})
+	createdCard, ok := createResp.MethodResponses[0].Args["created"].(map[string]any)["orig"].(map[string]any)
+	if !ok {
+		t.Fatalf("source card not created: %#v", createResp.MethodResponses[0].Args)
+	}
+	srcID := createdCard["id"].(string)
+	if srcID == "" {
+		t.Fatal("no source card id")
+	}
+
+	copyResp := post([]any{
+		[]any{"Card/copy", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"dup": map[string]any{"id": srcID},
+			},
+		}, "c2"},
+	})
+	args := copyResp.MethodResponses[0].Args
+	if nc, ok := args["notCreated"].(map[string]any); ok && len(nc) != 0 {
+		t.Fatalf("copy reported failures: %#v", nc)
+	}
+	dup, ok := args["created"].(map[string]any)["dup"].(map[string]any)
+	if !ok {
+		t.Fatalf("copy did not create 'dup': %#v", args["created"])
+	}
+	if dup["id"] == srcID || dup["id"] == "" {
+		t.Errorf("copy MUST assign a new id, got %v (src %q)", dup["id"], srcID)
+	}
+
+	getResp := post([]any{
+		[]any{"Card/get", map[string]any{"accountId": "primary"}, "c3"},
+	})
+	if list, _ := getResp.MethodResponses[0].Args["list"].([]any); len(list) != 2 {
+		t.Errorf("expected 2 cards after copy, got %d", len(list))
+	}
+}
