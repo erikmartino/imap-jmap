@@ -135,10 +135,11 @@ func handleEmailSubmissionQuery(backend MailBackend) MethodHandler {
 		}
 
 		filter, _ := args["filter"].(map[string]any)
+		comparators := parseComparators(args)
 		var ids []Id
 		var total int
 		if anchor != "" {
-			allIDs, allTotal, _ := backend.QuerySubmissions(ctx, filter, 0, nil)
+			allIDs, allTotal, _ := backend.QuerySubmissions(ctx, filter, comparators, 0, nil)
 			total = allTotal
 			var found bool
 			position, ids, found = applyQueryAnchor(anchor, anchorOffset, allIDs, limit)
@@ -146,7 +147,7 @@ func handleEmailSubmissionQuery(backend MailBackend) MethodHandler {
 				return "error", MethodErrorArgs(MethodErrorAnchorNotFound, "anchor not found in results: "+anchor)
 			}
 		} else {
-			ids, total, _ = backend.QuerySubmissions(ctx, filter, position, limit)
+			ids, total, _ = backend.QuerySubmissions(ctx, filter, comparators, position, limit)
 		}
 		if ids == nil {
 			ids = []Id{}
@@ -179,7 +180,7 @@ func handleEmailSubmissionQueryChanges(backend MailBackend) MethodHandler {
 			return "error", MethodErrorArgs("cannotCalculateChanges", "sinceQueryState is too old")
 		}
 
-		currentIDs, _, _ := backend.QuerySubmissions(ctx, filter, 0, nil)
+		currentIDs, _, _ := backend.QuerySubmissions(ctx, filter, parseComparators(args), 0, nil)
 		added, removed := computeQueryChanges(createdIDs, updatedIDs, destroyedIDs, currentIDs, upToID)
 		res := map[string]any{
 			"accountId":     accountID,

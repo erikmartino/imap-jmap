@@ -1004,15 +1004,17 @@ func emailReferencesBlob(em *jmap.Email, blobID jmap.Id) bool {
 }
 
 // QuerySubmissions filters, sorts, and pages EmailSubmissions per RFC 8621 Section 7.2.
-// Supported filter conditions: identityIds, emailIds, threadIds, before, after. Results are
-// sorted by sendAt descending (the RFC 8621 Section 7.2 default).
-func (mb *MemoryBackend) QuerySubmissions(ctx context.Context, filter map[string]any, position int, limit *uint64) ([]jmap.Id, int, error) {
+// Supported filter conditions: identityIds, emailIds, threadIds, undoStatus, before, after.
+// Sorting supports the RFC 8621 Section 7.2 properties emailId, threadId and sendAt
+// ("sentAt" is accepted as an alias for sendAt); the default sort is sendAt descending.
+func (mb *MemoryBackend) QuerySubmissions(ctx context.Context, filter map[string]any, comparators []jmap.Comparator, position int, limit *uint64) ([]jmap.Id, int, error) {
 	mb.mu.RLock()
 	defer mb.mu.RUnlock()
 
 	identityFilter := submissionIDFilter(filter, "identityIds")
 	emailFilter := submissionIDFilter(filter, "emailIds")
 	threadFilter := submissionIDFilter(filter, "threadIds")
+	undoStatus, _ := filter["undoStatus"].(string)
 	before, _ := filter["before"].(string)
 	after, _ := filter["after"].(string)
 
@@ -1027,6 +1029,9 @@ func (mb *MemoryBackend) QuerySubmissions(ctx context.Context, filter map[string
 		if len(threadFilter) > 0 && !threadFilter[sub.ThreadID] {
 			continue
 		}
+		if undoStatus != "" && sub.UndoStatus != undoStatus {
+			continue
+		}
 		if before != "" && sub.SendAt >= before {
 			continue
 		}
@@ -1036,10 +1041,7 @@ func (mb *MemoryBackend) QuerySubmissions(ctx context.Context, filter map[string
 		matched = append(matched, sub)
 	}
 
-	// Default sort: sendAt descending per RFC 8621 Section 7.2.
-	sort.SliceStable(matched, func(i, j int) bool {
-		return matched[i].SendAt > matched[j].SendAt
-	})
+	SortSubmissions(matched, comparators)
 
 	total := len(matched)
 	if position > total {
@@ -1059,6 +1061,39 @@ func (mb *MemoryBackend) QuerySubmissions(ctx context.Context, filter map[string
 		ids = append(ids, sub.ID)
 	}
 	return ids, total, nil
+}
+
+// SortSubmissions sorts EmailSubmissions in-place per RFC 8621 Section 7.2 comparators.
+// Supported properties: emailId, threadId, sendAt (and "sentAt" as an alias per the RFC
+// 8621 sort list). The default sort is sendAt descending.
+func SortSubmissions(subs []*jmap.EmailSubmission, comparators []jmap.Comparator) {
+	if len(comparators) == 0 {
+		comparators = []jmap.Comparator{
+			{Property: "sendAt", IsAscending: false},
+		}
+	}
+
+	sort.SliceStable(subs, func(i, j int) bool {
+		a, b := subs[i], subs[j]
+		for _, comp := range comparators {
+			var cmp int
+			switch comp.Property {
+			case "emailId":
+				cmp = strings.Compare(string(a.EmailID), string(b.EmailID))
+			case "threadId":
+				cmp = strings.Compare(string(a.ThreadID), string(b.ThreadID))
+			case "sendAt", "sentAt":
+				cmp = strings.Compare(a.SendAt, b.SendAt)
+			}
+			if cmp != 0 {
+				if !comp.IsAscending {
+					return cmp > 0
+				}
+				return cmp < 0
+			}
+		}
+		return i < j
+	})
 }
 
 // submissionIDFilter builds a set of Ids from an array-valued filter condition.

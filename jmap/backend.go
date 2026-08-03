@@ -60,7 +60,7 @@ type MailBackend interface {
 	SubmissionChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
 	CreateSubmission(ctx context.Context, sub *EmailSubmission) (*EmailSubmission, error)
 	GetSubmissions(ctx context.Context, ids []Id) (list []*EmailSubmission, notFound []Id, err error)
-	QuerySubmissions(ctx context.Context, filter map[string]any, position int, limit *uint64) ([]Id, int, error)
+	QuerySubmissions(ctx context.Context, filter map[string]any, comparators []Comparator, position int, limit *uint64) ([]Id, int, error)
 
 	// MDN (RFC 9007 Section 3)
 	SendMDN(ctx context.Context, mdn *MDN) (*MDN, error)
