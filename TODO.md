@@ -27,19 +27,19 @@ DAV: PUT property preservation, REPORT filters, sync-token/etag stability, RFC 6
 ## Then (test coverage backlog — implemented but unexercised)
 - [x] `stateMismatch` tests for all 9 untested `*/set` handlers (only Email covered).
 - [x] `notDestroyed` asserted for all 10 handlers (0 tests today); `notUpdated` with correct SetError type (only 1 test, type unasserted).
-- [ ] `cannotCalculateChanges` tests for all 5 `queryChanges` handlers (0 tests today).
-- [ ] Pagination tests for every `*/query`: position/limit slicing, position beyond end, limit 0, negative position, calculateTotal with filter.
-- [ ] Mixed valid+invalid `ids` → `notFound` tests for every `/get` (only Blob/get, verifySmime, MDN/parse covered).
-- [ ] Sort tests: order assertions (asc/desc, multi-comparator tie-break, default sort) — current test asserts count only.
-- [ ] Filter positive+negative per property: Email `cc`, `bcc`, `header` (name-only and name+value), `hasAttachment`, direct `notKeyword`; Mailbox `role`/`parentId`/`name`; Card 18 of 20 RFC 9610 §3.3.1 conditions untested (only `email`); CalendarEvent `inCalendar`/`description`/`location`/`text`; FileNode `name`/`type`/`isFolder`/`parentId:""`; SieveScript `name`/`isValid`.
+- [x] `cannotCalculateChanges` tests for all 5 `queryChanges` handlers (0 tests today).
+- [x] Pagination tests for every `*/query`: position/limit slicing, position beyond end, limit 0, negative position, calculateTotal with filter.
+- [x] Mixed valid+invalid `ids` → `notFound` tests for every `/get` (only Blob/get, verifySmime, MDN/parse covered).
+- [x] Sort tests: order assertions (asc/desc, multi-comparator tie-break, default sort) — current test asserts count only.
+- [x] Filter positive+negative per property: Email `cc`, `bcc`, `header` (name-only and name+value), `hasAttachment`, direct `notKeyword`; Mailbox `role`/`parentId`/`name`; Card 18 of 20 RFC 9610 §3.3.1 conditions untested (only `email`); CalendarEvent `inCalendar`/`description`/`location`/`text`; FileNode `name`/`type`/`isFolder`/`parentId:""`; SieveScript `name`/`isValid`.
 - [x] PushSubscription/get + set round-trip (create/get/update/destroy, notCreated/notDestroyed) + real `PushVerification` HTTP POST assertion.
-- [ ] `Email/import`/`Email/parse` error paths: `blobNotFound`, missing blobId → `invalidProperties`, `notParsable`, `notFound`; client overrides (keywords/mailboxIds/receivedAt) applied.
-- [ ] `Email/verifySmime` payload assertions (result fields), not just key presence.
-- [ ] `Email/copy`: `notCreated` for missing source, new id + new threadId, overrides applied, original survives without `onSuccessDestroyOriginal`.
-- [ ] `CalendarEvent/copy` full round-trip (mirror Calendar/copy test — currently name-only).
-- [ ] `CalendarEvent/sendResponse`: participant status persisted, valid iTIP REPLY, notFound error.
-- [ ] `Email/set` data-loss regression over HTTP: partial update (keywords/mailboxIds patch) leaves untouched fields intact.
-- [ ] `maxChanges` truncation + `hasMoreChanges` over HTTP; `sinceQueryState` too old.
+- [x] `Email/import`/`Email/parse` error paths: `blobNotFound`, missing blobId → `invalidProperties`, `notParsable`, `notFound`; client overrides (keywords/mailboxIds/receivedAt) applied.
+- [x] `Email/verifySmime` payload assertions (result fields), not just key presence.
+- [x] `Email/copy`: `notCreated` for missing source, new id + new threadId, overrides applied, original survives without `onSuccessDestroyOriginal`.
+- [x] `CalendarEvent/copy` full round-trip (mirror Calendar/copy test — currently name-only).
+- [x] `CalendarEvent/sendResponse`: participant status persisted, valid iTIP REPLY, notFound error.
+- [x] `Email/set` data-loss regression over HTTP: partial update (keywords/mailboxIds patch) leaves untouched fields intact.
+- [x] `maxChanges` truncation + `hasMoreChanges` over HTTP; `sinceQueryState` too old.
 - [x] JSON pointer escaping (`~0`/`~1`) and invalid pointer paths in result references.
 - [x] Compile-time assertions `var _ jmap.XxxBackend = (*MemoryXxxBackend)(nil)` for Contacts, Calendar, Sieve, IMAPAccess backends (AGENTS.md requirement).
 
