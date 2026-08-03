@@ -32,15 +32,15 @@ type JSCalendarLocation struct {
 type JSCalendarParticipant struct {
 	Name        string `json:"name,omitempty"`
 	Email       string `json:"email,omitempty"`
-	Role        string `json:"role,omitempty"`        // "owner", "attendee", "chair"
-	Status      string `json:"status,omitempty"`      // "needs-action", "accepted", "declined", "tentative"
-	Kind        string `json:"kind,omitempty"`        // "individual", "group", "resource", "location"
+	Role        string `json:"role,omitempty"`   // "owner", "attendee", "chair"
+	Status      string `json:"status,omitempty"` // "needs-action", "accepted", "declined", "tentative"
+	Kind        string `json:"kind,omitempty"`   // "individual", "group", "resource", "location"
 	ExpectReply bool   `json:"expectReply,omitempty"`
 }
 
 // JSCalendarRecurrenceRule defines a recurrence rule object per RFC 8984 Section 4.3.1.
 type JSCalendarRecurrenceRule struct {
-	Frequency string   `json:"frequency"`       // "daily", "weekly", "monthly", "yearly"
+	Frequency string   `json:"frequency"` // "daily", "weekly", "monthly", "yearly"
 	Interval  uint64   `json:"interval,omitempty"`
 	Until     string   `json:"until,omitempty"` // RFC 3339 timestamp
 	Count     uint64   `json:"count,omitempty"`
@@ -58,8 +58,8 @@ type JSCalendarAlert struct {
 type JSCalendarLink struct {
 	Href  string `json:"href"`
 	Cid   string `json:"cid,omitempty"`
-	Rel   string `json:"rel,omitempty"`   // "enclosure", "describedby", etc.
-	Type  string `json:"type,omitempty"`  // Content type e.g. "application/pdf"
+	Rel   string `json:"rel,omitempty"`  // "enclosure", "describedby", etc.
+	Type  string `json:"type,omitempty"` // Content type e.g. "application/pdf"
 	Title string `json:"title,omitempty"`
 }
 
@@ -72,24 +72,24 @@ type JSCalendarVirtualLocation struct {
 
 // CalendarEvent represents a JSCalendar Event object per RFC 8984 & JMAP for Calendars.
 type CalendarEvent struct {
-	ID               Id                                   `json:"id"`
-	CalendarIDs      map[Id]bool                          `json:"calendarIds"`
-	Type             string                               `json:"@type"` // Always "Event"
-	Title            string                               `json:"title"`
-	Description      string                               `json:"description,omitempty"`
-	Start            string                               `json:"start"`
-	Duration         string                               `json:"duration,omitempty"`
-	TimeZone         string                               `json:"timeZone,omitempty"`
-	Location         *JSCalendarLocation                  `json:"location,omitempty"`
+	ID               Id                                    `json:"id"`
+	CalendarIDs      map[Id]bool                           `json:"calendarIds"`
+	Type             string                                `json:"@type"` // Always "Event"
+	Title            string                                `json:"title"`
+	Description      string                                `json:"description,omitempty"`
+	Start            string                                `json:"start"`
+	Duration         string                                `json:"duration,omitempty"`
+	TimeZone         string                                `json:"timeZone,omitempty"`
+	Location         *JSCalendarLocation                   `json:"location,omitempty"`
 	VirtualLocations map[string]*JSCalendarVirtualLocation `json:"virtualLocations,omitempty"`
-	Links            map[string]*JSCalendarLink           `json:"links,omitempty"`
-	Status           string                               `json:"status,omitempty"`         // "confirmed", "tentative", "cancelled"
-	FreeBusyStatus   string                               `json:"freeBusyStatus,omitempty"` // "free", "busy", "tentative"
-	Privacy          string                               `json:"privacy,omitempty"`        // "public", "private", "secret"
-	Participants     map[string]*JSCalendarParticipant    `json:"participants,omitempty"`
-	RecurrenceRules  []*JSCalendarRecurrenceRule          `json:"recurrenceRules,omitempty"`
-	Alerts           map[string]*JSCalendarAlert          `json:"alerts,omitempty"`
-	Created          string                               `json:"created,omitempty"`
-	Updated          string                               `json:"updated,omitempty"`
-	Keywords         map[string]bool                      `json:"keywords,omitempty"`
+	Links            map[string]*JSCalendarLink            `json:"links,omitempty"`
+	Status           string                                `json:"status,omitempty"`         // "confirmed", "tentative", "cancelled"
+	FreeBusyStatus   string                                `json:"freeBusyStatus,omitempty"` // "free", "busy", "tentative"
+	Privacy          string                                `json:"privacy,omitempty"`        // "public", "private", "secret"
+	Participants     map[string]*JSCalendarParticipant     `json:"participants,omitempty"`
+	RecurrenceRules  []*JSCalendarRecurrenceRule           `json:"recurrenceRules,omitempty"`
+	Alerts           map[string]*JSCalendarAlert           `json:"alerts,omitempty"`
+	Created          string                                `json:"created,omitempty"`
+	Updated          string                                `json:"updated,omitempty"`
+	Keywords         map[string]bool                       `json:"keywords,omitempty"`
 }

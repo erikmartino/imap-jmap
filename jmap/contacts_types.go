@@ -128,27 +128,27 @@ type JSContactAnniversary struct {
 
 // Card represents a JSContact Card object per RFC 9553 & RFC 9610 Section 3.
 type Card struct {
-	ID             Id                                  `json:"id"`
-	AddressBookIDs map[Id]bool                         `json:"addressBookIds"`
-	Type           string                              `json:"@type"` // Always "Card"
-	Kind           string                              `json:"kind,omitempty"`
-	Uid            string                              `json:"uid,omitempty"`
-	Created        string                              `json:"created,omitempty"`
-	Updated        string                              `json:"updated,omitempty"`
-	Name           *JSContactName                      `json:"name,omitempty"`
-	Nicknames      map[string]*JSContactNickname       `json:"nicknames,omitempty"`
-	Emails         map[string]*JSContactEmailAddress   `json:"emails,omitempty"`
-	Phones         map[string]*JSContactPhone          `json:"phones,omitempty"`
-	Addresses      map[string]*JSContactAddress        `json:"addresses,omitempty"`
-	Organizations  map[string]*JSContactOrganization   `json:"organizations,omitempty"`
-	Titles         map[string]*JSContactTitle          `json:"titles,omitempty"`
-	Notes          map[string]*JSContactNote           `json:"notes,omitempty"`
-	OnlineServices map[string]*JSContactOnlineService  `json:"onlineServices,omitempty"`
-	Links          map[string]*JSContactLink           `json:"links,omitempty"`
-	Media          map[string]*JSContactMedia          `json:"media,omitempty"`
-	Gender         *JSContactGender                    `json:"gender,omitempty"`
-	SpeakToAs      *JSContactSpeakToAs                 `json:"speakToAs,omitempty"`
-	Anniversaries  map[string]*JSContactAnniversary    `json:"anniversaries,omitempty"`
-	Members        map[string]bool                     `json:"members,omitempty"` // UIDs of group members (RFC 9553 Section 2.1.6)
-	Keywords       map[string]bool                     `json:"keywords,omitempty"`
+	ID             Id                                 `json:"id"`
+	AddressBookIDs map[Id]bool                        `json:"addressBookIds"`
+	Type           string                             `json:"@type"` // Always "Card"
+	Kind           string                             `json:"kind,omitempty"`
+	Uid            string                             `json:"uid,omitempty"`
+	Created        string                             `json:"created,omitempty"`
+	Updated        string                             `json:"updated,omitempty"`
+	Name           *JSContactName                     `json:"name,omitempty"`
+	Nicknames      map[string]*JSContactNickname      `json:"nicknames,omitempty"`
+	Emails         map[string]*JSContactEmailAddress  `json:"emails,omitempty"`
+	Phones         map[string]*JSContactPhone         `json:"phones,omitempty"`
+	Addresses      map[string]*JSContactAddress       `json:"addresses,omitempty"`
+	Organizations  map[string]*JSContactOrganization  `json:"organizations,omitempty"`
+	Titles         map[string]*JSContactTitle         `json:"titles,omitempty"`
+	Notes          map[string]*JSContactNote          `json:"notes,omitempty"`
+	OnlineServices map[string]*JSContactOnlineService `json:"onlineServices,omitempty"`
+	Links          map[string]*JSContactLink          `json:"links,omitempty"`
+	Media          map[string]*JSContactMedia         `json:"media,omitempty"`
+	Gender         *JSContactGender                   `json:"gender,omitempty"`
+	SpeakToAs      *JSContactSpeakToAs                `json:"speakToAs,omitempty"`
+	Anniversaries  map[string]*JSContactAnniversary   `json:"anniversaries,omitempty"`
+	Members        map[string]bool                    `json:"members,omitempty"` // UIDs of group members (RFC 9553 Section 2.1.6)
+	Keywords       map[string]bool                    `json:"keywords,omitempty"`
 }

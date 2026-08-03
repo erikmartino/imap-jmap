@@ -225,5 +225,3 @@ func TestMailBackend_MailboxIdsPatchRemoval(t *testing.T) {
 		t.Errorf("expected mb-trash to be present")
 	}
 }
-
-

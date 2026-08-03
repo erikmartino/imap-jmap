@@ -418,8 +418,8 @@ func handleEmailQueryChanges(backend MailBackend) MethodHandler {
 		added := make([]map[string]any, 0, len(createdIDs))
 		for idx, id := range createdIDs {
 			added = append(added, map[string]any{
-				"id":       id,
-				"index":    idx,
+				"id":    id,
+				"index": idx,
 			})
 		}
 		if destroyedIDs == nil {
@@ -767,5 +767,3 @@ func handleIdentitySet(backend MailBackend) MethodHandler {
 		}
 	}
 }
-
-

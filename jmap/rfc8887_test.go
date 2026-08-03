@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"imap-jmap/jmap"
 	"github.com/coder/websocket"
+	"imap-jmap/jmap"
 )
 
 // TestRFC8887_SessionCapability tests that urn:ietf:params:jmap:websocket is present in the session per RFC 8887 Section 3.
@@ -268,9 +268,9 @@ func TestRFC8887_WebSocketPushDisable(t *testing.T) {
 
 	// Send a normal request and check we still get a Response (not stuck).
 	req := map[string]any{
-		"@type": "Request",
-		"id":    "after-disable",
-		"using": []string{jmap.CoreCapabilityURI},
+		"@type":       "Request",
+		"id":          "after-disable",
+		"using":       []string{jmap.CoreCapabilityURI},
 		"methodCalls": []any{},
 	}
 	reqBytes, _ := json.Marshal(req)

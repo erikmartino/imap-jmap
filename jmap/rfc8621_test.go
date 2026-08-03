@@ -1533,7 +1533,7 @@ func TestRFC8621_EmailCopy_SearchSnippet_Sieve_CalendarEvent(t *testing.T) {
 		// Activate s2 via onSuccessActivateScript
 		post([]any{
 			[]any{"SieveScript/set", map[string]any{
-				"accountId":                "primary",
+				"accountId":               "primary",
 				"onSuccessActivateScript": s2ID,
 			}, "c6"},
 		})
@@ -1545,7 +1545,7 @@ func TestRFC8621_EmailCopy_SearchSnippet_Sieve_CalendarEvent(t *testing.T) {
 			}, "c7"},
 		})
 		scList, _ := r5.MethodResponses[0].Args["list"].([]any)
-	if len(scList) > 0 {
+		if len(scList) > 0 {
 			sc, _ := scList[0].(map[string]any)
 			if active, ok := sc["isActive"].(bool); !ok || !active {
 				t.Errorf("Expected SieveScript %s to be active, got %v", s2ID, sc["isActive"])
@@ -1838,7 +1838,3 @@ func TestRFC8621_QueryChanges_DeltaCalculations(t *testing.T) {
 		t.Errorf("Expected added mailbox ID %s, got %v", newMbID, addedMbObj["id"])
 	}
 }
-
-
-
-

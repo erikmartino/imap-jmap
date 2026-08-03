@@ -112,9 +112,9 @@ func TestRFC9979_KeywordValidationAndBatchMapping(t *testing.T) {
 	flags := []string{"\\Seen", "\\Flagged", "$label1"}
 	kwMap := jmap.MapIMAPFlagsToJMAPKeywords(flags)
 	expectedKwMap := map[string]bool{
-		"$seen":   true,
+		"$seen":    true,
 		"$flagged": true,
-		"$label1": true,
+		"$label1":  true,
 	}
 	if !reflect.DeepEqual(kwMap, expectedKwMap) {
 		t.Errorf("MapIMAPFlagsToJMAPKeywords(%v) = %v; want %v", flags, kwMap, expectedKwMap)

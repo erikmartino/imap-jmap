@@ -95,7 +95,7 @@ func handlePushSubscriptionSet(backend MailBackend) MethodHandler {
 					if created_.URL != "" && created_.VerificationCode != nil {
 						go func(targetURL, pushSubID, verifyCode string) {
 							verificationPayload, _ := json.Marshal(map[string]any{
-								"@type":            "PushVerification",
+								"@type":              "PushVerification",
 								"pushSubscriptionId": pushSubID,
 								"verificationCode":   verifyCode,
 							})

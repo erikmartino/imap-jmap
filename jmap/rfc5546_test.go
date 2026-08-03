@@ -188,4 +188,3 @@ func TestRFC5546_AddRefreshCounter(t *testing.T) {
 		t.Errorf("ParseITIPMessage for COUNTER failed: %v", err)
 	}
 }
-

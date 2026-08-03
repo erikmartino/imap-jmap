@@ -222,4 +222,3 @@ func TestRFC6047_SMTPServerReceiveIMIPReply(t *testing.T) {
 		t.Errorf("Expected participant status 'accepted', got %q", p.Status)
 	}
 }
-

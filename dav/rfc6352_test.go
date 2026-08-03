@@ -172,13 +172,13 @@ func TestRFC6352_CardDAVFullLifecycleAndReport(t *testing.T) {
 func TestRFC6352_CardDAVQueryFilter_TextMatch(t *testing.T) {
 	contactsBackend := memory.NewMemoryContactsBackend()
 	_, _ = contactsBackend.CreateCard(context.Background(), &jmap.Card{
-		ID:   "card-bob",
-		Name: &jmap.JSContactName{Full: "Bob Smith"},
+		ID:     "card-bob",
+		Name:   &jmap.JSContactName{Full: "Bob Smith"},
 		Emails: map[string]*jmap.JSContactEmailAddress{"e1": {Address: "bob@example.com"}},
 	})
 	_, _ = contactsBackend.CreateCard(context.Background(), &jmap.Card{
-		ID:   "card-charlie",
-		Name: &jmap.JSContactName{Full: "Charlie Brown"},
+		ID:     "card-charlie",
+		Name:   &jmap.JSContactName{Full: "Charlie Brown"},
 		Emails: map[string]*jmap.JSContactEmailAddress{"e1": {Address: "charlie@example.com"}},
 	})
 

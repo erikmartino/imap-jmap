@@ -178,4 +178,3 @@ func TestRFC8620_IfInStateMismatch(t *testing.T) {
 		t.Errorf("Expected error type 'stateMismatch', got %q", errType)
 	}
 }
-
