@@ -1,9 +1,25 @@
 package jmap
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 )
+
+// parseQueryPosition extracts the "position" argument per RFC 8620 Section 5.5: a non-negative
+// integer defaulting to 0. A negative value is rejected with an invalidArguments error so no
+// query handler can ever index a slice with a negative position.
+func parseQueryPosition(args map[string]any) (position int, errMsg string) {
+	posVal, ok := args["position"].(float64)
+	if !ok {
+		return 0, ""
+	}
+	position = int(posVal)
+	if position < 0 {
+		return 0, fmt.Sprintf("position must be a non-negative integer, got %v", posVal)
+	}
+	return position, ""
+}
 
 // FilterCondition represents Email/query filter condition properties per RFC 8621 Section 4.5.1.
 type FilterCondition struct {

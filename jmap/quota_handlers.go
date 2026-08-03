@@ -85,9 +85,9 @@ func handleQuotaQuery(backend MailBackend) MethodHandler {
 		accountID, _ := args["accountId"].(string)
 		all, _ := backend.GetAllQuotas(ctx)
 
-		position := 0
-		if posVal, ok := args["position"].(float64); ok {
-			position = int(posVal)
+		position, posErr := parseQueryPosition(args)
+		if posErr != "" {
+			return "error", MethodErrorArgs(MethodErrorInvalidArguments, posErr)
 		}
 
 		total := len(all)

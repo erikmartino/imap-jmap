@@ -394,8 +394,10 @@ func handleCalendarEventQuery(backend CalendarsBackend) MethodHandler {
 		accountID, _ := args["accountId"].(string)
 
 		filter, _ := args["filter"].(map[string]any)
-		positionFloat, _ := args["position"].(float64)
-		position := int(positionFloat)
+		position, posErr := parseQueryPosition(args)
+		if posErr != "" {
+			return "error", MethodErrorArgs(MethodErrorInvalidArguments, posErr)
+		}
 
 		var limit *uint64
 		if limitFloat, ok := args["limit"].(float64); ok {

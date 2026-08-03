@@ -356,9 +356,9 @@ func handleEmailQuery(backend MailBackend) MethodHandler {
 			}
 		}
 
-		position := 0
-		if posVal, ok := args["position"].(float64); ok {
-			position = int(posVal)
+		position, posErr := parseQueryPosition(args)
+		if posErr != "" {
+			return "error", MethodErrorArgs(MethodErrorInvalidArguments, posErr)
 		}
 
 		var limit *uint64

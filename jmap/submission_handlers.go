@@ -107,9 +107,9 @@ func handleEmailSubmissionQuery(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 
-		position := 0
-		if posVal, ok := args["position"].(float64); ok {
-			position = int(posVal)
+		position, posErr := parseQueryPosition(args)
+		if posErr != "" {
+			return "error", MethodErrorArgs(MethodErrorInvalidArguments, posErr)
 		}
 
 		res := map[string]any{

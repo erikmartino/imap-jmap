@@ -301,9 +301,9 @@ func handleCardQuery(backend ContactsBackend) MethodHandler {
 		accountID, _ := args["accountId"].(string)
 		filter, _ := args["filter"].(map[string]any)
 
-		var position int
-		if pos, ok := args["position"].(float64); ok {
-			position = int(pos)
+		position, posErr := parseQueryPosition(args)
+		if posErr != "" {
+			return "error", MethodErrorArgs(MethodErrorInvalidArguments, posErr)
 		}
 
 		var limit *uint64
