@@ -19,6 +19,18 @@ type MemoryContactsBackend struct {
 	abState      *changeTracker
 	cardState    *changeTracker
 	nextID       uint64
+	broadcaster  *jmap.Broadcaster
+}
+
+// Ensure MemoryContactsBackend implements jmap.ContactsBackend interface.
+var _ jmap.ContactsBackend = (*MemoryContactsBackend)(nil)
+
+// SetBroadcaster connects a Broadcaster so AddressBook and Card mutations emit
+// RFC 8620 Section 7.1 StateChange push events.
+func (b *MemoryContactsBackend) SetBroadcaster(bc *jmap.Broadcaster) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.broadcaster = bc
 }
 
 // NewMemoryContactsBackend initializes a new MemoryContactsBackend with a default address book.
@@ -66,6 +78,16 @@ func (b *MemoryContactsBackend) CardState(ctx context.Context) string {
 // CardChanges returns created/updated/destroyed Cards since the given state per RFC 8620 Section 5.2.
 func (b *MemoryContactsBackend) CardChanges(ctx context.Context, sinceState string) (created, updated, destroyed []jmap.Id, newState string, hasMore bool) {
 	return b.cardState.Changes(sinceState)
+}
+
+// recordChange records a mutation on the given tracker and publishes the new state token
+// to push subscribers.
+func (b *MemoryContactsBackend) recordChange(tracker *changeTracker, id jmap.Id, action string, typeName string) string {
+	newState := tracker.record(id, action)
+	if b.broadcaster != nil {
+		b.broadcaster.PublishStateChange("primary", typeName, newState)
+	}
+	return newState
 }
 
 func (b *MemoryContactsBackend) GetAddressBooks(ctx context.Context, ids []jmap.Id) ([]*jmap.AddressBook, []jmap.Id, error) {
@@ -123,7 +145,7 @@ func (b *MemoryContactsBackend) CreateAddressBook(ctx context.Context, ab *jmap.
 		}
 	}
 	b.addressBooks[ab.ID] = ab
-	b.abState.record(ab.ID, "create")
+	b.recordChange(b.abState, ab.ID, "create", "AddressBook")
 	return ab, nil
 }
 
@@ -156,7 +178,7 @@ func (b *MemoryContactsBackend) UpdateAddressBook(ctx context.Context, id jmap.I
 		ab.IsDefault = true
 	}
 
-	b.abState.record(id, "update")
+	b.recordChange(b.abState, id, "update", "AddressBook")
 	return ab, nil
 }
 
@@ -168,7 +190,7 @@ func (b *MemoryContactsBackend) DeleteAddressBook(ctx context.Context, id jmap.I
 		return false, nil
 	}
 	delete(b.addressBooks, id)
-	b.abState.record(id, "destroy")
+	b.recordChange(b.abState, id, "destroy", "AddressBook")
 	return true, nil
 }
 
@@ -222,7 +244,7 @@ func (b *MemoryContactsBackend) CreateCard(ctx context.Context, card *jmap.Card)
 	}
 	card.Updated = now
 	b.cards[card.ID] = card
-	b.cardState.record(card.ID, "create")
+	b.recordChange(b.cardState, card.ID, "create", "Card")
 	return card, nil
 }
 
@@ -371,7 +393,7 @@ func (b *MemoryContactsBackend) UpdateCard(ctx context.Context, id jmap.Id, patc
 		setCardField(card, path, val)
 	}
 	card.Updated = time.Now().UTC().Format(time.RFC3339)
-	b.cardState.record(id, "update")
+	b.recordChange(b.cardState, id, "update", "Card")
 	return card, nil
 }
 
@@ -383,7 +405,7 @@ func (b *MemoryContactsBackend) DeleteCard(ctx context.Context, id jmap.Id) (boo
 		return false, nil
 	}
 	delete(b.cards, id)
-	b.cardState.record(id, "destroy")
+	b.recordChange(b.cardState, id, "destroy", "Card")
 	return true, nil
 }
 

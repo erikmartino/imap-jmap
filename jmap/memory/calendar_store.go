@@ -12,12 +12,24 @@ import (
 
 // MemoryCalendarsBackend provides an in-memory implementation of jmap.CalendarsBackend for JMAP Calendars & JSCalendar (RFC 8984).
 type MemoryCalendarsBackend struct {
-	mu         sync.RWMutex
-	calendars  map[jmap.Id]*jmap.Calendar
-	events     map[jmap.Id]*jmap.CalendarEvent
-	calState   *changeTracker
-	eventState *changeTracker
-	nextID     uint64
+	mu          sync.RWMutex
+	calendars   map[jmap.Id]*jmap.Calendar
+	events      map[jmap.Id]*jmap.CalendarEvent
+	calState    *changeTracker
+	eventState  *changeTracker
+	nextID      uint64
+	broadcaster *jmap.Broadcaster
+}
+
+// Ensure MemoryCalendarsBackend implements jmap.CalendarsBackend interface.
+var _ jmap.CalendarsBackend = (*MemoryCalendarsBackend)(nil)
+
+// SetBroadcaster connects a Broadcaster so Calendar and CalendarEvent mutations emit
+// RFC 8620 Section 7.1 StateChange push events.
+func (b *MemoryCalendarsBackend) SetBroadcaster(bc *jmap.Broadcaster) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.broadcaster = bc
 }
 
 // NewMemoryCalendarsBackend initializes a new MemoryCalendarsBackend with a default calendar.
@@ -66,6 +78,16 @@ func (b *MemoryCalendarsBackend) CalendarEventState(ctx context.Context) string 
 // CalendarEventChanges returns created/updated/destroyed CalendarEvents since the given state per RFC 8620 Section 5.2.
 func (b *MemoryCalendarsBackend) CalendarEventChanges(ctx context.Context, sinceState string) (created, updated, destroyed []jmap.Id, newState string, hasMore bool) {
 	return b.eventState.Changes(sinceState)
+}
+
+// recordChange records a mutation on the given tracker and publishes the new state token
+// to push subscribers.
+func (b *MemoryCalendarsBackend) recordChange(tracker *changeTracker, id jmap.Id, action string, typeName string) string {
+	newState := tracker.record(id, action)
+	if b.broadcaster != nil {
+		b.broadcaster.PublishStateChange("primary", typeName, newState)
+	}
+	return newState
 }
 
 func (b *MemoryCalendarsBackend) GetCalendars(ctx context.Context, ids []jmap.Id) ([]*jmap.Calendar, []jmap.Id, error) {
@@ -123,7 +145,7 @@ func (b *MemoryCalendarsBackend) CreateCalendar(ctx context.Context, cal *jmap.C
 		}
 	}
 	b.calendars[cal.ID] = cal
-	b.calState.record(cal.ID, "create")
+	b.recordChange(b.calState, cal.ID, "create", "Calendar")
 	return cal, nil
 }
 
@@ -164,7 +186,7 @@ func (b *MemoryCalendarsBackend) UpdateCalendar(ctx context.Context, id jmap.Id,
 		cal.IsDefault = true
 	}
 
-	b.calState.record(id, "update")
+	b.recordChange(b.calState, id, "update", "Calendar")
 	return cal, nil
 }
 
@@ -181,7 +203,7 @@ func (b *MemoryCalendarsBackend) DeleteCalendar(ctx context.Context, id jmap.Id)
 	}
 
 	delete(b.calendars, id)
-	b.calState.record(id, "destroy")
+	b.recordChange(b.calState, id, "destroy", "Calendar")
 	return true, nil
 }
 
@@ -240,7 +262,7 @@ func (b *MemoryCalendarsBackend) CreateCalendarEvent(ctx context.Context, ev *jm
 	ev.Updated = nowStr
 
 	b.events[ev.ID] = ev
-	b.eventState.record(ev.ID, "create")
+	b.recordChange(b.eventState, ev.ID, "create", "CalendarEvent")
 	return ev, nil
 }
 
@@ -360,7 +382,7 @@ func (b *MemoryCalendarsBackend) UpdateCalendarEvent(ctx context.Context, id jma
 		setCalendarEventField(ev, path, val)
 	}
 	ev.Updated = time.Now().UTC().Format(time.RFC3339)
-	b.eventState.record(id, "update")
+	b.recordChange(b.eventState, id, "update", "CalendarEvent")
 	return ev, nil
 }
 
@@ -372,7 +394,7 @@ func (b *MemoryCalendarsBackend) DeleteCalendarEvent(ctx context.Context, id jma
 		return false, nil
 	}
 	delete(b.events, id)
-	b.eventState.record(id, "destroy")
+	b.recordChange(b.eventState, id, "destroy", "CalendarEvent")
 	return true, nil
 }
 

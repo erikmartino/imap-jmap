@@ -13,10 +13,22 @@ import (
 
 // MemorySieveBackend provides an in-memory implementation of jmap.SieveBackend per RFC 9610 / RFC 9661.
 type MemorySieveBackend struct {
-	mu      sync.RWMutex
-	scripts map[jmap.Id]*jmap.SieveScript
-	state   *changeTracker
-	nextID  uint64
+	mu          sync.RWMutex
+	scripts     map[jmap.Id]*jmap.SieveScript
+	state       *changeTracker
+	nextID      uint64
+	broadcaster *jmap.Broadcaster
+}
+
+// Ensure MemorySieveBackend implements jmap.SieveBackend interface.
+var _ jmap.SieveBackend = (*MemorySieveBackend)(nil)
+
+// SetBroadcaster connects a Broadcaster so SieveScript mutations emit RFC 8620 Section 7.1
+// StateChange push events.
+func (b *MemorySieveBackend) SetBroadcaster(bc *jmap.Broadcaster) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.broadcaster = bc
 }
 
 // NewMemorySieveBackend initializes a new MemorySieveBackend instance.
@@ -36,6 +48,15 @@ func (b *MemorySieveBackend) SieveScriptState(ctx context.Context) string {
 // SieveScriptChanges returns created/updated/destroyed scripts since the given state per RFC 8620 Section 5.2.
 func (b *MemorySieveBackend) SieveScriptChanges(ctx context.Context, sinceState string) (created, updated, destroyed []jmap.Id, newState string, hasMore bool) {
 	return b.state.Changes(sinceState)
+}
+
+// recordChange records a mutation and publishes the new state token to push subscribers.
+func (b *MemorySieveBackend) recordChange(id jmap.Id, action string) string {
+	newState := b.state.record(id, action)
+	if b.broadcaster != nil {
+		b.broadcaster.PublishStateChange("primary", "SieveScript", newState)
+	}
+	return newState
 }
 
 func (b *MemorySieveBackend) ValidateSieveScript(ctx context.Context, content string) (bool, string) {
@@ -107,7 +128,7 @@ func (b *MemorySieveBackend) CreateSieveScript(ctx context.Context, script *jmap
 	}
 
 	b.scripts[script.ID] = script
-	b.state.record(script.ID, "create")
+	b.recordChange(script.ID, "create")
 	return script, nil
 }
 
@@ -142,7 +163,7 @@ func (b *MemorySieveBackend) UpdateSieveScript(ctx context.Context, id jmap.Id, 
 		script.IsActive = isActive
 	}
 
-	b.state.record(id, "update")
+	b.recordChange(id, "update")
 	return script, nil
 }
 
@@ -154,7 +175,7 @@ func (b *MemorySieveBackend) DeleteSieveScript(ctx context.Context, id jmap.Id) 
 		return false, nil
 	}
 	delete(b.scripts, id)
-	b.state.record(id, "destroy")
+	b.recordChange(id, "destroy")
 	return true, nil
 }
 

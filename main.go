@@ -73,6 +73,9 @@ func main() {
 		jmap.WithAuthBackend(authBackend),
 	)
 	memBackend.SetBroadcaster(server.Broadcaster)
+	memCalBackend.SetBroadcaster(server.Broadcaster)
+	memContactsBackend.SetBroadcaster(server.Broadcaster)
+	memSieveBackend.SetBroadcaster(server.Broadcaster)
 	memFileNodeBackend.SetBroadcaster(server.Broadcaster)
 
 	smtpServer := smtp.NewServer(smtpAddr, memBackend, memBlobBackend, memCalBackend)

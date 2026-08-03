@@ -29,6 +29,9 @@ func newTestServer(opts ...jmap.Option) *jmap.Server {
 
 	srv := jmap.NewServer(nil, allOpts...)
 	mb.SetBroadcaster(srv.Broadcaster)
+	cal.SetBroadcaster(srv.Broadcaster)
+	contacts.SetBroadcaster(srv.Broadcaster)
+	sieve.SetBroadcaster(srv.Broadcaster)
 	fb.SetBroadcaster(srv.Broadcaster)
 	return srv
 }

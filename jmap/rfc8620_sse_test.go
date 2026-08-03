@@ -106,7 +106,126 @@ func TestRFC8620_Section7_1_StateChangeBroadcast(t *testing.T) {
 	}
 }
 
-// TestRFC8620_Section7_1_PushTokenMatchesChangesState verifies that the state token delivered
+// TestRFC8620_Section7_1_StateChangeAllBackends verifies every memory backend publishes an
+// RFC 8620 Section 7.1 StateChange for its data type when mutated, so subscribed UIs update
+// for calendars, contacts, and sieve scripts just as for mail.
+func TestRFC8620_Section7_1_StateChangeAllBackends(t *testing.T) {
+	post := func(ts *httptest.Server, using []string, methodCalls []any) map[string]any {
+		reqPayload := map[string]any{"using": using, "methodCalls": methodCalls}
+		body, _ := json.Marshal(reqPayload)
+		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST /jmap failed: %v", err)
+		}
+		defer resp.Body.Close()
+		var jr jmap.Response
+		if err := json.NewDecoder(resp.Body).Decode(&jr); err != nil {
+			t.Fatalf("Failed to decode Response: %v", err)
+		}
+		return jr.MethodResponses[0].Args
+	}
+
+	// pushState connects to /eventsource filtered by type and returns the pushed token.
+	pushState := func(ts *httptest.Server, typeName string, mutate func()) (string, error) {
+		req, err := http.NewRequest("GET", ts.URL+"/eventsource?types="+typeName+"&closeafter=state", nil)
+		if err != nil {
+			t.Fatalf("Failed to create request: %v", err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("GET /eventsource failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			mutate()
+		}()
+
+		scanner := bufio.NewScanner(resp.Body)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if !strings.HasPrefix(line, "data:") {
+				continue
+			}
+			var sc jmap.StateChange
+			if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data:")), &sc); err != nil {
+				continue
+			}
+			if token, ok := sc.Changed["primary"][typeName]; ok {
+				return token, nil
+			}
+		}
+		return "", scanner.Err()
+	}
+
+	// CalendarEvent mutation.
+	t.Run("CalendarEvent", func(t *testing.T) {
+		srv := newTestServer()
+		ts := httptest.NewServer(srv.Handler())
+		defer ts.Close()
+		token, err := pushState(ts, "CalendarEvent", func() {
+			post(ts, []string{jmap.CoreCapabilityURI, jmap.CalendarsCapabilityURI}, []any{
+				[]any{"CalendarEvent/set", map[string]any{
+					"accountId": "primary",
+					"create": map[string]any{
+						"ev1": map[string]any{"title": "Push Test", "start": "2026-08-05T10:00:00Z", "duration": "PT1H"},
+					},
+				}, "c1"},
+			})
+		})
+		if err != nil || token == "" {
+			t.Fatalf("Expected pushed CalendarEvent state token, got %q err %v", token, err)
+		}
+	})
+
+	// Card mutation.
+	t.Run("Card", func(t *testing.T) {
+		srv := newTestServer()
+		ts := httptest.NewServer(srv.Handler())
+		defer ts.Close()
+		token, err := pushState(ts, "Card", func() {
+			post(ts, []string{jmap.CoreCapabilityURI, jmap.ContactsCapabilityURI}, []any{
+				[]any{"Card/set", map[string]any{
+					"accountId": "primary",
+					"create": map[string]any{
+						"c1": map[string]any{
+							"addressBookIds": map[string]any{"ab-default": true},
+							"name":           map[string]any{"full": "Push Test"},
+						},
+					},
+				}, "c1"},
+			})
+		})
+		if err != nil || token == "" {
+			t.Fatalf("Expected pushed Card state token, got %q err %v", token, err)
+		}
+	})
+
+	// SieveScript mutation.
+	t.Run("SieveScript", func(t *testing.T) {
+		srv := newTestServer()
+		ts := httptest.NewServer(srv.Handler())
+		defer ts.Close()
+		token, err := pushState(ts, "SieveScript", func() {
+			post(ts, []string{jmap.CoreCapabilityURI, jmap.SieveCapabilityURI}, []any{
+				[]any{"SieveScript/set", map[string]any{
+					"accountId": "primary",
+					"create": map[string]any{
+						"s1": map[string]any{
+							"name":     "Push Filter",
+							"content":  `require ["fileinto"]; if header :contains "X-Spam" "Yes" { fileinto "Junk"; }`,
+							"isActive": true,
+						},
+					},
+				}, "c1"},
+			})
+		})
+		if err != nil || token == "" {
+			t.Fatalf("Expected pushed SieveScript state token, got %q err %v", token, err)
+		}
+	})
+}
 // in a push StateChange is exactly the token a subsequent */changes call returns as newState,
 // so a client can reconcile without gaps (RFC 8620 Section 7.1).
 func TestRFC8620_Section7_1_PushTokenMatchesChangesState(t *testing.T) {
