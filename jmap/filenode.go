@@ -31,6 +31,7 @@ func handleFileNodeGet(backend FileNodeBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		idsRaw, hasIDs := args["ids"].([]any)
+		props := parseProperties(args)
 
 		var list []*FileNode
 		var notFound []Id
@@ -62,7 +63,7 @@ func handleFileNodeGet(backend FileNodeBackend) MethodHandler {
 		return "FileNode/get", map[string]any{
 			"accountId": accountID,
 			"state":     state,
-			"list":      list,
+			"list":      filterList(list, props),
 			"notFound":  notFound,
 		}
 	}

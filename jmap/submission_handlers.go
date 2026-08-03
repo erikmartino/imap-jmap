@@ -10,6 +10,7 @@ func handleEmailSubmissionGet(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		idsRaw, _ := args["ids"].([]any)
+		props := parseProperties(args)
 
 		ids := make([]Id, 0, len(idsRaw))
 		for _, item := range idsRaw {
@@ -29,7 +30,7 @@ func handleEmailSubmissionGet(backend MailBackend) MethodHandler {
 		return "EmailSubmission/get", map[string]any{
 			"accountId": accountID,
 			"state":     backend.SubmissionState(ctx),
-			"list":      list,
+			"list":      filterList(list, props),
 			"notFound":  notFound,
 		}
 	}

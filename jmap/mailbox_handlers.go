@@ -10,6 +10,7 @@ func handleMailboxGet(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		idsRaw, hasIDs := args["ids"].([]any)
+		props := parseProperties(args)
 
 		var list []*Mailbox
 		var notFound []Id
@@ -37,7 +38,7 @@ func handleMailboxGet(backend MailBackend) MethodHandler {
 		return "Mailbox/get", map[string]any{
 			"accountId": accountID,
 			"state":     backend.State(ctx),
-			"list":      list,
+			"list":      filterList(list, props),
 			"notFound":  notFound,
 		}
 	}

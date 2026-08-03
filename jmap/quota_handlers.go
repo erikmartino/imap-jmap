@@ -17,6 +17,7 @@ func handleQuotaGet(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		idsRaw, hasIDs := args["ids"].([]any)
+		props := parseProperties(args)
 
 		var list []*Quota
 		var notFound []Id
@@ -44,7 +45,7 @@ func handleQuotaGet(backend MailBackend) MethodHandler {
 		return "Quota/get", map[string]any{
 			"accountId": accountID,
 			"state":     backend.QuotaState(ctx),
-			"list":      list,
+			"list":      filterList(list, props),
 			"notFound":  notFound,
 		}
 	}

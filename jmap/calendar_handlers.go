@@ -29,6 +29,7 @@ func handleCalendarGet(backend CalendarsBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		idsRaw, hasIDs := args["ids"].([]any)
+		props := parseProperties(args)
 
 		var list []*Calendar
 		var notFound []Id
@@ -56,7 +57,7 @@ func handleCalendarGet(backend CalendarsBackend) MethodHandler {
 		return "Calendar/get", map[string]any{
 			"accountId": accountID,
 			"state":     backend.CalendarState(ctx),
-			"list":      list,
+			"list":      filterList(list, props),
 			"notFound":  notFound,
 		}
 	}
@@ -163,6 +164,7 @@ func handleCalendarEventGet(backend CalendarsBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		idsRaw, hasIDs := args["ids"].([]any)
+		props := parseProperties(args)
 
 		var list []*CalendarEvent
 		var notFound []Id
@@ -190,7 +192,7 @@ func handleCalendarEventGet(backend CalendarsBackend) MethodHandler {
 		return "CalendarEvent/get", map[string]any{
 			"accountId": accountID,
 			"state":     backend.CalendarEventState(ctx),
-			"list":      list,
+			"list":      filterList(list, props),
 			"notFound":  notFound,
 		}
 	}

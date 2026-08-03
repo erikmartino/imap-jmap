@@ -34,6 +34,7 @@ func handleAddressBookGet(backend ContactsBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		idsRaw, hasIDs := args["ids"].([]any)
+		props := parseProperties(args)
 
 		var list []*AddressBook
 		var notFound []Id
@@ -61,7 +62,7 @@ func handleAddressBookGet(backend ContactsBackend) MethodHandler {
 		return "AddressBook/get", map[string]any{
 			"accountId": accountID,
 			"state":     backend.AddressBookState(ctx),
-			"list":      list,
+			"list":      filterList(list, props),
 			"notFound":  notFound,
 		}
 	}
@@ -167,6 +168,7 @@ func handleCardGet(backend ContactsBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		idsRaw, hasIDs := args["ids"].([]any)
+		props := parseProperties(args)
 
 		var list []*Card
 		var notFound []Id
@@ -194,7 +196,7 @@ func handleCardGet(backend ContactsBackend) MethodHandler {
 		return "Card/get", map[string]any{
 			"accountId": accountID,
 			"state":     backend.CardState(ctx),
-			"list":      list,
+			"list":      filterList(list, props),
 			"notFound":  notFound,
 		}
 	}

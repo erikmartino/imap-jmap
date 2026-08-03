@@ -18,6 +18,7 @@ func handleSieveScriptGet(backend SieveBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		idsRaw, hasIDs := args["ids"].([]any)
+		props := parseProperties(args)
 
 		var list []*SieveScript
 		var notFound []Id
@@ -49,7 +50,7 @@ func handleSieveScriptGet(backend SieveBackend) MethodHandler {
 		return "SieveScript/get", map[string]any{
 			"accountId": accountID,
 			"state":     state,
-			"list":      list,
+			"list":      filterList(list, props),
 			"notFound":  notFound,
 		}
 	}

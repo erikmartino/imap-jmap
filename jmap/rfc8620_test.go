@@ -784,3 +784,248 @@ func TestRFC8620_Section6_2_MayProvisions_RangeDownload(t *testing.T) {
 		t.Errorf("Expected range bytes 'Sample', got %q", string(downloaded))
 	}
 }
+
+// TestRFC8620_Section5_1_GetProperties verifies the optional "properties" argument of every
+// */get method per RFC 8620 Section 5.1: only the requested properties (plus id) are returned.
+func TestRFC8620_Section5_1_GetProperties(t *testing.T) {
+	get := func(ts *httptest.Server, using []string, method string, args map[string]any) []any {
+		callArgs := map[string]any{"accountId": "primary"}
+		for k, v := range args {
+			callArgs[k] = v
+		}
+		reqPayload := map[string]any{
+			"using": using,
+			"methodCalls": []any{
+				[]any{method, callArgs, "c1"},
+			},
+		}
+		body, _ := json.Marshal(reqPayload)
+		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST /jmap failed: %v", err)
+		}
+		defer resp.Body.Close()
+		var jr jmap.Response
+		if err := json.NewDecoder(resp.Body).Decode(&jr); err != nil {
+			t.Fatalf("Failed to decode Response: %v", err)
+		}
+		list, _ := jr.MethodResponses[0].Args["list"].([]any)
+		return list
+	}
+
+	// assertFiltered checks that each returned object has exactly id plus the requested
+	// properties, and that the requested property is absent/present as expected.
+	assertFiltered := func(t *testing.T, list []any, props ...string) map[string]any {
+		t.Helper()
+		if len(list) == 0 {
+			t.Fatalf("Expected a non-empty list")
+		}
+		obj := list[0].(map[string]any)
+		if len(obj) != len(props)+1 {
+			t.Fatalf("Expected only id plus %v in object, got keys %v", props, obj)
+		}
+		if _, ok := obj["id"]; !ok {
+			t.Fatalf("Expected id property, got %v", obj)
+		}
+		out := obj
+		return out
+	}
+
+	t.Run("Mailbox", func(t *testing.T) {
+		srv := newTestServer()
+		ts := httptest.NewServer(srv.Handler())
+		defer ts.Close()
+		list := get(ts, []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, "Mailbox/get", map[string]any{
+			"ids":        []string{"mb-inbox"},
+			"properties": []string{"name", "role"},
+		})
+		obj := assertFiltered(t, list, "name", "role")
+		if obj["name"] != "Inbox" {
+			t.Errorf("Expected name Inbox, got %v", obj["name"])
+		}
+	})
+
+	t.Run("Email", func(t *testing.T) {
+		srv := newTestServer()
+		ts := httptest.NewServer(srv.Handler())
+		defer ts.Close()
+		list := get(ts, []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, "Email/get", map[string]any{
+			"ids":        []string{"email-1"},
+			"properties": []string{"subject", "size"},
+		})
+		obj := assertFiltered(t, list, "subject", "size")
+		if obj["subject"] != "Welcome to JMAP Server" {
+			t.Errorf("Expected seeded subject, got %v", obj["subject"])
+		}
+	})
+
+	t.Run("Thread", func(t *testing.T) {
+		srv := newTestServer()
+		ts := httptest.NewServer(srv.Handler())
+		defer ts.Close()
+		list := get(ts, []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, "Thread/get", map[string]any{
+			"ids":        []string{"thread-2"},
+			"properties": []string{"emailIds"},
+		})
+		obj := assertFiltered(t, list, "emailIds")
+		emailIDs, _ := obj["emailIds"].([]any)
+		if len(emailIDs) != 1 || emailIDs[0] != "email-1" {
+			t.Errorf("Expected emailIds [email-1], got %v", obj["emailIds"])
+		}
+	})
+
+	t.Run("Quota", func(t *testing.T) {
+		srv := newTestServer()
+		ts := httptest.NewServer(srv.Handler())
+		defer ts.Close()
+		list := get(ts, []string{jmap.CoreCapabilityURI, jmap.QuotaCapabilityURI}, "Quota/get", map[string]any{
+			"properties": []string{"name"},
+		})
+		obj := assertFiltered(t, list, "name")
+		if _, ok := obj["used"]; ok {
+			t.Errorf("Expected used property to be filtered out, got %v", obj)
+		}
+	})
+
+	t.Run("Calendar", func(t *testing.T) {
+		srv := newTestServer()
+		ts := httptest.NewServer(srv.Handler())
+		defer ts.Close()
+		list := get(ts, []string{jmap.CoreCapabilityURI, jmap.CalendarsCapabilityURI}, "Calendar/get", map[string]any{
+			"ids":        []string{"cal-default"},
+			"properties": []string{"name"},
+		})
+		obj := assertFiltered(t, list, "name")
+		if obj["name"] != "Personal Calendar" {
+			t.Errorf("Expected default calendar name, got %v", obj["name"])
+		}
+	})
+
+	t.Run("CalendarEvent", func(t *testing.T) {
+		srv := newTestServer()
+		ts := httptest.NewServer(srv.Handler())
+		defer ts.Close()
+		// Create an event first so there is something to fetch.
+		reqPayload := map[string]any{
+			"using": []string{jmap.CoreCapabilityURI, jmap.CalendarsCapabilityURI},
+			"methodCalls": []any{
+				[]any{"CalendarEvent/set", map[string]any{
+					"accountId": "primary",
+					"create": map[string]any{
+						"ev1": map[string]any{"title": "Partial Fetch", "start": "2026-08-05T10:00:00Z", "duration": "PT1H"},
+					},
+				}, "c1"},
+			},
+		}
+		body, _ := json.Marshal(reqPayload)
+		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST /jmap failed: %v", err)
+		}
+		var jr jmap.Response
+		json.NewDecoder(resp.Body).Decode(&jr)
+		resp.Body.Close()
+		evID := jr.MethodResponses[0].Args["created"].(map[string]any)["ev1"].(map[string]any)["id"].(string)
+
+		list := get(ts, []string{jmap.CoreCapabilityURI, jmap.CalendarsCapabilityURI}, "CalendarEvent/get", map[string]any{
+			"ids":        []string{evID},
+			"properties": []string{"title", "start"},
+		})
+		obj := assertFiltered(t, list, "title", "start")
+		if obj["title"] != "Partial Fetch" {
+			t.Errorf("Expected event title, got %v", obj["title"])
+		}
+	})
+
+	t.Run("AddressBook", func(t *testing.T) {
+		srv := newTestServer()
+		ts := httptest.NewServer(srv.Handler())
+		defer ts.Close()
+		list := get(ts, []string{jmap.CoreCapabilityURI, jmap.ContactsCapabilityURI}, "AddressBook/get", map[string]any{
+			"ids":        []string{"ab-default"},
+			"properties": []string{"name"},
+		})
+		obj := assertFiltered(t, list, "name")
+		if obj["name"] != "Personal Contacts" {
+			t.Errorf("Expected default address book name, got %v", obj["name"])
+		}
+	})
+
+	t.Run("Card", func(t *testing.T) {
+		srv := newTestServer()
+		ts := httptest.NewServer(srv.Handler())
+		defer ts.Close()
+		// Create a card, then fetch only its kind property.
+		reqPayload := map[string]any{
+			"using": []string{jmap.CoreCapabilityURI, jmap.ContactsCapabilityURI},
+			"methodCalls": []any{
+				[]any{"Card/set", map[string]any{
+					"accountId": "primary",
+					"create": map[string]any{
+						"c1": map[string]any{
+							"addressBookIds": map[string]any{"ab-default": true},
+							"name":           map[string]any{"full": "Partial Card"},
+						},
+					},
+				}, "c1"},
+			},
+		}
+		body, _ := json.Marshal(reqPayload)
+		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST /jmap failed: %v", err)
+		}
+		var jr jmap.Response
+		json.NewDecoder(resp.Body).Decode(&jr)
+		resp.Body.Close()
+		cardID := jr.MethodResponses[0].Args["created"].(map[string]any)["c1"].(map[string]any)["id"].(string)
+
+		list := get(ts, []string{jmap.CoreCapabilityURI, jmap.ContactsCapabilityURI}, "Card/get", map[string]any{
+			"ids":        []string{cardID},
+			"properties": []string{"name"},
+		})
+		obj := assertFiltered(t, list, "name")
+		if _, ok := obj["name"]; !ok {
+			t.Errorf("Expected name property in response, got %v", obj)
+		}
+	})
+
+	t.Run("SieveScript", func(t *testing.T) {
+		srv := newTestServer()
+		ts := httptest.NewServer(srv.Handler())
+		defer ts.Close()
+		reqPayload := map[string]any{
+			"using": []string{jmap.CoreCapabilityURI, jmap.SieveCapabilityURI},
+			"methodCalls": []any{
+				[]any{"SieveScript/set", map[string]any{
+					"accountId": "primary",
+					"create": map[string]any{
+						"s1": map[string]any{
+							"name":     "Partial",
+							"content":  `require ["fileinto"]; if header :contains "X-Spam" "Yes" { fileinto "Junk"; }`,
+							"isActive": true,
+						},
+					},
+				}, "c1"},
+			},
+		}
+		body, _ := json.Marshal(reqPayload)
+		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST /jmap failed: %v", err)
+		}
+		var jr jmap.Response
+		json.NewDecoder(resp.Body).Decode(&jr)
+		resp.Body.Close()
+		scriptID := jr.MethodResponses[0].Args["created"].(map[string]any)["s1"].(map[string]any)["id"].(string)
+
+		list := get(ts, []string{jmap.CoreCapabilityURI, jmap.SieveCapabilityURI}, "SieveScript/get", map[string]any{
+			"ids":        []string{scriptID},
+			"properties": []string{"name", "isActive"},
+		})
+		obj := assertFiltered(t, list, "name", "isActive")
+		if obj["name"] != "Partial" {
+			t.Errorf("Expected script name Partial, got %v", obj["name"])
+		}
+	})
+}
