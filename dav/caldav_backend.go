@@ -2,11 +2,12 @@ package dav
 
 import (
 	"context"
-	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
 	"github.com/emersion/go-ical"
+	"github.com/emersion/go-webdav"
 	"github.com/emersion/go-webdav/caldav"
 
 	"imap-jmap/jmap"
@@ -94,6 +95,15 @@ func (b *CalDAVBackend) CreateCalendar(ctx context.Context, cal *caldav.Calendar
 }
 
 func (b *CalDAVBackend) DeleteCalendar(ctx context.Context, path string) error {
+	if b.Backend == nil {
+		return nil
+	}
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) > 0 {
+		calID := parts[len(parts)-1]
+		_, err := b.Backend.DeleteCalendar(ctx, jmap.Id(calID))
+		return err
+	}
 	return nil
 }
 
@@ -139,20 +149,39 @@ func (b *CalDAVBackend) GetCalendarObject(ctx context.Context, path string, req 
 			return &obj, nil
 		}
 	}
-	return nil, fmt.Errorf("calendar object not found: %s", path)
+	return nil, webdav.NewHTTPError(http.StatusNotFound, nil)
 }
 
 func (b *CalDAVBackend) PutCalendarObject(ctx context.Context, path string, cal *ical.Calendar, opts *caldav.PutCalendarObjectOptions) (*caldav.CalendarObject, error) {
 	if b.Backend != nil && cal != nil {
-		var sb strings.Builder
-		enc := ical.NewEncoder(&sb)
-		if err := enc.Encode(cal); err == nil {
-			msg, err := jmap.ParseITIPMessage(sb.String())
-			if err == nil && msg != nil {
+		for _, comp := range cal.Children {
+			if comp.Name == "VEVENT" {
+				uidProp := comp.Props.Get("UID")
+				summaryProp := comp.Props.Get("SUMMARY")
+				dtstartProp := comp.Props.Get("DTSTART")
+
+				uidStr := ""
+				if uidProp != nil {
+					uidStr = uidProp.Value
+				} else {
+					parts := strings.Split(strings.Trim(path, "/"), "/")
+					if len(parts) > 0 {
+						uidStr = strings.TrimSuffix(parts[len(parts)-1], ".ics")
+					}
+				}
+				summaryStr := ""
+				if summaryProp != nil {
+					summaryStr = summaryProp.Value
+				}
+				startStr := ""
+				if dtstartProp != nil {
+					startStr = dtstartProp.Value
+				}
+
 				ev := &jmap.CalendarEvent{
-					ID:    jmap.Id(msg.UID),
-					Title: msg.Summary,
-					Start: msg.Start,
+					ID:    jmap.Id(uidStr),
+					Title: summaryStr,
+					Start: startStr,
 				}
 				_, _ = b.Backend.CreateCalendarEvent(ctx, ev)
 			}
@@ -169,5 +198,15 @@ func (b *CalDAVBackend) QueryCalendarObjects(ctx context.Context, path string, q
 }
 
 func (b *CalDAVBackend) DeleteCalendarObject(ctx context.Context, path string) error {
+	if b.Backend == nil {
+		return nil
+	}
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) > 0 {
+		filename := parts[len(parts)-1]
+		evID := strings.TrimSuffix(filename, ".ics")
+		_, err := b.Backend.DeleteCalendarEvent(ctx, jmap.Id(evID))
+		return err
+	}
 	return nil
 }

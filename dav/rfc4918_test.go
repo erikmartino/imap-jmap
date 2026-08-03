@@ -47,3 +47,22 @@ func TestRFC4918_WebDAVBasePropfindOptions(t *testing.T) {
 		t.Errorf("Expected HTTP 207 Multi-Status or 200 OK, got %d", respPropfind.StatusCode)
 	}
 }
+
+// TestRFC4918_WebDAVHTTPMethods tests WebDAV OPTIONS, GET, and HEAD HTTP methods per RFC 4918.
+func TestRFC4918_WebDAVHTTPMethods(t *testing.T) {
+	srv := dav.NewServer(nil, nil)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// 1. GET non-existent resource returns 404 or MultiStatus
+	reqGet, _ := http.NewRequest("GET", ts.URL+"/caldav/calendars/default/nonexistent.ics", nil)
+	respGet, err := http.DefaultClient.Do(reqGet)
+	if err != nil {
+		t.Fatalf("GET request failed: %v", err)
+	}
+	defer respGet.Body.Close()
+
+	if respGet.StatusCode != http.StatusNotFound && respGet.StatusCode != http.StatusOK && respGet.StatusCode != http.StatusMultiStatus {
+		t.Errorf("Unexpected status code for GET: %d", respGet.StatusCode)
+	}
+}

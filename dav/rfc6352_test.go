@@ -45,3 +45,46 @@ func TestRFC6352_CardDAVPropfind(t *testing.T) {
 		t.Errorf("Expected 207 Multi-Status or 200 OK, got %d", resp.StatusCode)
 	}
 }
+
+// TestRFC6352_CardDAVPutAndGet tests CardDAV PUT and GET for vCard objects per RFC 6352.
+func TestRFC6352_CardDAVPutAndGet(t *testing.T) {
+	contactsBackend := memory.NewMemoryContactsBackend()
+	srv := dav.NewServer(nil, contactsBackend)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	vcardData := "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Alice Morgan\r\nEMAIL:alice.m@example.com\r\nTEL:+15559876543\r\nEND:VCARD\r\n"
+
+	// 1. PUT vCard object
+	reqPut, _ := http.NewRequest("PUT", ts.URL+"/carddav/addressbooks/default/alice.vcf", strings.NewReader(vcardData))
+	reqPut.Header.Set("Content-Type", "text/vcard")
+	respPut, err := http.DefaultClient.Do(reqPut)
+	if err != nil {
+		t.Fatalf("PUT /carddav/ vcard failed: %v", err)
+	}
+	defer respPut.Body.Close()
+
+	if respPut.StatusCode != http.StatusOK && respPut.StatusCode != http.StatusCreated && respPut.StatusCode != http.StatusNoContent {
+		t.Errorf("Expected 200/201/204 on PUT, got %d", respPut.StatusCode)
+	}
+
+	// 2. Verify contact card in ContactsBackend
+	cards, _, err := contactsBackend.GetCards(context.Background(), nil)
+	if err != nil || len(cards) == 0 {
+		t.Fatalf("Expected card to be created in ContactsBackend, got 0 cards")
+	}
+
+	found := false
+	for _, c := range cards {
+		if c.Name != nil && c.Name.Full == "Alice Morgan" {
+			found = true
+			if e1, ok := c.Emails["e1"]; !ok || e1.Address != "alice.m@example.com" {
+				t.Errorf("Expected email 'alice.m@example.com', got %v", c.Emails)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Expected card with FN 'Alice Morgan'")
+	}
+}

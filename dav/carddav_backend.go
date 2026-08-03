@@ -2,11 +2,12 @@ package dav
 
 import (
 	"context"
-	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
 	"github.com/emersion/go-vcard"
+	"github.com/emersion/go-webdav"
 	"github.com/emersion/go-webdav/carddav"
 
 	"imap-jmap/jmap"
@@ -94,6 +95,15 @@ func (b *CardDAVBackend) CreateAddressBook(ctx context.Context, ab *carddav.Addr
 }
 
 func (b *CardDAVBackend) DeleteAddressBook(ctx context.Context, path string) error {
+	if b.Backend == nil {
+		return nil
+	}
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) > 0 {
+		abID := parts[len(parts)-1]
+		_, err := b.Backend.DeleteAddressBook(ctx, jmap.Id(abID))
+		return err
+	}
 	return nil
 }
 
@@ -118,6 +128,13 @@ func (b *CardDAVBackend) ListAddressObjects(ctx context.Context, path string, re
 		vcardObj.SetValue(vcard.FieldFormattedName, name)
 		vcardObj.SetValue(vcard.FieldVersion, "4.0")
 
+		for _, em := range card.Emails {
+			vcardObj.AddValue(vcard.FieldEmail, em.Address)
+		}
+		for _, ph := range card.Phones {
+			vcardObj.AddValue(vcard.FieldTelephone, ph.Number)
+		}
+
 		list = append(list, carddav.AddressObject{
 			Path:    path + "/" + string(card.ID) + ".vcf",
 			Card:    vcardObj,
@@ -138,14 +155,23 @@ func (b *CardDAVBackend) GetAddressObject(ctx context.Context, path string, req 
 			return &obj, nil
 		}
 	}
-	return nil, fmt.Errorf("address object not found: %s", path)
+	return nil, webdav.NewHTTPError(http.StatusNotFound, nil)
 }
 
 func (b *CardDAVBackend) PutAddressObject(ctx context.Context, path string, card vcard.Card, opts *carddav.PutAddressObjectOptions) (*carddav.AddressObject, error) {
 	if b.Backend != nil && card != nil {
 		fn := card.Value(vcard.FieldFormattedName)
+		email := card.Value(vcard.FieldEmail)
+		phone := card.Value(vcard.FieldTelephone)
+
 		jCard := &jmap.Card{
 			Name: &jmap.JSContactName{Full: fn},
+		}
+		if email != "" {
+			jCard.Emails = map[string]*jmap.JSContactEmailAddress{"e1": {Address: email}}
+		}
+		if phone != "" {
+			jCard.Phones = map[string]*jmap.JSContactPhone{"p1": {Number: phone}}
 		}
 		_, _ = b.Backend.CreateCard(ctx, jCard)
 	}
@@ -160,5 +186,15 @@ func (b *CardDAVBackend) QueryAddressObjects(ctx context.Context, path string, q
 }
 
 func (b *CardDAVBackend) DeleteAddressObject(ctx context.Context, path string) error {
+	if b.Backend == nil {
+		return nil
+	}
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) > 0 {
+		filename := parts[len(parts)-1]
+		cardID := strings.TrimSuffix(filename, ".vcf")
+		_, err := b.Backend.DeleteCard(ctx, jmap.Id(cardID))
+		return err
+	}
 	return nil
 }
