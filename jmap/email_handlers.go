@@ -372,7 +372,7 @@ func handleEmailQuery(backend MailBackend) MethodHandler {
 		calcTotal, _ := args["calculateTotal"].(bool)
 		res := map[string]any{
 			"accountId":           accountID,
-			"queryState":          backend.State(ctx),
+			"queryState":          backend.EmailState(ctx),
 			"canCalculateChanges": true,
 			"position":            position,
 			"ids":                 ids,
@@ -392,7 +392,7 @@ func handleEmailQueryChanges(backend MailBackend) MethodHandler {
 		res := map[string]any{
 			"accountId":     accountID,
 			"oldQueryState": args["sinceQueryState"],
-			"newQueryState": backend.State(ctx),
+			"newQueryState": backend.EmailState(ctx),
 			"added":         []any{},
 			"removed":       []Id{},
 		}

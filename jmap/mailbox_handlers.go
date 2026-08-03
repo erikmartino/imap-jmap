@@ -236,7 +236,7 @@ func handleMailboxQueryChanges(backend MailBackend) MethodHandler {
 		return "Mailbox/queryChanges", map[string]any{
 			"accountId":     accountID,
 			"oldQueryState": args["sinceQueryState"],
-			"newQueryState": backend.State(ctx),
+			"newQueryState": backend.MailboxState(ctx),
 			"added":         []any{},
 			"removed":       []Id{},
 		}

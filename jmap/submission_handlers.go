@@ -106,14 +106,24 @@ func handleEmailSubmissionSet(backend MailBackend) MethodHandler {
 func handleEmailSubmissionQuery(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
-		return "EmailSubmission/query", map[string]any{
+
+		position := 0
+		if posVal, ok := args["position"].(float64); ok {
+			position = int(posVal)
+		}
+
+		res := map[string]any{
 			"accountId":           accountID,
-			"queryState":          backend.State(ctx),
+			"queryState":          backend.SubmissionState(ctx),
 			"canCalculateChanges": true,
-			"position":            0,
+			"position":            position,
 			"ids":                 []Id{},
 			"total":               0,
 		}
+		if calcTotal, _ := args["calculateTotal"].(bool); calcTotal {
+			res["calculateTotal"] = true
+		}
+		return "EmailSubmission/query", res
 	}
 }
 
@@ -123,7 +133,7 @@ func handleEmailSubmissionQueryChanges(backend MailBackend) MethodHandler {
 		return "EmailSubmission/queryChanges", map[string]any{
 			"accountId":     accountID,
 			"oldQueryState": args["sinceQueryState"],
-			"newQueryState": backend.State(ctx),
+			"newQueryState": backend.SubmissionState(ctx),
 			"added":         []any{},
 			"removed":       []Id{},
 		}

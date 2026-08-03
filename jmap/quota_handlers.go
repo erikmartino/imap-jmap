@@ -84,18 +84,41 @@ func handleQuotaQuery(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		all, _ := backend.GetAllQuotas(ctx)
-		ids := make([]Id, len(all))
-		for i, q := range all {
-			ids[i] = q.ID
+
+		position := 0
+		if posVal, ok := args["position"].(float64); ok {
+			position = int(posVal)
 		}
-		return "Quota/query", map[string]any{
+
+		total := len(all)
+		var pagedIDs []Id
+		if position < total {
+			end := total
+			if limVal, ok := args["limit"].(float64); ok && limVal > 0 {
+				if position+int(limVal) < end {
+					end = position + int(limVal)
+				}
+			}
+			for i := position; i < end; i++ {
+				pagedIDs = append(pagedIDs, all[i].ID)
+			}
+		}
+		if pagedIDs == nil {
+			pagedIDs = []Id{}
+		}
+
+		res := map[string]any{
 			"accountId":           accountID,
-			"queryState":          backend.State(ctx),
+			"queryState":          backend.QuotaState(ctx),
 			"canCalculateChanges": true,
-			"position":            0,
-			"ids":                 ids,
-			"total":               len(ids),
+			"position":            position,
+			"ids":                 pagedIDs,
+			"total":               total,
 		}
+		if calcTotal, _ := args["calculateTotal"].(bool); calcTotal {
+			res["calculateTotal"] = true
+		}
+		return "Quota/query", res
 	}
 }
 
@@ -106,7 +129,7 @@ func handleQuotaQueryChanges(backend MailBackend) MethodHandler {
 		return "Quota/queryChanges", map[string]any{
 			"accountId":     accountID,
 			"oldQueryState": args["sinceQueryState"],
-			"newQueryState": backend.State(ctx),
+			"newQueryState": backend.QuotaState(ctx),
 			"added":         []any{},
 			"removed":       []Id{},
 		}

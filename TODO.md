@@ -24,7 +24,7 @@ ContactCard/* canonical naming, Identity/set, Mailbox/set update.
 - [x] SieveScript activation semantics (`isActive`, `onSuccess(De)ActivateScript`, RFC 9661 §3.3).
 
 ## DAV (dav/)
-- [ ] CalDAV/CardDAV PUT drops most iCal/vCard properties; queries ignore filters.
+- [x] CalDAV/CardDAV PUT drops most iCal/vCard properties; queries ignore filters.
 - [ ] No sync-token / getctag / getetag stability (breaks client sync).
 - [ ] RFC 6638 scheduling (Inbox/Outbox, auto-iTIP on PUT) absent.
 

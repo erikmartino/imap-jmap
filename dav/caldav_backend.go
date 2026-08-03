@@ -159,6 +159,9 @@ func (b *CalDAVBackend) PutCalendarObject(ctx context.Context, path string, cal 
 				uidProp := comp.Props.Get("UID")
 				summaryProp := comp.Props.Get("SUMMARY")
 				dtstartProp := comp.Props.Get("DTSTART")
+				locationProp := comp.Props.Get("LOCATION")
+				descriptionProp := comp.Props.Get("DESCRIPTION")
+				durationProp := comp.Props.Get("DURATION")
 
 				uidStr := ""
 				if uidProp != nil {
@@ -183,6 +186,16 @@ func (b *CalDAVBackend) PutCalendarObject(ctx context.Context, path string, cal 
 					Title: summaryStr,
 					Start: startStr,
 				}
+				if locationProp != nil {
+					ev.Location = &jmap.JSCalendarLocation{Name: locationProp.Value}
+				}
+				if descriptionProp != nil {
+					ev.Description = descriptionProp.Value
+				}
+				if durationProp != nil {
+					ev.Duration = durationProp.Value
+				}
+
 				_, _ = b.Backend.CreateCalendarEvent(ctx, ev)
 			}
 		}

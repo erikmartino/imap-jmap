@@ -167,6 +167,12 @@ func (b *CardDAVBackend) PutAddressObject(ctx context.Context, path string, card
 		jCard := &jmap.Card{
 			Name: &jmap.JSContactName{Full: fn},
 		}
+		if nick := card.Value(vcard.FieldNickname); nick != "" {
+			jCard.Nicknames = map[string]*jmap.JSContactNickname{"n1": {Name: nick}}
+		}
+		if org := card.Value(vcard.FieldOrganization); org != "" {
+			jCard.Organizations = map[string]*jmap.JSContactOrganization{"o1": {Name: org}}
+		}
 		if email != "" {
 			jCard.Emails = map[string]*jmap.JSContactEmailAddress{"e1": {Address: email}}
 		}
