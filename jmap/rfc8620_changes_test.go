@@ -138,3 +138,44 @@ func TestRFC8984_CalendarStateAdvance(t *testing.T) {
 		t.Errorf("Calendar/set oldState must differ from newState, both %q", newState)
 	}
 }
+
+// TestRFC8620_IfInStateMismatch verifies RFC 8620 Section 5.3 stateMismatch error when ifInState does not match current state.
+func TestRFC8620_IfInStateMismatch(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	reqBody := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+		"methodCalls": []any{
+			[]any{"Email/set", map[string]any{
+				"accountId": "primary",
+				"ifInState": "invalid-token",
+				"create": map[string]any{
+					"e1": map[string]any{"subject": "Should fail"},
+				},
+			}, "c1"},
+		},
+	}
+	bodyBytes, _ := json.Marshal(reqBody)
+	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
+	if err != nil {
+		t.Fatalf("POST /jmap failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var jmapResp jmap.Response
+	if err := json.NewDecoder(resp.Body).Decode(&jmapResp); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	methodResp := jmapResp.MethodResponses[0]
+	if methodResp.Name != "error" {
+		t.Fatalf("Expected error method response, got %q", methodResp.Name)
+	}
+	errType, _ := methodResp.Args["type"].(string)
+	if errType != "stateMismatch" {
+		t.Errorf("Expected error type 'stateMismatch', got %q", errType)
+	}
+}
+

@@ -117,6 +117,10 @@ func handleFileNodeSet(backend FileNodeBackend) MethodHandler {
 			newState = oldState
 		}
 
+		if ifInState, ok := args["ifInState"].(string); ok && ifInState != "" && ifInState != oldState {
+			return "error", MethodErrorArgs("stateMismatch", "state mismatch")
+		}
+
 		created := make(map[string]*FileNode)
 		updated := make(map[string]any)
 		destroyed := make([]Id, 0)

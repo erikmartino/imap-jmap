@@ -15,6 +15,8 @@ type MailBackend interface {
 	State(ctx context.Context) string
 
 	// Mailboxes (RFC 8621 Section 2)
+	MailboxState(ctx context.Context) string
+	MailboxChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
 	GetMailboxes(ctx context.Context, ids []Id) (list []*Mailbox, notFound []Id, err error)
 	GetAllMailboxes(ctx context.Context) ([]*Mailbox, error)
 	CreateMailbox(ctx context.Context, mb *Mailbox) (*Mailbox, error)
@@ -22,9 +24,13 @@ type MailBackend interface {
 	DeleteMailbox(ctx context.Context, id Id) (bool, error)
 
 	// Threads (RFC 8621 Section 3)
+	ThreadState(ctx context.Context) string
+	ThreadChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
 	GetThreads(ctx context.Context, ids []Id) (list []*Thread, notFound []Id, err error)
 
 	// Emails (RFC 8621 Section 4)
+	EmailState(ctx context.Context) string
+	EmailChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
 	GetEmails(ctx context.Context, ids []Id) (list []*Email, notFound []Id, err error)
 	GetAllEmails(ctx context.Context) ([]*Email, error)
 	CreateEmail(ctx context.Context, em *Email) (*Email, error)
@@ -36,16 +42,22 @@ type MailBackend interface {
 	VerifySmime(ctx context.Context, ids []Id) (verified map[Id]*SmimeVerificationResult, notFound []Id, err error)
 
 	// Quotas (RFC 9425 Section 4)
+	QuotaState(ctx context.Context) string
+	QuotaChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
 	GetQuotas(ctx context.Context, ids []Id) (list []*Quota, notFound []Id, err error)
 	GetAllQuotas(ctx context.Context) ([]*Quota, error)
 
 	// Identities (RFC 8621 Section 6)
+	IdentityState(ctx context.Context) string
+	IdentityChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
 	GetIdentities(ctx context.Context) ([]*Identity, error)
 	CreateIdentity(ctx context.Context, identity *Identity) (*Identity, error)
 	UpdateIdentity(ctx context.Context, id Id, patch map[string]any) (*Identity, error)
 	DeleteIdentity(ctx context.Context, id Id) (bool, error)
 
 	// Submissions (RFC 8621 Section 7)
+	SubmissionState(ctx context.Context) string
+	SubmissionChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
 	CreateSubmission(ctx context.Context, sub *EmailSubmission) (*EmailSubmission, error)
 	GetSubmissions(ctx context.Context, ids []Id) (list []*EmailSubmission, notFound []Id, err error)
 

@@ -43,7 +43,7 @@ func handleQuotaGet(backend MailBackend) MethodHandler {
 
 		return "Quota/get", map[string]any{
 			"accountId": accountID,
-			"state":     backend.State(ctx),
+			"state":     backend.QuotaState(ctx),
 			"list":      list,
 			"notFound":  notFound,
 		}
@@ -54,14 +54,27 @@ func handleQuotaGet(backend MailBackend) MethodHandler {
 func handleQuotaChanges(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
+		sinceState, _ := args["sinceState"].(string)
+
+		created, updated, destroyed, newState, hasMore := backend.QuotaChanges(ctx, sinceState)
+		if created == nil {
+			created = []Id{}
+		}
+		if updated == nil {
+			updated = []Id{}
+		}
+		if destroyed == nil {
+			destroyed = []Id{}
+		}
+
 		return "Quota/changes", map[string]any{
 			"accountId":      accountID,
-			"oldState":       args["sinceState"],
-			"newState":       backend.State(ctx),
-			"hasMoreChanges": false,
-			"created":        []Id{},
-			"updated":        []Id{},
-			"destroyed":      []Id{},
+			"oldState":       sinceState,
+			"newState":       newState,
+			"hasMoreChanges": hasMore,
+			"created":        created,
+			"updated":        updated,
+			"destroyed":      destroyed,
 		}
 	}
 }

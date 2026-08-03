@@ -46,15 +46,27 @@ func handleMailboxGet(backend MailBackend) MethodHandler {
 func handleMailboxChanges(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
+		sinceState, _ := args["sinceState"].(string)
+
+		created, updated, destroyed, newState, hasMore := backend.MailboxChanges(ctx, sinceState)
+		if created == nil {
+			created = []Id{}
+		}
+		if updated == nil {
+			updated = []Id{}
+		}
+		if destroyed == nil {
+			destroyed = []Id{}
+		}
+
 		return "Mailbox/changes", map[string]any{
-			"accountId":         accountID,
-			"oldState":          args["sinceState"],
-			"newState":          backend.State(ctx),
-			"hasMoreChanges":    false,
-			"created":           []Id{},
-			"updated":           []Id{},
-			"destroyed":         []Id{},
-			"updatedProperties": []string{},
+			"accountId":      accountID,
+			"oldState":       sinceState,
+			"newState":       newState,
+			"hasMoreChanges": hasMore,
+			"created":        created,
+			"updated":        updated,
+			"destroyed":      destroyed,
 		}
 	}
 }
@@ -62,7 +74,11 @@ func handleMailboxChanges(backend MailBackend) MethodHandler {
 func handleMailboxSet(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
-		oldState := backend.State(ctx)
+		oldState := backend.MailboxState(ctx)
+
+		if ifInState, ok := args["ifInState"].(string); ok && ifInState != "" && ifInState != oldState {
+			return "error", MethodErrorArgs("stateMismatch", "state mismatch")
+		}
 		created := make(map[string]*Mailbox)
 		updated := make(map[string]any)
 		destroyed := []Id{}
@@ -135,7 +151,7 @@ func handleMailboxSet(backend MailBackend) MethodHandler {
 		return "Mailbox/set", map[string]any{
 			"accountId":    accountID,
 			"oldState":     oldState,
-			"newState":     backend.State(ctx),
+			"newState":     backend.MailboxState(ctx),
 			"created":      created,
 			"updated":      updated,
 			"destroyed":    destroyed,
@@ -150,18 +166,67 @@ func handleMailboxQuery(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		all, _ := backend.GetAllMailboxes(ctx)
-		ids := make([]Id, len(all))
-		for i, mb := range all {
-			ids[i] = mb.ID
+
+		filter, _ := args["filter"].(map[string]any)
+		var filtered []*Mailbox
+		for _, mb := range all {
+			match := true
+			if filter != nil {
+				if roleReq, ok := filter["role"].(string); ok {
+					if mb.Role == nil || *mb.Role != roleReq {
+						match = false
+					}
+				}
+				if parentReq, ok := filter["parentId"].(string); ok {
+					if mb.ParentID == nil || string(*mb.ParentID) != parentReq {
+						match = false
+					}
+				}
+				if nameReq, ok := filter["name"].(string); ok {
+					if mb.Name != nameReq {
+						match = false
+					}
+				}
+			}
+			if match {
+				filtered = append(filtered, mb)
+			}
 		}
-		return "Mailbox/query", map[string]any{
+
+		position := 0
+		if posVal, ok := args["position"].(float64); ok {
+			position = int(posVal)
+		}
+
+		total := len(filtered)
+		var pagedIDs []Id
+		if position < total {
+			end := total
+			if limVal, ok := args["limit"].(float64); ok && limVal > 0 {
+				if position+int(limVal) < end {
+					end = position + int(limVal)
+				}
+			}
+			for i := position; i < end; i++ {
+				pagedIDs = append(pagedIDs, filtered[i].ID)
+			}
+		}
+		if pagedIDs == nil {
+			pagedIDs = []Id{}
+		}
+
+		res := map[string]any{
 			"accountId":           accountID,
-			"queryState":          backend.State(ctx),
+			"queryState":          backend.MailboxState(ctx),
 			"canCalculateChanges": true,
-			"position":            0,
-			"ids":                 ids,
-			"total":               len(ids),
+			"position":            position,
+			"ids":                 pagedIDs,
+			"total":               total,
 		}
+		if calcTotal, _ := args["calculateTotal"].(bool); calcTotal {
+			res["calculateTotal"] = true
+		}
+		return "Mailbox/query", res
 	}
 }
 

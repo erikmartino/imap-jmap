@@ -97,6 +97,10 @@ func handleSieveScriptSet(backend SieveBackend) MethodHandler {
 			oldState = backend.SieveScriptState(ctx)
 		}
 
+		if ifInState, ok := args["ifInState"].(string); ok && ifInState != "" && ifInState != oldState {
+			return "error", MethodErrorArgs("stateMismatch", "state mismatch")
+		}
+
 		created := make(map[string]*SieveScript)
 		updated := make(map[string]map[string]any)
 		destroyed := make([]Id, 0)

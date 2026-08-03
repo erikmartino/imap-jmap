@@ -1,8 +1,11 @@
 package jmap
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"net/http"
+	"time"
 )
 
 // handlePushSubscriptionGet processes PushSubscription/get per RFC 8620 Section 7.2.1.
@@ -87,6 +90,26 @@ func handlePushSubscriptionSet(backend MailBackend) MethodHandler {
 					notCreated[clientKey] = map[string]any{"type": "serverFail", "description": err.Error()}
 				} else {
 					created[clientKey] = created_
+
+					// Asynchronously post PushVerification payload to client URL per RFC 8620 §7.2.2
+					if created_.URL != "" && created_.VerificationCode != nil {
+						go func(targetURL, pushSubID, verifyCode string) {
+							verificationPayload, _ := json.Marshal(map[string]any{
+								"@type":            "PushVerification",
+								"pushSubscriptionId": pushSubID,
+								"verificationCode":   verifyCode,
+							})
+							req, err := http.NewRequest("POST", targetURL, bytes.NewReader(verificationPayload))
+							if err == nil {
+								req.Header.Set("Content-Type", "application/json")
+								client := &http.Client{Timeout: 5 * time.Second}
+								resp, err := client.Do(req)
+								if err == nil {
+									resp.Body.Close()
+								}
+							}
+						}(created_.URL, string(created_.ID), *created_.VerificationCode)
+					}
 				}
 			}
 		}

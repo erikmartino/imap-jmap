@@ -80,6 +80,10 @@ func handleIMAPAccountSet(backend IMAPAccessBackend) MethodHandler {
 		accountID, _ := args["accountId"].(string)
 		oldState := backend.State(ctx)
 
+		if ifInState, ok := args["ifInState"].(string); ok && ifInState != "" && ifInState != oldState {
+			return "error", MethodErrorArgs("stateMismatch", "state mismatch")
+		}
+
 		created := make(map[string]*IMAPAccount)
 		notCreated := make(map[string]SetError)
 		updated := make(map[string]any)

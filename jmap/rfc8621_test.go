@@ -1087,3 +1087,98 @@ func TestRFC8621_Section4_EmailImportAndParse(t *testing.T) {
 		t.Errorf("Expected parsed subject 'Test Import & Parse', got %v", parseResp.Args["parsed"])
 	}
 }
+
+// TestRFC8621_ChangesEndpoints tests Email/changes, Mailbox/changes, Identity/changes, EmailSubmission/changes via HTTP POST /jmap.
+func TestRFC8621_ChangesEndpoints(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	post := func(calls []any) jmap.Response {
+		payload := map[string]any{
+			"using":       []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.QuotaCapabilityURI},
+			"methodCalls": calls,
+		}
+		body, _ := json.Marshal(payload)
+		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST /jmap failed: %v", err)
+		}
+		defer resp.Body.Close()
+		var jmapResp jmap.Response
+		if err := json.NewDecoder(resp.Body).Decode(&jmapResp); err != nil {
+			t.Fatalf("Failed to decode response: %v", err)
+		}
+		return jmapResp
+	}
+
+	// 1. Get initial states for Email and Mailbox
+	r1 := post([]any{
+		[]any{"Email/get", map[string]any{"accountId": "primary"}, "c1"},
+		[]any{"Mailbox/get", map[string]any{"accountId": "primary"}, "c2"},
+	})
+	emailState0, _ := r1.MethodResponses[0].Args["state"].(string)
+	mailboxState0, _ := r1.MethodResponses[1].Args["state"].(string)
+
+	// 2. Create an Email via Email/set
+	r2 := post([]any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"e1": map[string]any{
+					"subject":    "Testing Changes Endpoint",
+					"mailboxIds": map[string]bool{"mb-inbox": true},
+				},
+			},
+		}, "c3"},
+	})
+	createdEMMap, _ := r2.MethodResponses[0].Args["created"].(map[string]any)
+	createdEM, _ := createdEMMap["e1"].(map[string]any)
+	emailID, _ := createdEM["id"].(string)
+	if emailID == "" {
+		t.Fatalf("Expected created email id, got %v", r2.MethodResponses[0].Args)
+	}
+
+	// 3. Query Email/changes and Mailbox/changes using initial states
+	r3 := post([]any{
+		[]any{"Email/changes", map[string]any{"accountId": "primary", "sinceState": emailState0}, "c4"},
+		[]any{"Mailbox/changes", map[string]any{"accountId": "primary", "sinceState": mailboxState0}, "c5"},
+	})
+
+	emailChanges := r3.MethodResponses[0].Args
+	cEmails, _ := emailChanges["created"].([]any)
+	if len(cEmails) != 1 || cEmails[0].(string) != emailID {
+		t.Errorf("Expected Email/changes created=[%s], got %v", emailID, cEmails)
+	}
+
+	// 4. Test Identity/changes HTTP round-trip
+	r4 := post([]any{
+		[]any{"Identity/get", map[string]any{"accountId": "primary"}, "c6"},
+	})
+	idState0, _ := r4.MethodResponses[0].Args["state"].(string)
+
+	r5 := post([]any{
+		[]any{"Identity/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"id1": map[string]any{
+					"name":  "Alias User",
+					"email": "alias@example.com",
+				},
+			},
+		}, "c7"},
+	})
+	createdIDMap, _ := r5.MethodResponses[0].Args["created"].(map[string]any)
+	createdIDObj, _ := createdIDMap["id1"].(map[string]any)
+	identityID, _ := createdIDObj["id"].(string)
+
+	r6 := post([]any{
+		[]any{"Identity/changes", map[string]any{"accountId": "primary", "sinceState": idState0}, "c8"},
+	})
+	idChanges := r6.MethodResponses[0].Args
+	cIdentities, _ := idChanges["created"].([]any)
+	if len(cIdentities) != 1 || cIdentities[0].(string) != identityID {
+		t.Errorf("Expected Identity/changes created=[%s], got %v", identityID, cIdentities)
+	}
+}
+

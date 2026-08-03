@@ -23,6 +23,13 @@ type MemoryBackend struct {
 	broadcaster       *jmap.Broadcaster
 	idCounter         uint64
 	state             string
+
+	mailboxState    *changeTracker
+	threadState     *changeTracker
+	emailState      *changeTracker
+	identityState   *changeTracker
+	submissionState *changeTracker
+	quotaState      *changeTracker
 }
 
 // Ensure MemoryBackend implements jmap.MailBackend interface.
@@ -46,6 +53,13 @@ func NewMemoryBackend() *MemoryBackend {
 		submissions:       make(map[jmap.Id]*jmap.EmailSubmission),
 		pushSubscriptions: make(map[jmap.Id]*jmap.PushSubscription),
 		state:             "m1",
+
+		mailboxState:    newChangeTracker(1000),
+		threadState:     newChangeTracker(1000),
+		emailState:      newChangeTracker(1000),
+		identityState:   newChangeTracker(1000),
+		submissionState: newChangeTracker(1000),
+		quotaState:      newChangeTracker(1000),
 	}
 
 	// Create default Quotas per RFC 9425
@@ -291,6 +305,15 @@ func (mb *MemoryBackend) nextID(prefix string) jmap.Id {
 	return jmap.Id(fmt.Sprintf("%s-%d", prefix, mb.idCounter))
 }
 
+func (mb *MemoryBackend) recordChange(tracker *changeTracker, id jmap.Id, action string, typeName string) string {
+	newState := tracker.record(id, action)
+	mb.state = newState
+	if mb.broadcaster != nil {
+		mb.broadcaster.PublishStateChange("primary", typeName, newState)
+	}
+	return newState
+}
+
 func (mb *MemoryBackend) bumpState(typeName string) {
 	mb.state = fmt.Sprintf("m%d", time.Now().UnixNano())
 	if mb.broadcaster != nil {
@@ -303,6 +326,66 @@ func (mb *MemoryBackend) State(ctx context.Context) string {
 	mb.mu.RLock()
 	defer mb.mu.RUnlock()
 	return mb.state
+}
+
+// MailboxState returns current change state token for Mailbox resources.
+func (mb *MemoryBackend) MailboxState(ctx context.Context) string {
+	return mb.mailboxState.State()
+}
+
+// MailboxChanges returns created, updated, and destroyed Mailboxes since sinceState.
+func (mb *MemoryBackend) MailboxChanges(ctx context.Context, sinceState string) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
+	return mb.mailboxState.Changes(sinceState)
+}
+
+// ThreadState returns current change state token for Thread resources.
+func (mb *MemoryBackend) ThreadState(ctx context.Context) string {
+	return mb.threadState.State()
+}
+
+// ThreadChanges returns created, updated, and destroyed Threads since sinceState.
+func (mb *MemoryBackend) ThreadChanges(ctx context.Context, sinceState string) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
+	return mb.threadState.Changes(sinceState)
+}
+
+// EmailState returns current change state token for Email resources.
+func (mb *MemoryBackend) EmailState(ctx context.Context) string {
+	return mb.emailState.State()
+}
+
+// EmailChanges returns created, updated, and destroyed Emails since sinceState.
+func (mb *MemoryBackend) EmailChanges(ctx context.Context, sinceState string) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
+	return mb.emailState.Changes(sinceState)
+}
+
+// IdentityState returns current change state token for Identity resources.
+func (mb *MemoryBackend) IdentityState(ctx context.Context) string {
+	return mb.identityState.State()
+}
+
+// IdentityChanges returns created, updated, and destroyed Identities since sinceState.
+func (mb *MemoryBackend) IdentityChanges(ctx context.Context, sinceState string) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
+	return mb.identityState.Changes(sinceState)
+}
+
+// SubmissionState returns current change state token for EmailSubmission resources.
+func (mb *MemoryBackend) SubmissionState(ctx context.Context) string {
+	return mb.submissionState.State()
+}
+
+// SubmissionChanges returns created, updated, and destroyed EmailSubmissions since sinceState.
+func (mb *MemoryBackend) SubmissionChanges(ctx context.Context, sinceState string) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
+	return mb.submissionState.Changes(sinceState)
+}
+
+// QuotaState returns current change state token for Quota resources.
+func (mb *MemoryBackend) QuotaState(ctx context.Context) string {
+	return mb.quotaState.State()
+}
+
+// QuotaChanges returns created, updated, and destroyed Quotas since sinceState.
+func (mb *MemoryBackend) QuotaChanges(ctx context.Context, sinceState string) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
+	return mb.quotaState.Changes(sinceState)
 }
 
 // GetMailboxes retrieves requested mailboxes by ID.
@@ -355,7 +438,7 @@ func (mb *MemoryBackend) CreateMailbox(ctx context.Context, item *jmap.Mailbox) 
 		MaySubmit:      true,
 	}
 	mb.mailboxes[item.ID] = item
-	mb.bumpState("Mailbox")
+	mb.recordChange(mb.mailboxState, item.ID, "create", "Mailbox")
 	return item, nil
 }
 
@@ -424,7 +507,7 @@ func (mb *MemoryBackend) UpdateMailbox(ctx context.Context, id jmap.Id, patch ma
 	}
 	mb.mu.Unlock()
 
-	mb.bumpState("Mailbox")
+	mb.recordChange(mb.mailboxState, id, "update", "Mailbox")
 	return item, nil
 }
 
@@ -437,7 +520,7 @@ func (mb *MemoryBackend) DeleteMailbox(ctx context.Context, id jmap.Id) (bool, e
 		return false, nil
 	}
 	delete(mb.mailboxes, id)
-	mb.bumpState("Mailbox")
+	mb.recordChange(mb.mailboxState, id, "destroy", "Mailbox")
 	return true, nil
 }
 
@@ -517,12 +600,14 @@ func (mb *MemoryBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jmap
 			EmailIDs: []jmap.Id{em.ID},
 		}
 		mb.threads[em.ThreadID] = th
+		mb.recordChange(mb.threadState, em.ThreadID, "create", "Thread")
 	} else {
 		th.EmailIDs = append(th.EmailIDs, em.ID)
+		mb.recordChange(mb.threadState, em.ThreadID, "update", "Thread")
 	}
 
 	mb.recalculateMailboxCounts()
-	mb.bumpState("Email")
+	mb.recordChange(mb.emailState, em.ID, "create", "Email")
 	mb.bumpState("Mailbox")
 	return em, nil
 }
@@ -616,7 +701,7 @@ func (mb *MemoryBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map[
 	}
 
 	mb.recalculateMailboxCounts()
-	mb.bumpState("Email")
+	mb.recordChange(mb.emailState, id, "update", "Email")
 	mb.bumpState("Mailbox")
 	return em, nil
 }
@@ -642,13 +727,15 @@ func (mb *MemoryBackend) DeleteEmail(ctx context.Context, id jmap.Id) (bool, err
 		}
 		if len(newIDs) == 0 {
 			delete(mb.threads, em.ThreadID)
+			mb.recordChange(mb.threadState, em.ThreadID, "destroy", "Thread")
 		} else {
 			th.EmailIDs = newIDs
+			mb.recordChange(mb.threadState, em.ThreadID, "update", "Thread")
 		}
 	}
 
 	mb.recalculateMailboxCounts()
-	mb.bumpState("Email")
+	mb.recordChange(mb.emailState, id, "destroy", "Email")
 	mb.bumpState("Mailbox")
 	return true, nil
 }
@@ -708,7 +795,7 @@ func (mb *MemoryBackend) VerifySmime(ctx context.Context, ids []jmap.Id) (map[jm
 			continue
 		}
 
-		status := "signed"
+		status := "unsigned"
 		if em.SMIMEStatus != nil {
 			status = *em.SMIMEStatus
 		}
@@ -750,7 +837,7 @@ func (mb *MemoryBackend) CreateIdentity(ctx context.Context, identity *jmap.Iden
 	mb.identities[identity.ID] = identity
 	mb.mu.Unlock()
 
-	mb.bumpState("Identity")
+	mb.recordChange(mb.identityState, identity.ID, "create", "Identity")
 	return identity, nil
 }
 
@@ -779,7 +866,7 @@ func (mb *MemoryBackend) UpdateIdentity(ctx context.Context, id jmap.Id, patch m
 	}
 	mb.mu.Unlock()
 
-	mb.bumpState("Identity")
+	mb.recordChange(mb.identityState, id, "update", "Identity")
 	return identity, nil
 }
 
@@ -793,7 +880,7 @@ func (mb *MemoryBackend) DeleteIdentity(ctx context.Context, id jmap.Id) (bool, 
 	delete(mb.identities, id)
 	mb.mu.Unlock()
 
-	mb.bumpState("Identity")
+	mb.recordChange(mb.identityState, id, "destroy", "Identity")
 	return true, nil
 }
 
@@ -816,7 +903,7 @@ func (mb *MemoryBackend) CreateSubmission(ctx context.Context, sub *jmap.EmailSu
 	}
 
 	mb.submissions[sub.ID] = sub
-	mb.bumpState("EmailSubmission")
+	mb.recordChange(mb.submissionState, sub.ID, "create", "EmailSubmission")
 	return sub, nil
 }
 

@@ -97,6 +97,10 @@ func handleAddressBookSet(backend ContactsBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		oldState := backend.AddressBookState(ctx)
+
+		if ifInState, ok := args["ifInState"].(string); ok && ifInState != "" && ifInState != oldState {
+			return "error", MethodErrorArgs("stateMismatch", "state mismatch")
+		}
 		created := make(map[string]*AddressBook)
 		updated := make(map[string]map[string]any)
 		destroyed := make([]Id, 0)
@@ -226,6 +230,10 @@ func handleCardSet(backend ContactsBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		oldState := backend.CardState(ctx)
+
+		if ifInState, ok := args["ifInState"].(string); ok && ifInState != "" && ifInState != oldState {
+			return "error", MethodErrorArgs("stateMismatch", "state mismatch")
+		}
 		created := make(map[string]*Card)
 		updated := make(map[string]map[string]any)
 		destroyed := make([]Id, 0)

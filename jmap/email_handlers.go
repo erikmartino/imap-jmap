@@ -41,14 +41,27 @@ func handleThreadGet(backend MailBackend) MethodHandler {
 func handleThreadChanges(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
+		sinceState, _ := args["sinceState"].(string)
+
+		created, updated, destroyed, newState, hasMore := backend.ThreadChanges(ctx, sinceState)
+		if created == nil {
+			created = []Id{}
+		}
+		if updated == nil {
+			updated = []Id{}
+		}
+		if destroyed == nil {
+			destroyed = []Id{}
+		}
+
 		return "Thread/changes", map[string]any{
 			"accountId":      accountID,
-			"oldState":       args["sinceState"],
-			"newState":       backend.State(ctx),
-			"hasMoreChanges": false,
-			"created":        []Id{},
-			"updated":        []Id{},
-			"destroyed":      []Id{},
+			"oldState":       sinceState,
+			"newState":       newState,
+			"hasMoreChanges": hasMore,
+			"created":        created,
+			"updated":        updated,
+			"destroyed":      destroyed,
 		}
 	}
 }
@@ -85,7 +98,7 @@ func handleEmailGet(backend MailBackend) MethodHandler {
 
 		return "Email/get", map[string]any{
 			"accountId": accountID,
-			"state":     backend.State(ctx),
+			"state":     backend.EmailState(ctx),
 			"list":      list,
 			"notFound":  notFound,
 		}
@@ -95,14 +108,27 @@ func handleEmailGet(backend MailBackend) MethodHandler {
 func handleEmailChanges(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
+		sinceState, _ := args["sinceState"].(string)
+
+		created, updated, destroyed, newState, hasMore := backend.EmailChanges(ctx, sinceState)
+		if created == nil {
+			created = []Id{}
+		}
+		if updated == nil {
+			updated = []Id{}
+		}
+		if destroyed == nil {
+			destroyed = []Id{}
+		}
+
 		return "Email/changes", map[string]any{
 			"accountId":      accountID,
-			"oldState":       args["sinceState"],
-			"newState":       backend.State(ctx),
-			"hasMoreChanges": false,
-			"created":        []Id{},
-			"updated":        []Id{},
-			"destroyed":      []Id{},
+			"oldState":       sinceState,
+			"newState":       newState,
+			"hasMoreChanges": hasMore,
+			"created":        created,
+			"updated":        updated,
+			"destroyed":      destroyed,
 		}
 	}
 }
@@ -110,7 +136,11 @@ func handleEmailChanges(backend MailBackend) MethodHandler {
 func handleEmailSet(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
-		oldState := backend.State(ctx)
+		oldState := backend.EmailState(ctx)
+
+		if ifInState, ok := args["ifInState"].(string); ok && ifInState != "" && ifInState != oldState {
+			return "error", MethodErrorArgs("stateMismatch", fmt.Sprintf("state token %q does not match current state %q", ifInState, oldState))
+		}
 
 		created := make(map[string]*Email)
 		updated := make(map[string]any)
@@ -121,10 +151,45 @@ func handleEmailSet(backend MailBackend) MethodHandler {
 			for clientKey, raw := range createMap {
 				if emData, ok := raw.(map[string]any); ok {
 					subject, _ := emData["subject"].(string)
-					em := &Email{
-						Subject: subject,
-						BlobID:  Id(fmt.Sprintf("blob-%d", time.Now().UnixNano())),
+					blobIDStr, _ := emData["blobId"].(string)
+					if blobIDStr == "" {
+						blobIDStr = fmt.Sprintf("blob-%d", time.Now().UnixNano())
 					}
+					receivedAt, _ := emData["receivedAt"].(string)
+					if receivedAt == "" {
+						receivedAt = time.Now().UTC().Format(time.RFC3339)
+					}
+					sentAt, _ := emData["sentAt"].(string)
+
+					parseAddresses := func(key string) []EmailAddress {
+						var res []EmailAddress
+						if list, ok := emData[key].([]any); ok {
+							for _, item := range list {
+								if addrMap, ok := item.(map[string]any); ok {
+									name, _ := addrMap["name"].(string)
+									email, _ := addrMap["email"].(string)
+									if email != "" {
+										res = append(res, EmailAddress{Name: name, Email: email})
+									}
+								}
+							}
+						}
+						return res
+					}
+
+					em := &Email{
+						Subject:    subject,
+						BlobID:     Id(blobIDStr),
+						ReceivedAt: receivedAt,
+						SentAt:     sentAt,
+						From:       parseAddresses("from"),
+						To:         parseAddresses("to"),
+						CC:         parseAddresses("cc"),
+						BCC:        parseAddresses("bcc"),
+						ReplyTo:    parseAddresses("replyTo"),
+						Sender:     parseAddresses("sender"),
+					}
+
 					if mbMap, ok := emData["mailboxIds"].(map[string]any); ok {
 						em.MailboxIDs = make(map[Id]bool)
 						for k := range mbMap {
@@ -139,6 +204,22 @@ func handleEmailSet(backend MailBackend) MethodHandler {
 							}
 						}
 					}
+
+					if textBody, ok := emData["textBody"].(string); ok {
+						em.BodyValues = map[string]EmailBodyValue{"1": {Value: textBody}}
+						em.TextBody = []EmailBodyPart{{PartID: "1", Type: "text/plain", Size: uint64(len(textBody))}}
+						em.Preview = textBody
+					} else if bodyValObj, ok := emData["bodyValues"].(map[string]any); ok {
+						bvMap := make(map[string]EmailBodyValue)
+						for k, v := range bodyValObj {
+							if bvData, ok := v.(map[string]any); ok {
+								val, _ := bvData["value"].(string)
+								bvMap[k] = EmailBodyValue{Value: val}
+							}
+						}
+						em.BodyValues = bvMap
+					}
+
 					createdEM, err := backend.CreateEmail(ctx, em)
 					if err == nil {
 						created[clientKey] = createdEM
@@ -176,7 +257,7 @@ func handleEmailSet(backend MailBackend) MethodHandler {
 		return "Email/set", map[string]any{
 			"accountId":  accountID,
 			"oldState":   oldState,
-			"newState":   backend.State(ctx),
+			"newState":   backend.EmailState(ctx),
 			"created":    created,
 			"updated":    updated,
 			"notUpdated": notUpdated,
@@ -480,7 +561,7 @@ func handleIdentityGet(backend MailBackend) MethodHandler {
 		list, _ := backend.GetIdentities(ctx)
 		return "Identity/get", map[string]any{
 			"accountId": accountID,
-			"state":     backend.State(ctx),
+			"state":     backend.IdentityState(ctx),
 			"list":      list,
 			"notFound":  []Id{},
 		}
@@ -490,14 +571,27 @@ func handleIdentityGet(backend MailBackend) MethodHandler {
 func handleIdentityChanges(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
+		sinceState, _ := args["sinceState"].(string)
+
+		created, updated, destroyed, newState, hasMore := backend.IdentityChanges(ctx, sinceState)
+		if created == nil {
+			created = []Id{}
+		}
+		if updated == nil {
+			updated = []Id{}
+		}
+		if destroyed == nil {
+			destroyed = []Id{}
+		}
+
 		return "Identity/changes", map[string]any{
 			"accountId":      accountID,
-			"oldState":       args["sinceState"],
-			"newState":       backend.State(ctx),
-			"hasMoreChanges": false,
-			"created":        []Id{},
-			"updated":        []Id{},
-			"destroyed":      []Id{},
+			"oldState":       sinceState,
+			"newState":       newState,
+			"hasMoreChanges": hasMore,
+			"created":        created,
+			"updated":        updated,
+			"destroyed":      destroyed,
 		}
 	}
 }
@@ -505,7 +599,11 @@ func handleIdentityChanges(backend MailBackend) MethodHandler {
 func handleIdentitySet(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
-		oldState := backend.State(ctx)
+		oldState := backend.IdentityState(ctx)
+
+		if ifInState, ok := args["ifInState"].(string); ok && ifInState != "" && ifInState != oldState {
+			return "error", MethodErrorArgs("stateMismatch", "state mismatch")
+		}
 
 		created := make(map[string]*Identity)
 		updated := make(map[string]any)
@@ -561,7 +659,7 @@ func handleIdentitySet(backend MailBackend) MethodHandler {
 		return "Identity/set", map[string]any{
 			"accountId":    accountID,
 			"oldState":     oldState,
-			"newState":     backend.State(ctx),
+			"newState":     backend.IdentityState(ctx),
 			"created":      created,
 			"updated":      updated,
 			"destroyed":    destroyed,

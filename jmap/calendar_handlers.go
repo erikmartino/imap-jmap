@@ -91,6 +91,11 @@ func handleCalendarSet(backend CalendarsBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		oldState := backend.CalendarState(ctx)
+
+		if ifInState, ok := args["ifInState"].(string); ok && ifInState != "" && ifInState != oldState {
+			return "error", MethodErrorArgs("stateMismatch", "state mismatch")
+		}
+
 		created := make(map[string]*Calendar)
 		updated := make(map[string]map[string]any)
 		destroyed := make([]Id, 0)
@@ -220,6 +225,11 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend) M
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		oldState := backend.CalendarEventState(ctx)
+
+		if ifInState, ok := args["ifInState"].(string); ok && ifInState != "" && ifInState != oldState {
+			return "error", MethodErrorArgs("stateMismatch", "state mismatch")
+		}
+
 		created := make(map[string]*CalendarEvent)
 		updated := make(map[string]map[string]any)
 		destroyed := make([]Id, 0)
