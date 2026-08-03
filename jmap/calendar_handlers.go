@@ -448,28 +448,21 @@ func handleCalendarEventQueryChanges(backend CalendarsBackend) MethodHandler {
 		upToID, _ := args["upToId"].(string)
 		sinceState, _ := args["sinceQueryState"].(string)
 
-		createdIDs, _, destroyedIDs, newState, hasMore := backend.CalendarEventChanges(ctx, sinceState)
+		createdIDs, updatedIDs, destroyedIDs, newState, hasMore := backend.CalendarEventChanges(ctx, sinceState)
 		if hasMore {
 			return "error", MethodErrorArgs("cannotCalculateChanges", "sinceQueryState is too old")
 		}
 
-		added := make([]map[string]any, 0, len(createdIDs))
-		for idx, id := range createdIDs {
-			added = append(added, map[string]any{
-				"id":    id,
-				"index": idx,
-			})
-		}
-		if destroyedIDs == nil {
-			destroyedIDs = []Id{}
-		}
+		filter, _ := args["filter"].(map[string]any)
+		currentIDs, _, _ := backend.QueryCalendarEvents(ctx, filter, 0, nil)
+		added, removed := computeQueryChanges(createdIDs, updatedIDs, destroyedIDs, currentIDs, upToID)
 
 		res := map[string]any{
 			"accountId":     accountID,
 			"oldQueryState": sinceState,
 			"newQueryState": newState,
 			"added":         added,
-			"removed":       destroyedIDs,
+			"removed":       removed,
 		}
 		if upToID != "" {
 			res["upToId"] = upToID

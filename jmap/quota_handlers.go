@@ -150,28 +150,25 @@ func handleQuotaQueryChanges(backend MailBackend) MethodHandler {
 		upToID, _ := args["upToId"].(string)
 		sinceState, _ := args["sinceQueryState"].(string)
 
-		createdIDs, _, destroyedIDs, newState, hasMore := backend.QuotaChanges(ctx, sinceState)
+		createdIDs, updatedIDs, destroyedIDs, newState, hasMore := backend.QuotaChanges(ctx, sinceState)
 		if hasMore {
 			return "error", MethodErrorArgs("cannotCalculateChanges", "sinceQueryState is too old")
 		}
 
-		added := make([]map[string]any, 0, len(createdIDs))
-		for idx, id := range createdIDs {
-			added = append(added, map[string]any{
-				"id":    id,
-				"index": idx,
-			})
+		all, _ := backend.GetAllQuotas(ctx)
+		currentIDs := make([]Id, 0, len(all))
+		for _, quota := range all {
+			currentIDs = append(currentIDs, quota.ID)
 		}
-		if destroyedIDs == nil {
-			destroyedIDs = []Id{}
-		}
+
+		added, removed := computeQueryChanges(createdIDs, updatedIDs, destroyedIDs, currentIDs, upToID)
 
 		res := map[string]any{
 			"accountId":     accountID,
 			"oldQueryState": sinceState,
 			"newQueryState": newState,
 			"added":         added,
-			"removed":       destroyedIDs,
+			"removed":       removed,
 		}
 		if upToID != "" {
 			res["upToId"] = upToID

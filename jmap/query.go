@@ -100,6 +100,80 @@ type Comparator struct {
 	Collation   string `json:"collation,omitempty"`
 }
 
+// parseComparators parses the "sort" argument per RFC 8621 Section 4.5.2.
+func parseComparators(args map[string]any) []Comparator {
+	var comparators []Comparator
+	if sortRaw, ok := args["sort"].([]any); ok {
+		for _, item := range sortRaw {
+			if compMap, ok := item.(map[string]any); ok {
+				prop, _ := compMap["property"].(string)
+				asc, isBool := compMap["isAscending"].(bool)
+				if !isBool {
+					asc = true
+				}
+				coll, _ := compMap["collation"].(string)
+				comparators = append(comparators, Comparator{
+					Property:    prop,
+					IsAscending: asc,
+					Collation:   coll,
+				})
+			}
+		}
+	}
+	return comparators
+}
+
+// computeQueryChanges derives the added/removed deltas for /queryChanges per RFC 8620
+// Section 5.6: destroyed and updated objects are removed from the client's view, and any
+// created or updated object still matching the query's filter is re-added at its real
+// position in the current filtered and sorted result set (so the added array is sorted by
+// index with the lowest first). When an "upToId" is supplied and exists in the results,
+// added ids with a higher index than the anchor, and updated ids re-added beyond it, are
+// omitted because the client has not cached past that point.
+func computeQueryChanges(created, updated, destroyed, currentIDs []Id, upToId string) (added []map[string]any, removed []Id) {
+	position := make(map[Id]int, len(currentIDs))
+	for i, id := range currentIDs {
+		position[id] = i
+	}
+
+	isChanged := make(map[Id]bool, len(created)+len(updated))
+	for _, id := range created {
+		isChanged[id] = true
+	}
+	for _, id := range updated {
+		isChanged[id] = true
+	}
+
+	upToIndex := -1
+	if upToId != "" {
+		upToIndex = position[Id(upToId)]
+	}
+
+	added = make([]map[string]any, 0, len(created)+len(updated))
+	for _, id := range currentIDs {
+		if isChanged[id] {
+			if upToIndex >= 0 && position[id] > upToIndex {
+				continue
+			}
+			added = append(added, map[string]any{"id": id, "index": position[id]})
+		}
+	}
+
+	removed = make([]Id, 0, len(updated)+len(destroyed))
+	removed = append(removed, destroyed...)
+	for _, id := range updated {
+		idx, isCurrent := position[id]
+		if upToIndex >= 0 && isCurrent && idx > upToIndex {
+			continue
+		}
+		removed = append(removed, id)
+	}
+	if removed == nil {
+		removed = []Id{}
+	}
+	return added, removed
+}
+
 // MatchesFilter checks if an email matches a filter object (FilterCondition or FilterOperator) per RFC 8621 Section 4.5.
 func MatchesFilter(em *Email, filter map[string]any) bool {
 	if len(filter) == 0 {

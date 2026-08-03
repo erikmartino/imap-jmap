@@ -339,24 +339,7 @@ func handleEmailQuery(backend MailBackend) MethodHandler {
 		accountID, _ := args["accountId"].(string)
 		filter, _ := args["filter"].(map[string]any)
 
-		var comparators []Comparator
-		if sortRaw, ok := args["sort"].([]any); ok {
-			for _, item := range sortRaw {
-				if compMap, ok := item.(map[string]any); ok {
-					prop, _ := compMap["property"].(string)
-					asc, isBool := compMap["isAscending"].(bool)
-					if !isBool {
-						asc = true
-					}
-					coll, _ := compMap["collation"].(string)
-					comparators = append(comparators, Comparator{
-						Property:    prop,
-						IsAscending: asc,
-						Collation:   coll,
-					})
-				}
-			}
-		}
+		comparators := parseComparators(args)
 
 		position, posErr := parseQueryPosition(args)
 		if posErr != "" {
@@ -409,32 +392,29 @@ func handleEmailQueryChanges(backend MailBackend) MethodHandler {
 		accountID, _ := args["accountId"].(string)
 		upToID, _ := args["upToId"].(string)
 		sinceState, _ := args["sinceQueryState"].(string)
+		filter, _ := args["filter"].(map[string]any)
+		comparators := parseComparators(args)
 
-		createdIDs, _, destroyedIDs, newState, hasMore := backend.EmailChanges(ctx, sinceState)
+		createdIDs, updatedIDs, destroyedIDs, newState, hasMore := backend.EmailChanges(ctx, sinceState)
 		if hasMore {
 			return "error", MethodErrorArgs("cannotCalculateChanges", "sinceQueryState is too old")
 		}
 
-		added := make([]map[string]any, 0, len(createdIDs))
-		for idx, id := range createdIDs {
-			added = append(added, map[string]any{
-				"id":    id,
-				"index": idx,
-			})
-		}
-		if destroyedIDs == nil {
-			destroyedIDs = []Id{}
-		}
+		currentIDs, _, _ := backend.QueryEmails(ctx, filter, comparators, 0, nil)
+		added, removed := computeQueryChanges(createdIDs, updatedIDs, destroyedIDs, currentIDs, upToID)
 
 		res := map[string]any{
 			"accountId":     accountID,
 			"oldQueryState": sinceState,
 			"newQueryState": newState,
 			"added":         added,
-			"removed":       destroyedIDs,
+			"removed":       removed,
 		}
 		if upToID != "" {
 			res["upToId"] = upToID
+		}
+		if calcTotal, _ := args["calculateTotal"].(bool); calcTotal {
+			res["total"] = len(currentIDs)
 		}
 		return "Email/queryChanges", res
 	}

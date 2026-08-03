@@ -163,36 +163,43 @@ func handleMailboxSet(backend MailBackend) MethodHandler {
 	}
 }
 
+// filterMailboxes applies a Mailbox/query FilterCondition (RFC 8621 Section 2.4) to the
+// given mailboxes, keeping those matching every provided condition.
+func filterMailboxes(all []*Mailbox, filter map[string]any) []*Mailbox {
+	var filtered []*Mailbox
+	for _, mb := range all {
+		match := true
+		if filter != nil {
+			if roleReq, ok := filter["role"].(string); ok {
+				if mb.Role == nil || *mb.Role != roleReq {
+					match = false
+				}
+			}
+			if parentReq, ok := filter["parentId"].(string); ok {
+				if mb.ParentID == nil || string(*mb.ParentID) != parentReq {
+					match = false
+				}
+			}
+			if nameReq, ok := filter["name"].(string); ok {
+				if mb.Name != nameReq {
+					match = false
+				}
+			}
+		}
+		if match {
+			filtered = append(filtered, mb)
+		}
+	}
+	return filtered
+}
+
 func handleMailboxQuery(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		all, _ := backend.GetAllMailboxes(ctx)
 
 		filter, _ := args["filter"].(map[string]any)
-		var filtered []*Mailbox
-		for _, mb := range all {
-			match := true
-			if filter != nil {
-				if roleReq, ok := filter["role"].(string); ok {
-					if mb.Role == nil || *mb.Role != roleReq {
-						match = false
-					}
-				}
-				if parentReq, ok := filter["parentId"].(string); ok {
-					if mb.ParentID == nil || string(*mb.ParentID) != parentReq {
-						match = false
-					}
-				}
-				if nameReq, ok := filter["name"].(string); ok {
-					if mb.Name != nameReq {
-						match = false
-					}
-				}
-			}
-			if match {
-				filtered = append(filtered, mb)
-			}
-		}
+		filtered := filterMailboxes(all, filter)
 
 		position, posErr := parseQueryPosition(args)
 		if posErr != "" {
@@ -256,29 +263,28 @@ func handleMailboxQueryChanges(backend MailBackend) MethodHandler {
 		accountID, _ := args["accountId"].(string)
 		upToID, _ := args["upToId"].(string)
 		sinceState, _ := args["sinceQueryState"].(string)
+		filter, _ := args["filter"].(map[string]any)
 
-		createdIDs, _, destroyedIDs, newState, hasMore := backend.MailboxChanges(ctx, sinceState)
+		createdIDs, updatedIDs, destroyedIDs, newState, hasMore := backend.MailboxChanges(ctx, sinceState)
 		if hasMore {
 			return "error", MethodErrorArgs("cannotCalculateChanges", "sinceQueryState is too old")
 		}
 
-		added := make([]map[string]any, 0, len(createdIDs))
-		for idx, id := range createdIDs {
-			added = append(added, map[string]any{
-				"id":    id,
-				"index": idx,
-			})
+		all, _ := backend.GetAllMailboxes(ctx)
+		current := filterMailboxes(all, filter)
+		currentIDs := make([]Id, 0, len(current))
+		for _, mb := range current {
+			currentIDs = append(currentIDs, mb.ID)
 		}
-		if destroyedIDs == nil {
-			destroyedIDs = []Id{}
-		}
+
+		added, removed := computeQueryChanges(createdIDs, updatedIDs, destroyedIDs, currentIDs, upToID)
 
 		res := map[string]any{
 			"accountId":     accountID,
 			"oldQueryState": sinceState,
 			"newQueryState": newState,
 			"added":         added,
-			"removed":       destroyedIDs,
+			"removed":       removed,
 		}
 		if upToID != "" {
 			res["upToId"] = upToID

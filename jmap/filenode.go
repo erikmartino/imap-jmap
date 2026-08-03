@@ -278,6 +278,7 @@ func handleFileNodeQueryChanges(backend FileNodeBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		sinceQueryState, _ := args["sinceQueryState"].(string)
+		upToID, _ := args["upToId"].(string)
 		filter, _ := args["filter"].(map[string]any)
 
 		added := make([]map[string]any, 0)
@@ -293,39 +294,20 @@ func handleFileNodeQueryChanges(backend FileNodeBackend) MethodHandler {
 			// Any changed-or-gone object is first removed from the client's view; those still
 			// matching the filter are then re-added at their current position, so moves and
 			// membership changes are both reflected (RFC 8620 Section 5.6).
-			for _, id := range destroyed {
-				removed = append(removed, id)
-			}
-			for _, id := range updated {
-				removed = append(removed, id)
-			}
-
 			currentIDs, _, _ := backend.QueryFileNodes(ctx, filter, 0, nil)
-			position := make(map[Id]int, len(currentIDs))
-			for i, id := range currentIDs {
-				position[id] = i
-			}
-
-			isNewlyRelevant := make(map[Id]bool, len(created)+len(updated))
-			for _, id := range created {
-				isNewlyRelevant[id] = true
-			}
-			for _, id := range updated {
-				isNewlyRelevant[id] = true
-			}
-			for _, id := range currentIDs {
-				if isNewlyRelevant[id] {
-					added = append(added, map[string]any{"id": id, "index": position[id]})
-				}
-			}
+			added, removed = computeQueryChanges(created, updated, destroyed, currentIDs, upToID)
 		}
 
-		return "FileNode/queryChanges", map[string]any{
+		res := map[string]any{
 			"accountId":     accountID,
 			"oldQueryState": sinceQueryState,
 			"newQueryState": newQueryState,
 			"added":         added,
 			"removed":       removed,
 		}
+		if upToID != "" {
+			res["upToId"] = upToID
+		}
+		return "FileNode/queryChanges", res
 	}
 }
