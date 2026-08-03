@@ -226,6 +226,8 @@ func TestRFC8620_Section7_1_StateChangeAllBackends(t *testing.T) {
 		}
 	})
 }
+
+// TestRFC8620_Section7_1_PushTokenMatchesChangesState verifies that the state token delivered
 // in a push StateChange is exactly the token a subsequent */changes call returns as newState,
 // so a client can reconcile without gaps (RFC 8620 Section 7.1).
 func TestRFC8620_Section7_1_PushTokenMatchesChangesState(t *testing.T) {
