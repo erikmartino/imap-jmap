@@ -182,7 +182,11 @@ func computeQueryChanges(created, updated, destroyed, currentIDs []Id, upToId st
 
 	upToIndex := -1
 	if upToId != "" {
-		upToIndex = position[Id(upToId)]
+		// upToId only truncates when it exists in the results; a missing id must leave the
+		// deltas untouched (RFC 8620 Section 5.6: "exists in the results").
+		if idx, ok := position[Id(upToId)]; ok {
+			upToIndex = idx
+		}
 	}
 
 	added = make([]map[string]any, 0, len(created)+len(updated))
@@ -469,6 +473,56 @@ var emailSortableProperties = map[string]bool{
 	"receivedAt": true, "size": true, "from": true, "to": true, "subject": true,
 	"sentAt": true, "hasKeyword": true, "allInThreadHaveKeyword": true,
 	"someInThreadHaveKeyword": true,
+}
+
+// emailMutableFilterProperties are the Email filter condition properties whose values can
+// change after creation (RFC 8621 Section 4.1: "mailboxIds" and "keywords" are the only
+// client-updatable Email properties), so a query filtered on them is not over immutable
+// properties (RFC 8620 Section 5.6). All other filter conditions (before, after, minSize,
+// maxSize, hasAttachment, from, to, cc, bcc, subject, body, text, header) are immutable.
+var emailMutableFilterProperties = map[string]bool{
+	"inMailbox": true, "inMailboxOtherThan": true, "hasKeyword": true, "notKeyword": true,
+}
+
+// emailMutableSortProperties are the Email sort properties that depend on mutable state:
+// keywords are updatable, so keyword sorts are not over immutable properties (RFC 8620
+// Section 5.6). All other Email sort properties (receivedAt, size, from, to, subject,
+// sentAt) are fixed at creation and never change.
+var emailMutableSortProperties = map[string]bool{
+	"hasKeyword": true, "allInThreadHaveKeyword": true, "someInThreadHaveKeyword": true,
+}
+
+// upToIdTruncationApplicable reports whether the "upToId" argument may be honored for a
+// /queryChanges call per RFC 8620 Section 5.6: the server may omit added/removed ids with
+// a higher index than the anchor only when the query's filter and sort are both over
+// immutable properties — "if they are not immutable, this argument is ignored". Filter
+//Operator conditions are examined recursively; properties absent from the mutable sets are
+// treated as immutable.
+func upToIdTruncationApplicable(filter map[string]any, comparators []Comparator, mutableFilter, mutableSort map[string]bool) bool {
+	for k, v := range filter {
+		switch k {
+		case "operator":
+			continue
+		case "conditions":
+			if conds, ok := v.([]any); ok {
+				for _, raw := range conds {
+					if cond, ok := raw.(map[string]any); ok && !upToIdTruncationApplicable(cond, nil, mutableFilter, nil) {
+						return false
+					}
+				}
+			}
+		default:
+			if mutableFilter[k] {
+				return false
+			}
+		}
+	}
+	for _, c := range comparators {
+		if mutableSort[c.Property] {
+			return false
+		}
+	}
+	return true
 }
 
 // SortEmails sorts emails in-place using RFC 8621 Section 4.4.2 comparators. Keyword sort

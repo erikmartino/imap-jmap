@@ -19,9 +19,9 @@ DAV: PUT property preservation, REPORT filters, sync-token/etag stability, RFC 6
 - [x] **Creation references (`#creationId`) only work for FileNode:** resolve for Email `mailboxIds`, Mailbox `parentId`, Card `addressBookIds`, CalendarEvent `calendarIds`, EmailSubmission `emailId` (forward refs, missing/cyclic → `notCreated`). One composite-set test per type.
 - [x] **`SieveScript/queryChanges` not registered** (RFC 9661 §4) — returns `unknownMethod`. Register + delta tests.
 - [x] **Missing sort comparators** (RFC 8621 §4.5.2): `SortEmails` implements only receivedAt/sentAt/subject/size; missing `from`, `to`, `cc`, `bcc`, `hasKeyword`, `allHeaderKeywords`, `someHeaderKeywords`, `noneHeaderKeywords`, `hasAttachment`; `collation` parsed but unused; unknown comparator silently passes. Implement + order-asserting tests.
-- [ ] **Missing filter properties:** Mailbox `hasAnyRole`/`isSubscribed` (RFC 8621 §2.4.1); Quota/query ignores `filter` entirely (name/scope/resourceType/type, RFC 9425 §4.4); CalendarEvent `uid`/`updatedBefore`/`updatedAfter`. Implement + pos/neg tests.
-- [ ] **`Thread/get` with `ids: null` returns empty list** instead of all threads (email_handlers.go:16) (RFC 8621 §3.1). Same defect class: EmailSubmission/get, SearchSnippet/get, Blob/get, Email/verifySmime.
-- [ ] **`EmailSubmission/set` has no `destroy` support** (RFC 8621 §7.3) — backend has no `DeleteSubmission`; `onSuccessUpdate/DestroyEmail` error paths silently swallowed. Implement + tests.
+- [x] **Missing filter properties:** Mailbox `hasAnyRole`/`isSubscribed` (RFC 8621 §2.4.1); Quota/query ignores `filter` entirely (name/scope/resourceType/type, RFC 9425 §4.4); CalendarEvent `uid`/`updatedBefore`/`updatedAfter`. Implement + pos/neg tests.
+- [x] **`Thread/get` with `ids: null` returns empty list** instead of all threads (email_handlers.go:16) (RFC 8621 §3.1). Same defect class: EmailSubmission/get, SearchSnippet/get, Blob/get, Email/verifySmime.
+- [x] **`EmailSubmission/set` has no `destroy` support** (RFC 8621 §7.3) — backend has no `DeleteSubmission`; `onSuccessUpdate/DestroyEmail` error paths silently swallowed. Implement + tests.
 - [ ] **`EmailSubmission/get`/`Identity/get`/`EmailSubmission/changes`/`Quota/changes`/`Quota/queryChanges`/`Thread/changes`/`Calendar/changes`/`CalendarEvent/changes`/`CalendarEvent/sendResponse`/`ContactCard/*` aliases have zero tests** (several are handler-level-only gaps with backend coverage). Add handler-level tests.
 
 ## Then (test coverage backlog — implemented but unexercised)
