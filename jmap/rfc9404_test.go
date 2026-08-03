@@ -143,3 +143,58 @@ func TestRFC9404_Section5_BlobUpload(t *testing.T) {
 		t.Errorf("Expected created blob for 'b1', got %v", methodResp.Args["created"])
 	}
 }
+
+// TestRFC9404_Section4_BlobCopy tests Blob/copy method per RFC 9404 Section 4.
+func TestRFC9404_Section4_BlobCopy(t *testing.T) {
+	blobBackend := memory.NewMemoryBlobBackend()
+	b1, _ := blobBackend.PutBlob(context.TODO(), "account-a", "text/plain", []byte("Copy Me"))
+
+	srv := jmap.NewServer(nil, jmap.WithBlobBackend(blobBackend))
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	reqPayload := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.BlobCapabilityURI},
+		"methodCalls": []any{
+			[]any{"Blob/copy", map[string]any{
+				"fromAccountId": "account-a",
+				"accountId":     "account-b",
+				"create": map[string]any{
+					"c1": map[string]any{
+						"blobId": b1.ID,
+					},
+					"c2": map[string]any{
+						"blobId": "missing-blob-id",
+					},
+				},
+			}, "call-1"},
+		},
+	}
+	body, _ := json.Marshal(reqPayload)
+
+	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /jmap failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var jmapResp jmap.Response
+	if err := json.NewDecoder(resp.Body).Decode(&jmapResp); err != nil {
+		t.Fatalf("Failed to decode Response: %v", err)
+	}
+
+	methodResp := jmapResp.MethodResponses[0]
+	if methodResp.Name != "Blob/copy" {
+		t.Fatalf("Expected method response 'Blob/copy', got %q", methodResp.Name)
+	}
+
+	copied, ok := methodResp.Args["copied"].(map[string]any)
+	if !ok || copied["c1"] == nil {
+		t.Errorf("Expected copied blob for key 'c1', got %v", methodResp.Args["copied"])
+	}
+
+	notCopied, ok := methodResp.Args["notCopied"].(map[string]any)
+	if !ok || notCopied["c2"] == nil {
+		t.Errorf("Expected notCopied entry for key 'c2', got %v", methodResp.Args["notCopied"])
+	}
+}

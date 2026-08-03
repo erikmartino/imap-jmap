@@ -10,6 +10,7 @@ func RegisterBlobHandlers(r *MethodRegistry, backend BlobBackend) {
 	r.Register("Blob/get", handleBlobGet(backend))
 	r.Register("Blob/upload", handleBlobUpload(backend))
 	r.Register("Blob/lookup", handleBlobLookup(backend))
+	r.Register("Blob/copy", handleBlobCopy(backend))
 }
 
 // handleBlobGet implements Blob/get per RFC 9404 Section 4.
@@ -119,6 +120,40 @@ func handleBlobLookup(backend BlobBackend) MethodHandler {
 			"accountId": accountID,
 			"list":      list,
 			"notFound":  []Id{},
+		}
+	}
+}
+
+// handleBlobCopy implements Blob/copy per RFC 9404 Section 4.
+func handleBlobCopy(backend BlobBackend) MethodHandler {
+	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
+		fromAccountID, _ := args["fromAccountId"].(string)
+		accountID, _ := args["accountId"].(string)
+		createMap, _ := args["create"].(map[string]any)
+
+		copied := make(map[string]*Blob)
+		notCopied := make(map[string]any)
+
+		for clientKey, raw := range createMap {
+			if item, ok := raw.(map[string]any); ok {
+				blobID, _ := item["blobId"].(string)
+				copiedBlob, err := backend.CopyBlob(ctx, fromAccountID, accountID, blobID)
+				if err != nil {
+					notCopied[clientKey] = map[string]any{
+						"type":        "notFound",
+						"description": "blob not found",
+					}
+				} else {
+					copied[clientKey] = copiedBlob
+				}
+			}
+		}
+
+		return "Blob/copy", map[string]any{
+			"fromAccountId": fromAccountID,
+			"accountId":     accountID,
+			"copied":        copied,
+			"notCopied":     notCopied,
 		}
 	}
 }

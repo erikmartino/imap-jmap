@@ -1,12 +1,14 @@
 # Agent Guidelines & Project Rules
 
-## RFC Validation Requirement
-All new features, data model projections, protocol mappers, and payload transformations MUST be strictly validated against official IETF RFC standards.
+## RFC Validation & RFC 2119 Requirement Implementation Rule
+All features, data model projections, protocol mappers, payload transformations, and server/client behaviors MUST be strictly validated against official IETF RFC standards.
 
-Before implementing or modifying any JMAP methods, objects, or patches, inspect the corresponding RFC specifications to ensure full spec compliance (including data types, object maps, JSON Pointers, and capability declarations).
+Requirement selection and compliance boundaries are governed by [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119.html) and [RFC 8174](https://www.rfc-editor.org/rfc/rfc8174.html) key words (`MUST`, `MUST NOT`, `REQUIRED`, `SHALL`, `SHALL NOT`, `SHOULD`, `SHOULD NOT`, `RECOMMENDED`, `MAY`, and `OPTIONAL`). 
+
+Every requirement defined across all referenced RFC specifications—including all standard `MUST` clauses, `SHOULD` provisions, and optional `MAY` clauses—MUST be fully implemented and covered by dedicated unit test suites, unless a specific specification or feature is explicitly designated under the **Non-Goals & Out-of-Scope Specifications** section.
 
 ## Optional (MAY) Provision Implementation & Testing Requirement
-All optional features, optional properties, optional query parameters, and `MAY` provisions defined across official IETF RFC specifications MUST be fully implemented and covered by dedicated unit tests. Do not limit implementation or testing solely to `MUST` or `SHOULD` requirements—every standard's `MAY` clauses MUST be verified to ensure maximum client interoperability.
+All optional features, optional properties, optional query parameters, and `MAY` provisions defined across official IETF RFC specifications MUST be fully implemented and covered by dedicated unit tests. Do not limit implementation or testing solely to `MUST` or `SHOULD` requirements—every standard's `MAY` clauses MUST be verified to ensure maximum client interoperability, unless a feature is explicitly marked as a non-goal.
 
 ## Data-Loss Prevention on Update & Merge
 When implementing updates, patches, or merges of any stored object (mails, mailboxes, contacts/cards, calendars/events, sieve scripts, blobs, submissions), treat user data as sacrosanct: a partial or malformed patch MUST fail the whole operation (or only that record) rather than silently dropping, overwriting, or zeroing fields that were not explicitly addressed. Never replace an entire object with a server- or client-supplied default, never fabricate values for data that was not provided, and never ignore or truncate existing properties during a merge. Destructive mutations (deletes, moves, role/default changes, privilege changes, token invalidation) MUST be rejected with an error when the target does not exist or cannot be safely located, and MUST never be silently no-oped while pretending success. Preserve server-set fields (created/updated timestamps, IDs) and, where the RFC mandates it, record and return oldState/newState plus notCreated/notUpdated/notDestroyed information so clients can reconcile. When in doubt, choose the operation that preserves data over the one that discards it, and add a regression test proving the previously-missing field survives an update.

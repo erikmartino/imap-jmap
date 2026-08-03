@@ -255,6 +255,7 @@ func handleEmailQuery(backend MailBackend) MethodHandler {
 
 		ids, total, _ := backend.QueryEmails(ctx, filter, comparators, position, limit)
 
+		calcTotal, _ := args["calculateTotal"].(bool)
 		res := map[string]any{
 			"accountId":           accountID,
 			"queryState":          backend.State(ctx),
@@ -263,6 +264,9 @@ func handleEmailQuery(backend MailBackend) MethodHandler {
 			"ids":                 ids,
 			"total":               total,
 		}
+		if calcTotal {
+			res["calculateTotal"] = true
+		}
 		return "Email/query", res
 	}
 }
@@ -270,13 +274,18 @@ func handleEmailQuery(backend MailBackend) MethodHandler {
 func handleEmailQueryChanges(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
-		return "Email/queryChanges", map[string]any{
+		upToID, _ := args["upToId"].(string)
+		res := map[string]any{
 			"accountId":     accountID,
 			"oldQueryState": args["sinceQueryState"],
 			"newQueryState": backend.State(ctx),
 			"added":         []any{},
 			"removed":       []Id{},
 		}
+		if upToID != "" {
+			res["upToId"] = upToID
+		}
+		return "Email/queryChanges", res
 	}
 }
 

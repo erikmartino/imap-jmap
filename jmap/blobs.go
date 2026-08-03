@@ -1,10 +1,12 @@
 package jmap
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // Blob represents a stored binary blob per RFC 8620 Section 6 and RFC 9404 Section 4.
@@ -85,12 +87,12 @@ func (s *Server) HandleDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", mediaType)
+	w.Header().Set("Accept-Ranges", "bytes")
 	if name != "" {
 		w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
 	}
 
-	w.WriteHeader(http.StatusOK)
-	if r.Method == http.MethodGet {
-		_, _ = w.Write(blob.Data)
-	}
+	// http.ServeContent handles HTTP Range: bytes=... headers (returning 206 Partial Content),
+	// Content-Length, Accept-Ranges, and HEAD requests per RFC 8620 Section 6.2 MAY provisions.
+	http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(blob.Data))
 }

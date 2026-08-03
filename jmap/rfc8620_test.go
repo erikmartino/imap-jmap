@@ -529,3 +529,39 @@ func TestRFC8620_Section6_2_DownloadingBlobs(t *testing.T) {
 		t.Errorf("Downloaded content mismatch: got %q, want %q", string(downloaded), string(blobData))
 	}
 }
+
+// TestRFC8620_Section6_2_MayProvisions_RangeDownload tests optional HTTP Range header support (206 Partial Content) per RFC 8620 Section 6.2 MAY provisions.
+func TestRFC8620_Section6_2_MayProvisions_RangeDownload(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	blobData := []byte("Sample Blob Data for Download")
+	blob, _ := srv.BlobBackend.PutBlob(context.Background(), "primary", "text/plain", blobData)
+
+	req, err := http.NewRequest("GET", ts.URL+"/download/primary/"+blob.ID+"/test.txt", nil)
+	if err != nil {
+		t.Fatalf("Failed to create request: %v", err)
+	}
+	req.Header.Set("Range", "bytes=0-5")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("GET /download/ with Range failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusPartialContent {
+		t.Errorf("Expected HTTP 206 Partial Content for Range request per RFC 8620 MAY provisions, got %d", resp.StatusCode)
+	}
+
+	downloaded, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("Failed to read Range downloaded body: %v", err)
+	}
+
+	if string(downloaded) != "Sample" {
+		t.Errorf("Expected range bytes 'Sample', got %q", string(downloaded))
+	}
+}

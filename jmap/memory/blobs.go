@@ -62,3 +62,29 @@ func (b *MemoryBlobBackend) GetBlob(ctx context.Context, accountID, blobID strin
 	blob, ok := b.blobs[key]
 	return blob, ok, nil
 }
+
+// CopyBlob copies a blob from fromAccountID to toAccountID per RFC 9404 Section 4.
+func (b *MemoryBlobBackend) CopyBlob(ctx context.Context, fromAccountID, toAccountID string, blobID string) (*jmap.Blob, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	srcKey := fromAccountID + ":" + blobID
+	srcBlob, ok := b.blobs[srcKey]
+	if !ok {
+		return nil, jmap.ErrBlobNotFound
+	}
+
+	copiedBlob := &jmap.Blob{
+		ID:           srcBlob.ID,
+		BlobID:       srcBlob.BlobID,
+		AccountID:    toAccountID,
+		Type:         srcBlob.Type,
+		Size:         srcBlob.Size,
+		DigestSHA256: srcBlob.DigestSHA256,
+		Data:         srcBlob.Data,
+	}
+
+	destKey := toAccountID + ":" + blobID
+	b.blobs[destKey] = copiedBlob
+	return copiedBlob, nil
+}

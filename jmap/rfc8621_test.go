@@ -753,4 +753,50 @@ func TestRFC8621_Section2_1_MayProvisions_OptionalSystemRoles(t *testing.T) {
 	}
 }
 
+// TestRFC8621_Section4_5_MayProvisions_CalculateTotalAndUpToId tests optional calculateTotal in Email/query and upToId in Email/queryChanges per RFC 8621 Section 4.5 / RFC 8620 Section 5.6 MAY provisions.
+func TestRFC8621_Section4_5_MayProvisions_CalculateTotalAndUpToId(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	reqPayload := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+		"methodCalls": []any{
+			[]any{"Email/query", map[string]any{
+				"accountId":      "primary",
+				"calculateTotal": true,
+			}, "c1"},
+			[]any{"Email/queryChanges", map[string]any{
+				"accountId":       "primary",
+				"sinceQueryState": "state-0",
+				"upToId":          "email-100",
+			}, "c2"},
+		},
+	}
+	body, _ := json.Marshal(reqPayload)
+
+	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /jmap failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var jmapResp jmap.Response
+	_ = json.NewDecoder(resp.Body).Decode(&jmapResp)
+
+	if len(jmapResp.MethodResponses) != 2 {
+		t.Fatalf("Expected 2 method responses, got %d", len(jmapResp.MethodResponses))
+	}
+
+	qResp := jmapResp.MethodResponses[0]
+	if calcTotal, ok := qResp.Args["calculateTotal"].(bool); !ok || !calcTotal {
+		t.Errorf("Expected calculateTotal true in Email/query response args, got %v", qResp.Args["calculateTotal"])
+	}
+
+	qcResp := jmapResp.MethodResponses[1]
+	if upToId, ok := qcResp.Args["upToId"].(string); !ok || upToId != "email-100" {
+		t.Errorf("Expected upToId 'email-100' in Email/queryChanges response args, got %v", qcResp.Args["upToId"])
+	}
+}
+
 

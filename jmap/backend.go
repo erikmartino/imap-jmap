@@ -57,10 +57,11 @@ type MailBackend interface {
 	DeletePushSubscription(ctx context.Context, id Id) (bool, error)
 }
 
-// BlobBackend defines the storage interface for binary blobs per RFC 8620 Section 6.
+// BlobBackend defines the storage interface for binary blobs per RFC 8620 Section 6 and RFC 9404.
 type BlobBackend interface {
 	PutBlob(ctx context.Context, accountID, contentType string, data []byte) (*Blob, error)
 	GetBlob(ctx context.Context, accountID, blobID string) (*Blob, bool, error)
+	CopyBlob(ctx context.Context, fromAccountID, toAccountID string, blobID string) (*Blob, error)
 }
 
 // ContactsBackend defines the storage interface for JMAP Contacts resources per RFC 9610.
