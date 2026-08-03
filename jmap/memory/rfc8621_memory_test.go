@@ -188,3 +188,42 @@ func TestMailBackend_ChangeTracking(t *testing.T) {
 	}
 }
 
+// TestMailBackend_MailboxIdsPatchRemoval tests removing emails from mailboxes via JSON-pointer and map patch objects.
+func TestMailBackend_MailboxIdsPatchRemoval(t *testing.T) {
+	ctx := context.Background()
+	mb := NewMemoryBackend()
+
+	em := &jmap.Email{
+		Subject:    "Patch Test Email",
+		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true, "mb-archive": true},
+	}
+	createdEM, err := mb.CreateEmail(ctx, em)
+	if err != nil {
+		t.Fatalf("CreateEmail failed: %v", err)
+	}
+
+	// 1. Remove mailbox via JSON-pointer patch with boolean false (RFC 8621 §4.3)
+	_, err = mb.UpdateEmail(ctx, createdEM.ID, map[string]any{"mailboxIds/mb-inbox": false})
+	if err != nil {
+		t.Fatalf("UpdateEmail failed: %v", err)
+	}
+	emails, _, _ := mb.GetEmails(ctx, []jmap.Id{createdEM.ID})
+	if emails[0].MailboxIDs["mb-inbox"] {
+		t.Errorf("expected mb-inbox to be removed via mailboxIds/mb-inbox: false")
+	}
+
+	// 2. Remove mailbox via mailboxIds map patch with boolean false
+	_, err = mb.UpdateEmail(ctx, createdEM.ID, map[string]any{"mailboxIds": map[string]any{"mb-trash": true, "mb-archive": false}})
+	if err != nil {
+		t.Fatalf("UpdateEmail failed: %v", err)
+	}
+	emails, _, _ = mb.GetEmails(ctx, []jmap.Id{createdEM.ID})
+	if emails[0].MailboxIDs["mb-archive"] {
+		t.Errorf("expected mb-archive to be removed via mailboxIds map with false value")
+	}
+	if !emails[0].MailboxIDs["mb-trash"] {
+		t.Errorf("expected mb-trash to be present")
+	}
+}
+
+

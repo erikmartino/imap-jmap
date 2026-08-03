@@ -685,7 +685,11 @@ func (mb *MemoryBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map[
 			if mbMap, ok := val.(map[string]any); ok {
 				em.MailboxIDs = make(map[jmap.Id]bool)
 				for k, v := range mbMap {
-					if v != nil {
+					if boolVal, ok := v.(bool); ok {
+						if boolVal {
+							em.MailboxIDs[jmap.Id(k)] = true
+						}
+					} else if v != nil {
 						em.MailboxIDs[jmap.Id(k)] = true
 					}
 				}
@@ -694,6 +698,12 @@ func (mb *MemoryBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map[
 			mID := jmap.Id(strings.TrimPrefix(path, "mailboxIds/"))
 			if val == nil {
 				delete(em.MailboxIDs, mID)
+			} else if boolVal, ok := val.(bool); ok {
+				if boolVal {
+					em.MailboxIDs[mID] = true
+				} else {
+					delete(em.MailboxIDs, mID)
+				}
 			} else {
 				em.MailboxIDs[mID] = true
 			}
