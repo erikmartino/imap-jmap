@@ -23,10 +23,8 @@ type ReceiverBackend struct {
 // NewReceiverBackend initializes a new SMTP ReceiverBackend linked to JMAP backends.
 func NewReceiverBackend(mailBackend jmap.MailBackend, blobBackend jmap.BlobBackend, calBackend jmap.CalendarsBackend, resolver ...jmap.AccountResolver) *ReceiverBackend {
 	var r jmap.AccountResolver
-	if len(resolver) > 0 && resolver[0] != nil {
+	if len(resolver) > 0 {
 		r = resolver[0]
-	} else {
-		r = jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
 	}
 	return &ReceiverBackend{
 		MailBackend:      mailBackend,
@@ -75,96 +73,110 @@ func (s *Session) Data(r io.Reader) error {
 		return err
 	}
 
-	ctx := context.Background()
-	if s.backend.AccountID != "" {
-		ctx = jmap.ContextWithAccountID(ctx, s.backend.AccountID)
-	}
-
-	// 1. Store raw RFC 5322 byte stream as a Blob in BlobBackend (RFC 8620 Section 6)
-	var blobID jmap.Id = "blob-unknown"
-	if s.backend.BlobBackend != nil {
-		blob, err := s.backend.BlobBackend.PutBlob(ctx, s.backend.AccountID, "message/rfc822", data)
-		if err != nil {
-			log.Printf("SMTP receiver warning: failed to store blob: %v", err)
-		} else {
-			blobID = jmap.Id(blob.ID)
+	// 1. Determine target accountIDs per recipient
+	targetAccountIDs := make(map[string]bool)
+	if s.backend.AccountResolver != nil {
+		for _, rcpt := range s.to {
+			accountID, local := s.backend.AccountResolver.ResolveAccountID(context.Background(), rcpt)
+			if local && accountID != "" {
+				targetAccountIDs[accountID] = true
+			}
 		}
 	}
-
-	// 2. Parse raw bytes into JMAP Email struct (RFC 8621 Section 4)
-	email, err := ParseMessageToEmail(data, blobID)
-	if err != nil {
-		log.Printf("SMTP receiver warning: parsing email error: %v", err)
-	}
-
-	// 3. Store Email in MailBackend (RFC 8621 Section 4)
-	if s.backend.MailBackend != nil {
-		created, err := s.backend.MailBackend.CreateEmail(ctx, email)
-		if err != nil {
-			log.Printf("SMTP receiver error: failed to create email in backend: %v", err)
-			return err
+	if len(targetAccountIDs) == 0 {
+		fallbackID := s.backend.AccountID
+		if fallbackID == "" {
+			fallbackID = "primary"
 		}
-		log.Printf("SMTP receiver: stored email %s (blob %s, size %d bytes)", created.ID, created.BlobID, created.Size)
+		targetAccountIDs[fallbackID] = true
 	}
 
-	// 4. Auto-process iMIP invitation responses and incoming invitations (RFC 6047 / RFC 5546)
-	dataStr := string(data)
-	if s.backend.CalendarsBackend != nil && (strings.Contains(dataStr, "BEGIN:VCALENDAR") || strings.Contains(dataStr, "text/calendar")) {
-		msg, err := jmap.ParseITIPMessage(dataStr)
-		if err == nil && msg != nil && msg.UID != "" {
-			eventID := jmap.Id(msg.UID)
-			if strings.EqualFold(msg.Method, "REPLY") {
-				events, _, err := s.backend.CalendarsBackend.GetCalendarEvents(ctx, []jmap.Id{eventID})
-				if err == nil && len(events) > 0 {
-					ev := events[0]
-					attendeeEmail := s.from
-					if len(msg.Attendees) > 0 && msg.Attendees[0].Email != "" {
-						attendeeEmail = msg.Attendees[0].Email
-					}
-					status := strings.ToLower(msg.Status)
-					if status == "" {
-						status = "accepted"
-					}
+	// 2. Deliver message copy for each target accountID
+	for targetAccountID := range targetAccountIDs {
+		rcptCtx := jmap.ContextWithAccountID(context.Background(), targetAccountID)
 
-					if ev.Participants == nil {
-						ev.Participants = make(map[string]*jmap.JSCalendarParticipant)
-					}
-					if p, ok := ev.Participants[attendeeEmail]; ok && p != nil {
-						p.Status = status
-					} else {
-						ev.Participants[attendeeEmail] = &jmap.JSCalendarParticipant{
-							Email:  attendeeEmail,
-							Status: status,
+		var blobID jmap.Id = "blob-unknown"
+		if s.backend.BlobBackend != nil {
+			blob, err := s.backend.BlobBackend.PutBlob(rcptCtx, targetAccountID, "message/rfc822", data)
+			if err != nil {
+				log.Printf("SMTP receiver warning: failed to store blob: %v", err)
+			} else {
+				blobID = jmap.Id(blob.ID)
+			}
+		}
+
+		email, err := ParseMessageToEmail(data, blobID)
+		if err != nil {
+			log.Printf("SMTP receiver warning: parsing email error: %v", err)
+		}
+
+		if s.backend.MailBackend != nil && email != nil {
+			created, err := s.backend.MailBackend.CreateEmail(rcptCtx, email)
+			if err != nil {
+				log.Printf("SMTP receiver error: failed to create email in backend: %v", err)
+			} else {
+				log.Printf("SMTP receiver: stored email %s (account %s, blob %s, size %d bytes)", created.ID, targetAccountID, created.BlobID, created.Size)
+			}
+		}
+
+		// 3. Auto-process iMIP invitation responses and incoming invitations (RFC 6047 / RFC 5546)
+		dataStr := string(data)
+		if s.backend.CalendarsBackend != nil && (strings.Contains(dataStr, "BEGIN:VCALENDAR") || strings.Contains(dataStr, "text/calendar")) {
+			msg, err := jmap.ParseITIPMessage(dataStr)
+			if err == nil && msg != nil && msg.UID != "" {
+				eventID := jmap.Id(msg.UID)
+				if strings.EqualFold(msg.Method, "REPLY") {
+					events, _, err := s.backend.CalendarsBackend.GetCalendarEvents(rcptCtx, []jmap.Id{eventID})
+					if err == nil && len(events) > 0 {
+						ev := events[0]
+						attendeeEmail := s.from
+						if len(msg.Attendees) > 0 && msg.Attendees[0].Email != "" {
+							attendeeEmail = msg.Attendees[0].Email
 						}
-					}
+						status := strings.ToLower(msg.Status)
+						if status == "" {
+							status = "accepted"
+						}
 
-					_, _ = s.backend.CalendarsBackend.UpdateCalendarEvent(ctx, eventID, map[string]any{
-						"status": status,
-					})
-					log.Printf("SMTP receiver: auto-updated calendar event %s participant %s status to %s", eventID, attendeeEmail, status)
-				}
-			} else if strings.EqualFold(msg.Method, "REQUEST") {
-				// Auto-create pending calendar event from incoming external invitation
-				title := msg.Summary
-				if title == "" {
-					title = "External Meeting Invitation"
-				}
-				newEvent := &jmap.CalendarEvent{
-					ID:          eventID,
-					Title:       title,
-					Start:       msg.Start,
-					Status:      "tentative",
-					CalendarIDs: map[jmap.Id]bool{"cal-default": true},
-					Participants: map[string]*jmap.JSCalendarParticipant{
-						s.from: {
-							Email: s.from,
-							Role:  "owner",
+						if ev.Participants == nil {
+							ev.Participants = make(map[string]*jmap.JSCalendarParticipant)
+						}
+						if p, ok := ev.Participants[attendeeEmail]; ok && p != nil {
+							p.Status = status
+						} else {
+							ev.Participants[attendeeEmail] = &jmap.JSCalendarParticipant{
+								Email:  attendeeEmail,
+								Status: status,
+							}
+						}
+
+						_, _ = s.backend.CalendarsBackend.UpdateCalendarEvent(rcptCtx, eventID, map[string]any{
+							"status": status,
+						})
+						log.Printf("SMTP receiver: auto-updated calendar event %s participant %s status to %s", eventID, attendeeEmail, status)
+					}
+				} else if strings.EqualFold(msg.Method, "REQUEST") {
+					title := msg.Summary
+					if title == "" {
+						title = "External Meeting Invitation"
+					}
+					newEvent := &jmap.CalendarEvent{
+						ID:          eventID,
+						Title:       title,
+						Start:       msg.Start,
+						Status:      "tentative",
+						CalendarIDs: map[jmap.Id]bool{"cal-default": true},
+						Participants: map[string]*jmap.JSCalendarParticipant{
+							s.from: {
+								Email: s.from,
+								Role:  "owner",
+							},
 						},
-					},
-				}
-				createdEv, err := s.backend.CalendarsBackend.CreateCalendarEvent(ctx, newEvent)
-				if err == nil && createdEv != nil {
-					log.Printf("SMTP receiver: auto-imported incoming external invitation into calendar event %s (%s)", createdEv.ID, createdEv.Title)
+					}
+					createdEv, err := s.backend.CalendarsBackend.CreateCalendarEvent(rcptCtx, newEvent)
+					if err == nil && createdEv != nil {
+						log.Printf("SMTP receiver: auto-imported incoming external invitation into calendar event %s (%s)", createdEv.ID, createdEv.Title)
+					}
 				}
 			}
 		}

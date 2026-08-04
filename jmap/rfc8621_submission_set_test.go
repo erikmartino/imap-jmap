@@ -198,8 +198,15 @@ func TestEmailSubmission_LocalDelivery(t *testing.T) {
 	if err != nil || len(rcptEmails) == 0 {
 		t.Fatalf("Recipient account %q did not receive the email: err=%v, count=%d", rcptAccountID, err, len(rcptEmails))
 	}
-	if rcptEmails[0].Subject != "Local Delivery Test" {
-		t.Errorf("Expected subject 'Local Delivery Test', got %q", rcptEmails[0].Subject)
+	var found *jmap.Email
+	for _, em := range rcptEmails {
+		if em.Subject == "Local Delivery Test" {
+			found = em
+			break
+		}
+	}
+	if found == nil {
+		t.Errorf("Expected recipient account to receive email with subject 'Local Delivery Test'")
 	}
 }
 

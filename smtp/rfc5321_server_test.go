@@ -222,3 +222,56 @@ func TestRFC6047_SMTPServerReceiveIMIPReply(t *testing.T) {
 		t.Errorf("Expected participant status 'accepted', got %q", p.Status)
 	}
 }
+
+// TestRFC5321_PerRecipientRouting tests that incoming SMTP emails are delivered per-recipient using AccountResolver.
+func TestRFC5321_PerRecipientRouting(t *testing.T) {
+	memBackend := memory.NewMemoryBackend()
+	memBlobBackend := memory.NewMemoryBlobBackend()
+	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
+
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to listen on port: %v", err)
+	}
+	addr := l.Addr().String()
+	_ = l.Close()
+
+	srv := jmapsmtp.NewServer(addr, memBackend, memBlobBackend, nil, jmapsmtp.WithAccountResolver(resolver))
+	go func() {
+		_ = srv.ListenAndServe()
+	}()
+	defer srv.Close()
+
+	time.Sleep(50 * time.Millisecond)
+
+	rcptAddr := "user2@example.com"
+	msg := []byte("From: sender@example.com\r\n" +
+		"To: " + rcptAddr + "\r\n" +
+		"Subject: Per Recipient Test\r\n" +
+		"\r\n" +
+		"Content for user2\r\n")
+
+	if err := smtp.SendMail(addr, nil, "sender@example.com", []string{rcptAddr}, msg); err != nil {
+		t.Fatalf("SendMail failed: %v", err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	targetAccountID := jmap.AccountIDForSubject(rcptAddr)
+	rcptCtx := jmap.ContextWithAccountID(context.Background(), targetAccountID)
+	emails, err := memBackend.GetAllEmails(rcptCtx)
+	if err != nil || len(emails) == 0 {
+		t.Fatalf("Target account %q did not receive message: err=%v, count=%d", targetAccountID, err, len(emails))
+	}
+	var found *jmap.Email
+	for _, em := range emails {
+		if em.Subject == "Per Recipient Test" {
+			found = em
+			break
+		}
+	}
+	if found == nil {
+		t.Errorf("Expected email with subject 'Per Recipient Test'")
+	}
+}
+
