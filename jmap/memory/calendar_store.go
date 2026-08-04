@@ -300,7 +300,9 @@ func (b *MemoryCalendarsBackend) CreateCalendarEvent(ctx context.Context, ev *jm
 		b.nextID++
 		ev.ID = jmap.Id(fmt.Sprintf("evt-%d", b.nextID))
 	}
-	ev.Type = "Event"
+	if ev.Type == "" {
+		ev.Type = "Event"
+	}
 	if len(ev.CalendarIDs) == 0 {
 		ev.CalendarIDs = map[jmap.Id]bool{"cal-default": true}
 	}
@@ -319,6 +321,10 @@ func (b *MemoryCalendarsBackend) CreateCalendarEvent(ctx context.Context, ev *jm
 // setCalendarEventField applies a single RFC 8984 CalendarEvent patch path.
 func setCalendarEventField(ev *jmap.CalendarEvent, path string, val any) {
 	switch path {
+	case "@type", "type":
+		if s, ok := val.(string); ok && s != "" {
+			ev.Type = s
+		}
 	case "title":
 		if s, ok := val.(string); ok {
 			ev.Title = s
@@ -603,6 +609,63 @@ func setCalendarEventField(ev *jmap.CalendarEvent, path string, val any) {
 		var m map[string]bool
 		if err := decodeJSONField(val, &m); err == nil {
 			ev.Excluded = m
+		}
+	case "due":
+		if val == nil {
+			ev.Due = ""
+			return
+		}
+		if s, ok := val.(string); ok {
+			ev.Due = s
+		}
+	case "estimatedDuration":
+		if val == nil {
+			ev.EstimatedDuration = ""
+			return
+		}
+		if s, ok := val.(string); ok {
+			ev.EstimatedDuration = s
+		}
+	case "percentComplete":
+		if val == nil {
+			ev.PercentComplete = 0
+			return
+		}
+		if f, ok := val.(float64); ok {
+			ev.PercentComplete = uint32(f)
+		}
+	case "progress":
+		if val == nil {
+			ev.Progress = ""
+			return
+		}
+		if s, ok := val.(string); ok {
+			ev.Progress = s
+		}
+	case "progressUpdated":
+		if val == nil {
+			ev.ProgressUpdated = ""
+			return
+		}
+		if s, ok := val.(string); ok {
+			ev.ProgressUpdated = s
+		}
+	case "entries":
+		if val == nil {
+			ev.Entries = nil
+			return
+		}
+		var m map[string]map[string]any
+		if err := decodeJSONField(val, &m); err == nil {
+			ev.Entries = m
+		}
+	case "source":
+		if val == nil {
+			ev.Source = ""
+			return
+		}
+		if s, ok := val.(string); ok {
+			ev.Source = s
 		}
 	}
 }

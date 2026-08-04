@@ -254,6 +254,13 @@ type CalendarEvent struct {
 	ProdID                 string                                `json:"prodId,omitempty"`
 	Sequence               uint32                                `json:"sequence,omitempty"`
 	Method                 string                                `json:"method,omitempty"`
+	Due                    string                                `json:"due,omitempty"`
+	EstimatedDuration      string                                `json:"estimatedDuration,omitempty"`
+	PercentComplete        uint32                                `json:"percentComplete,omitempty"`
+	Progress               string                                `json:"progress,omitempty"`
+	ProgressUpdated        string                                `json:"progressUpdated,omitempty"`
+	Entries                map[string]map[string]any             `json:"entries,omitempty"`
+	Source                 string                                `json:"source,omitempty"`
 	Created                string                                `json:"created,omitempty"`
 	Updated                string                                `json:"updated,omitempty"`
 	UID                    string                                `json:"uid,omitempty"`
