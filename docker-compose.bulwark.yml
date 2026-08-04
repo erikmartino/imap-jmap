@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  imap-jmap:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: imap-jmap-server
+    ports:
+      - "8080:8080"
+      - "1025:1025"
+    environment:
+      - PORT=8080
+      - HOST=0.0.0.0
+      - SMTP_PORT=1025
+      - SMTP_HOST=0.0.0.0
+      - PUBLIC_URL=http://imap-jmap:8080
+    restart: unless-stopped
+
+  bulwark:
+    image: ghcr.io/bulwarkmail/webmail:latest
+    container_name: bulwark-webmail
+    ports:
+      - "3000:3000"
+    environment:
+      - HOSTNAME=0.0.0.0
+      - PORT=3000
+      - JMAP_SERVER_URL=http://imap-jmap:8080
+      - ALLOW_CUSTOM_JMAP_ENDPOINT=true
+      - STALWART_EXTENSIONS=false
+    depends_on:
+      - imap-jmap
+    restart: unless-stopped
