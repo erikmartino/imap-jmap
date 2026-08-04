@@ -16,15 +16,23 @@ type ReceiverBackend struct {
 	MailBackend      jmap.MailBackend
 	BlobBackend      jmap.BlobBackend
 	CalendarsBackend jmap.CalendarsBackend
+	AccountResolver  jmap.AccountResolver
 	AccountID        string
 }
 
 // NewReceiverBackend initializes a new SMTP ReceiverBackend linked to JMAP backends.
-func NewReceiverBackend(mailBackend jmap.MailBackend, blobBackend jmap.BlobBackend, calBackend jmap.CalendarsBackend) *ReceiverBackend {
+func NewReceiverBackend(mailBackend jmap.MailBackend, blobBackend jmap.BlobBackend, calBackend jmap.CalendarsBackend, resolver ...jmap.AccountResolver) *ReceiverBackend {
+	var r jmap.AccountResolver
+	if len(resolver) > 0 && resolver[0] != nil {
+		r = resolver[0]
+	} else {
+		r = jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
+	}
 	return &ReceiverBackend{
 		MailBackend:      mailBackend,
 		BlobBackend:      blobBackend,
 		CalendarsBackend: calBackend,
+		AccountResolver:  r,
 		AccountID:        "primary",
 	}
 }

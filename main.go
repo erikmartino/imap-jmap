@@ -49,11 +49,17 @@ func main() {
 		defaultHTTPSPort = "8443"
 	}
 
+	defaultPrimaryDomain := os.Getenv("PRIMARY_DOMAIN")
+	if defaultPrimaryDomain == "" {
+		defaultPrimaryDomain = "example.com"
+	}
+
 	port := flag.String("port", defaultPort, "HTTP server listening port")
 	httpsPort := flag.String("https-port", defaultHTTPSPort, "HTTPS TLS server listening port")
 	host := flag.String("host", defaultHost, "HTTP server listening host")
 	smtpPort := flag.String("smtp-port", defaultSMTPPort, "SMTP receiver listening port")
 	smtpHost := flag.String("smtp-host", defaultSMTPHost, "SMTP receiver listening host")
+	primaryDomain := flag.String("primary-domain", defaultPrimaryDomain, "Primary email domain for local account resolution")
 	flag.Parse()
 
 	addr := fmt.Sprintf("%s:%s", *host, *port)
@@ -73,6 +79,7 @@ func main() {
 	memIMAPBackend := memory.NewMemoryIMAPAccessBackend()
 	memFileNodeBackend := memory.NewMemoryFileNodeBackend()
 	authBackend := memory.NewMemoryAuthBackend()
+	accountResolver := jmap.PrimaryDomainResolver{PrimaryDomain: *primaryDomain}
 
 	// Seed realistic sample emails and calendars for server runtime execution
 	memory.SeedSampleData(memBackend, memCalBackend)
@@ -87,6 +94,7 @@ func main() {
 		jmap.WithIMAPAccessBackend(memIMAPBackend),
 		jmap.WithFileNodeBackend(memFileNodeBackend),
 		jmap.WithAuthBackend(authBackend),
+		jmap.WithAccountResolver(accountResolver),
 	)
 	memBackend.SetBroadcaster(server.Broadcaster)
 	memCalBackend.SetBroadcaster(server.Broadcaster)
@@ -94,7 +102,7 @@ func main() {
 	memSieveBackend.SetBroadcaster(server.Broadcaster)
 	memFileNodeBackend.SetBroadcaster(server.Broadcaster)
 
-	smtpServer := smtp.NewServer(smtpAddr, memBackend, memBlobBackend, memCalBackend)
+	smtpServer := smtp.NewServer(smtpAddr, memBackend, memBlobBackend, memCalBackend, smtp.WithAccountResolver(accountResolver))
 	go func() {
 		log.Printf("Starting SMTP receiver server on %s", smtpAddr)
 		if err := smtpServer.ListenAndServe(); err != nil {

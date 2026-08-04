@@ -39,7 +39,7 @@ the resolver for local delivery (inbound routing + outbound loopback). "The doma
 - [x] **`AccountResolver` interface + `PrimaryDomainResolver` default** in `jmap/authz.go`: `ResolveAccountID(ctx, emailAddress) (accountID string, local bool)`; default returns `(AccountIDForSubject(addr), true)` when the address domain == primary domain, else `("", false)`. `WithAccountResolver` option. Unit tests: local vs external.
 
 ## C. Primary-domain config + CLI flag
-- [ ] **`--primary-domain` flag** (default `example.com`, env `PRIMARY_DOMAIN`) in `main.go` alongside `main.go:39-43`; construct `PrimaryDomainResolver` from it and inject into `jmap.Server` + `smtp.NewServer`. Test: flag/env parsing + default resolves to `example.com`.
+- [x] **`--primary-domain` flag** (default `example.com`, env `PRIMARY_DOMAIN`) in `main.go` alongside `main.go:39-43`; construct `PrimaryDomainResolver` from it and inject into `jmap.Server` + `smtp.NewServer`. Test: flag/env parsing + default resolves to `example.com`.
 
 ## D. Outbound send (`EmailSubmission/set`) — tests: `rfc8621_*_test.go`
 - [ ] **Add `Envelope` (mailFrom/rcptTo) to `EmailSubmission`** (`jmap/mail_types.go:125`, RFC 8621 §7.1) + typed per-recipient `deliveryStatus`. Round-trip test.

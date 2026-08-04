@@ -15,8 +15,20 @@ type Server struct {
 	addr   string
 }
 
+// Option defines a functional configuration option for SMTP Server.
+type Option func(*Server)
+
+// WithAccountResolver sets a custom AccountResolver on the SMTP receiver backend.
+func WithAccountResolver(resolver jmap.AccountResolver) Option {
+	return func(s *Server) {
+		if receiver, ok := s.server.Backend.(*ReceiverBackend); ok {
+			receiver.AccountResolver = resolver
+		}
+	}
+}
+
 // NewServer initializes a new SMTP server instance configured for receiving mail into JMAP storage.
-func NewServer(addr string, mailBackend jmap.MailBackend, blobBackend jmap.BlobBackend, calBackend jmap.CalendarsBackend) *Server {
+func NewServer(addr string, mailBackend jmap.MailBackend, blobBackend jmap.BlobBackend, calBackend jmap.CalendarsBackend, opts ...Option) *Server {
 	backend := NewReceiverBackend(mailBackend, blobBackend, calBackend)
 
 	s := gosmtp.NewServer(backend)
@@ -28,10 +40,14 @@ func NewServer(addr string, mailBackend jmap.MailBackend, blobBackend jmap.BlobB
 	s.MaxRecipients = 50
 	s.AllowInsecureAuth = true
 
-	return &Server{
+	srv := &Server{
 		server: s,
 		addr:   addr,
 	}
+	for _, opt := range opts {
+		opt(srv)
+	}
+	return srv
 }
 
 // Addr returns the configured address of the SMTP server.
