@@ -26,7 +26,7 @@ base64url of the subject); an **authorization service (permission guard)** decid
 accountId may act on a target accountId; an **account resolver** maps an email address → accountId
 (default: every `*@<primaryDomain>`). Memory stores use **accountId** as the discriminator; SMTP uses
 the resolver for local delivery (inbound routing + outbound loopback). "The domain of the user" = the
-**recipient** address's domain. Design reference: `~/.claude/plans/zazzy-strolling-pebble.md`.
+**recipient** address's domain. Design reference: `docs/plans/outbound-mail-identity-authz.md`.
 
 ## A. Identity (subject → accountId)
 - [ ] **`AccountIDForSubject(subject)` helper** in `jmap/auth.go` = `base64.RawURLEncoding` of the subject. Single source of truth reused by auth backend + resolver. Unit test round-trip/stability.
