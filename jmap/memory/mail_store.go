@@ -12,8 +12,7 @@ import (
 )
 
 // MemoryBackend implements jmap.MailBackend for in-memory stub storage per RFC 8621 & RFC 9219.
-type MemoryBackend struct {
-	mu                sync.RWMutex
+type userMailStore struct {
 	mailboxes         map[jmap.Id]*jmap.Mailbox
 	threads           map[jmap.Id]*jmap.Thread
 	emails            map[jmap.Id]*jmap.Email
@@ -21,8 +20,6 @@ type MemoryBackend struct {
 	identities        map[jmap.Id]*jmap.Identity
 	submissions       map[jmap.Id]*jmap.EmailSubmission
 	pushSubscriptions map[jmap.Id]*jmap.PushSubscription
-	broadcaster       *jmap.Broadcaster
-	idCounter         uint64
 	state             string
 
 	mailboxState    *changeTracker
@@ -31,6 +28,27 @@ type MemoryBackend struct {
 	identityState   *changeTracker
 	submissionState *changeTracker
 	quotaState      *changeTracker
+}
+
+type MemoryBackend struct {
+	mu          sync.RWMutex
+	users       map[string]*userMailStore
+	broadcaster *jmap.Broadcaster
+	idCounter   uint64
+}
+
+func (mb *MemoryBackend) getStoreLocked(ctx context.Context) *userMailStore {
+	accountID := "primary"
+	if ctxID, ok := jmap.AccountIDFromContext(ctx); ok && ctxID != "" {
+		accountID = ctxID
+	}
+
+	us, ok := mb.users[accountID]
+	if !ok {
+		us = newMemoryUserStore(accountID)
+		mb.users[accountID] = us
+	}
+	return us
 }
 
 // Ensure MemoryBackend implements jmap.MailBackend interface.
@@ -46,9 +64,8 @@ func (mb *MemoryBackend) SetBroadcaster(b *jmap.Broadcaster) {
 	mb.broadcaster = b
 }
 
-// NewMemoryBackend initializes a new MemoryBackend pre-populated with standard default mailboxes and stub messages.
-func NewMemoryBackend() *MemoryBackend {
-	mb := &MemoryBackend{
+func newMemoryUserStore(accountID string) *userMailStore {
+	us := &userMailStore{
 		mailboxes:         make(map[jmap.Id]*jmap.Mailbox),
 		threads:           make(map[jmap.Id]*jmap.Thread),
 		emails:            make(map[jmap.Id]*jmap.Email),
@@ -68,7 +85,7 @@ func NewMemoryBackend() *MemoryBackend {
 
 	// Create default Quotas per RFC 9425
 	quotaOctetsDesc := "Storage quota in bytes for account"
-	mb.quotas["quota-octets"] = &jmap.Quota{
+	us.quotas["quota-octets"] = &jmap.Quota{
 		ID:           "quota-octets",
 		Name:         "Storage Quota",
 		ResourceType: "octets",
@@ -79,7 +96,7 @@ func NewMemoryBackend() *MemoryBackend {
 	}
 
 	quotaMessagesDesc := "Message count quota for account"
-	mb.quotas["quota-messages"] = &jmap.Quota{
+	us.quotas["quota-messages"] = &jmap.Quota{
 		ID:           "quota-messages",
 		Name:         "Message Count Quota",
 		ResourceType: "messages",
@@ -237,25 +254,31 @@ func NewMemoryBackend() *MemoryBackend {
 		IsSubscribed: true,
 	}
 
-	mb.mailboxes[inbox.ID] = inbox
-	mb.mailboxes[sent.ID] = sent
-	mb.mailboxes[trash.ID] = trash
-	mb.mailboxes[drafts.ID] = drafts
-	mb.mailboxes[junk.ID] = junk
-	mb.mailboxes[archive.ID] = archive
+	us.mailboxes[inbox.ID] = inbox
+	us.mailboxes[sent.ID] = sent
+	us.mailboxes[trash.ID] = trash
+	us.mailboxes[drafts.ID] = drafts
+	us.mailboxes[junk.ID] = junk
+	us.mailboxes[archive.ID] = archive
 
 	// Default identity
+	emailAddr := accountID
+	if !strings.Contains(emailAddr, "@") {
+		emailAddr = accountID + "@example.com"
+	}
 	defaultIdentity := &jmap.Identity{
 		ID:    "id-primary",
-		Name:  "Primary User",
-		Email: "user@example.com",
+		Name:  accountID,
+		Email: emailAddr,
 	}
-	mb.identities[defaultIdentity.ID] = defaultIdentity
+	us.identities[defaultIdentity.ID] = defaultIdentity
 
 	// Create sample emails in Inbox, Sent, Drafts, and Archive
 	stubStatus := "signed"
 	stubVerifiedWith := "admin@example.com"
 	stub1 := &jmap.Email{
+		ID:                "email-1",
+		ThreadID:          "thread-2",
 		Subject:           "Welcome to JMAP Server",
 		From:              []jmap.EmailAddress{{Name: "JMAP Admin", Email: "admin@example.com"}},
 		To:                []jmap.EmailAddress{{Name: "Primary User", Email: "user@example.com"}},
@@ -277,9 +300,14 @@ func NewMemoryBackend() *MemoryBackend {
 			"1": {Value: "Welcome to your new JMAP mail server. This server supports RFC 8620 and RFC 8621."},
 		},
 	}
-	_, _ = mb.CreateEmail(context.Background(), stub1)
+	us.emails[stub1.ID] = stub1
+	us.threads[stub1.ThreadID] = &jmap.Thread{ID: stub1.ThreadID, EmailIDs: []jmap.Id{stub1.ID}}
+	us.emailState.record(stub1.ID, "create")
+	us.threadState.record(stub1.ThreadID, "create")
 
 	stub2 := &jmap.Email{
+		ID:         "email-3",
+		ThreadID:   "thread-4",
 		Subject:    "JMAP Core and Mail Specifications",
 		From:       []jmap.EmailAddress{{Name: "IETF JMAP WG", Email: "noreply@ietf.org"}},
 		To:         []jmap.EmailAddress{{Name: "Primary User", Email: "user@example.com"}},
@@ -299,8 +327,27 @@ func NewMemoryBackend() *MemoryBackend {
 			"1": {Value: "This email verifies that your server supports RFC 8620 (JMAP Core) and RFC 8621 (JMAP Mail)."},
 		},
 	}
-	_, _ = mb.CreateEmail(context.Background(), stub2)
+	us.emails[stub2.ID] = stub2
+	us.threads[stub2.ThreadID] = &jmap.Thread{ID: stub2.ThreadID, EmailIDs: []jmap.Id{stub2.ID}}
+	us.emailState.record(stub2.ID, "create")
+	us.threadState.record(stub2.ThreadID, "create")
 
+	us.mailboxes["mb-inbox"].TotalEmails = 2
+	us.mailboxes["mb-inbox"].TotalThreads = 2
+	us.mailboxes["mb-inbox"].UnreadEmails = 1
+	us.mailboxes["mb-inbox"].UnreadThreads = 1
+
+	return us
+}
+
+// NewMemoryBackend initializes a new MemoryBackend pre-populated with standard default mailboxes and stub messages.
+func NewMemoryBackend() *MemoryBackend {
+	mb := &MemoryBackend{
+		users:     make(map[string]*userMailStore),
+		idCounter: 4,
+	}
+	// Pre-populate primary test user store
+	_ = mb.getStoreLocked(context.Background())
 	return mb
 }
 
@@ -309,11 +356,16 @@ func (mb *MemoryBackend) nextID(prefix string) jmap.Id {
 	return jmap.Id(fmt.Sprintf("%s-%d", prefix, mb.idCounter))
 }
 
-func (mb *MemoryBackend) recordChange(tracker *changeTracker, id jmap.Id, action string, typeName string) string {
+func (mb *MemoryBackend) recordChange(ctx context.Context, tracker *changeTracker, id jmap.Id, action string, typeName string) string {
 	newState := tracker.record(id, action)
-	mb.state = newState
+	us := mb.getStoreLocked(ctx)
+	us.state = newState
 	if mb.broadcaster != nil {
-		mb.broadcaster.PublishStateChange("primary", typeName, newState)
+		accountID := "primary"
+		if ctxID, ok := jmap.AccountIDFromContext(ctx); ok && ctxID != "" {
+			accountID = ctxID
+		}
+		mb.broadcaster.PublishStateChange(accountID, typeName, newState)
 	}
 	return newState
 }
@@ -322,79 +374,117 @@ func (mb *MemoryBackend) recordChange(tracker *changeTracker, id jmap.Id, action
 func (mb *MemoryBackend) State(ctx context.Context) string {
 	mb.mu.RLock()
 	defer mb.mu.RUnlock()
-	return mb.state
+	us := mb.getStoreLocked(ctx)
+	return us.state
 }
 
 // MailboxState returns current change state token for Mailbox resources.
 func (mb *MemoryBackend) MailboxState(ctx context.Context) string {
-	return mb.mailboxState.State()
+	mb.mu.RLock()
+	defer mb.mu.RUnlock()
+	us := mb.getStoreLocked(ctx)
+	return us.mailboxState.State()
 }
 
 // MailboxChanges returns created, updated, and destroyed Mailboxes since sinceState.
 func (mb *MemoryBackend) MailboxChanges(ctx context.Context, sinceState string) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
-	return mb.mailboxState.Changes(sinceState)
+	mb.mu.RLock()
+	defer mb.mu.RUnlock()
+	us := mb.getStoreLocked(ctx)
+	return us.mailboxState.Changes(sinceState)
 }
 
 // ThreadState returns current change state token for Thread resources.
 func (mb *MemoryBackend) ThreadState(ctx context.Context) string {
-	return mb.threadState.State()
+	mb.mu.RLock()
+	defer mb.mu.RUnlock()
+	us := mb.getStoreLocked(ctx)
+	return us.threadState.State()
 }
 
 // ThreadChanges returns created, updated, and destroyed Threads since sinceState.
 func (mb *MemoryBackend) ThreadChanges(ctx context.Context, sinceState string) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
-	return mb.threadState.Changes(sinceState)
+	mb.mu.RLock()
+	defer mb.mu.RUnlock()
+	us := mb.getStoreLocked(ctx)
+	return us.threadState.Changes(sinceState)
 }
 
 // EmailState returns current change state token for Email resources.
 func (mb *MemoryBackend) EmailState(ctx context.Context) string {
-	return mb.emailState.State()
+	mb.mu.RLock()
+	defer mb.mu.RUnlock()
+	us := mb.getStoreLocked(ctx)
+	return us.emailState.State()
 }
 
 // EmailChanges returns created, updated, and destroyed Emails since sinceState.
 func (mb *MemoryBackend) EmailChanges(ctx context.Context, sinceState string) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
-	return mb.emailState.Changes(sinceState)
+	mb.mu.RLock()
+	defer mb.mu.RUnlock()
+	us := mb.getStoreLocked(ctx)
+	return us.emailState.Changes(sinceState)
 }
 
 // IdentityState returns current change state token for Identity resources.
 func (mb *MemoryBackend) IdentityState(ctx context.Context) string {
-	return mb.identityState.State()
+	mb.mu.RLock()
+	defer mb.mu.RUnlock()
+	us := mb.getStoreLocked(ctx)
+	return us.identityState.State()
 }
 
 // IdentityChanges returns created, updated, and destroyed Identities since sinceState.
 func (mb *MemoryBackend) IdentityChanges(ctx context.Context, sinceState string) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
-	return mb.identityState.Changes(sinceState)
+	mb.mu.RLock()
+	defer mb.mu.RUnlock()
+	us := mb.getStoreLocked(ctx)
+	return us.identityState.Changes(sinceState)
 }
 
 // SubmissionState returns current change state token for EmailSubmission resources.
 func (mb *MemoryBackend) SubmissionState(ctx context.Context) string {
-	return mb.submissionState.State()
+	mb.mu.RLock()
+	defer mb.mu.RUnlock()
+	us := mb.getStoreLocked(ctx)
+	return us.submissionState.State()
 }
 
 // SubmissionChanges returns created, updated, and destroyed EmailSubmissions since sinceState.
 func (mb *MemoryBackend) SubmissionChanges(ctx context.Context, sinceState string) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
-	return mb.submissionState.Changes(sinceState)
+	mb.mu.RLock()
+	defer mb.mu.RUnlock()
+	us := mb.getStoreLocked(ctx)
+	return us.submissionState.Changes(sinceState)
 }
 
 // QuotaState returns current change state token for Quota resources.
 func (mb *MemoryBackend) QuotaState(ctx context.Context) string {
-	return mb.quotaState.State()
+	mb.mu.RLock()
+	defer mb.mu.RUnlock()
+	us := mb.getStoreLocked(ctx)
+	return us.quotaState.State()
 }
 
 // QuotaChanges returns created, updated, and destroyed Quotas since sinceState.
 func (mb *MemoryBackend) QuotaChanges(ctx context.Context, sinceState string) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
-	return mb.quotaState.Changes(sinceState)
+	mb.mu.RLock()
+	defer mb.mu.RUnlock()
+	us := mb.getStoreLocked(ctx)
+	return us.quotaState.Changes(sinceState)
 }
 
 // GetMailboxes retrieves requested mailboxes by ID.
 func (mb *MemoryBackend) GetMailboxes(ctx context.Context, ids []jmap.Id) ([]*jmap.Mailbox, []jmap.Id, error) {
 	mb.mu.RLock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.RUnlock()
 
 	var list []*jmap.Mailbox
 	var notFound []jmap.Id
 
 	for _, id := range ids {
-		if item, ok := mb.mailboxes[id]; ok {
+		if item, ok := us.mailboxes[id]; ok {
 			list = append(list, item)
 		} else {
 			notFound = append(notFound, id)
@@ -406,10 +496,11 @@ func (mb *MemoryBackend) GetMailboxes(ctx context.Context, ids []jmap.Id) ([]*jm
 // GetAllMailboxes retrieves all mailboxes.
 func (mb *MemoryBackend) GetAllMailboxes(ctx context.Context) ([]*jmap.Mailbox, error) {
 	mb.mu.RLock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.RUnlock()
 
-	list := make([]*jmap.Mailbox, 0, len(mb.mailboxes))
-	for _, item := range mb.mailboxes {
+	list := make([]*jmap.Mailbox, 0, len(us.mailboxes))
+	for _, item := range us.mailboxes {
 		list = append(list, item)
 	}
 	return list, nil
@@ -418,6 +509,7 @@ func (mb *MemoryBackend) GetAllMailboxes(ctx context.Context) ([]*jmap.Mailbox, 
 // CreateMailbox creates a new mailbox.
 func (mb *MemoryBackend) CreateMailbox(ctx context.Context, item *jmap.Mailbox) (*jmap.Mailbox, error) {
 	mb.mu.Lock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.Unlock()
 
 	if item.ID == "" {
@@ -434,8 +526,8 @@ func (mb *MemoryBackend) CreateMailbox(ctx context.Context, item *jmap.Mailbox) 
 		MayDelete:      true,
 		MaySubmit:      true,
 	}
-	mb.mailboxes[item.ID] = item
-	mb.recordChange(mb.mailboxState, item.ID, "create", "Mailbox")
+	us.mailboxes[item.ID] = item
+	mb.recordChange(ctx, us.mailboxState, item.ID, "create", "Mailbox")
 	return item, nil
 }
 
@@ -443,7 +535,8 @@ func (mb *MemoryBackend) CreateMailbox(ctx context.Context, item *jmap.Mailbox) 
 // unaddressed fields. Counts and rights are server-set and cannot be patched by the client.
 func (mb *MemoryBackend) UpdateMailbox(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.Mailbox, error) {
 	mb.mu.Lock()
-	item, ok := mb.mailboxes[id]
+	us := mb.getStoreLocked(ctx)
+	item, ok := us.mailboxes[id]
 	if !ok {
 		mb.mu.Unlock()
 		return nil, fmt.Errorf("mailbox %s: %w", id, jmap.ErrNotFound)
@@ -472,7 +565,7 @@ func (mb *MemoryBackend) UpdateMailbox(ctx context.Context, id jmap.Id, patch ma
 				mb.mu.Unlock()
 				return nil, fmt.Errorf("a mailbox cannot be its own parent")
 			}
-			if _, exists := mb.mailboxes[jmap.Id(pid)]; !exists {
+			if _, exists := us.mailboxes[jmap.Id(pid)]; !exists {
 				mb.mu.Unlock()
 				return nil, fmt.Errorf("parent mailbox not found: %s", pid)
 			}
@@ -504,33 +597,35 @@ func (mb *MemoryBackend) UpdateMailbox(ctx context.Context, id jmap.Id, patch ma
 	}
 	mb.mu.Unlock()
 
-	mb.recordChange(mb.mailboxState, id, "update", "Mailbox")
+	mb.recordChange(ctx, us.mailboxState, id, "update", "Mailbox")
 	return item, nil
 }
 
 // DeleteMailbox deletes a mailbox by ID.
 func (mb *MemoryBackend) DeleteMailbox(ctx context.Context, id jmap.Id) (bool, error) {
 	mb.mu.Lock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.Unlock()
 
-	if _, ok := mb.mailboxes[id]; !ok {
+	if _, ok := us.mailboxes[id]; !ok {
 		return false, nil
 	}
-	delete(mb.mailboxes, id)
-	mb.recordChange(mb.mailboxState, id, "destroy", "Mailbox")
+	delete(us.mailboxes, id)
+	mb.recordChange(ctx, us.mailboxState, id, "destroy", "Mailbox")
 	return true, nil
 }
 
 // GetThreads retrieves threads by ID.
 func (mb *MemoryBackend) GetThreads(ctx context.Context, ids []jmap.Id) ([]*jmap.Thread, []jmap.Id, error) {
 	mb.mu.RLock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.RUnlock()
 
 	var list []*jmap.Thread
 	var notFound []jmap.Id
 
 	for _, id := range ids {
-		if item, ok := mb.threads[id]; ok {
+		if item, ok := us.threads[id]; ok {
 			list = append(list, item)
 		} else {
 			notFound = append(notFound, id)
@@ -542,10 +637,11 @@ func (mb *MemoryBackend) GetThreads(ctx context.Context, ids []jmap.Id) ([]*jmap
 // GetAllThreads retrieves all threads.
 func (mb *MemoryBackend) GetAllThreads(ctx context.Context) ([]*jmap.Thread, error) {
 	mb.mu.RLock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.RUnlock()
 
-	list := make([]*jmap.Thread, 0, len(mb.threads))
-	for _, item := range mb.threads {
+	list := make([]*jmap.Thread, 0, len(us.threads))
+	for _, item := range us.threads {
 		list = append(list, item)
 	}
 	return list, nil
@@ -554,13 +650,14 @@ func (mb *MemoryBackend) GetAllThreads(ctx context.Context) ([]*jmap.Thread, err
 // GetEmails retrieves emails by ID.
 func (mb *MemoryBackend) GetEmails(ctx context.Context, ids []jmap.Id) ([]*jmap.Email, []jmap.Id, error) {
 	mb.mu.RLock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.RUnlock()
 
 	var list []*jmap.Email
 	var notFound []jmap.Id
 
 	for _, id := range ids {
-		if item, ok := mb.emails[id]; ok {
+		if item, ok := us.emails[id]; ok {
 			list = append(list, item)
 		} else {
 			notFound = append(notFound, id)
@@ -572,10 +669,11 @@ func (mb *MemoryBackend) GetEmails(ctx context.Context, ids []jmap.Id) ([]*jmap.
 // GetAllEmails retrieves all emails.
 func (mb *MemoryBackend) GetAllEmails(ctx context.Context) ([]*jmap.Email, error) {
 	mb.mu.RLock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.RUnlock()
 
-	list := make([]*jmap.Email, 0, len(mb.emails))
-	for _, item := range mb.emails {
+	list := make([]*jmap.Email, 0, len(us.emails))
+	for _, item := range us.emails {
 		list = append(list, item)
 	}
 	return list, nil
@@ -584,6 +682,7 @@ func (mb *MemoryBackend) GetAllEmails(ctx context.Context) ([]*jmap.Email, error
 // CreateEmail creates a new email.
 func (mb *MemoryBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jmap.Email, error) {
 	mb.mu.Lock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.Unlock()
 
 	if em.ID == "" {
@@ -599,39 +698,39 @@ func (mb *MemoryBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jmap
 		em.Keywords = make(map[string]bool)
 	}
 
-	mb.emails[em.ID] = em
+	us.emails[em.ID] = em
 
 	// Update Thread
-	th, ok := mb.threads[em.ThreadID]
+	th, ok := us.threads[em.ThreadID]
 	if !ok {
 		th = &jmap.Thread{
 			ID:       em.ThreadID,
 			EmailIDs: []jmap.Id{em.ID},
 		}
-		mb.threads[em.ThreadID] = th
-		mb.recordChange(mb.threadState, em.ThreadID, "create", "Thread")
+		us.threads[em.ThreadID] = th
+		mb.recordChange(ctx, us.threadState, em.ThreadID, "create", "Thread")
 	} else {
 		th.EmailIDs = append(th.EmailIDs, em.ID)
-		mb.recordChange(mb.threadState, em.ThreadID, "update", "Thread")
+		mb.recordChange(ctx, us.threadState, em.ThreadID, "update", "Thread")
 	}
 
-	mb.recalculateMailboxCounts()
-	mb.recordChange(mb.emailState, em.ID, "create", "Email")
+	mb.recalculateMailboxCounts(us)
+	mb.recordChange(ctx, us.emailState, em.ID, "create", "Email")
 	// Mailbox counts changed, so the affected mailboxes' state must advance with the
 	// same token scheme used by Mailbox/changes (RFC 8621 Section 2.3).
 	for mID := range em.MailboxIDs {
-		mb.recordChange(mb.mailboxState, mID, "update", "Mailbox")
+		mb.recordChange(ctx, us.mailboxState, mID, "update", "Mailbox")
 	}
 	return em, nil
 }
 
-func (mb *MemoryBackend) recalculateMailboxCounts() {
+func (mb *MemoryBackend) recalculateMailboxCounts(us *userMailStore) {
 	counts := make(map[jmap.Id]*struct{ unread, total uint64 })
-	for mID := range mb.mailboxes {
+	for mID := range us.mailboxes {
 		counts[mID] = &struct{ unread, total uint64 }{}
 	}
 
-	for _, em := range mb.emails {
+	for _, em := range us.emails {
 		isUnread := true
 		if em.Keywords != nil {
 			if val, hasUnread := em.Keywords["$unread"]; hasUnread {
@@ -651,7 +750,7 @@ func (mb *MemoryBackend) recalculateMailboxCounts() {
 	}
 
 	for mID, c := range counts {
-		if box, ok := mb.mailboxes[mID]; ok {
+		if box, ok := us.mailboxes[mID]; ok {
 			box.TotalEmails = c.total
 			box.UnreadEmails = c.unread
 			box.TotalThreads = c.total
@@ -663,9 +762,10 @@ func (mb *MemoryBackend) recalculateMailboxCounts() {
 // UpdateEmail applies RFC 8621 Section 4.3 patch objects to an existing Email.
 func (mb *MemoryBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.Email, error) {
 	mb.mu.Lock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.Unlock()
 
-	em, ok := mb.emails[id]
+	em, ok := us.emails[id]
 	if !ok {
 		return nil, fmt.Errorf("notFound")
 	}
@@ -730,13 +830,13 @@ func (mb *MemoryBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map[
 		}
 	}
 
-	mb.recalculateMailboxCounts()
-	mb.recordChange(mb.emailState, id, "update", "Email")
+	mb.recalculateMailboxCounts(us)
+	mb.recordChange(ctx, us.emailState, id, "update", "Email")
 	for mID := range em.MailboxIDs {
 		affected[mID] = true
 	}
 	for mID := range affected {
-		mb.recordChange(mb.mailboxState, mID, "update", "Mailbox")
+		mb.recordChange(ctx, us.mailboxState, mID, "update", "Mailbox")
 	}
 	return em, nil
 }
@@ -744,9 +844,10 @@ func (mb *MemoryBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map[
 // DeleteEmail deletes an email by ID.
 func (mb *MemoryBackend) DeleteEmail(ctx context.Context, id jmap.Id) (bool, error) {
 	mb.mu.Lock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.Unlock()
 
-	em, ok := mb.emails[id]
+	em, ok := us.emails[id]
 	if !ok {
 		return false, nil
 	}
@@ -756,10 +857,10 @@ func (mb *MemoryBackend) DeleteEmail(ctx context.Context, id jmap.Id) (bool, err
 	for mID := range em.MailboxIDs {
 		affected[mID] = true
 	}
-	delete(mb.emails, id)
+	delete(us.emails, id)
 
 	// Remove from thread
-	if th, ok := mb.threads[em.ThreadID]; ok {
+	if th, ok := us.threads[em.ThreadID]; ok {
 		newIDs := make([]jmap.Id, 0, len(th.EmailIDs))
 		for _, eid := range th.EmailIDs {
 			if eid != id {
@@ -767,18 +868,18 @@ func (mb *MemoryBackend) DeleteEmail(ctx context.Context, id jmap.Id) (bool, err
 			}
 		}
 		if len(newIDs) == 0 {
-			delete(mb.threads, em.ThreadID)
-			mb.recordChange(mb.threadState, em.ThreadID, "destroy", "Thread")
+			delete(us.threads, em.ThreadID)
+			mb.recordChange(ctx, us.threadState, em.ThreadID, "destroy", "Thread")
 		} else {
 			th.EmailIDs = newIDs
-			mb.recordChange(mb.threadState, em.ThreadID, "update", "Thread")
+			mb.recordChange(ctx, us.threadState, em.ThreadID, "update", "Thread")
 		}
 	}
 
-	mb.recalculateMailboxCounts()
-	mb.recordChange(mb.emailState, id, "destroy", "Email")
+	mb.recalculateMailboxCounts(us)
+	mb.recordChange(ctx, us.emailState, id, "destroy", "Email")
 	for mID := range affected {
-		mb.recordChange(mb.mailboxState, mID, "update", "Mailbox")
+		mb.recordChange(ctx, us.mailboxState, mID, "update", "Mailbox")
 	}
 	return true, nil
 }
@@ -786,10 +887,11 @@ func (mb *MemoryBackend) DeleteEmail(ctx context.Context, id jmap.Id) (bool, err
 // QueryEmails evaluates filters, sorting, and pagination per RFC 8621 Section 4.5.
 func (mb *MemoryBackend) QueryEmails(ctx context.Context, filter map[string]any, comparators []jmap.Comparator, position int, limit *uint64) ([]jmap.Id, int, error) {
 	mb.mu.RLock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.RUnlock()
 
 	var matched []*jmap.Email
-	for _, em := range mb.emails {
+	for _, em := range us.emails {
 		if jmap.MatchesFilter(em, filter) {
 			matched = append(matched, em)
 		}
@@ -799,7 +901,7 @@ func (mb *MemoryBackend) QueryEmails(ctx context.Context, filter map[string]any,
 	// filtered results (RFC 8621 Section 4.4.2).
 	threadHas := make(map[string]bool)
 	threadLacks := make(map[string]bool)
-	for _, em := range mb.emails {
+	for _, em := range us.emails {
 		for _, c := range comparators {
 			if c.Property != "allInThreadHaveKeyword" && c.Property != "someInThreadHaveKeyword" {
 				continue
@@ -845,6 +947,7 @@ func (mb *MemoryBackend) QueryEmails(ctx context.Context, filter map[string]any,
 // VerifySmime implements RFC 9219 Section 4 Email/verifySmime.
 func (mb *MemoryBackend) VerifySmime(ctx context.Context, ids []jmap.Id) (map[jmap.Id]*jmap.SmimeVerificationResult, []jmap.Id, error) {
 	mb.mu.RLock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.RUnlock()
 
 	verified := make(map[jmap.Id]*jmap.SmimeVerificationResult)
@@ -852,7 +955,7 @@ func (mb *MemoryBackend) VerifySmime(ctx context.Context, ids []jmap.Id) (map[jm
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	for _, id := range ids {
-		em, ok := mb.emails[id]
+		em, ok := us.emails[id]
 		if !ok {
 			notFound = append(notFound, id)
 			continue
@@ -878,10 +981,11 @@ func (mb *MemoryBackend) VerifySmime(ctx context.Context, ids []jmap.Id) (map[jm
 // GetIdentities retrieves all identities.
 func (mb *MemoryBackend) GetIdentities(ctx context.Context) ([]*jmap.Identity, error) {
 	mb.mu.RLock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.RUnlock()
 
-	list := make([]*jmap.Identity, 0, len(mb.identities))
-	for _, item := range mb.identities {
+	list := make([]*jmap.Identity, 0, len(us.identities))
+	for _, item := range us.identities {
 		list = append(list, item)
 	}
 	return list, nil
@@ -890,6 +994,7 @@ func (mb *MemoryBackend) GetIdentities(ctx context.Context) ([]*jmap.Identity, e
 // CreateIdentity creates a new Identity (RFC 8621 Section 6.3).
 func (mb *MemoryBackend) CreateIdentity(ctx context.Context, identity *jmap.Identity) (*jmap.Identity, error) {
 	mb.mu.Lock()
+	us := mb.getStoreLocked(ctx)
 	if identity.Email == "" {
 		mb.mu.Unlock()
 		return nil, fmt.Errorf("email is required")
@@ -897,17 +1002,18 @@ func (mb *MemoryBackend) CreateIdentity(ctx context.Context, identity *jmap.Iden
 	if identity.ID == "" {
 		identity.ID = mb.nextID("identity")
 	}
-	mb.identities[identity.ID] = identity
+	us.identities[identity.ID] = identity
 	mb.mu.Unlock()
 
-	mb.recordChange(mb.identityState, identity.ID, "create", "Identity")
+	mb.recordChange(ctx, us.identityState, identity.ID, "create", "Identity")
 	return identity, nil
 }
 
 // UpdateIdentity applies a partial patch to an existing Identity, preserving unaddressed fields.
 func (mb *MemoryBackend) UpdateIdentity(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.Identity, error) {
 	mb.mu.Lock()
-	identity, ok := mb.identities[id]
+	us := mb.getStoreLocked(ctx)
+	identity, ok := us.identities[id]
 	if !ok {
 		mb.mu.Unlock()
 		return nil, fmt.Errorf("identity %s: %w", id, jmap.ErrNotFound)
@@ -929,27 +1035,29 @@ func (mb *MemoryBackend) UpdateIdentity(ctx context.Context, id jmap.Id, patch m
 	}
 	mb.mu.Unlock()
 
-	mb.recordChange(mb.identityState, id, "update", "Identity")
+	mb.recordChange(ctx, us.identityState, id, "update", "Identity")
 	return identity, nil
 }
 
 // DeleteIdentity removes an Identity.
 func (mb *MemoryBackend) DeleteIdentity(ctx context.Context, id jmap.Id) (bool, error) {
 	mb.mu.Lock()
-	if _, ok := mb.identities[id]; !ok {
+	us := mb.getStoreLocked(ctx)
+	if _, ok := us.identities[id]; !ok {
 		mb.mu.Unlock()
 		return false, nil
 	}
-	delete(mb.identities, id)
+	delete(us.identities, id)
 	mb.mu.Unlock()
 
-	mb.recordChange(mb.identityState, id, "destroy", "Identity")
+	mb.recordChange(ctx, us.identityState, id, "destroy", "Identity")
 	return true, nil
 }
 
 // CreateSubmission creates an EmailSubmission.
 func (mb *MemoryBackend) CreateSubmission(ctx context.Context, sub *jmap.EmailSubmission) (*jmap.EmailSubmission, error) {
 	mb.mu.Lock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.Unlock()
 
 	if sub.ID == "" {
@@ -960,7 +1068,7 @@ func (mb *MemoryBackend) CreateSubmission(ctx context.Context, sub *jmap.EmailSu
 	}
 	// RFC 8621 Section 7.1: threadId is server-set and must match the referenced email.
 	if sub.ThreadID == "" {
-		if em, ok := mb.emails[sub.EmailID]; ok {
+		if em, ok := us.emails[sub.EmailID]; ok {
 			sub.ThreadID = em.ThreadID
 		}
 	}
@@ -971,34 +1079,36 @@ func (mb *MemoryBackend) CreateSubmission(ctx context.Context, sub *jmap.EmailSu
 		},
 	}
 
-	mb.submissions[sub.ID] = sub
-	mb.recordChange(mb.submissionState, sub.ID, "create", "EmailSubmission")
+	us.submissions[sub.ID] = sub
+	mb.recordChange(ctx, us.submissionState, sub.ID, "create", "EmailSubmission")
 	return sub, nil
 }
 
 // DeleteSubmission deletes an EmailSubmission.
 func (mb *MemoryBackend) DeleteSubmission(ctx context.Context, id jmap.Id) (bool, error) {
 	mb.mu.Lock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.Unlock()
 
-	if _, ok := mb.submissions[id]; !ok {
+	if _, ok := us.submissions[id]; !ok {
 		return false, nil
 	}
-	delete(mb.submissions, id)
-	mb.recordChange(mb.submissionState, id, "destroy", "EmailSubmission")
+	delete(us.submissions, id)
+	mb.recordChange(ctx, us.submissionState, id, "destroy", "EmailSubmission")
 	return true, nil
 }
 
 // GetSubmissions retrieves EmailSubmissions by ID.
 func (mb *MemoryBackend) GetSubmissions(ctx context.Context, ids []jmap.Id) ([]*jmap.EmailSubmission, []jmap.Id, error) {
 	mb.mu.RLock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.RUnlock()
 
 	var list []*jmap.EmailSubmission
 	var notFound []jmap.Id
 
 	for _, id := range ids {
-		if sub, ok := mb.submissions[id]; ok {
+		if sub, ok := us.submissions[id]; ok {
 			list = append(list, sub)
 		} else {
 			notFound = append(notFound, id)
@@ -1010,10 +1120,11 @@ func (mb *MemoryBackend) GetSubmissions(ctx context.Context, ids []jmap.Id) ([]*
 // GetAllSubmissions retrieves all EmailSubmissions.
 func (mb *MemoryBackend) GetAllSubmissions(ctx context.Context) ([]*jmap.EmailSubmission, error) {
 	mb.mu.RLock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.RUnlock()
 
-	list := make([]*jmap.EmailSubmission, 0, len(mb.submissions))
-	for _, sub := range mb.submissions {
+	list := make([]*jmap.EmailSubmission, 0, len(us.submissions))
+	for _, sub := range us.submissions {
 		list = append(list, sub)
 	}
 	return list, nil
@@ -1023,21 +1134,22 @@ func (mb *MemoryBackend) GetAllSubmissions(ctx context.Context) ([]*jmap.EmailSu
 // blob id, which objects of the requested JMAP data types reference it.
 func (mb *MemoryBackend) LookupBlobReferences(ctx context.Context, typeNames []string, blobID jmap.Id) (map[string][]jmap.Id, error) {
 	mb.mu.RLock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.RUnlock()
 
 	matched := make(map[string][]jmap.Id)
 	for _, tn := range typeNames {
 		switch tn {
 		case "Email":
-			for _, em := range mb.emails {
+			for _, em := range us.emails {
 				if em.BlobID == blobID || emailReferencesBlob(em, blobID) {
 					matched["Email"] = append(matched["Email"], em.ID)
 				}
 			}
 		case "Thread":
-			for _, th := range mb.threads {
+			for _, th := range us.threads {
 				for _, emailID := range th.EmailIDs {
-					if em, ok := mb.emails[emailID]; ok && (em.BlobID == blobID || emailReferencesBlob(em, blobID)) {
+					if em, ok := us.emails[emailID]; ok && (em.BlobID == blobID || emailReferencesBlob(em, blobID)) {
 						matched["Thread"] = append(matched["Thread"], th.ID)
 						break
 					}
@@ -1066,6 +1178,7 @@ func emailReferencesBlob(em *jmap.Email, blobID jmap.Id) bool {
 // ("sentAt" is accepted as an alias for sendAt); the default sort is sendAt descending.
 func (mb *MemoryBackend) QuerySubmissions(ctx context.Context, filter map[string]any, comparators []jmap.Comparator, position int, limit *uint64) ([]jmap.Id, int, error) {
 	mb.mu.RLock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.RUnlock()
 
 	identityFilter := submissionIDFilter(filter, "identityIds")
@@ -1076,7 +1189,7 @@ func (mb *MemoryBackend) QuerySubmissions(ctx context.Context, filter map[string
 	after, _ := filter["after"].(string)
 
 	var matched []*jmap.EmailSubmission
-	for _, sub := range mb.submissions {
+	for _, sub := range us.submissions {
 		if len(identityFilter) > 0 && !identityFilter[sub.IdentityID] {
 			continue
 		}
@@ -1170,13 +1283,14 @@ func submissionIDFilter(filter map[string]any, key string) map[jmap.Id]bool {
 // GetQuotas retrieves requested Quota objects by ID per RFC 9425 Section 4.
 func (mb *MemoryBackend) GetQuotas(ctx context.Context, ids []jmap.Id) ([]*jmap.Quota, []jmap.Id, error) {
 	mb.mu.RLock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.RUnlock()
 
 	var list []*jmap.Quota
 	var notFound []jmap.Id
 
 	for _, id := range ids {
-		if q, ok := mb.quotas[id]; ok {
+		if q, ok := us.quotas[id]; ok {
 			list = append(list, q)
 		} else {
 			notFound = append(notFound, id)
@@ -1188,10 +1302,11 @@ func (mb *MemoryBackend) GetQuotas(ctx context.Context, ids []jmap.Id) ([]*jmap.
 // GetAllQuotas retrieves all Quota objects per RFC 9425 Section 4.
 func (mb *MemoryBackend) GetAllQuotas(ctx context.Context) ([]*jmap.Quota, error) {
 	mb.mu.RLock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.RUnlock()
 
-	list := make([]*jmap.Quota, 0, len(mb.quotas))
-	for _, q := range mb.quotas {
+	list := make([]*jmap.Quota, 0, len(us.quotas))
+	for _, q := range us.quotas {
 		list = append(list, q)
 	}
 	return list, nil
@@ -1200,9 +1315,10 @@ func (mb *MemoryBackend) GetAllQuotas(ctx context.Context) ([]*jmap.Quota, error
 // SendMDN sends a Message Disposition Notification per RFC 9007 Section 3.1.
 func (mb *MemoryBackend) SendMDN(ctx context.Context, mdn *jmap.MDN) (*jmap.MDN, error) {
 	mb.mu.Lock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.Unlock()
 
-	targetEmail, ok := mb.emails[mdn.ForEmailID]
+	targetEmail, ok := us.emails[mdn.ForEmailID]
 	if !ok {
 		return nil, fmt.Errorf("email %s not found", mdn.ForEmailID)
 	}
@@ -1233,14 +1349,14 @@ func (mb *MemoryBackend) SendMDN(ctx context.Context, mdn *jmap.MDN) (*jmap.MDN,
 		},
 		TextBody: []jmap.EmailBodyPart{{PartID: "1", Type: "text/plain"}},
 	}
-	mb.emails[mdnEmail.ID] = mdnEmail
+	us.emails[mdnEmail.ID] = mdnEmail
 
 	// RFC 9007 Section 3.1: sending an MDN creates an email in the Sent mailbox; the
 	// Email, Thread, and Mailbox types all change state. MDN itself has no state.
-	mb.recalculateMailboxCounts()
-	mb.recordChange(mb.emailState, mdnEmail.ID, "create", "Email")
-	mb.recordChange(mb.threadState, mdnEmail.ThreadID, "update", "Thread")
-	mb.recordChange(mb.mailboxState, "mb-sent", "update", "Mailbox")
+	mb.recalculateMailboxCounts(us)
+	mb.recordChange(ctx, us.emailState, mdnEmail.ID, "create", "Email")
+	mb.recordChange(ctx, us.threadState, mdnEmail.ThreadID, "update", "Thread")
+	mb.recordChange(ctx, us.mailboxState, "mb-sent", "update", "Mailbox")
 	return mdn, nil
 }
 
@@ -1249,9 +1365,10 @@ func (mb *MemoryBackend) SendMDN(ctx context.Context, mdn *jmap.MDN) (*jmap.MDN,
 // jmap.ErrBlobNotFound is returned so the caller may report it as notFound.
 func (mb *MemoryBackend) ParseMDN(ctx context.Context, blobID jmap.Id) (*jmap.MDN, error) {
 	mb.mu.RLock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.RUnlock()
 
-	for _, em := range mb.emails {
+	for _, em := range us.emails {
 		if em.BlobID == blobID {
 			return &jmap.MDN{
 				ID:          jmap.Id("mdn-parsed-" + string(blobID)),
@@ -1274,13 +1391,14 @@ func (mb *MemoryBackend) ParseMDN(ctx context.Context, blobID jmap.Id) (*jmap.MD
 // GetPushSubscriptions retrieves PushSubscription objects by ID per RFC 8620 Section 7.2.1.
 func (mb *MemoryBackend) GetPushSubscriptions(ctx context.Context, ids []jmap.Id) ([]*jmap.PushSubscription, []jmap.Id, error) {
 	mb.mu.RLock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.RUnlock()
 
 	var list []*jmap.PushSubscription
 	var notFound []jmap.Id
 
 	for _, id := range ids {
-		if sub, ok := mb.pushSubscriptions[id]; ok {
+		if sub, ok := us.pushSubscriptions[id]; ok {
 			list = append(list, sub)
 		} else {
 			notFound = append(notFound, id)
@@ -1292,10 +1410,11 @@ func (mb *MemoryBackend) GetPushSubscriptions(ctx context.Context, ids []jmap.Id
 // GetAllPushSubscriptions retrieves all PushSubscription objects per RFC 8620 Section 7.2.1.
 func (mb *MemoryBackend) GetAllPushSubscriptions(ctx context.Context) ([]*jmap.PushSubscription, error) {
 	mb.mu.RLock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.RUnlock()
 
-	list := make([]*jmap.PushSubscription, 0, len(mb.pushSubscriptions))
-	for _, sub := range mb.pushSubscriptions {
+	list := make([]*jmap.PushSubscription, 0, len(us.pushSubscriptions))
+	for _, sub := range us.pushSubscriptions {
 		list = append(list, sub)
 	}
 	return list, nil
@@ -1305,6 +1424,7 @@ func (mb *MemoryBackend) GetAllPushSubscriptions(ctx context.Context) ([]*jmap.P
 // Upon creation, the server MUST send a PushVerification to the subscription URL.
 func (mb *MemoryBackend) CreatePushSubscription(ctx context.Context, sub *jmap.PushSubscription) (*jmap.PushSubscription, error) {
 	mb.mu.Lock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.Unlock()
 
 	if sub.ID == "" {
@@ -1316,7 +1436,7 @@ func (mb *MemoryBackend) CreatePushSubscription(ctx context.Context, sub *jmap.P
 	verificationCode := fmt.Sprintf("verify-%s-%d", sub.ID, mb.idCounter)
 	sub.VerificationCode = &verificationCode
 
-	mb.pushSubscriptions[sub.ID] = sub
+	us.pushSubscriptions[sub.ID] = sub
 	return sub, nil
 }
 
@@ -1324,9 +1444,10 @@ func (mb *MemoryBackend) CreatePushSubscription(ctx context.Context, sub *jmap.P
 // Only "expires", "types", and "verificationCode" are mutable per spec.
 func (mb *MemoryBackend) UpdatePushSubscription(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.PushSubscription, error) {
 	mb.mu.Lock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.Unlock()
 
-	sub, ok := mb.pushSubscriptions[id]
+	sub, ok := us.pushSubscriptions[id]
 	if !ok {
 		return nil, fmt.Errorf("push subscription %s not found", id)
 	}
@@ -1357,18 +1478,19 @@ func (mb *MemoryBackend) UpdatePushSubscription(ctx context.Context, id jmap.Id,
 		}
 	}
 
-	mb.pushSubscriptions[id] = sub
+	us.pushSubscriptions[id] = sub
 	return sub, nil
 }
 
 // DeletePushSubscription deletes a PushSubscription per RFC 8620 Section 7.2.2.
 func (mb *MemoryBackend) DeletePushSubscription(ctx context.Context, id jmap.Id) (bool, error) {
 	mb.mu.Lock()
+	us := mb.getStoreLocked(ctx)
 	defer mb.mu.Unlock()
 
-	if _, ok := mb.pushSubscriptions[id]; !ok {
+	if _, ok := us.pushSubscriptions[id]; !ok {
 		return false, nil
 	}
-	delete(mb.pushSubscriptions, id)
+	delete(us.pushSubscriptions, id)
 	return true, nil
 }

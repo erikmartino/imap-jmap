@@ -12,14 +12,32 @@ import (
 )
 
 // MemoryContactsBackend provides an in-memory implementation of jmap.ContactsBackend per RFC 9610.
-type MemoryContactsBackend struct {
-	mu           sync.RWMutex
+type userContactsStore struct {
 	addressBooks map[jmap.Id]*jmap.AddressBook
 	cards        map[jmap.Id]*jmap.Card
 	abState      *changeTracker
 	cardState    *changeTracker
-	nextID       uint64
-	broadcaster  *jmap.Broadcaster
+}
+
+type MemoryContactsBackend struct {
+	mu          sync.RWMutex
+	users       map[string]*userContactsStore
+	nextID      uint64
+	broadcaster *jmap.Broadcaster
+}
+
+func (b *MemoryContactsBackend) getStoreLocked(ctx context.Context) *userContactsStore {
+	accountID := "primary"
+	if ctxID, ok := jmap.AccountIDFromContext(ctx); ok && ctxID != "" {
+		accountID = ctxID
+	}
+
+	us, ok := b.users[accountID]
+	if !ok {
+		us = newMemoryUserContactsStore()
+		b.users[accountID] = us
+	}
+	return us
 }
 
 // Ensure MemoryContactsBackend implements jmap.ContactsBackend interface.
@@ -33,14 +51,12 @@ func (b *MemoryContactsBackend) SetBroadcaster(bc *jmap.Broadcaster) {
 	b.broadcaster = bc
 }
 
-// NewMemoryContactsBackend initializes a new MemoryContactsBackend with a default address book.
-func NewMemoryContactsBackend() *MemoryContactsBackend {
-	b := &MemoryContactsBackend{
+func newMemoryUserContactsStore() *userContactsStore {
+	us := &userContactsStore{
 		addressBooks: make(map[jmap.Id]*jmap.AddressBook),
 		cards:        make(map[jmap.Id]*jmap.Card),
 		abState:      newChangeTracker(1000),
 		cardState:    newChangeTracker(1000),
-		nextID:       1,
 	}
 
 	defaultAB := &jmap.AddressBook{
@@ -55,57 +71,84 @@ func NewMemoryContactsBackend() *MemoryContactsBackend {
 			MayDelete:     false,
 		},
 	}
-	b.addressBooks[defaultAB.ID] = defaultAB
+	us.addressBooks[defaultAB.ID] = defaultAB
 
+	return us
+}
+
+// NewMemoryContactsBackend initializes a new MemoryContactsBackend with a default address book.
+func NewMemoryContactsBackend() *MemoryContactsBackend {
+	b := &MemoryContactsBackend{
+		users:  make(map[string]*userContactsStore),
+		nextID: 1,
+	}
+	_ = b.getStoreLocked(context.Background())
 	return b
 }
 
 // AddressBookState returns the current change state token for AddressBooks per RFC 8620.
 func (b *MemoryContactsBackend) AddressBookState(ctx context.Context) string {
-	return b.abState.State()
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	us := b.getStoreLocked(ctx)
+	return us.abState.State()
 }
 
 // AddressBookChanges returns created/updated/destroyed AddressBooks since the given state per RFC 8620 Section 5.2.
 func (b *MemoryContactsBackend) AddressBookChanges(ctx context.Context, sinceState string) (created, updated, destroyed []jmap.Id, newState string, hasMore bool) {
-	return b.abState.Changes(sinceState)
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	us := b.getStoreLocked(ctx)
+	return us.abState.Changes(sinceState)
 }
 
 // CardState returns the current change state token for Cards per RFC 8620.
 func (b *MemoryContactsBackend) CardState(ctx context.Context) string {
-	return b.cardState.State()
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	us := b.getStoreLocked(ctx)
+	return us.cardState.State()
 }
 
 // CardChanges returns created/updated/destroyed Cards since the given state per RFC 8620 Section 5.2.
 func (b *MemoryContactsBackend) CardChanges(ctx context.Context, sinceState string) (created, updated, destroyed []jmap.Id, newState string, hasMore bool) {
-	return b.cardState.Changes(sinceState)
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	us := b.getStoreLocked(ctx)
+	return us.cardState.Changes(sinceState)
 }
 
 // recordChange records a mutation on the given tracker and publishes the new state token
 // to push subscribers.
-func (b *MemoryContactsBackend) recordChange(tracker *changeTracker, id jmap.Id, action string, typeName string) string {
+func (b *MemoryContactsBackend) recordChange(ctx context.Context, tracker *changeTracker, id jmap.Id, action string, typeName string) string {
 	newState := tracker.record(id, action)
 	if b.broadcaster != nil {
-		b.broadcaster.PublishStateChange("primary", typeName, newState)
+		accountID := "primary"
+		if ctxID, ok := jmap.AccountIDFromContext(ctx); ok && ctxID != "" {
+			accountID = ctxID
+		}
+		b.broadcaster.PublishStateChange(accountID, typeName, newState)
 	}
 	return newState
 }
 
 func (b *MemoryContactsBackend) GetAddressBooks(ctx context.Context, ids []jmap.Id) ([]*jmap.AddressBook, []jmap.Id, error) {
 	b.mu.RLock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.RUnlock()
 
 	var list []*jmap.AddressBook
 	var notFound []jmap.Id
 
 	if len(ids) == 0 {
-		for _, ab := range b.addressBooks {
+		for _, ab := range us.addressBooks {
 			list = append(list, ab)
 		}
 		return list, nil, nil
 	}
 
 	for _, id := range ids {
-		if ab, ok := b.addressBooks[id]; ok {
+		if ab, ok := us.addressBooks[id]; ok {
 			list = append(list, ab)
 		} else {
 			notFound = append(notFound, id)
@@ -116,10 +159,11 @@ func (b *MemoryContactsBackend) GetAddressBooks(ctx context.Context, ids []jmap.
 
 func (b *MemoryContactsBackend) GetAllAddressBooks(ctx context.Context) ([]*jmap.AddressBook, error) {
 	b.mu.RLock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.RUnlock()
 
 	var list []*jmap.AddressBook
-	for _, ab := range b.addressBooks {
+	for _, ab := range us.addressBooks {
 		list = append(list, ab)
 	}
 	return list, nil
@@ -127,6 +171,7 @@ func (b *MemoryContactsBackend) GetAllAddressBooks(ctx context.Context) ([]*jmap
 
 func (b *MemoryContactsBackend) CreateAddressBook(ctx context.Context, ab *jmap.AddressBook) (*jmap.AddressBook, error) {
 	b.mu.Lock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.Unlock()
 
 	if ab.ID == "" {
@@ -140,20 +185,21 @@ func (b *MemoryContactsBackend) CreateAddressBook(ctx context.Context, ab *jmap.
 		MayDelete:     true,
 	}
 	if ab.IsDefault {
-		for _, other := range b.addressBooks {
+		for _, other := range us.addressBooks {
 			other.IsDefault = false
 		}
 	}
-	b.addressBooks[ab.ID] = ab
-	b.recordChange(b.abState, ab.ID, "create", "AddressBook")
+	us.addressBooks[ab.ID] = ab
+	b.recordChange(ctx, us.abState, ab.ID, "create", "AddressBook")
 	return ab, nil
 }
 
 func (b *MemoryContactsBackend) UpdateAddressBook(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.AddressBook, error) {
 	b.mu.Lock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.Unlock()
 
-	ab, ok := b.addressBooks[id]
+	ab, ok := us.addressBooks[id]
 	if !ok {
 		return nil, fmt.Errorf("addressbook not found: %s", id)
 	}
@@ -170,7 +216,7 @@ func (b *MemoryContactsBackend) UpdateAddressBook(ctx context.Context, id jmap.I
 		ab.SortOrder = uint64(sortOrder)
 	}
 	if isDefault, ok := patch["isDefault"].(bool); ok && isDefault {
-		for _, other := range b.addressBooks {
+		for _, other := range us.addressBooks {
 			if other.ID != ab.ID {
 				other.IsDefault = false
 			}
@@ -178,38 +224,40 @@ func (b *MemoryContactsBackend) UpdateAddressBook(ctx context.Context, id jmap.I
 		ab.IsDefault = true
 	}
 
-	b.recordChange(b.abState, id, "update", "AddressBook")
+	b.recordChange(ctx, us.abState, id, "update", "AddressBook")
 	return ab, nil
 }
 
 func (b *MemoryContactsBackend) DeleteAddressBook(ctx context.Context, id jmap.Id) (bool, error) {
 	b.mu.Lock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.Unlock()
 
-	if _, ok := b.addressBooks[id]; !ok {
+	if _, ok := us.addressBooks[id]; !ok {
 		return false, nil
 	}
-	delete(b.addressBooks, id)
-	b.recordChange(b.abState, id, "destroy", "AddressBook")
+	delete(us.addressBooks, id)
+	b.recordChange(ctx, us.abState, id, "destroy", "AddressBook")
 	return true, nil
 }
 
 func (b *MemoryContactsBackend) GetCards(ctx context.Context, ids []jmap.Id) ([]*jmap.Card, []jmap.Id, error) {
 	b.mu.RLock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.RUnlock()
 
 	var list []*jmap.Card
 	var notFound []jmap.Id
 
 	if len(ids) == 0 {
-		for _, card := range b.cards {
+		for _, card := range us.cards {
 			list = append(list, card)
 		}
 		return list, nil, nil
 	}
 
 	for _, id := range ids {
-		if card, ok := b.cards[id]; ok {
+		if card, ok := us.cards[id]; ok {
 			list = append(list, card)
 		} else {
 			notFound = append(notFound, id)
@@ -220,10 +268,11 @@ func (b *MemoryContactsBackend) GetCards(ctx context.Context, ids []jmap.Id) ([]
 
 func (b *MemoryContactsBackend) GetAllCards(ctx context.Context) ([]*jmap.Card, error) {
 	b.mu.RLock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.RUnlock()
 
 	var list []*jmap.Card
-	for _, card := range b.cards {
+	for _, card := range us.cards {
 		list = append(list, card)
 	}
 	return list, nil
@@ -231,6 +280,7 @@ func (b *MemoryContactsBackend) GetAllCards(ctx context.Context) ([]*jmap.Card, 
 
 func (b *MemoryContactsBackend) CreateCard(ctx context.Context, card *jmap.Card) (*jmap.Card, error) {
 	b.mu.Lock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.Unlock()
 
 	if card.ID == "" {
@@ -243,8 +293,8 @@ func (b *MemoryContactsBackend) CreateCard(ctx context.Context, card *jmap.Card)
 		card.Created = now
 	}
 	card.Updated = now
-	b.cards[card.ID] = card
-	b.recordChange(b.cardState, card.ID, "create", "Card")
+	us.cards[card.ID] = card
+	b.recordChange(ctx, us.cardState, card.ID, "create", "Card")
 	return card, nil
 }
 
@@ -382,9 +432,10 @@ func setCardField(card *jmap.Card, path string, val any) {
 
 func (b *MemoryContactsBackend) UpdateCard(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.Card, error) {
 	b.mu.Lock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.Unlock()
 
-	card, ok := b.cards[id]
+	card, ok := us.cards[id]
 	if !ok {
 		return nil, fmt.Errorf("card not found: %s", id)
 	}
@@ -393,19 +444,20 @@ func (b *MemoryContactsBackend) UpdateCard(ctx context.Context, id jmap.Id, patc
 		setCardField(card, path, val)
 	}
 	card.Updated = time.Now().UTC().Format(time.RFC3339)
-	b.recordChange(b.cardState, id, "update", "Card")
+	b.recordChange(ctx, us.cardState, id, "update", "Card")
 	return card, nil
 }
 
 func (b *MemoryContactsBackend) DeleteCard(ctx context.Context, id jmap.Id) (bool, error) {
 	b.mu.Lock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.Unlock()
 
-	if _, ok := b.cards[id]; !ok {
+	if _, ok := us.cards[id]; !ok {
 		return false, nil
 	}
-	delete(b.cards, id)
-	b.recordChange(b.cardState, id, "destroy", "Card")
+	delete(us.cards, id)
+	b.recordChange(ctx, us.cardState, id, "destroy", "Card")
 	return true, nil
 }
 
@@ -511,10 +563,11 @@ func MatchCard(card *jmap.Card, filter map[string]any) bool {
 
 func (b *MemoryContactsBackend) QueryCards(ctx context.Context, filter map[string]any, position int, limit *uint64) ([]jmap.Id, int, error) {
 	b.mu.RLock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.RUnlock()
 
 	var matched []*jmap.Card
-	for _, card := range b.cards {
+	for _, card := range us.cards {
 		if MatchCard(card, filter) {
 			matched = append(matched, card)
 		}

@@ -68,6 +68,9 @@ func (s *Session) Data(r io.Reader) error {
 	}
 
 	ctx := context.Background()
+	if s.backend.AccountID != "" {
+		ctx = jmap.ContextWithAccountID(ctx, s.backend.AccountID)
+	}
 
 	// 1. Store raw RFC 5322 byte stream as a Blob in BlobBackend (RFC 8620 Section 6)
 	var blobID jmap.Id = "blob-unknown"

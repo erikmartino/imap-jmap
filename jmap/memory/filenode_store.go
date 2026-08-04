@@ -13,12 +13,33 @@ import (
 
 // MemoryFileNodeBackend provides an in-memory implementation of jmap.FileNodeBackend
 // for the JMAP FileNode file storage extension.
+type userFileNodeStore struct {
+	nodes map[jmap.Id]*jmap.FileNode
+	state *changeTracker
+}
+
 type MemoryFileNodeBackend struct {
 	mu          sync.RWMutex
-	nodes       map[jmap.Id]*jmap.FileNode
-	state       *changeTracker
+	users       map[string]*userFileNodeStore
 	nextID      uint64
 	broadcaster *jmap.Broadcaster
+}
+
+func (b *MemoryFileNodeBackend) getStoreLocked(ctx context.Context) *userFileNodeStore {
+	accountID := "primary"
+	if ctxID, ok := jmap.AccountIDFromContext(ctx); ok && ctxID != "" {
+		accountID = ctxID
+	}
+
+	us, ok := b.users[accountID]
+	if !ok {
+		us = &userFileNodeStore{
+			nodes: make(map[jmap.Id]*jmap.FileNode),
+			state: newChangeTracker(1000),
+		}
+		b.users[accountID] = us
+	}
+	return us
 }
 
 // Ensure MemoryFileNodeBackend implements jmap.FileNodeBackend interface.
@@ -26,11 +47,12 @@ var _ jmap.FileNodeBackend = (*MemoryFileNodeBackend)(nil)
 
 // NewMemoryFileNodeBackend initializes a new MemoryFileNodeBackend instance.
 func NewMemoryFileNodeBackend() *MemoryFileNodeBackend {
-	return &MemoryFileNodeBackend{
-		nodes:  make(map[jmap.Id]*jmap.FileNode),
-		state:  newChangeTracker(1000),
+	b := &MemoryFileNodeBackend{
+		users:  make(map[string]*userFileNodeStore),
 		nextID: 0,
 	}
+	_ = b.getStoreLocked(context.Background())
+	return b
 }
 
 // SetBroadcaster connects a Broadcaster so FileNode mutations emit RFC 8620 Section 7.1
@@ -40,31 +62,42 @@ func (b *MemoryFileNodeBackend) SetBroadcaster(bc *jmap.Broadcaster) {
 }
 
 // record commits a change to the tracker and publishes a StateChange for the "FileNode" type.
-func (b *MemoryFileNodeBackend) record(id jmap.Id, action string) {
-	newState := b.state.record(id, action)
+func (b *MemoryFileNodeBackend) record(ctx context.Context, tracker *changeTracker, id jmap.Id, action string) {
+	newState := tracker.record(id, action)
 	if b.broadcaster != nil {
-		b.broadcaster.PublishStateChange("primary", "FileNode", newState)
+		accountID := "primary"
+		if ctxID, ok := jmap.AccountIDFromContext(ctx); ok && ctxID != "" {
+			accountID = ctxID
+		}
+		b.broadcaster.PublishStateChange(accountID, "FileNode", newState)
 	}
 }
 
 // FileNodeState returns the current change state token per RFC 8620.
 func (b *MemoryFileNodeBackend) FileNodeState(ctx context.Context) string {
-	return b.state.State()
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	us := b.getStoreLocked(ctx)
+	return us.state.State()
 }
 
 // FileNodeChanges returns created/updated/destroyed nodes since the given state per RFC 8620 Section 5.2.
 func (b *MemoryFileNodeBackend) FileNodeChanges(ctx context.Context, sinceState string) (created, updated, destroyed []jmap.Id, newState string, hasMore bool) {
-	return b.state.Changes(sinceState)
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	us := b.getStoreLocked(ctx)
+	return us.state.Changes(sinceState)
 }
 
 // GetFileNodes returns the FileNodes matching the given ids, or all nodes when ids is empty.
 func (b *MemoryFileNodeBackend) GetFileNodes(ctx context.Context, ids []jmap.Id) ([]*jmap.FileNode, []jmap.Id, error) {
 	b.mu.RLock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.RUnlock()
 
 	if len(ids) == 0 {
-		list := make([]*jmap.FileNode, 0, len(b.nodes))
-		for _, n := range b.nodes {
+		list := make([]*jmap.FileNode, 0, len(us.nodes))
+		for _, n := range us.nodes {
 			list = append(list, cloneFileNode(n))
 		}
 		sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
@@ -74,7 +107,7 @@ func (b *MemoryFileNodeBackend) GetFileNodes(ctx context.Context, ids []jmap.Id)
 	var list []*jmap.FileNode
 	var notFound []jmap.Id
 	for _, id := range ids {
-		if n, ok := b.nodes[id]; ok {
+		if n, ok := us.nodes[id]; ok {
 			list = append(list, cloneFileNode(n))
 		} else {
 			notFound = append(notFound, id)
@@ -92,13 +125,14 @@ func (b *MemoryFileNodeBackend) GetAllFileNodes(ctx context.Context) ([]*jmap.Fi
 // CreateFileNode stores a new FileNode, validating parent references and folder/blob invariants.
 func (b *MemoryFileNodeBackend) CreateFileNode(ctx context.Context, node *jmap.FileNode) (*jmap.FileNode, error) {
 	b.mu.Lock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.Unlock()
 
 	if strings.TrimSpace(node.Name) == "" {
 		return nil, fmt.Errorf("name is required")
 	}
 	if node.ParentID != nil {
-		parent, ok := b.nodes[*node.ParentID]
+		parent, ok := us.nodes[*node.ParentID]
 		if !ok {
 			return nil, fmt.Errorf("parent not found: %s", *node.ParentID)
 		}
@@ -119,17 +153,18 @@ func (b *MemoryFileNodeBackend) CreateFileNode(ctx context.Context, node *jmap.F
 	node.CreatedAt = now
 	node.UpdatedAt = now
 
-	b.nodes[node.ID] = node
-	b.record(node.ID, "create")
+	us.nodes[node.ID] = node
+	b.record(ctx, us.state, node.ID, "create")
 	return cloneFileNode(node), nil
 }
 
 // UpdateFileNode applies a partial patch to an existing FileNode, preserving unaddressed fields.
 func (b *MemoryFileNodeBackend) UpdateFileNode(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.FileNode, error) {
 	b.mu.Lock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.Unlock()
 
-	node, ok := b.nodes[id]
+	node, ok := us.nodes[id]
 	if !ok {
 		return nil, fmt.Errorf("filenode %s: %w", id, jmap.ErrNotFound)
 	}
@@ -157,7 +192,7 @@ func (b *MemoryFileNodeBackend) UpdateFileNode(ctx context.Context, id jmap.Id, 
 			if jmap.Id(pid) == id {
 				return nil, fmt.Errorf("a node cannot be its own parent")
 			}
-			parent, ok := b.nodes[jmap.Id(pid)]
+			parent, ok := us.nodes[jmap.Id(pid)]
 			if !ok {
 				return nil, fmt.Errorf("parent not found: %s", pid)
 			}
@@ -198,32 +233,34 @@ func (b *MemoryFileNodeBackend) UpdateFileNode(ctx context.Context, id jmap.Id, 
 	}
 
 	updated.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	b.nodes[id] = updated
-	b.record(id, "update")
+	us.nodes[id] = updated
+	b.record(ctx, us.state, id, "update")
 	return cloneFileNode(updated), nil
 }
 
 // DeleteFileNode removes a FileNode. Folders with children are rejected to avoid orphaning descendants.
 func (b *MemoryFileNodeBackend) DeleteFileNode(ctx context.Context, id jmap.Id) (bool, error) {
 	b.mu.Lock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.Unlock()
 
-	if _, ok := b.nodes[id]; !ok {
+	if _, ok := us.nodes[id]; !ok {
 		return false, nil
 	}
-	for _, n := range b.nodes {
+	for _, n := range us.nodes {
 		if n.ParentID != nil && *n.ParentID == id {
 			return false, fmt.Errorf("folder is not empty: %s", id)
 		}
 	}
-	delete(b.nodes, id)
-	b.record(id, "destroy")
+	delete(us.nodes, id)
+	b.record(ctx, us.state, id, "destroy")
 	return true, nil
 }
 
 // QueryFileNodes filters and paginates stored FileNodes.
 func (b *MemoryFileNodeBackend) QueryFileNodes(ctx context.Context, filter map[string]any, position int, limit *uint64) ([]jmap.Id, int, error) {
 	b.mu.RLock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.RUnlock()
 
 	nameFilter, hasName := filter["name"].(string)
@@ -232,7 +269,7 @@ func (b *MemoryFileNodeBackend) QueryFileNodes(ctx context.Context, filter map[s
 	isFolderFilter, hasIsFolder := filter["isFolder"].(bool)
 
 	var matched []*jmap.FileNode
-	for _, n := range b.nodes {
+	for _, n := range us.nodes {
 		if hasName && !strings.Contains(strings.ToLower(n.Name), strings.ToLower(nameFilter)) {
 			continue
 		}

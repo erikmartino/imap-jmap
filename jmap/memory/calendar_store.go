@@ -11,14 +11,32 @@ import (
 )
 
 // MemoryCalendarsBackend provides an in-memory implementation of jmap.CalendarsBackend for JMAP Calendars & JSCalendar (RFC 8984).
+type userCalendarStore struct {
+	calendars  map[jmap.Id]*jmap.Calendar
+	events     map[jmap.Id]*jmap.CalendarEvent
+	calState   *changeTracker
+	eventState *changeTracker
+}
+
 type MemoryCalendarsBackend struct {
 	mu          sync.RWMutex
-	calendars   map[jmap.Id]*jmap.Calendar
-	events      map[jmap.Id]*jmap.CalendarEvent
-	calState    *changeTracker
-	eventState  *changeTracker
+	users       map[string]*userCalendarStore
 	nextID      uint64
 	broadcaster *jmap.Broadcaster
+}
+
+func (b *MemoryCalendarsBackend) getStoreLocked(ctx context.Context) *userCalendarStore {
+	accountID := "primary"
+	if ctxID, ok := jmap.AccountIDFromContext(ctx); ok && ctxID != "" {
+		accountID = ctxID
+	}
+
+	us, ok := b.users[accountID]
+	if !ok {
+		us = newMemoryUserCalendarStore()
+		b.users[accountID] = us
+	}
+	return us
 }
 
 // Ensure MemoryCalendarsBackend implements jmap.CalendarsBackend interface.
@@ -32,14 +50,12 @@ func (b *MemoryCalendarsBackend) SetBroadcaster(bc *jmap.Broadcaster) {
 	b.broadcaster = bc
 }
 
-// NewMemoryCalendarsBackend initializes a new MemoryCalendarsBackend with a default calendar.
-func NewMemoryCalendarsBackend() *MemoryCalendarsBackend {
-	b := &MemoryCalendarsBackend{
+func newMemoryUserCalendarStore() *userCalendarStore {
+	us := &userCalendarStore{
 		calendars:  make(map[jmap.Id]*jmap.Calendar),
 		events:     make(map[jmap.Id]*jmap.CalendarEvent),
 		calState:   newChangeTracker(1000),
 		eventState: newChangeTracker(1000),
-		nextID:     1,
 	}
 
 	defaultCal := &jmap.Calendar{
@@ -55,57 +71,84 @@ func NewMemoryCalendarsBackend() *MemoryCalendarsBackend {
 			MayDelete:     false,
 		},
 	}
-	b.calendars[defaultCal.ID] = defaultCal
+	us.calendars[defaultCal.ID] = defaultCal
 
+	return us
+}
+
+// NewMemoryCalendarsBackend initializes a new MemoryCalendarsBackend with a default calendar.
+func NewMemoryCalendarsBackend() *MemoryCalendarsBackend {
+	b := &MemoryCalendarsBackend{
+		users:  make(map[string]*userCalendarStore),
+		nextID: 1,
+	}
+	_ = b.getStoreLocked(context.Background())
 	return b
 }
 
 // CalendarState returns the current change token for Calendars per RFC 8620.
 func (b *MemoryCalendarsBackend) CalendarState(ctx context.Context) string {
-	return b.calState.State()
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	us := b.getStoreLocked(ctx)
+	return us.calState.State()
 }
 
 // CalendarChanges returns created/updated/destroyed Calendars since the given state per RFC 8620 Section 5.2.
 func (b *MemoryCalendarsBackend) CalendarChanges(ctx context.Context, sinceState string) (created, updated, destroyed []jmap.Id, newState string, hasMore bool) {
-	return b.calState.Changes(sinceState)
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	us := b.getStoreLocked(ctx)
+	return us.calState.Changes(sinceState)
 }
 
 // CalendarEventState returns the current change token for CalendarEvents per RFC 8620.
 func (b *MemoryCalendarsBackend) CalendarEventState(ctx context.Context) string {
-	return b.eventState.State()
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	us := b.getStoreLocked(ctx)
+	return us.eventState.State()
 }
 
 // CalendarEventChanges returns created/updated/destroyed CalendarEvents since the given state per RFC 8620 Section 5.2.
 func (b *MemoryCalendarsBackend) CalendarEventChanges(ctx context.Context, sinceState string) (created, updated, destroyed []jmap.Id, newState string, hasMore bool) {
-	return b.eventState.Changes(sinceState)
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	us := b.getStoreLocked(ctx)
+	return us.eventState.Changes(sinceState)
 }
 
 // recordChange records a mutation on the given tracker and publishes the new state token
 // to push subscribers.
-func (b *MemoryCalendarsBackend) recordChange(tracker *changeTracker, id jmap.Id, action string, typeName string) string {
+func (b *MemoryCalendarsBackend) recordChange(ctx context.Context, tracker *changeTracker, id jmap.Id, action string, typeName string) string {
 	newState := tracker.record(id, action)
 	if b.broadcaster != nil {
-		b.broadcaster.PublishStateChange("primary", typeName, newState)
+		accountID := "primary"
+		if ctxID, ok := jmap.AccountIDFromContext(ctx); ok && ctxID != "" {
+			accountID = ctxID
+		}
+		b.broadcaster.PublishStateChange(accountID, typeName, newState)
 	}
 	return newState
 }
 
 func (b *MemoryCalendarsBackend) GetCalendars(ctx context.Context, ids []jmap.Id) ([]*jmap.Calendar, []jmap.Id, error) {
 	b.mu.RLock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.RUnlock()
 
 	var list []*jmap.Calendar
 	var notFound []jmap.Id
 
 	if len(ids) == 0 {
-		for _, cal := range b.calendars {
+		for _, cal := range us.calendars {
 			list = append(list, cal)
 		}
 		return list, nil, nil
 	}
 
 	for _, id := range ids {
-		if cal, ok := b.calendars[id]; ok {
+		if cal, ok := us.calendars[id]; ok {
 			list = append(list, cal)
 		} else {
 			notFound = append(notFound, id)
@@ -116,10 +159,11 @@ func (b *MemoryCalendarsBackend) GetCalendars(ctx context.Context, ids []jmap.Id
 
 func (b *MemoryCalendarsBackend) GetAllCalendars(ctx context.Context) ([]*jmap.Calendar, error) {
 	b.mu.RLock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.RUnlock()
 
 	var list []*jmap.Calendar
-	for _, cal := range b.calendars {
+	for _, cal := range us.calendars {
 		list = append(list, cal)
 	}
 	return list, nil
@@ -127,6 +171,7 @@ func (b *MemoryCalendarsBackend) GetAllCalendars(ctx context.Context) ([]*jmap.C
 
 func (b *MemoryCalendarsBackend) CreateCalendar(ctx context.Context, cal *jmap.Calendar) (*jmap.Calendar, error) {
 	b.mu.Lock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.Unlock()
 
 	if cal.ID == "" {
@@ -140,20 +185,21 @@ func (b *MemoryCalendarsBackend) CreateCalendar(ctx context.Context, cal *jmap.C
 		MayDelete:     true,
 	}
 	if cal.IsDefault {
-		for _, other := range b.calendars {
+		for _, other := range us.calendars {
 			other.IsDefault = false
 		}
 	}
-	b.calendars[cal.ID] = cal
-	b.recordChange(b.calState, cal.ID, "create", "Calendar")
+	us.calendars[cal.ID] = cal
+	b.recordChange(ctx, us.calState, cal.ID, "create", "Calendar")
 	return cal, nil
 }
 
 func (b *MemoryCalendarsBackend) UpdateCalendar(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.Calendar, error) {
 	b.mu.Lock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.Unlock()
 
-	cal, ok := b.calendars[id]
+	cal, ok := us.calendars[id]
 	if !ok {
 		return nil, fmt.Errorf("calendar not found: %s", id)
 	}
@@ -178,7 +224,7 @@ func (b *MemoryCalendarsBackend) UpdateCalendar(ctx context.Context, id jmap.Id,
 		cal.IsVisible = isVisible
 	}
 	if isDefault, ok := patch["isDefault"].(bool); ok && isDefault {
-		for _, other := range b.calendars {
+		for _, other := range us.calendars {
 			if other.ID != cal.ID {
 				other.IsDefault = false
 			}
@@ -186,15 +232,16 @@ func (b *MemoryCalendarsBackend) UpdateCalendar(ctx context.Context, id jmap.Id,
 		cal.IsDefault = true
 	}
 
-	b.recordChange(b.calState, id, "update", "Calendar")
+	b.recordChange(ctx, us.calState, id, "update", "Calendar")
 	return cal, nil
 }
 
 func (b *MemoryCalendarsBackend) DeleteCalendar(ctx context.Context, id jmap.Id) (bool, error) {
 	b.mu.Lock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.Unlock()
 
-	cal, ok := b.calendars[id]
+	cal, ok := us.calendars[id]
 	if !ok {
 		return false, nil
 	}
@@ -202,27 +249,28 @@ func (b *MemoryCalendarsBackend) DeleteCalendar(ctx context.Context, id jmap.Id)
 		return false, fmt.Errorf("cannot delete default calendar")
 	}
 
-	delete(b.calendars, id)
-	b.recordChange(b.calState, id, "destroy", "Calendar")
+	delete(us.calendars, id)
+	b.recordChange(ctx, us.calState, id, "destroy", "Calendar")
 	return true, nil
 }
 
 func (b *MemoryCalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmap.Id) ([]*jmap.CalendarEvent, []jmap.Id, error) {
 	b.mu.RLock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.RUnlock()
 
 	var list []*jmap.CalendarEvent
 	var notFound []jmap.Id
 
 	if len(ids) == 0 {
-		for _, ev := range b.events {
+		for _, ev := range us.events {
 			list = append(list, ev)
 		}
 		return list, nil, nil
 	}
 
 	for _, id := range ids {
-		if ev, ok := b.events[id]; ok {
+		if ev, ok := us.events[id]; ok {
 			list = append(list, ev)
 		} else {
 			notFound = append(notFound, id)
@@ -233,10 +281,11 @@ func (b *MemoryCalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jm
 
 func (b *MemoryCalendarsBackend) GetAllCalendarEvents(ctx context.Context) ([]*jmap.CalendarEvent, error) {
 	b.mu.RLock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.RUnlock()
 
 	var list []*jmap.CalendarEvent
-	for _, ev := range b.events {
+	for _, ev := range us.events {
 		list = append(list, ev)
 	}
 	return list, nil
@@ -244,6 +293,7 @@ func (b *MemoryCalendarsBackend) GetAllCalendarEvents(ctx context.Context) ([]*j
 
 func (b *MemoryCalendarsBackend) CreateCalendarEvent(ctx context.Context, ev *jmap.CalendarEvent) (*jmap.CalendarEvent, error) {
 	b.mu.Lock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.Unlock()
 
 	if ev.ID == "" {
@@ -261,8 +311,8 @@ func (b *MemoryCalendarsBackend) CreateCalendarEvent(ctx context.Context, ev *jm
 	}
 	ev.Updated = nowStr
 
-	b.events[ev.ID] = ev
-	b.recordChange(b.eventState, ev.ID, "create", "CalendarEvent")
+	us.events[ev.ID] = ev
+	b.recordChange(ctx, us.eventState, ev.ID, "create", "CalendarEvent")
 	return ev, nil
 }
 
@@ -371,9 +421,10 @@ func setCalendarEventField(ev *jmap.CalendarEvent, path string, val any) {
 
 func (b *MemoryCalendarsBackend) UpdateCalendarEvent(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.CalendarEvent, error) {
 	b.mu.Lock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.Unlock()
 
-	ev, ok := b.events[id]
+	ev, ok := us.events[id]
 	if !ok {
 		return nil, fmt.Errorf("calendar event not found: %s", id)
 	}
@@ -382,19 +433,20 @@ func (b *MemoryCalendarsBackend) UpdateCalendarEvent(ctx context.Context, id jma
 		setCalendarEventField(ev, path, val)
 	}
 	ev.Updated = time.Now().UTC().Format(time.RFC3339)
-	b.recordChange(b.eventState, id, "update", "CalendarEvent")
+	b.recordChange(ctx, us.eventState, id, "update", "CalendarEvent")
 	return ev, nil
 }
 
 func (b *MemoryCalendarsBackend) DeleteCalendarEvent(ctx context.Context, id jmap.Id) (bool, error) {
 	b.mu.Lock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.Unlock()
 
-	if _, ok := b.events[id]; !ok {
+	if _, ok := us.events[id]; !ok {
 		return false, nil
 	}
-	delete(b.events, id)
-	b.recordChange(b.eventState, id, "destroy", "CalendarEvent")
+	delete(us.events, id)
+	b.recordChange(ctx, us.eventState, id, "destroy", "CalendarEvent")
 	return true, nil
 }
 
@@ -569,10 +621,11 @@ func parseISODuration(raw string) (time.Duration, bool) {
 
 func (b *MemoryCalendarsBackend) QueryCalendarEvents(ctx context.Context, filter map[string]any, position int, limit *uint64) ([]jmap.Id, int, error) {
 	b.mu.RLock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.RUnlock()
 
 	var matched []*jmap.CalendarEvent
-	for _, ev := range b.events {
+	for _, ev := range us.events {
 		if MatchCalendarEvent(ev, filter) {
 			matched = append(matched, ev)
 		}

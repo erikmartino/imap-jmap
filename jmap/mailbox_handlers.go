@@ -40,7 +40,7 @@ func handleMailboxGet(backend MailBackend) MethodHandler {
 
 		return "Mailbox/get", map[string]any{
 			"accountId": accountID,
-			"state":     backend.State(ctx),
+			"state":     backend.MailboxState(ctx),
 			"list":      filterList(list, props),
 			"notFound":  notFound,
 		}

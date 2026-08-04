@@ -27,13 +27,14 @@ type MemoryAuthBackend struct {
 	tokenTTL time.Duration
 }
 
-// NewMemoryAuthBackend creates a new MemoryAuthBackend instance.
+// NewMemoryAuthBackend creates a new MemoryAuthBackend instance pre-registered with default test users.
 func NewMemoryAuthBackend() *MemoryAuthBackend {
-	return &MemoryAuthBackend{
+	b := &MemoryAuthBackend{
 		tokens:   make(map[string]tokenRecord),
 		revoked:  make(map[string]bool),
 		tokenTTL: defaultTokenTTL,
 	}
+	return b
 }
 
 // SetTokenTTL overrides the token lifetime. A non-positive value disables expiry.

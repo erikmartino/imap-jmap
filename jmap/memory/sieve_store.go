@@ -13,12 +13,33 @@ import (
 )
 
 // MemorySieveBackend provides an in-memory implementation of jmap.SieveBackend per RFC 9610 / RFC 9661.
+type userSieveStore struct {
+	scripts map[jmap.Id]*jmap.SieveScript
+	state   *changeTracker
+}
+
 type MemorySieveBackend struct {
 	mu          sync.RWMutex
-	scripts     map[jmap.Id]*jmap.SieveScript
-	state       *changeTracker
+	users       map[string]*userSieveStore
 	nextID      uint64
 	broadcaster *jmap.Broadcaster
+}
+
+func (b *MemorySieveBackend) getStoreLocked(ctx context.Context) *userSieveStore {
+	accountID := "primary"
+	if ctxID, ok := jmap.AccountIDFromContext(ctx); ok && ctxID != "" {
+		accountID = ctxID
+	}
+
+	us, ok := b.users[accountID]
+	if !ok {
+		us = &userSieveStore{
+			scripts: make(map[jmap.Id]*jmap.SieveScript),
+			state:   newChangeTracker(1000),
+		}
+		b.users[accountID] = us
+	}
+	return us
 }
 
 // Ensure MemorySieveBackend implements jmap.SieveBackend interface.
@@ -34,28 +55,39 @@ func (b *MemorySieveBackend) SetBroadcaster(bc *jmap.Broadcaster) {
 
 // NewMemorySieveBackend initializes a new MemorySieveBackend instance.
 func NewMemorySieveBackend() *MemorySieveBackend {
-	return &MemorySieveBackend{
-		scripts: make(map[jmap.Id]*jmap.SieveScript),
-		state:   newChangeTracker(1000),
-		nextID:  0,
+	b := &MemorySieveBackend{
+		users:  make(map[string]*userSieveStore),
+		nextID: 0,
 	}
+	_ = b.getStoreLocked(context.Background())
+	return b
 }
 
 // SieveScriptState returns the current change state token per RFC 8620.
 func (b *MemorySieveBackend) SieveScriptState(ctx context.Context) string {
-	return b.state.State()
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	us := b.getStoreLocked(ctx)
+	return us.state.State()
 }
 
 // SieveScriptChanges returns created/updated/destroyed scripts since the given state per RFC 8620 Section 5.2.
 func (b *MemorySieveBackend) SieveScriptChanges(ctx context.Context, sinceState string) (created, updated, destroyed []jmap.Id, newState string, hasMore bool) {
-	return b.state.Changes(sinceState)
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	us := b.getStoreLocked(ctx)
+	return us.state.Changes(sinceState)
 }
 
 // recordChange records a mutation and publishes the new state token to push subscribers.
-func (b *MemorySieveBackend) recordChange(id jmap.Id, action string) string {
-	newState := b.state.record(id, action)
+func (b *MemorySieveBackend) recordChange(ctx context.Context, tracker *changeTracker, id jmap.Id, action string) string {
+	newState := tracker.record(id, action)
 	if b.broadcaster != nil {
-		b.broadcaster.PublishStateChange("primary", "SieveScript", newState)
+		accountID := "primary"
+		if ctxID, ok := jmap.AccountIDFromContext(ctx); ok && ctxID != "" {
+			accountID = ctxID
+		}
+		b.broadcaster.PublishStateChange(accountID, "SieveScript", newState)
 	}
 	return newState
 }
@@ -73,20 +105,21 @@ func (b *MemorySieveBackend) ValidateSieveScript(ctx context.Context, content st
 
 func (b *MemorySieveBackend) GetSieveScripts(ctx context.Context, ids []jmap.Id) ([]*jmap.SieveScript, []jmap.Id, error) {
 	b.mu.RLock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.RUnlock()
 
 	var list []*jmap.SieveScript
 	var notFound []jmap.Id
 
 	if len(ids) == 0 {
-		for _, s := range b.scripts {
+		for _, s := range us.scripts {
 			list = append(list, s)
 		}
 		return list, nil, nil
 	}
 
 	for _, id := range ids {
-		if s, ok := b.scripts[id]; ok {
+		if s, ok := us.scripts[id]; ok {
 			list = append(list, s)
 		} else {
 			notFound = append(notFound, id)
@@ -97,10 +130,11 @@ func (b *MemorySieveBackend) GetSieveScripts(ctx context.Context, ids []jmap.Id)
 
 func (b *MemorySieveBackend) GetAllSieveScripts(ctx context.Context) ([]*jmap.SieveScript, error) {
 	b.mu.RLock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.RUnlock()
 
 	var list []*jmap.SieveScript
-	for _, s := range b.scripts {
+	for _, s := range us.scripts {
 		list = append(list, s)
 	}
 	return list, nil
@@ -114,6 +148,7 @@ func (b *MemorySieveBackend) CreateSieveScript(ctx context.Context, script *jmap
 	script.IsValid = true
 
 	b.mu.Lock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.Unlock()
 
 	if script.ID == "" {
@@ -123,21 +158,22 @@ func (b *MemorySieveBackend) CreateSieveScript(ctx context.Context, script *jmap
 
 	// If this script is active, deactivate all other scripts
 	if script.IsActive {
-		for _, s := range b.scripts {
+		for _, s := range us.scripts {
 			s.IsActive = false
 		}
 	}
 
-	b.scripts[script.ID] = script
-	b.recordChange(script.ID, "create")
+	us.scripts[script.ID] = script
+	b.recordChange(ctx, us.state, script.ID, "create")
 	return script, nil
 }
 
 func (b *MemorySieveBackend) UpdateSieveScript(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.SieveScript, error) {
 	b.mu.Lock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.Unlock()
 
-	script, ok := b.scripts[id]
+	script, ok := us.scripts[id]
 	if !ok {
 		return nil, fmt.Errorf("sieve script %s: %w", id, jmap.ErrNotFound)
 	}
@@ -157,31 +193,33 @@ func (b *MemorySieveBackend) UpdateSieveScript(ctx context.Context, id jmap.Id, 
 
 	if isActive, ok := patch["isActive"].(bool); ok {
 		if isActive {
-			for _, s := range b.scripts {
+			for _, s := range us.scripts {
 				s.IsActive = false
 			}
 		}
 		script.IsActive = isActive
 	}
 
-	b.recordChange(id, "update")
+	b.recordChange(ctx, us.state, id, "update")
 	return script, nil
 }
 
 func (b *MemorySieveBackend) DeleteSieveScript(ctx context.Context, id jmap.Id) (bool, error) {
 	b.mu.Lock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.Unlock()
 
-	if _, ok := b.scripts[id]; !ok {
+	if _, ok := us.scripts[id]; !ok {
 		return false, nil
 	}
-	delete(b.scripts, id)
-	b.recordChange(id, "destroy")
+	delete(us.scripts, id)
+	b.recordChange(ctx, us.state, id, "destroy")
 	return true, nil
 }
 
 func (b *MemorySieveBackend) QuerySieveScripts(ctx context.Context, filter map[string]any, position int, limit *uint64) ([]jmap.Id, int, error) {
 	b.mu.RLock()
+	us := b.getStoreLocked(ctx)
 	defer b.mu.RUnlock()
 
 	var matched []*jmap.SieveScript
@@ -190,7 +228,7 @@ func (b *MemorySieveBackend) QuerySieveScripts(ctx context.Context, filter map[s
 	isActiveFilter, hasActiveFilter := filter["isActive"].(bool)
 	isValidFilter, hasValidFilter := filter["isValid"].(bool)
 
-	for _, s := range b.scripts {
+	for _, s := range us.scripts {
 		if nameFilter != "" && !strings.Contains(strings.ToLower(s.Name), strings.ToLower(nameFilter)) {
 			continue
 		}

@@ -30,6 +30,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		authed := false
 
 		auth := r.Header.Get("Authorization")
+		queryToken := r.URL.Query().Get("access_token")
 		if strings.HasPrefix(auth, "Basic ") {
 			// HTTP Basic: validate username/password directly (used by JMAP webmail clients).
 			username, password, ok := r.BasicAuth()
@@ -40,9 +41,9 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		} else if strings.HasPrefix(auth, "Bearer ") {
 			accountID, authErr = s.AuthBackend.ValidateToken(r.Context(), strings.TrimPrefix(auth, "Bearer "))
 			authed = authErr == nil
-		} else if qt := r.URL.Query().Get("access_token"); qt != "" {
+		} else if queryToken != "" {
 			// RFC 6750 Section 2.3: token in URI query (required for browser SSE and WebSocket).
-			accountID, authErr = s.AuthBackend.ValidateToken(r.Context(), qt)
+			accountID, authErr = s.AuthBackend.ValidateToken(r.Context(), queryToken)
 			authed = authErr == nil
 		}
 
@@ -53,7 +54,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		}
 
 		// Inject authenticated accountID into request context for downstream handlers.
-		ctx := contextWithAccountID(r.Context(), accountID)
+		ctx := ContextWithAccountID(r.Context(), accountID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

@@ -24,7 +24,7 @@ func AccountIDFromContext(ctx context.Context) (string, bool) {
 	return id, ok
 }
 
-// contextWithAccountID injects an accountID into a context for downstream handlers.
-func contextWithAccountID(ctx context.Context, accountID string) context.Context {
+// ContextWithAccountID injects an accountID into a context for downstream handlers and backend calls.
+func ContextWithAccountID(ctx context.Context, accountID string) context.Context {
 	return context.WithValue(ctx, authAccountIDKey, accountID)
 }
