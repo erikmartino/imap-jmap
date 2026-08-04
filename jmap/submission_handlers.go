@@ -105,9 +105,29 @@ func handleEmailSubmissionSet(backend MailBackend) MethodHandler {
 				emailID = resolveCreationID(emailID, creationRefs)
 				identityID = resolveCreationID(identityID, creationRefs)
 
+				var env *SubmissionEnvelope
+				if envMap, ok := subData["envelope"].(map[string]any); ok {
+					env = &SubmissionEnvelope{}
+					if mfMap, ok := envMap["mailFrom"].(map[string]any); ok {
+						email, _ := mfMap["email"].(string)
+						params, _ := mfMap["parameters"].(map[string]any)
+						env.MailFrom = SubmissionAddress{Email: email, Parameters: params}
+					}
+					if rcptSlice, ok := envMap["rcptTo"].([]any); ok {
+						for _, item := range rcptSlice {
+							if rcptMap, ok := item.(map[string]any); ok {
+								email, _ := rcptMap["email"].(string)
+								params, _ := rcptMap["parameters"].(map[string]any)
+								env.RcptTo = append(env.RcptTo, SubmissionAddress{Email: email, Parameters: params})
+							}
+						}
+					}
+				}
+
 				sub, err := backend.CreateSubmission(ctx, &EmailSubmission{
 					IdentityID: Id(identityID),
 					EmailID:    Id(emailID),
+					Envelope:   env,
 					SendAt:     sendAt,
 				})
 				if err != nil {

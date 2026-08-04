@@ -122,15 +122,35 @@ type Identity struct {
 	HTMLSignature string         `json:"htmlSignature,omitempty"`
 }
 
+// SubmissionAddress represents a mail address in an EmailSubmission envelope per RFC 8621 Section 7.1.
+type SubmissionAddress struct {
+	Email      string         `json:"email"`
+	Parameters map[string]any `json:"parameters,omitempty"`
+}
+
+// SubmissionEnvelope represents the SMTP envelope for EmailSubmission per RFC 8621 Section 7.1.
+type SubmissionEnvelope struct {
+	MailFrom SubmissionAddress   `json:"mailFrom"`
+	RcptTo   []SubmissionAddress `json:"rcptTo"`
+}
+
+// DeliveryStatus represents recipient delivery status in EmailSubmission per RFC 8621 Section 7.1.
+type DeliveryStatus struct {
+	SmtpReply string `json:"smtpReply,omitempty"`
+	Delivered string `json:"delivered"` // "queued", "yes", "no", "failed"
+	Displayed string `json:"displayed,omitempty"`
+}
+
 // EmailSubmission represents a JMAP EmailSubmission object per RFC 8621 Section 7.
 type EmailSubmission struct {
-	ID             Id             `json:"id"`
-	IdentityID     Id             `json:"identityId"`
-	EmailID        Id             `json:"emailId"`
-	ThreadID       Id             `json:"threadId"`
-	SendAt         string         `json:"sendAt"`
-	UndoStatus     string         `json:"undoStatus"`
-	DeliveryStatus map[string]any `json:"deliveryStatus,omitempty"`
+	ID             Id                        `json:"id"`
+	IdentityID     Id                        `json:"identityId"`
+	EmailID        Id                        `json:"emailId"`
+	ThreadID       Id                        `json:"threadId"`
+	Envelope       *SubmissionEnvelope       `json:"envelope,omitempty"`
+	SendAt         string                    `json:"sendAt"`
+	UndoStatus     string                    `json:"undoStatus"`
+	DeliveryStatus map[string]DeliveryStatus `json:"deliveryStatus,omitempty"`
 }
 
 // SearchSnippet represents a JMAP SearchSnippet object per RFC 8621 Section 5.

@@ -42,7 +42,7 @@ the resolver for local delivery (inbound routing + outbound loopback). "The doma
 - [x] **`--primary-domain` flag** (default `example.com`, env `PRIMARY_DOMAIN`) in `main.go` alongside `main.go:39-43`; construct `PrimaryDomainResolver` from it and inject into `jmap.Server` + `smtp.NewServer`. Test: flag/env parsing + default resolves to `example.com`.
 
 ## D. Outbound send (`EmailSubmission/set`) — tests: `rfc8621_*_test.go`
-- [ ] **Add `Envelope` (mailFrom/rcptTo) to `EmailSubmission`** (`jmap/mail_types.go:125`, RFC 8621 §7.1) + typed per-recipient `deliveryStatus`. Round-trip test.
+- [x] **Add `Envelope` (mailFrom/rcptTo) to `EmailSubmission`** (`jmap/mail_types.go:125`, RFC 8621 §7.1) + typed per-recipient `deliveryStatus`. Round-trip test.
 - [ ] **Thread resolver + allow-list into the submission handler** (`RegisterMailHandlers` → `handleEmailSubmissionSet`, `submission_handlers.go:82`). Read `envelope.rcptTo`, falling back to the email's To/Cc/Bcc.
 - [ ] **Local delivery via resolver.** For each recipient the resolver marks local, deliver in-process with `MailBackend.CreateEmail` under the recipient's accountId ctx (reuses the inbound primitive at `smtp/receiver.go:94`); set `deliveryStatus[rcpt] = {delivered:"yes", smtpReply:"250 ..."}`. Test: local recipient's account receives the message.
 - [ ] **External allow-list gate.** `--allowed-recipients` flag (comma-separated; **default empty = none**; env `ALLOWED_RECIPIENTS`) via `WithAllowedRecipients`. Non-local recipient sent only if listed; else `deliveryStatus[rcpt]=failed`. If no recipient deliverable → `notCreated` `forbidden`. Tests: external-listed sent, external-unlisted rejected, empty-list blocks all external.

@@ -1073,10 +1073,12 @@ func (mb *MemoryBackend) CreateSubmission(ctx context.Context, sub *jmap.EmailSu
 		}
 	}
 	sub.UndoStatus = "final"
-	sub.DeliveryStatus = map[string]any{
-		"user@example.com": map[string]any{
-			"delivered": "granted",
-		},
+	if sub.DeliveryStatus == nil {
+		sub.DeliveryStatus = map[string]jmap.DeliveryStatus{
+			"user@example.com": {
+				Delivered: "yes",
+			},
+		}
 	}
 
 	us.submissions[sub.ID] = sub
