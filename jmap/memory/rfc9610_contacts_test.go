@@ -237,12 +237,12 @@ func TestRFC8984_QueryCalendarEvents_Filters(t *testing.T) {
 		Duration: "PT1H",
 	})
 
-	before, total, _ := b.QueryCalendarEvents(ctx, map[string]any{"before": "2026-08-04T12:00:00Z"}, nil, 0, nil)
+	before, total, _ := b.QueryCalendarEvents(ctx, map[string]any{"before": "2026-08-04T12:00:00Z"}, nil, 0, nil, false)
 	if total != 1 || len(before) != 1 || before[0] != ev1.ID {
 		t.Errorf("before filter failed: ids=%v total=%d", before, total)
 	}
 
-	after, total, _ := b.QueryCalendarEvents(ctx, map[string]any{"after": "2026-08-04T12:00:00Z"}, nil, 0, nil)
+	after, total, _ := b.QueryCalendarEvents(ctx, map[string]any{"after": "2026-08-04T12:00:00Z"}, nil, 0, nil, false)
 	if total != 1 || len(after) != 1 {
 		t.Errorf("after filter failed: ids=%v total=%d", after, total)
 	}

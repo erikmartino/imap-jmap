@@ -1030,7 +1030,7 @@ func sortCalendarEvents(events []*jmap.CalendarEvent, comparators []jmap.Compara
 	})
 }
 
-func (b *MemoryCalendarsBackend) QueryCalendarEvents(ctx context.Context, filter map[string]any, sort []jmap.Comparator, position int, limit *uint64) ([]jmap.Id, int, error) {
+func (b *MemoryCalendarsBackend) QueryCalendarEvents(ctx context.Context, filter map[string]any, sort []jmap.Comparator, position int, limit *uint64, expandRecurrences bool) ([]jmap.Id, int, error) {
 	b.mu.RLock()
 	us := b.getStoreLocked(ctx)
 	defer b.mu.RUnlock()
@@ -1044,7 +1044,26 @@ func (b *MemoryCalendarsBackend) QueryCalendarEvents(ctx context.Context, filter
 
 	sortCalendarEvents(matched, sort)
 
-	total := len(matched)
+	var resultIDs []jmap.Id
+	if expandRecurrences {
+		horizon := time.Now().AddDate(2, 0, 0)
+		for _, ev := range matched {
+			if len(ev.RecurrenceRules) > 0 {
+				instances := ExpandRecurrenceInstances(ev, horizon)
+				for _, inst := range instances {
+					resultIDs = append(resultIDs, jmap.Id(fmt.Sprintf("%s#%s", string(ev.ID), inst.RecurrenceID)))
+				}
+			} else {
+				resultIDs = append(resultIDs, ev.ID)
+			}
+		}
+	} else {
+		for _, ev := range matched {
+			resultIDs = append(resultIDs, ev.ID)
+		}
+	}
+
+	total := len(resultIDs)
 	position = jmap.NormalizePosition(position, total)
 	if position >= total {
 		return []jmap.Id{}, total, nil
@@ -1057,7 +1076,7 @@ func (b *MemoryCalendarsBackend) QueryCalendarEvents(ctx context.Context, filter
 
 	ids := make([]jmap.Id, 0, end-position)
 	for i := position; i < end; i++ {
-		ids = append(ids, matched[i].ID)
+		ids = append(ids, resultIDs[i])
 	}
 	return ids, total, nil
 }

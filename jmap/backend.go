@@ -132,7 +132,7 @@ type CalendarsBackend interface {
 	CreateCalendarEvent(ctx context.Context, event *CalendarEvent) (*CalendarEvent, error)
 	UpdateCalendarEvent(ctx context.Context, id Id, patch map[string]any) (*CalendarEvent, error)
 	DeleteCalendarEvent(ctx context.Context, id Id) (bool, error)
-	QueryCalendarEvents(ctx context.Context, filter map[string]any, sort []Comparator, position int, limit *uint64) (ids []Id, total int, err error)
+	QueryCalendarEvents(ctx context.Context, filter map[string]any, sort []Comparator, position int, limit *uint64, expandRecurrences bool) (ids []Id, total int, err error)
 }
 
 // SieveBackend defines the storage interface for JMAP for Sieve Scripts (RFC 9661) resources.

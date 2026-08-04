@@ -435,13 +435,14 @@ func handleCalendarEventQuery(backend CalendarsBackend) MethodHandler {
 			limit = &l
 		}
 
+		expandRecurrences, _ := args["expandRecurrences"].(bool)
 		comparators := parseComparators(args)
 
 		var ids []Id
 		var total int
 		var err error
 		if anchor != "" {
-			allIDs, allTotal, _ := backend.QueryCalendarEvents(ctx, filter, comparators, 0, nil)
+			allIDs, allTotal, _ := backend.QueryCalendarEvents(ctx, filter, comparators, 0, nil, expandRecurrences)
 			total = allTotal
 			var found bool
 			position, ids, found = applyQueryAnchor(anchor, anchorOffset, allIDs, limit)
@@ -449,7 +450,7 @@ func handleCalendarEventQuery(backend CalendarsBackend) MethodHandler {
 				return "error", MethodErrorArgs(MethodErrorAnchorNotFound, "anchor not found in results: "+anchor)
 			}
 		} else {
-			ids, total, err = backend.QueryCalendarEvents(ctx, filter, comparators, position, limit)
+			ids, total, err = backend.QueryCalendarEvents(ctx, filter, comparators, position, limit, expandRecurrences)
 		}
 		if err != nil {
 			ids = []Id{}
@@ -480,7 +481,7 @@ func handleCalendarEventQueryChanges(backend CalendarsBackend) MethodHandler {
 
 		comparators := parseComparators(args)
 		filter, _ := args["filter"].(map[string]any)
-		currentIDs, _, _ := backend.QueryCalendarEvents(ctx, filter, comparators, 0, nil)
+		currentIDs, _, _ := backend.QueryCalendarEvents(ctx, filter, comparators, 0, nil, false)
 		added, removed := computeQueryChanges(createdIDs, updatedIDs, destroyedIDs, currentIDs, upToID)
 
 		res := map[string]any{
