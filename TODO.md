@@ -51,7 +51,7 @@ the resolver for local delivery (inbound routing + outbound loopback). "The doma
 ## E. SMTP receiver routing (inbound) — tests: `smtp/rfc5321_*_test.go`
 - [ ] **Per-recipient resolver routing.** `smtp/receiver.go` `Data()` (:64) + `NewServer`/`ReceiverBackend` take the resolver; deliver a copy to each local recipient's accountId (ctx per recipient) instead of hardcoded `"primary"`; keep `"primary"` fallback when unresolved. Test: message to a local address lands in that account; outbound submission loopback observed in the receiver.
 
-## F. First-use account seeding — tests: `rfc8620_*_test.go`
+## F. First-use account seeding — tests: `rfcless_account_seeding_test.go` (non-RFC dev feature; `rfcless_` prefix + descriptive suffix)
 - [ ] **Seed a fresh account with sample data on first use.** When an account is used for the first time and its state is empty (the lazy per-account store creation path: `newMemoryUserStore` in `memory/mail_store.go:67`, `newMemoryUserCalendarStore` `memory/calendar_store.go:53`, `newMemoryUserContactsStore` `memory/contacts_store.go:54`, and the FileNode store), populate representative sample content so a client never opens onto an empty mailbox:
   - **Emails** across multiple folders — Inbox, Sent, Drafts (and Archive) — mirroring/extending the existing startup-only `SeedSampleData` (`memory/seed.go:9`), which today seeds only the shared default account and only mail+calendar.
   - **Calendar entries** in the default calendar.
