@@ -309,3 +309,42 @@ func TestAccountIDForSubject(t *testing.T) {
 	}
 }
 
+// TestRFC8620_Auth_DerivedAccountID tests that MemoryAuthBackend returns derived accountIDs for subjects.
+func TestRFC8620_Auth_DerivedAccountID(t *testing.T) {
+	auth := memory.NewMemoryAuthBackend()
+	ctx := context.Background()
+
+	idAlice, err := auth.ValidateCredentials(ctx, "alice", "alice")
+	if err != nil {
+		t.Fatalf("ValidateCredentials failed: %v", err)
+	}
+	if idAlice != jmap.AccountIDForSubject("alice") {
+		t.Errorf("Expected accountID %q, got %q", jmap.AccountIDForSubject("alice"), idAlice)
+	}
+
+	idBob, err := auth.ValidateCredentials(ctx, "bob", "bob")
+	if err != nil {
+		t.Fatalf("ValidateCredentials failed: %v", err)
+	}
+	if idBob != jmap.AccountIDForSubject("bob") {
+		t.Errorf("Expected accountID %q, got %q", jmap.AccountIDForSubject("bob"), idBob)
+	}
+
+	if idAlice == idBob {
+		t.Errorf("Distinct subjects must yield distinct accountIDs")
+	}
+
+	token, err := auth.Authenticate(ctx, "alice", "alice")
+	if err != nil {
+		t.Fatalf("Authenticate failed: %v", err)
+	}
+	validatedID, err := auth.ValidateToken(ctx, token)
+	if err != nil {
+		t.Fatalf("ValidateToken failed: %v", err)
+	}
+	if validatedID != idAlice {
+		t.Errorf("Expected validated accountID %q, got %q", idAlice, validatedID)
+	}
+}
+
+

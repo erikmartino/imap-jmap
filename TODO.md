@@ -30,8 +30,8 @@ the resolver for local delivery (inbound routing + outbound loopback). "The doma
 
 ## A. Identity (subject → accountId)
 - [x] **`AccountIDForSubject(subject)` helper** in `jmap/auth.go` = `base64.RawURLEncoding` of the subject. Single source of truth reused by auth backend + resolver. Unit test round-trip/stability.
-- [ ] **Auth backend returns derived accountId.** `MemoryAuthBackend` (`memory/auth_store.go`) maps token→subject and returns `AccountIDForSubject(subject)` from `ValidateCredentials`/`ValidateToken`/`Authenticate` instead of the bare username. Unit test: two subjects → distinct stable accountIds.
-- [ ] **Memory stores keyed by accountId (confirm/adjust).** `getStoreLocked` already reads `AccountIDFromContext`; with the above it becomes the derived accountId. Adjust `rfc8620_multi_user_isolation_test.go` if it inspects the id value; assert isolation still holds.
+- [x] **Auth backend returns derived accountId.** `MemoryAuthBackend` (`memory/auth_store.go`) maps token→subject and returns `AccountIDForSubject(subject)` from `ValidateCredentials`/`ValidateToken`/`Authenticate` instead of the bare username. Unit test: two subjects → distinct stable accountIds.
+- [x] **Memory stores keyed by accountId (confirm/adjust).** `getStoreLocked` already reads `AccountIDFromContext`; with the above it becomes the derived accountId. Adjust `rfc8620_multi_user_isolation_test.go` if it inspects the id value; assert isolation still holds.
 
 ## B. Authorization service (permission guard) + account resolver
 - [ ] **`PermissionGuard` interface + `SelfAccessGuard` default** in new `jmap/authz.go`: `CanAccessAccount(ctx, principalAccountID, targetAccountID) bool`; default = equality. `WithPermissionGuard` option + `Server` field (`jmap/server.go`). Unit test.

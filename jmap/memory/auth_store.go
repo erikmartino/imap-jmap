@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"imap-jmap/jmap"
 )
 
 // defaultTokenTTL is how long access tokens remain valid before expiring.
@@ -14,6 +16,7 @@ const defaultTokenTTL = 24 * time.Hour
 
 // tokenRecord stores the account a token belongs to plus its expiry time.
 type tokenRecord struct {
+	subject   string
 	accountID string
 	expiresAt time.Time
 }
@@ -22,7 +25,7 @@ type tokenRecord struct {
 // This is intentionally insecure and is only suitable for development and testing.
 type MemoryAuthBackend struct {
 	mu       sync.RWMutex
-	tokens   map[string]tokenRecord // token → accountID (username)
+	tokens   map[string]tokenRecord // token → tokenRecord
 	revoked  map[string]bool
 	tokenTTL time.Duration
 }
@@ -54,7 +57,8 @@ func (a *MemoryAuthBackend) RevokeToken(token string) {
 
 // Authenticate accepts any username where username == password and returns a random Bearer token.
 func (a *MemoryAuthBackend) Authenticate(ctx context.Context, username, password string) (string, error) {
-	if _, err := a.ValidateCredentials(ctx, username, password); err != nil {
+	accountID, err := a.ValidateCredentials(ctx, username, password)
+	if err != nil {
 		return "", err
 	}
 
@@ -66,22 +70,22 @@ func (a *MemoryAuthBackend) Authenticate(ctx context.Context, username, password
 	a.mu.Lock()
 	expiresAt := time.Now().Add(a.tokenTTL)
 	delete(a.revoked, token)
-	a.tokens[token] = tokenRecord{accountID: username, expiresAt: expiresAt}
+	a.tokens[token] = tokenRecord{subject: username, accountID: accountID, expiresAt: expiresAt}
 	a.mu.Unlock()
 
 	return token, nil
 }
 
-// ValidateCredentials accepts any username where username == password and returns the username
-// as the accountID without issuing a token.
+// ValidateCredentials accepts any username where username == password and returns the derived accountID
+// without issuing a token.
 func (a *MemoryAuthBackend) ValidateCredentials(ctx context.Context, username, password string) (string, error) {
 	if username == "" || username != password {
 		return "", fmt.Errorf("invalid credentials")
 	}
-	return username, nil
+	return jmap.AccountIDForSubject(username), nil
 }
 
-// ValidateToken looks up the token and returns the associated accountID (username).
+// ValidateToken looks up the token and returns the associated accountID.
 // Expired or revoked tokens are rejected and removed from the store.
 func (a *MemoryAuthBackend) ValidateToken(ctx context.Context, token string) (string, error) {
 	a.mu.Lock()
