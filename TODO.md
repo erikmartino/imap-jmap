@@ -78,7 +78,7 @@ the resolver for local delivery (inbound routing + outbound loopback). "The doma
 - [x] **Recurrence expansion engine** (`calendar_store.go:622` `QueryCalendarEvents`): expand `recurrenceRules` with byX filtering, `bySetPosition`, `skip` (§4.3.3.1); apply `recurrenceOverrides` to instances (§4.3.5); make `after`/`before` filter the full recurrence set, not just master start/end (`calendar_store.go:498-507` `MatchCalendarEvent`, §4.3). Tests over expanded instances.
 - [x] **Task object** (`@type:"Task"`: `due`, `start`, `estimatedDuration`, `percentComplete`, `progress`, `progressUpdated`) — model + set/get/query + tests (§5.2).
 - [x] **Group object** (`@type:"Group"`: `entries`, `source`) — model + set/get + tests (§5.3).
-- [ ] **Create/set validation** (`calendar_handlers.go:255`, `setCalendarEventField`): reject unknown/invalid properties with `invalidProperties` instead of silently dropping; enum-validate `status`/`privacy`/`freeBusyStatus`/participant roles (§3 + RFC 8620 §5.3). Tests per rejected case.
+- [x] **Create/set validation** (`calendar_handlers.go:255`, `setCalendarEventField`): reject unknown/invalid properties with `invalidProperties` instead of silently dropping; enum-validate `status`/`privacy`/`freeBusyStatus`/participant roles (§3 + RFC 8620 §5.3). Tests per rejected case.
 - [ ] **`uid` auto-generate + require on create** (`calendar_store.go:294` `CreateCalendarEvent`, §4.1.2). Test that a created event always has a stable uid.
 
 ## JMAP for Calendars (I-D: methods / query / scheduling) — tests: `rfc8984_*_test.go` (repo convention)

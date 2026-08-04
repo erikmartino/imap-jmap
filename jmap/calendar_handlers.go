@@ -251,6 +251,9 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend) M
 
 		if createRaw, ok := args["create"].(map[string]any); ok {
 			notCreated = runCreateLoop(createRaw, creationRefs, func(creationID string, resolvedMap map[string]any) (string, error) {
+				if err := validateCalendarEventMap(resolvedMap); err != nil {
+					return "", err
+				}
 				evBytes, _ := json.Marshal(resolvedMap)
 				var ev CalendarEvent
 				_ = json.Unmarshal(evBytes, &ev)
@@ -301,6 +304,14 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend) M
 				rawPatch, _ := patchRaw.(map[string]any)
 				patch := resolvePatchCreationRefs(rawPatch, creationRefs)
 				resolvedID := resolveCreationID(idStr, creationRefs)
+				if err := validateCalendarEventMap(patch); err != nil {
+					if setErr, isSetErr := err.(SetError); isSetErr {
+						notUpdated[string(resolvedID)] = setErr
+					} else {
+						notUpdated[string(resolvedID)] = SetError{Type: "invalidProperties", Description: err.Error()}
+					}
+					continue
+				}
 				updatedEv, err := backend.UpdateCalendarEvent(ctx, Id(resolvedID), patch)
 				if err != nil {
 					notUpdated[string(resolvedID)] = SetError{Type: "notFound", Description: err.Error()}
@@ -666,4 +677,58 @@ func handleCalendarEventSendResponse(backend CalendarsBackend) MethodHandler {
 			"itipReply":     replyICS,
 		}
 	}
+}
+
+var validCalendarEventProperties = map[string]bool{
+	"@type": true, "id": true, "calendarIds": true, "title": true, "description": true,
+	"descriptionContentType": true, "showWithoutTime": true, "start": true, "duration": true,
+	"timeZone": true, "locations": true, "location": true, "virtualLocations": true,
+	"links": true, "locale": true, "categories": true, "color": true, "status": true,
+	"freeBusyStatus": true, "privacy": true, "priority": true, "replyTo": true,
+	"sentBy": true, "requestStatus": true, "useDefaultAlerts": true, "localizations": true,
+	"timeZones": true, "participants": true, "recurrenceRules": true, "recurrenceId": true,
+	"recurrenceIdTimeZone": true, "excludedRecurrenceRules": true, "recurrenceOverrides": true,
+	"excluded": true, "alerts": true, "relatedTo": true, "prodId": true, "sequence": true,
+	"method": true, "due": true, "estimatedDuration": true, "percentComplete": true,
+	"progress": true, "progressUpdated": true, "entries": true, "source": true,
+	"created": true, "updated": true, "uid": true, "keywords": true,
+}
+
+func validateCalendarEventMap(m map[string]any) error {
+	for k, v := range m {
+		if !validCalendarEventProperties[k] {
+			return SetError{
+				Type:        "invalidProperties",
+				Description: "unknown property: " + k,
+				Properties:  []string{k},
+			}
+		}
+		switch k {
+		case "status":
+			if s, ok := v.(string); ok && s != "" {
+				switch s {
+				case "confirmed", "tentative", "cancelled", "needs-action", "completed", "in-progress":
+				default:
+					return SetError{Type: "invalidProperties", Description: "invalid status value: " + s, Properties: []string{"status"}}
+				}
+			}
+		case "privacy":
+			if s, ok := v.(string); ok && s != "" {
+				switch s {
+				case "public", "private", "secret":
+				default:
+					return SetError{Type: "invalidProperties", Description: "invalid privacy value: " + s, Properties: []string{"privacy"}}
+				}
+			}
+		case "freeBusyStatus":
+			if s, ok := v.(string); ok && s != "" {
+				switch s {
+				case "free", "busy", "tentative":
+				default:
+					return SetError{Type: "invalidProperties", Description: "invalid freeBusyStatus value: " + s, Properties: []string{"freeBusyStatus"}}
+				}
+			}
+		}
+	}
+	return nil
 }
