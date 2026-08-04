@@ -13,21 +13,43 @@ covered by the `dav/` package's own tests (rfc4791/6352/4918/6350/2426/6638/5545
 
 ---
 
-# Implement first — outbound mail (primary domain + sendmail)
+# Implement first — outbound mail + identity/authorization refactor
 
-These two land before the calendar/addressbook/blob work. Today `EmailSubmission/set` never sends:
+Lands before the calendar/addressbook/blob work. Today `EmailSubmission/set` never sends:
 `CreateSubmission` (`memory/mail_store.go:1058`) just stores the submission and fabricates
-`deliveryStatus: {"user@example.com": {delivered: granted}}`; the `smtp/` server is inbound-only.
-Recipient routing is per-recipient (recipients come from `envelope.rcptTo`, RFC 8621 §7.1, falling back
-to the email's To/Cc/Bcc); "the domain of the user" is read as the **recipient** address's domain.
+`deliveryStatus: {"user@example.com": {delivered: granted}}`; the `smtp/` server is inbound-only and
+hardcodes account `"primary"` (`smtp/receiver.go:28`, `smtp/parser.go:22`). Memory stores currently key
+isolation on the **authenticated user id** (`getStoreLocked`, `memory/mail_store.go:40-52`).
 
-- [ ] **1. Primary-domain config + CLI flag.** Introduce a configurable "primary domain" (default `example.com`) that marks which recipients are local. Expose it as an optional CLI flag `--primary-domain` in `main.go` (alongside the existing `flag.String` set at `main.go:39-43`), with an env default (`PRIMARY_DOMAIN`) matching the `smtp-port`/`smtp-host` pattern. Plumb it into a submission/send config that reaches the mail backend + `EmailSubmission/set` path. Tests: flag/env parsing + default resolves to `example.com`.
+Model we're moving to: **authentication** translates a subject → an **accountId** (derived, e.g.
+base64url of the subject); an **authorization service (permission guard)** decides whether a principal's
+accountId may act on a target accountId; an **account resolver** maps an email address → accountId
+(default: every `*@<primaryDomain>`). Memory stores use **accountId** as the discriminator; SMTP uses
+the resolver for local delivery (inbound routing + outbound loopback). "The domain of the user" = the
+**recipient** address's domain. Design reference: `docs/plans/outbound-mail-identity-authz.md`.
 
-- [ ] **2. Sendmail support with domain routing + external allow-list.** Implement real outbound delivery on `EmailSubmission/set` create (`submission_handlers.go:98-137`, `memory/mail_store.go:1058` `CreateSubmission` — replace the fabricated `deliveryStatus`). Build the envelope (mailFrom + rcptTo), and for **each recipient**:
-  - recipient domain **==** primary domain → hand the message to the built-in SMTP server for local delivery (`smtp/server.go`; wire an in-process delivery path since it is currently receive-only).
-  - recipient domain **!=** primary domain → send **only if** the recipient address is in an allow-list; otherwise reject that recipient (`deliveryStatus` failed for it; whole submission → appropriate SetError when no recipient is deliverable).
-  - **Allow-list** is an optional CLI flag `--allowed-recipients` (comma-separated addresses; **default empty = none**, so external send is blocked by default), env default `ALLOWED_RECIPIENTS`, plumbed the same way as the primary domain.
-  - Tests — keep concerns split by RFC: JMAP submission routing/allow-list behavior (local delivered, external-not-listed rejected, external-listed sent, empty allow-list blocks all external) → `rfc8621_*_test.go` (EmailSubmission §7); the message actually landing in the built-in SMTP receiver for a local recipient → `smtp/rfc5321_*_test.go`; CLI/env flag parsing with `main`.
+## A. Identity (subject → accountId)
+- [ ] **`AccountIDForSubject(subject)` helper** in `jmap/auth.go` = `base64.RawURLEncoding` of the subject. Single source of truth reused by auth backend + resolver. Unit test round-trip/stability.
+- [ ] **Auth backend returns derived accountId.** `MemoryAuthBackend` (`memory/auth_store.go`) maps token→subject and returns `AccountIDForSubject(subject)` from `ValidateCredentials`/`ValidateToken`/`Authenticate` instead of the bare username. Unit test: two subjects → distinct stable accountIds.
+- [ ] **Memory stores keyed by accountId (confirm/adjust).** `getStoreLocked` already reads `AccountIDFromContext`; with the above it becomes the derived accountId. Adjust `rfc8620_multi_user_isolation_test.go` if it inspects the id value; assert isolation still holds.
+
+## B. Authorization service (permission guard) + account resolver
+- [ ] **`PermissionGuard` interface + `SelfAccessGuard` default** in new `jmap/authz.go`: `CanAccessAccount(ctx, principalAccountID, targetAccountID) bool`; default = equality. `WithPermissionGuard` option + `Server` field (`jmap/server.go`). Unit test.
+- [ ] **Lenient dispatch enforcement.** In the JMAP dispatcher resolve each call's `accountId` arg: empty or alias `"primary"` → principal's own account; otherwise require `CanAccessAccount` else method error `accountNotFound`. Keep routing by the ctx accountId so existing `"primary"` tests pass. Tests: self allowed, foreign → `accountNotFound`.
+- [ ] **`AccountResolver` interface + `PrimaryDomainResolver` default** in `jmap/authz.go`: `ResolveAccountID(ctx, emailAddress) (accountID string, local bool)`; default returns `(AccountIDForSubject(addr), true)` when the address domain == primary domain, else `("", false)`. `WithAccountResolver` option. Unit tests: local vs external.
+
+## C. Primary-domain config + CLI flag
+- [ ] **`--primary-domain` flag** (default `example.com`, env `PRIMARY_DOMAIN`) in `main.go` alongside `main.go:39-43`; construct `PrimaryDomainResolver` from it and inject into `jmap.Server` + `smtp.NewServer`. Test: flag/env parsing + default resolves to `example.com`.
+
+## D. Outbound send (`EmailSubmission/set`) — tests: `rfc8621_*_test.go`
+- [ ] **Add `Envelope` (mailFrom/rcptTo) to `EmailSubmission`** (`jmap/mail_types.go:125`, RFC 8621 §7.1) + typed per-recipient `deliveryStatus`. Round-trip test.
+- [ ] **Thread resolver + allow-list into the submission handler** (`RegisterMailHandlers` → `handleEmailSubmissionSet`, `submission_handlers.go:82`). Read `envelope.rcptTo`, falling back to the email's To/Cc/Bcc.
+- [ ] **Local delivery via resolver.** For each recipient the resolver marks local, deliver in-process with `MailBackend.CreateEmail` under the recipient's accountId ctx (reuses the inbound primitive at `smtp/receiver.go:94`); set `deliveryStatus[rcpt] = {delivered:"yes", smtpReply:"250 ..."}`. Test: local recipient's account receives the message.
+- [ ] **External allow-list gate.** `--allowed-recipients` flag (comma-separated; **default empty = none**; env `ALLOWED_RECIPIENTS`) via `WithAllowedRecipients`. Non-local recipient sent only if listed; else `deliveryStatus[rcpt]=failed`. If no recipient deliverable → `notCreated` `forbidden`. Tests: external-listed sent, external-unlisted rejected, empty-list blocks all external.
+- [ ] **Replace fabricated status.** `CreateSubmission` (`memory/mail_store.go:1075-1080`) accepts the computed per-recipient `deliveryStatus` instead of the hardcoded map.
+
+## E. SMTP receiver routing (inbound) — tests: `smtp/rfc5321_*_test.go`
+- [ ] **Per-recipient resolver routing.** `smtp/receiver.go` `Data()` (:64) + `NewServer`/`ReceiverBackend` take the resolver; deliver a copy to each local recipient's accountId (ctx per recipient) instead of hardcoded `"primary"`; keep `"primary"` fallback when unresolved. Test: message to a local address lands in that account; outbound submission loopback observed in the receiver.
 
 ---
 
