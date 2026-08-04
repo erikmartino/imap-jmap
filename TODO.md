@@ -102,11 +102,11 @@ the resolver for local delivery (inbound routing + outbound loopback). "The doma
 - [x] **`onSuccessSetIsDefault` arg** on `Calendar/set` (`calendar_handlers.go:92`). Test.
 
 ### Scheduling (iTIP dispatch)
-- [ ] **Honor `sendSchedulingMessages`** (`calendar_handlers.go:266-386` `handleCalendarEventSet`): currently auto-dispatches iMIP unconditionally; default is `false`. Gate dispatch on the flag. Test both.
-- [ ] **`noSupportedScheduleMethods` SetError** path (`calendar_handlers.go:231`). Test.
-- [ ] **Participation constraints**: enforce `mayRSVP` / `mayInviteSelf` / `mayInviteOthers` (`calendar_handlers.go:231`). Tests.
-- [ ] **RSVP via `CalendarEvent/set`** (patch participant `participationStatus`) rather than the non-spec `CalendarEvent/sendResponse` (`calendar_handlers.go:25,618`). Fix the bug where the reply is written to event-level `status` and `p.Status` is never persisted (`calendar_handlers.go:648-650`, §5.1.3 vs §4.4.6). Test participant status persists.
-- [ ] **PatchObject nested paths** (e.g. `participants/x/participationStatus`, `locations/x/name`) in `setCalendarEventField` (`calendar_store.go:320`) — currently only whole-key switches. Test nested patch.
+- [x] **Honor `sendSchedulingMessages`** (`calendar_handlers.go:266-386` `handleCalendarEventSet`): currently auto-dispatches iMIP unconditionally; default is `false`. Gate dispatch on the flag. Test both.
+- [x] **`noSupportedScheduleMethods` SetError** path (`calendar_handlers.go:231`). Test.
+- [x] **Participation constraints**: enforce `mayRSVP` / `mayInviteSelf` / `mayInviteOthers` (`calendar_handlers.go:231`). Tests.
+- [x] **RSVP via `CalendarEvent/set`** (patch participant `participationStatus`) rather than the non-spec `CalendarEvent/sendResponse` (`calendar_handlers.go:25,618`). Fix the bug where the reply is written to event-level `status` and `p.Status` is never persisted (`calendar_handlers.go:648-650`, §5.1.3 vs §4.4.6). Test participant status persists.
+- [x] **PatchObject nested paths** (e.g. `participants/x/participationStatus`, `locations/x/name`) in `setCalendarEventField` (`calendar_store.go:320`) — currently only whole-key switches. Test nested patch.
 
 ### Method families & capability
 - [ ] **`CalendarEvent/parse`** (blobIds → parsed/notParsable/notFound) replacing the non-spec `CalendarEvent/parseInvitation` (`calendar_handlers.go:24,593`); advertise `urn:ietf:params:jmap:calendars:parse` (`session.go:119`). Tests.

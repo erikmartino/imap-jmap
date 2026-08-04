@@ -362,6 +362,59 @@ func (b *MemoryCalendarsBackend) CreateCalendarEvent(ctx context.Context, ev *jm
 
 // setCalendarEventField applies a single RFC 8984 CalendarEvent patch path.
 func setCalendarEventField(ev *jmap.CalendarEvent, path string, val any) {
+	if strings.Contains(path, "/") {
+		parts := strings.Split(path, "/")
+		if len(parts) >= 3 {
+			switch parts[0] {
+			case "participants":
+				partKey := parts[1]
+				field := parts[2]
+				if ev.Participants == nil {
+					ev.Participants = make(map[string]*jmap.JSCalendarParticipant)
+				}
+				p, ok := ev.Participants[partKey]
+				if !ok || p == nil {
+					p = &jmap.JSCalendarParticipant{Email: partKey}
+					ev.Participants[partKey] = p
+				}
+				if valStr, ok := val.(string); ok {
+					if field == "participationStatus" || field == "status" {
+						p.ParticipationStatus = valStr
+						p.Status = valStr
+					} else if field == "role" {
+						p.Role = valStr
+						if p.Roles == nil {
+							p.Roles = make(map[string]bool)
+						}
+						p.Roles[valStr] = true
+					} else if field == "name" {
+						p.Name = valStr
+					}
+				}
+			case "locations":
+				locKey := parts[1]
+				field := parts[2]
+				if ev.Locations == nil {
+					ev.Locations = make(map[string]*jmap.JSCalendarLocation)
+				}
+				loc, ok := ev.Locations[locKey]
+				if !ok || loc == nil {
+					loc = &jmap.JSCalendarLocation{}
+					ev.Locations[locKey] = loc
+				}
+				if valStr, ok := val.(string); ok {
+					if field == "name" {
+						loc.Name = valStr
+					} else if field == "description" {
+						loc.Description = valStr
+					} else if field == "rel" {
+						loc.Rel = valStr
+					}
+				}
+			}
+		}
+		return
+	}
 	switch path {
 	case "@type", "type":
 		if s, ok := val.(string); ok && s != "" {

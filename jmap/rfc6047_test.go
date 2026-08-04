@@ -28,7 +28,8 @@ func TestRFC6047_AutoSendInvitationAndCancellation(t *testing.T) {
 			[]any{
 				"CalendarEvent/set",
 				map[string]any{
-					"accountId": "primary",
+					"accountId":              "primary",
+					"sendSchedulingMessages": true,
 					"create": map[string]any{
 						"ev6047": map[string]any{
 							"title": "RFC 6047 iMIP Sync",

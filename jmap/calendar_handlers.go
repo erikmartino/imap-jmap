@@ -3,6 +3,7 @@ package jmap
 import (
 	"context"
 	"encoding/json"
+	"strings"
 )
 
 // RegisterCalendarHandlers registers JMAP for Calendars & JSCalendar method handlers into MethodRegistry.
@@ -296,6 +297,8 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend) M
 			return "error", MethodErrorArgs("stateMismatch", "state mismatch")
 		}
 
+		sendSchedulingMessages, _ := args["sendSchedulingMessages"].(bool)
+
 		created := make(map[string]*CalendarEvent)
 		updated := make(map[string]map[string]any)
 		destroyed := make([]Id, 0)
@@ -303,13 +306,13 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend) M
 		notUpdated := make(map[string]any)
 		notDestroyed := make(map[string]any)
 
-		// creationRefs maps a creation id to the real id the server assigned (seeded from
-		// the request-scoped createdIds map), so #creationId references in this call and
-		// in later method calls of the same request resolve (RFC 8620 Section 5.3).
 		creationRefs := newSetCreationRefs(ctx)
 
 		if createRaw, ok := args["create"].(map[string]any); ok {
 			notCreated = runCreateLoop(createRaw, creationRefs, func(creationID string, resolvedMap map[string]any) (string, error) {
+				if sendSchedulingMessages && mailBackend == nil {
+					return "", SetError{Type: "noSupportedScheduleMethods", Description: "no supported schedule methods available for scheduling"}
+				}
 				if err := validateCalendarEventMap(resolvedMap); err != nil {
 					return "", err
 				}
@@ -324,8 +327,7 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend) M
 				created[creationID] = createdEv
 				recordCreationRefs(ctx, creationRefs, creationID, createdEv.ID)
 
-				// Auto-dispatch iMIP email invitation to external participants if mailBackend is available
-				if mailBackend != nil && len(createdEv.Participants) > 0 {
+				if sendSchedulingMessages && mailBackend != nil && len(createdEv.Participants) > 0 {
 					reqICS, _ := BuildITIPRequest(createdEv, accountID)
 					for emailStr, p := range createdEv.Participants {
 						recipientEmail := emailStr
@@ -363,6 +365,10 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend) M
 				rawPatch, _ := patchRaw.(map[string]any)
 				patch := resolvePatchCreationRefs(rawPatch, creationRefs)
 				resolvedID := resolveCreationID(idStr, creationRefs)
+				if sendSchedulingMessages && mailBackend == nil {
+					notUpdated[string(resolvedID)] = SetError{Type: "noSupportedScheduleMethods", Description: "no supported schedule methods available for scheduling"}
+					continue
+				}
 				if err := validateCalendarEventMap(patch); err != nil {
 					if setErr, isSetErr := err.(SetError); isSetErr {
 						notUpdated[string(resolvedID)] = setErr
@@ -377,8 +383,7 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend) M
 				} else {
 					updated[string(resolvedID)] = nil
 
-					// Auto-dispatch iMIP email invitation to participants if updated event has participants
-					if mailBackend != nil && updatedEv != nil && len(updatedEv.Participants) > 0 {
+					if sendSchedulingMessages && mailBackend != nil && updatedEv != nil && len(updatedEv.Participants) > 0 {
 						reqICS, _ := BuildITIPRequest(updatedEv, accountID)
 						for emailStr, p := range updatedEv.Participants {
 							recipientEmail := emailStr
@@ -771,14 +776,18 @@ var validCalendarEventProperties = map[string]bool{
 
 func validateCalendarEventMap(m map[string]any) error {
 	for k, v := range m {
-		if !validCalendarEventProperties[k] {
+		baseKey := k
+		if strings.Contains(k, "/") {
+			baseKey = strings.Split(k, "/")[0]
+		}
+		if !validCalendarEventProperties[baseKey] {
 			return SetError{
 				Type:        "invalidProperties",
 				Description: "unknown property: " + k,
 				Properties:  []string{k},
 			}
 		}
-		switch k {
+		switch baseKey {
 		case "status":
 			if s, ok := v.(string); ok && s != "" {
 				switch s {
