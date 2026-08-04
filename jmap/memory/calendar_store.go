@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -997,7 +998,39 @@ func parseISODuration(raw string) (time.Duration, bool) {
 	return total, true
 }
 
-func (b *MemoryCalendarsBackend) QueryCalendarEvents(ctx context.Context, filter map[string]any, position int, limit *uint64) ([]jmap.Id, int, error) {
+func sortCalendarEvents(events []*jmap.CalendarEvent, comparators []jmap.Comparator) {
+	sort.SliceStable(events, func(i, j int) bool {
+		for _, comp := range comparators {
+			var cmp int
+			switch comp.Property {
+			case "start":
+				cmp = strings.Compare(events[i].Start, events[j].Start)
+			case "uid":
+				cmp = strings.Compare(events[i].UID, events[j].UID)
+			case "recurrenceId":
+				cmp = strings.Compare(events[i].RecurrenceID, events[j].RecurrenceID)
+			case "created":
+				cmp = strings.Compare(events[i].Created, events[j].Created)
+			case "updated":
+				cmp = strings.Compare(events[i].Updated, events[j].Updated)
+			case "title":
+				cmp = strings.Compare(strings.ToLower(events[i].Title), strings.ToLower(events[j].Title))
+			}
+			if cmp != 0 {
+				if comp.IsAscending {
+					return cmp < 0
+				}
+				return cmp > 0
+			}
+		}
+		if events[i].Start != events[j].Start {
+			return events[i].Start < events[j].Start
+		}
+		return events[i].ID < events[j].ID
+	})
+}
+
+func (b *MemoryCalendarsBackend) QueryCalendarEvents(ctx context.Context, filter map[string]any, sort []jmap.Comparator, position int, limit *uint64) ([]jmap.Id, int, error) {
 	b.mu.RLock()
 	us := b.getStoreLocked(ctx)
 	defer b.mu.RUnlock()
@@ -1008,6 +1041,8 @@ func (b *MemoryCalendarsBackend) QueryCalendarEvents(ctx context.Context, filter
 			matched = append(matched, ev)
 		}
 	}
+
+	sortCalendarEvents(matched, sort)
 
 	total := len(matched)
 	position = jmap.NormalizePosition(position, total)
