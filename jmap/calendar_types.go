@@ -1,5 +1,9 @@
 package jmap
 
+import (
+	"encoding/json"
+)
+
 // CalendarRights defines access rights for a Calendar per JMAP for Calendars.
 type CalendarRights struct {
 	MayReadItems  bool `json:"mayReadItems"`
@@ -20,54 +24,184 @@ type Calendar struct {
 	MyRights    CalendarRights `json:"myRights"`
 }
 
-// JSCalendarLocation defines a location object per RFC 8984 Section 4.2.1.
+// NDay represents a day of the week with optional nth-occurrence per RFC 8984 Section 4.3.3.
+type NDay struct {
+	Day string `json:"day"` // "mo", "tu", "we", "th", "fr", "sa", "su"
+	Nth int    `json:"nth,omitempty"`
+}
+
+func (n *NDay) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		n.Day = s
+		return nil
+	}
+	type rawNDay NDay
+	var raw rawNDay
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*n = NDay(raw)
+	return nil
+}
+
+// OffsetTrigger defines an offset trigger object per RFC 8984 Section 4.5.2.
+type OffsetTrigger struct {
+	Type       string `json:"@type"` // "OffsetTrigger"
+	Offset     string `json:"offset"`
+	RelativeTo string `json:"relativeTo,omitempty"` // "start", "end"
+}
+
+// AbsoluteTrigger defines an absolute trigger object per RFC 8984 Section 4.5.2.
+type AbsoluteTrigger struct {
+	Type string `json:"@type"` // "AbsoluteTrigger"
+	When string `json:"when"`
+}
+
+// JSCalendarLocation defines a location object per RFC 8984 Section 4.2.5.
 type JSCalendarLocation struct {
-	Name        string `json:"name,omitempty"`
-	Description string `json:"description,omitempty"`
-	Rel         string `json:"rel,omitempty"`
-	TimeZone    string `json:"timeZone,omitempty"`
+	Type          string                     `json:"@type,omitempty"` // "Location"
+	Name          string                     `json:"name,omitempty"`
+	Description   string                     `json:"description,omitempty"`
+	Rel           string                     `json:"rel,omitempty"`
+	TimeZone      string                     `json:"timeZone,omitempty"`
+	LocationTypes map[string]bool            `json:"locationTypes,omitempty"`
+	RelativeTo    string                     `json:"relativeTo,omitempty"`
+	Coordinates   string                     `json:"coordinates,omitempty"`
+	Links         map[string]*JSCalendarLink `json:"links,omitempty"`
 }
 
-// JSCalendarParticipant defines a participant object per RFC 8984 Section 4.4.1.
+// JSCalendarParticipant defines a participant object per RFC 8984 Section 4.4.6.
 type JSCalendarParticipant struct {
-	Name        string `json:"name,omitempty"`
-	Email       string `json:"email,omitempty"`
-	Role        string `json:"role,omitempty"`   // "owner", "attendee", "chair"
-	Status      string `json:"status,omitempty"` // "needs-action", "accepted", "declined", "tentative"
-	Kind        string `json:"kind,omitempty"`   // "individual", "group", "resource", "location"
-	ExpectReply bool   `json:"expectReply,omitempty"`
+	Type                string                     `json:"@type,omitempty"` // "Participant"
+	Name                string                     `json:"name,omitempty"`
+	Email               string                     `json:"email,omitempty"`
+	Role                string                     `json:"role,omitempty"`                // Deprecated/compat: "owner", "attendee", "chair"
+	Roles               map[string]bool            `json:"roles,omitempty"`               // "owner", "attendee", "chair"
+	Status              string                     `json:"status,omitempty"`              // Deprecated/compat: "needs-action", "accepted", "declined", "tentative"
+	ParticipationStatus string                     `json:"participationStatus,omitempty"` // "needs-action", "accepted", "declined", "tentative"
+	Kind                string                     `json:"kind,omitempty"`                // "individual", "group", "resource", "location"
+	ExpectReply         bool                       `json:"expectReply,omitempty"`
+	SendTo              map[string]string          `json:"sendTo,omitempty"`
+	DelegatedTo         map[string]bool            `json:"delegatedTo,omitempty"`
+	DelegatedFrom       map[string]bool            `json:"delegatedFrom,omitempty"`
+	MemberOf            map[string]bool            `json:"memberOf,omitempty"`
+	ScheduleAgent       string                     `json:"scheduleAgent,omitempty"`
+	ScheduleStatus      string                     `json:"scheduleStatus,omitempty"`
+	InvitedBy           string                     `json:"invitedBy,omitempty"`
+	Links               map[string]*JSCalendarLink `json:"links,omitempty"`
+	Language            string                     `json:"language,omitempty"`
+	LocationID          string                     `json:"locationId,omitempty"`
 }
 
-// JSCalendarRecurrenceRule defines a recurrence rule object per RFC 8984 Section 4.3.1.
+func (p *JSCalendarParticipant) UnmarshalJSON(data []byte) error {
+	type rawParticipant JSCalendarParticipant
+	var raw rawParticipant
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*p = JSCalendarParticipant(raw)
+	if p.Roles == nil && p.Role != "" {
+		p.Roles = map[string]bool{p.Role: true}
+	}
+	if p.Role == "" && len(p.Roles) > 0 {
+		for r := range p.Roles {
+			p.Role = r
+			break
+		}
+	}
+	if p.ParticipationStatus == "" && p.Status != "" {
+		p.ParticipationStatus = p.Status
+	}
+	if p.Status == "" && p.ParticipationStatus != "" {
+		p.Status = p.ParticipationStatus
+	}
+	if p.Type == "" {
+		p.Type = "Participant"
+	}
+	return nil
+}
+
+// JSCalendarRecurrenceRule defines a recurrence rule object per RFC 8984 Section 4.3.3.
 type JSCalendarRecurrenceRule struct {
-	Frequency string   `json:"frequency"` // "daily", "weekly", "monthly", "yearly"
-	Interval  uint64   `json:"interval,omitempty"`
-	Until     string   `json:"until,omitempty"` // RFC 3339 timestamp
-	Count     uint64   `json:"count,omitempty"`
-	ByDay     []string `json:"byDay,omitempty"` // "mo", "tu", "we", "th", "fr", "sa", "su"
+	Type           string   `json:"@type,omitempty"` // "RecurrenceRule"
+	Frequency      string   `json:"frequency"`       // "daily", "weekly", "monthly", "yearly"
+	Interval       uint64   `json:"interval,omitempty"`
+	RScale         string   `json:"rscale,omitempty"`
+	Skip           string   `json:"skip,omitempty"`
+	FirstDayOfWeek string   `json:"firstDayOfWeek,omitempty"`
+	Until          string   `json:"until,omitempty"` // RFC 3339 timestamp
+	Count          uint64   `json:"count,omitempty"`
+	ByDay          []*NDay  `json:"byDay,omitempty"`
+	ByMonthDay     []int    `json:"byMonthDay,omitempty"`
+	ByMonth        []string `json:"byMonth,omitempty"`
+	ByYearDay      []int    `json:"byYearDay,omitempty"`
+	ByWeekNo       []int    `json:"byWeekNo,omitempty"`
+	ByHour         []uint32 `json:"byHour,omitempty"`
+	ByMinute       []uint32 `json:"byMinute,omitempty"`
+	BySecond       []uint32 `json:"bySecond,omitempty"`
+	BySetPosition  []int    `json:"bySetPosition,omitempty"`
 }
 
-// JSCalendarAlert defines an alert/alarm object per RFC 8984 Section 4.5.1.
+// JSCalendarAlert defines an alert/alarm object per RFC 8984 Section 4.5.2.
 type JSCalendarAlert struct {
-	Trigger     string `json:"trigger"`          // ISO 8601 duration e.g. "-PT15M"
-	Action      string `json:"action,omitempty"` // "display", "email"
-	Description string `json:"description,omitempty"`
+	Type         string                         `json:"@type,omitempty"` // "Alert"
+	Trigger      any                            `json:"trigger"`         // OffsetTrigger, AbsoluteTrigger, or string (ISO 8601 duration)
+	Action       string                         `json:"action,omitempty"`// "display", "email"
+	Description  string                         `json:"description,omitempty"`
+	Acknowledged string                         `json:"acknowledged,omitempty"`
+	RelatedTo    map[string]*JSCalendarRelation `json:"relatedTo,omitempty"`
 }
 
-// JSCalendarLink defines a link or attachment object per RFC 8984 Section 4.2.3.
+func (a *JSCalendarAlert) UnmarshalJSON(data []byte) error {
+	type rawAlert JSCalendarAlert
+	var raw struct {
+		rawAlert
+		TriggerRaw json.RawMessage `json:"trigger"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*a = JSCalendarAlert(raw.rawAlert)
+	if len(raw.TriggerRaw) > 0 {
+		var s string
+		if err := json.Unmarshal(raw.TriggerRaw, &s); err == nil {
+			a.Trigger = map[string]any{
+				"@type":  "OffsetTrigger",
+				"offset": s,
+			}
+		} else {
+			var m map[string]any
+			if err := json.Unmarshal(raw.TriggerRaw, &m); err == nil {
+				a.Trigger = m
+			}
+		}
+	}
+	if a.Type == "" {
+		a.Type = "Alert"
+	}
+	return nil
+}
+
+// JSCalendarLink defines a link or attachment object per RFC 8984 Section 4.2.7.
 type JSCalendarLink struct {
-	Href  string `json:"href"`
-	Cid   string `json:"cid,omitempty"`
-	Rel   string `json:"rel,omitempty"`  // "enclosure", "describedby", etc.
-	Type  string `json:"type,omitempty"` // Content type e.g. "application/pdf"
-	Title string `json:"title,omitempty"`
+	Type        string `json:"@type,omitempty"` // "Link"
+	Href        string `json:"href"`
+	Cid         string `json:"cid,omitempty"`
+	Rel         string `json:"rel,omitempty"`         // "enclosure", "describedby", etc.
+	ContentType string `json:"contentType,omitempty"` // Content type e.g. "application/pdf"
+	Size        uint64 `json:"size,omitempty"`
+	Display     string `json:"display,omitempty"`
+	Title       string `json:"title,omitempty"`
 }
 
-// JSCalendarVirtualLocation defines a virtual location object per RFC 8984 Section 4.2.2.
+// JSCalendarVirtualLocation defines a virtual location object per RFC 8984 Section 4.2.6.
 type JSCalendarVirtualLocation struct {
-	URI         string `json:"uri"`
-	Name        string `json:"name,omitempty"`
-	Description string `json:"description,omitempty"`
+	Type        string          `json:"@type,omitempty"` // "VirtualLocation"
+	URI         string          `json:"uri"`
+	Name        string          `json:"name,omitempty"`
+	Description string          `json:"description,omitempty"`
+	Features    map[string]bool `json:"features,omitempty"`
 }
 
 // JSCalendarRelation defines a relation object per RFC 8984 Section 4.1.3.

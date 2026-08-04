@@ -191,7 +191,7 @@ func SeedSampleData(mb *MemoryBackend, cb *MemoryCalendarsBackend) {
 				{
 					Frequency: "weekly",
 					Interval:  1,
-					ByDay:     []string{"we"},
+					ByDay: []*jmap.NDay{{Day: "we"}},
 				},
 			},
 		})
