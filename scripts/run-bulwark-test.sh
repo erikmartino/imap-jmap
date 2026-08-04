@@ -39,6 +39,7 @@ echo "==> Starting Bulwark Webmail container on port ${BULWARK_PORT}..."
 ${CONTAINER_CMD} run -d \
     --name bulwark-webmail \
     --network host \
+    -e NODE_ENV=development \
     -e JMAP_SERVER_URL="http://127.0.0.1:${PORT}" \
     -e ALLOW_CUSTOM_JMAP_ENDPOINT=true \
     -e STALWART_EXTENSIONS=false \

@@ -1,11 +1,21 @@
 package main
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"flag"
 	"fmt"
 	"log"
+	"math/big"
+	"net"
 	"net/http"
 	"os"
+	"time"
 
 	"imap-jmap/dav"
 	"imap-jmap/jmap"
@@ -34,16 +44,22 @@ func main() {
 		defaultSMTPHost = "0.0.0.0"
 	}
 
-	publicURL := os.Getenv("PUBLIC_URL")
+	defaultHTTPSPort := os.Getenv("HTTPS_PORT")
+	if defaultHTTPSPort == "" {
+		defaultHTTPSPort = "8443"
+	}
 
 	port := flag.String("port", defaultPort, "HTTP server listening port")
+	httpsPort := flag.String("https-port", defaultHTTPSPort, "HTTPS TLS server listening port")
 	host := flag.String("host", defaultHost, "HTTP server listening host")
 	smtpPort := flag.String("smtp-port", defaultSMTPPort, "SMTP receiver listening port")
 	smtpHost := flag.String("smtp-host", defaultSMTPHost, "SMTP receiver listening host")
 	flag.Parse()
 
 	addr := fmt.Sprintf("%s:%s", *host, *port)
+	httpsAddr := fmt.Sprintf("%s:%s", *host, *httpsPort)
 	smtpAddr := fmt.Sprintf("%s:%s", *smtpHost, *smtpPort)
+	publicURL := os.Getenv("PUBLIC_URL")
 	if publicURL == "" {
 		publicURL = fmt.Sprintf("http://%s", addr)
 	}
@@ -92,6 +108,24 @@ func main() {
 	httpMux.Handle("/carddav/", davServer.CardDAVHandler)
 	httpMux.Handle("/", server.Handler())
 
+	// Start HTTPS TLS Listener for browser clients enforcing HTTPS connect-src CSP
+	if tlsCert, err := generateSelfSignedCert(); err == nil {
+		tlsConfig := &tls.Config{
+			Certificates: []tls.Certificate{tlsCert},
+		}
+		httpsServer := &http.Server{
+			Addr:      httpsAddr,
+			Handler:   httpMux,
+			TLSConfig: tlsConfig,
+		}
+		go func() {
+			log.Printf("Starting HTTPS TLS server on https://%s", httpsAddr)
+			if err := httpsServer.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+				log.Printf("HTTPS TLS server error: %v", err)
+			}
+		}()
+	}
+
 	log.Printf("Starting JMAP & WebDAV server on http://%s (public URL: %s)", addr, publicURL)
 	log.Printf("Discovery endpoint: %s/.well-known/jmap", publicURL)
 	log.Printf("CalDAV endpoint: %s/caldav/", publicURL)
@@ -100,4 +134,47 @@ func main() {
 	if err := http.ListenAndServe(addr, httpMux); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
+}
+
+func generateSelfSignedCert() (tls.Certificate, error) {
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	notBefore := time.Now()
+	notAfter := notBefore.Add(365 * 24 * time.Hour)
+
+	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	template := x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			Organization: []string{"JMAP Server Test"},
+		},
+		NotBefore:             notBefore,
+		NotAfter:              notAfter,
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("0.0.0.0")},
+		DNSNames:              []string{"localhost", "127.0.0.1", "imap-jmap"},
+	}
+
+	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
+	privBytes, err := x509.MarshalPKCS8PrivateKey(priv)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privBytes})
+
+	return tls.X509KeyPair(certPEM, keyPEM)
 }

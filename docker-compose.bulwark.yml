@@ -25,6 +25,7 @@ services:
     environment:
       - HOSTNAME=0.0.0.0
       - PORT=3000
+      - NODE_ENV=development
       - JMAP_SERVER_URL=http://imap-jmap:8080
       - ALLOW_CUSTOM_JMAP_ENDPOINT=true
       - STALWART_EXTENSIONS=false
