@@ -114,7 +114,13 @@ func runCreateLoop(createRaw map[string]any, refs map[string]Id, do func(creatio
 			}
 			realID, err := do(cid, resolved)
 			if err != nil {
-				notCreated[cid] = SetError{Type: "invalidProperties", Description: err.Error()}
+				if setErr, ok := err.(SetError); ok {
+					notCreated[cid] = setErr
+				} else if strings.HasPrefix(err.Error(), "forbidden:") {
+					notCreated[cid] = SetError{Type: "forbidden", Description: strings.TrimSpace(strings.TrimPrefix(err.Error(), "forbidden:"))}
+				} else {
+					notCreated[cid] = SetError{Type: "invalidProperties", Description: err.Error()}
+				}
 			} else {
 				refs[cid] = Id(realID)
 			}

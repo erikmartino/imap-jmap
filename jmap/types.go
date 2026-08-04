@@ -110,6 +110,13 @@ type SetError struct {
 	Description string `json:"description,omitempty"`
 }
 
+func (e SetError) Error() string {
+	if e.Description != "" {
+		return fmt.Sprintf("%s: %s", e.Type, e.Description)
+	}
+	return e.Type
+}
+
 const (
 	MethodErrorUnknownMethod          = "unknownMethod"
 	MethodErrorInvalidArguments       = "invalidArguments"

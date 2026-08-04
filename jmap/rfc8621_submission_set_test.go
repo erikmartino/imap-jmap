@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
+	"imap-jmap/jmap/memory"
 )
 
 // TestEmailSubmissionSetDestroyTests tests EmailSubmission/set create, destroy, and error paths per RFC 8621 Section 7.3.
@@ -148,4 +149,123 @@ func TestEmailSubmission_Envelope_RoundTrip(t *testing.T) {
 		t.Errorf("Expected mailFrom sender@example.com, got %v", mailFrom)
 	}
 }
+
+// TestEmailSubmission_LocalDelivery tests that submissions to local domain addresses deliver the message in-process to the recipient account.
+func TestEmailSubmission_LocalDelivery(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	senderCtx := context.Background()
+	em, err := srv.MailBackend.CreateEmail(senderCtx, &jmap.Email{
+		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
+		Subject:    "Local Delivery Test",
+		To:         []jmap.EmailAddress{{Email: "localuser@example.com"}},
+	})
+	if err != nil {
+		t.Fatalf("Failed to create email: %v", err)
+	}
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.SubmissionCapabilityURI}
+	res := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sub1": map[string]any{
+					"emailId":    string(em.ID),
+					"identityId": "id-primary",
+				},
+			},
+		}, "c1"},
+	})
+
+	created, _ := res.MethodResponses[0].Args["created"].(map[string]any)
+	subMap, ok := created["sub1"].(map[string]any)
+	if !ok {
+		t.Fatalf("Failed to create submission: %v", res.MethodResponses[0].Args)
+	}
+
+	ds, _ := subMap["deliveryStatus"].(map[string]any)
+	status, _ := ds["localuser@example.com"].(map[string]any)
+	if status["delivered"] != "yes" {
+		t.Errorf("Expected deliveryStatus delivered='yes', got %v", status)
+	}
+
+	// Verify recipient's account received the email
+	rcptAccountID := jmap.AccountIDForSubject("localuser@example.com")
+	rcptCtx := jmap.ContextWithAccountID(context.Background(), rcptAccountID)
+	rcptEmails, err := srv.MailBackend.GetAllEmails(rcptCtx)
+	if err != nil || len(rcptEmails) == 0 {
+		t.Fatalf("Recipient account %q did not receive the email: err=%v, count=%d", rcptAccountID, err, len(rcptEmails))
+	}
+	if rcptEmails[0].Subject != "Local Delivery Test" {
+		t.Errorf("Expected subject 'Local Delivery Test', got %q", rcptEmails[0].Subject)
+	}
+}
+
+// TestEmailSubmission_ExternalAllowList tests the external recipient allow-list gate.
+func TestEmailSubmission_ExternalAllowList(t *testing.T) {
+	memBackend := memory.NewMemoryBackend()
+	memBlobBackend := memory.NewMemoryBlobBackend()
+	srv := jmap.NewServer(
+		nil,
+		jmap.WithMailBackend(memBackend),
+		jmap.WithBlobBackend(memBlobBackend),
+		jmap.WithAllowedRecipients([]string{"allowed@external.com"}),
+	)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	em, _ := srv.MailBackend.CreateEmail(context.Background(), &jmap.Email{
+		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
+		Subject:    "External Test",
+		To:         []jmap.EmailAddress{{Email: "allowed@external.com"}},
+	})
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.SubmissionCapabilityURI}
+
+	// 1. Submit to allowed external recipient -> OK
+	res1 := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sub1": map[string]any{
+					"emailId":    string(em.ID),
+					"identityId": "id-primary",
+				},
+			},
+		}, "c1"},
+	})
+	created1, _ := res1.MethodResponses[0].Args["created"].(map[string]any)
+	if created1["sub1"] == nil {
+		t.Errorf("Allowed external submission failed: %v", res1.MethodResponses[0].Args)
+	}
+
+	// 2. Submit to unlisted external recipient -> forbidden SetError
+	em2, _ := srv.MailBackend.CreateEmail(context.Background(), &jmap.Email{
+		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
+		Subject:    "Unlisted Test",
+		To:         []jmap.EmailAddress{{Email: "unlisted@external.com"}},
+	})
+	res2 := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sub2": map[string]any{
+					"emailId":    string(em2.ID),
+					"identityId": "id-primary",
+				},
+			},
+		}, "c2"},
+	})
+	notCreated2, _ := res2.MethodResponses[0].Args["notCreated"].(map[string]any)
+	errObj2, ok := notCreated2["sub2"].(map[string]any)
+	if !ok {
+		t.Fatalf("Expected sub2 in notCreated, got %v", res2.MethodResponses[0].Args)
+	}
+	if errObj2["type"] != "forbidden" {
+		t.Errorf("Expected SetError type 'forbidden', got %q", errObj2["type"])
+	}
+}
+
 

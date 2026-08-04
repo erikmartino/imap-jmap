@@ -2,6 +2,8 @@ package jmap
 
 import (
 	"context"
+	"fmt"
+	"strings"
 )
 
 // EmailSubmission Handlers (RFC 8621 Section 7)
@@ -79,7 +81,7 @@ func handleEmailSubmissionChanges(backend MailBackend) MethodHandler {
 	}
 }
 
-func handleEmailSubmissionSet(backend MailBackend) MethodHandler {
+func handleEmailSubmissionSet(backend MailBackend, resolver AccountResolver, allowedRecipients map[string]bool) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		oldState := backend.SubmissionState(ctx)
@@ -105,6 +107,15 @@ func handleEmailSubmissionSet(backend MailBackend) MethodHandler {
 				emailID = resolveCreationID(emailID, creationRefs)
 				identityID = resolveCreationID(identityID, creationRefs)
 
+				// Load referenced email to read headers if envelope rcptTo is missing
+				var targetEmail *Email
+				if emailID != "" {
+					emails, _, _ := backend.GetEmails(ctx, []Id{Id(emailID)})
+					if len(emails) > 0 {
+						targetEmail = emails[0]
+					}
+				}
+
 				var env *SubmissionEnvelope
 				if envMap, ok := subData["envelope"].(map[string]any); ok {
 					env = &SubmissionEnvelope{}
@@ -124,11 +135,85 @@ func handleEmailSubmissionSet(backend MailBackend) MethodHandler {
 					}
 				}
 
+				// Collect recipient email addresses
+				var recipients []string
+				if env != nil && len(env.RcptTo) > 0 {
+					for _, sa := range env.RcptTo {
+						if sa.Email != "" {
+							recipients = append(recipients, sa.Email)
+						}
+					}
+				} else if targetEmail != nil {
+					for _, addr := range targetEmail.To {
+						if addr.Email != "" {
+							recipients = append(recipients, addr.Email)
+						}
+					}
+					for _, addr := range targetEmail.CC {
+						if addr.Email != "" {
+							recipients = append(recipients, addr.Email)
+						}
+					}
+					for _, addr := range targetEmail.BCC {
+						if addr.Email != "" {
+							recipients = append(recipients, addr.Email)
+						}
+					}
+				}
+
+				deliveryStatus := make(map[string]DeliveryStatus)
+				deliverableCount := 0
+
+				activeResolver := resolver
+				if activeResolver == nil {
+					activeResolver = PrimaryDomainResolver{PrimaryDomain: "example.com"}
+				}
+
+				for _, rcpt := range recipients {
+					rcptClean := strings.TrimSpace(rcpt)
+					if rcptClean == "" {
+						continue
+					}
+					targetAccountID, local := activeResolver.ResolveAccountID(ctx, rcptClean)
+					if local {
+						rcptCtx := ContextWithAccountID(ctx, targetAccountID)
+						if targetEmail != nil {
+							copyEmail := *targetEmail
+							copyEmail.ID = ""
+							copyEmail.MailboxIDs = map[Id]bool{"mb-inbox": true}
+							_, _ = backend.CreateEmail(rcptCtx, &copyEmail)
+						}
+						deliveryStatus[rcptClean] = DeliveryStatus{
+							Delivered: "yes",
+							SmtpReply: "250 2.0.0 OK local delivery",
+						}
+						deliverableCount++
+					} else {
+						if allowedRecipients != nil && allowedRecipients[strings.ToLower(rcptClean)] {
+							deliveryStatus[rcptClean] = DeliveryStatus{
+								Delivered: "yes",
+								SmtpReply: "250 2.0.0 OK queued external",
+							}
+							deliverableCount++
+						} else {
+							deliveryStatus[rcptClean] = DeliveryStatus{
+								Delivered: "failed",
+								SmtpReply: "550 5.7.1 Recipient not in allow-list",
+							}
+						}
+					}
+				}
+
+				if len(recipients) > 0 && deliverableCount == 0 {
+					return "", fmt.Errorf("forbidden: no recipient is deliverable")
+				}
+
 				sub, err := backend.CreateSubmission(ctx, &EmailSubmission{
-					IdentityID: Id(identityID),
-					EmailID:    Id(emailID),
-					Envelope:   env,
-					SendAt:     sendAt,
+					IdentityID:     Id(identityID),
+					EmailID:        Id(emailID),
+					Envelope:       env,
+					SendAt:         sendAt,
+					DeliveryStatus: deliveryStatus,
 				})
 				if err != nil {
 					return "", err

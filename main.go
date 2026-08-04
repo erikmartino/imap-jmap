@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"imap-jmap/dav"
@@ -54,13 +55,26 @@ func main() {
 		defaultPrimaryDomain = "example.com"
 	}
 
+	defaultAllowedRecipients := os.Getenv("ALLOWED_RECIPIENTS")
+
 	port := flag.String("port", defaultPort, "HTTP server listening port")
 	httpsPort := flag.String("https-port", defaultHTTPSPort, "HTTPS TLS server listening port")
 	host := flag.String("host", defaultHost, "HTTP server listening host")
 	smtpPort := flag.String("smtp-port", defaultSMTPPort, "SMTP receiver listening port")
 	smtpHost := flag.String("smtp-host", defaultSMTPHost, "SMTP receiver listening host")
 	primaryDomain := flag.String("primary-domain", defaultPrimaryDomain, "Primary email domain for local account resolution")
+	allowedRecipientsStr := flag.String("allowed-recipients", defaultAllowedRecipients, "Comma-separated list of allowed external recipient email addresses")
 	flag.Parse()
+
+	var allowedSlice []string
+	if *allowedRecipientsStr != "" {
+		for _, part := range strings.Split(*allowedRecipientsStr, ",") {
+			part = strings.TrimSpace(part)
+			if part != "" {
+				allowedSlice = append(allowedSlice, part)
+			}
+		}
+	}
 
 	addr := fmt.Sprintf("%s:%s", *host, *port)
 	httpsAddr := fmt.Sprintf("%s:%s", *host, *httpsPort)
@@ -95,6 +109,7 @@ func main() {
 		jmap.WithFileNodeBackend(memFileNodeBackend),
 		jmap.WithAuthBackend(authBackend),
 		jmap.WithAccountResolver(accountResolver),
+		jmap.WithAllowedRecipients(allowedSlice),
 	)
 	memBackend.SetBroadcaster(server.Broadcaster)
 	memCalBackend.SetBroadcaster(server.Broadcaster)

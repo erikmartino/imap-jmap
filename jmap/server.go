@@ -20,6 +20,7 @@ type Server struct {
 	AuthBackend       AuthBackend
 	PermissionGuard   PermissionGuard
 	AccountResolver   AccountResolver
+	AllowedRecipients map[string]bool
 	MethodRegistry    *MethodRegistry
 	Broadcaster       *Broadcaster
 }
@@ -104,6 +105,20 @@ func WithAccountResolver(r AccountResolver) Option {
 	}
 }
 
+// WithAllowedRecipients sets the allow-list of external email addresses permitted for outbound mail delivery.
+func WithAllowedRecipients(allowed []string) Option {
+	return func(s *Server) {
+		m := make(map[string]bool, len(allowed))
+		for _, a := range allowed {
+			a = strings.TrimSpace(a)
+			if a != "" {
+				m[strings.ToLower(a)] = true
+			}
+		}
+		s.AllowedRecipients = m
+	}
+}
+
 // NewServer initializes a new Server instance.
 func NewServer(session *Session, opts ...Option) *Server {
 	if session == nil {
@@ -126,7 +141,7 @@ func NewServer(session *Session, opts ...Option) *Server {
 		s.AccountResolver = PrimaryDomainResolver{PrimaryDomain: "example.com"}
 	}
 
-	RegisterMailHandlers(s.MethodRegistry, s.MailBackend, s.BlobBackend)
+	RegisterMailHandlers(s.MethodRegistry, s.MailBackend, s.BlobBackend, s.AccountResolver, s.AllowedRecipients)
 	refs, _ := s.MailBackend.(BlobReferenceBackend)
 	RegisterBlobHandlers(s.MethodRegistry, s.BlobBackend, refs)
 	RegisterQuotaHandlers(s.MethodRegistry, s.MailBackend)
