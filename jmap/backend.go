@@ -123,6 +123,8 @@ type CalendarsBackend interface {
 	CreateCalendar(ctx context.Context, cal *Calendar) (*Calendar, error)
 	UpdateCalendar(ctx context.Context, id Id, patch map[string]any) (*Calendar, error)
 	DeleteCalendar(ctx context.Context, id Id) (bool, error)
+	SetDefaultCalendar(ctx context.Context, id Id) error
+	CalendarHasEvents(ctx context.Context, id Id) (bool, error)
 
 	// CalendarEvents (JSCalendar RFC 8984)
 	CalendarEventState(ctx context.Context) string

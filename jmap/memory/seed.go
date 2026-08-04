@@ -116,12 +116,7 @@ func SeedSampleData(mb *MemoryBackend, cb *MemoryCalendarsBackend) {
 			SortOrder:   10,
 			IsDefault:   false,
 			IsVisible:   true,
-			MyRights: jmap.CalendarRights{
-				MayReadItems:  true,
-				MayWriteItems: true,
-				MayAdmin:      true,
-				MayDelete:     true,
-			},
+			MyRights: jmap.FullCalendarRights(),
 		})
 
 		calID := jmap.Id("cal-default")

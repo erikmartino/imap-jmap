@@ -6,22 +6,58 @@ import (
 
 // CalendarRights defines access rights for a Calendar per JMAP for Calendars.
 type CalendarRights struct {
-	MayReadItems  bool `json:"mayReadItems"`
-	MayWriteItems bool `json:"mayWriteItems"`
-	MayAdmin      bool `json:"mayAdmin"`
-	MayDelete     bool `json:"mayDelete"`
+	MayReadFreeBusy  bool `json:"mayReadFreeBusy"`
+	MayReadItems     bool `json:"mayReadItems"`
+	MayWriteAll      bool `json:"mayWriteAll"`
+	MayWriteOwn      bool `json:"mayWriteOwn"`
+	MayUpdatePrivate bool `json:"mayUpdatePrivate"`
+	MayRSVP          bool `json:"mayRSVP"`
+	MayDelete        bool `json:"mayDelete"`
+	MayShare         bool `json:"mayShare"`
+}
+
+func FullCalendarRights() CalendarRights {
+	return CalendarRights{
+		MayReadFreeBusy:  true,
+		MayReadItems:     true,
+		MayWriteAll:      true,
+		MayWriteOwn:      true,
+		MayUpdatePrivate: true,
+		MayRSVP:          true,
+		MayDelete:        true,
+		MayShare:         true,
+	}
+}
+
+// EnforceInvariants ensures that mayWriteAll implies mayWriteOwn, mayUpdatePrivate, and mayRSVP.
+func (r *CalendarRights) EnforceInvariants() {
+	if r.MayWriteAll {
+		r.MayWriteOwn = true
+		r.MayUpdatePrivate = true
+		r.MayRSVP = true
+	}
+}
+
+type CalendarShare struct {
+	Rights CalendarRights `json:"rights"`
 }
 
 // Calendar represents a Calendar object per JMAP for Calendars.
 type Calendar struct {
-	ID          Id             `json:"id"`
-	Name        string         `json:"name"`
-	Description *string        `json:"description,omitempty"`
-	Color       *string        `json:"color,omitempty"`
-	SortOrder   uint64         `json:"sortOrder"`
-	IsDefault   bool           `json:"isDefault"`
-	IsVisible   bool           `json:"isVisible"`
-	MyRights    CalendarRights `json:"myRights"`
+	ID                       Id                          `json:"id"`
+	Name                     string                      `json:"name"`
+	Description              *string                     `json:"description,omitempty"`
+	Color                    *string                     `json:"color,omitempty"`
+	SortOrder                uint64                      `json:"sortOrder"`
+	IsDefault                bool                        `json:"isDefault"`
+	IsVisible                bool                        `json:"isVisible"`
+	IsSubscribed             bool                        `json:"isSubscribed"`
+	IncludeInAvailability    string                      `json:"includeInAvailability,omitempty"`
+	DefaultAlertsWithTime    map[string]*JSCalendarAlert `json:"defaultAlertsWithTime,omitempty"`
+	DefaultAlertsWithoutTime map[string]*JSCalendarAlert `json:"defaultAlertsWithoutTime,omitempty"`
+	TimeZone                 string                      `json:"timeZone,omitempty"`
+	ShareWith                map[string]*CalendarShare   `json:"shareWith,omitempty"`
+	MyRights                 CalendarRights              `json:"myRights"`
 }
 
 // NDay represents a day of the week with optional nth-occurrence per RFC 8984 Section 4.3.3.

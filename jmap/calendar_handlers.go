@@ -106,8 +106,19 @@ func handleCalendarSet(backend CalendarsBackend) MethodHandler {
 		notDestroyed := make(map[string]any)
 		creationRefs := newSetCreationRefs(ctx)
 
+		onDestroyRemoveEvents, _ := args["onDestroyRemoveEvents"].(bool)
+
 		if createRaw, ok := args["create"].(map[string]any); ok {
-			for creationID, calMap := range createRaw {
+			for creationID, calMapRaw := range createRaw {
+				calMap, _ := calMapRaw.(map[string]any)
+				if _, hasIsDefault := calMap["isDefault"]; hasIsDefault {
+					notCreated[creationID] = SetError{
+						Type:        "invalidProperties",
+						Description: "isDefault is server-set and cannot be set directly",
+						Properties:  []string{"isDefault"},
+					}
+					continue
+				}
 				calBytes, _ := json.Marshal(calMap)
 				var cal Calendar
 				_ = json.Unmarshal(calBytes, &cal)
@@ -125,6 +136,15 @@ func handleCalendarSet(backend CalendarsBackend) MethodHandler {
 		if updateRaw, ok := args["update"].(map[string]any); ok {
 			for idStr, patchRaw := range updateRaw {
 				patch, _ := patchRaw.(map[string]any)
+				if _, hasIsDefault := patch["isDefault"]; hasIsDefault {
+					resolvedID := resolveCreationID(idStr, creationRefs)
+					notUpdated[string(resolvedID)] = SetError{
+						Type:        "invalidProperties",
+						Description: "isDefault is server-set and cannot be set directly",
+						Properties:  []string{"isDefault"},
+					}
+					continue
+				}
 				resolvedID := resolveCreationID(idStr, creationRefs)
 				updatedCal, err := backend.UpdateCalendar(ctx, Id(resolvedID), resolvePatchCreationRefs(patch, creationRefs))
 				if err != nil {
@@ -136,10 +156,25 @@ func handleCalendarSet(backend CalendarsBackend) MethodHandler {
 			}
 		}
 
+		if setDefaultRaw, ok := args["onSuccessSetIsDefault"].(string); ok && setDefaultRaw != "" {
+			targetID := resolveCreationID(setDefaultRaw, creationRefs)
+			_ = backend.SetDefaultCalendar(ctx, Id(targetID))
+		}
+
 		if destroyRaw, ok := args["destroy"].([]any); ok {
 			for _, item := range destroyRaw {
 				if idStr, ok := item.(string); ok {
 					resolvedID := resolveCreationID(idStr, creationRefs)
+					if !onDestroyRemoveEvents {
+						hasEvs, _ := backend.CalendarHasEvents(ctx, Id(resolvedID))
+						if hasEvs {
+							notDestroyed[string(resolvedID)] = SetError{
+								Type:        "calendarHasEvents",
+								Description: "calendar contains events; use onDestroyRemoveEvents to delete",
+							}
+							continue
+						}
+					}
 					okDel, err := backend.DeleteCalendar(ctx, Id(resolvedID))
 					if err != nil || !okDel {
 						notDestroyed[string(resolvedID)] = SetError{Type: "notFound", Description: "calendar cannot be deleted"}

@@ -91,15 +91,15 @@ the resolver for local delivery (inbound routing + outbound loopback). "The doma
 - [x] **`canCalculateChanges` correctness** (`calendar_handlers.go:449`): stop hardcoding `true` unless a stable order backs it; make `CalendarEvent/queryChanges` sort/position-aware so `added` carries correct indices (`calendar_handlers.go:457`). Test.
 
 ### Calendar object, rights & sharing
-- [ ] **Missing Calendar properties** (`calendar_types.go:12`): `isSubscribed`, `includeInAvailability`, `defaultAlertsWithTime`, `defaultAlertsWithoutTime`, `timeZone`, `shareWith`. Struct + patch + tests.
-- [ ] **`isDefault` is server-set**: reject direct client set on create/update (`calendar_store.go:187,226`); change only via `onSuccessSetIsDefault` (below). Test rejection.
-- [ ] **`CalendarRights` spec fields** (`calendar_types.go:3`): replace non-spec `mayWriteItems`/`mayAdmin` with `mayReadFreeBusy`, `mayReadItems`, `mayWriteAll`, `mayWriteOwn`, `mayUpdatePrivate`, `mayRSVP`, `mayDelete`, `mayShare`; enforce the `mayWriteAll ⇒ mayWriteOwn/mayUpdatePrivate/mayRSVP` invariant (`calendar_store.go:181`). Tests on emitted `myRights` names + invariant.
+- [x] **Missing Calendar properties** (`calendar_types.go:12`): `isSubscribed`, `includeInAvailability`, `defaultAlertsWithTime`, `defaultAlertsWithoutTime`, `timeZone`, `shareWith`. Struct + patch + tests.
+- [x] **`isDefault` is server-set**: reject direct client set on create/update (`calendar_store.go:187,226`); change only via `onSuccessSetIsDefault` (below). Test rejection.
+- [x] **`CalendarRights` spec fields** (`calendar_types.go:3`): replace non-spec `mayWriteItems`/`mayAdmin` with `mayReadFreeBusy`, `mayReadItems`, `mayWriteAll`, `mayWriteOwn`, `mayUpdatePrivate`, `mayRSVP`, `mayDelete`, `mayShare`; enforce the `mayWriteAll ⇒ mayWriteOwn/mayUpdatePrivate/mayRSVP` invariant (`calendar_store.go:181`). Tests on emitted `myRights` names + invariant.
 - [ ] **`Calendar/get` MUST hide calendars the principal may only read free-busy on** (`calendar_handlers.go:28`). Test.
 - [ ] **`privacy` (`private`/`secret`) enforcement** on other principals' event reads (`calendar_handlers.go:167`). Test.
 
 ### Calendar/set lifecycle args
-- [ ] **`onDestroyRemoveEvents` arg + `calendarHasEvents` SetError** (`calendar_handlers.go:92`, `calendar_store.go:239` `DeleteCalendar`): non-empty calendar destroy MUST fail unless flag set. Test both paths.
-- [ ] **`onSuccessSetIsDefault` arg** on `Calendar/set` (`calendar_handlers.go:92`). Test.
+- [x] **`onDestroyRemoveEvents` arg + `calendarHasEvents` SetError** (`calendar_handlers.go:92`, `calendar_store.go:239` `DeleteCalendar`): non-empty calendar destroy MUST fail unless flag set. Test both paths.
+- [x] **`onSuccessSetIsDefault` arg** on `Calendar/set` (`calendar_handlers.go:92`). Test.
 
 ### Scheduling (iTIP dispatch)
 - [ ] **Honor `sendSchedulingMessages`** (`calendar_handlers.go:266-386` `handleCalendarEventSet`): currently auto-dispatches iMIP unconditionally; default is `false`. Gate dispatch on the flag. Test both.

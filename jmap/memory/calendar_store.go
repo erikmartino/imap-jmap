@@ -65,12 +65,7 @@ func newMemoryUserCalendarStore() *userCalendarStore {
 		SortOrder: 0,
 		IsDefault: true,
 		IsVisible: true,
-		MyRights: jmap.CalendarRights{
-			MayReadItems:  true,
-			MayWriteItems: true,
-			MayAdmin:      true,
-			MayDelete:     false,
-		},
+		MyRights: jmap.FullCalendarRights(),
 	}
 	us.calendars[defaultCal.ID] = defaultCal
 
@@ -179,12 +174,11 @@ func (b *MemoryCalendarsBackend) CreateCalendar(ctx context.Context, cal *jmap.C
 		b.nextID++
 		cal.ID = jmap.Id(fmt.Sprintf("cal-%d", b.nextID))
 	}
-	cal.MyRights = jmap.CalendarRights{
-		MayReadItems:  true,
-		MayWriteItems: true,
-		MayAdmin:      true,
-		MayDelete:     true,
+	if cal.MyRights.MayReadFreeBusy == false && cal.MyRights.MayReadItems == false && cal.MyRights.MayWriteAll == false {
+		cal.MyRights = jmap.FullCalendarRights()
 	}
+	cal.MyRights.EnforceInvariants()
+
 	if cal.IsDefault {
 		for _, other := range us.calendars {
 			other.IsDefault = false
@@ -224,6 +218,15 @@ func (b *MemoryCalendarsBackend) UpdateCalendar(ctx context.Context, id jmap.Id,
 	if isVisible, ok := patch["isVisible"].(bool); ok {
 		cal.IsVisible = isVisible
 	}
+	if isSubscribed, ok := patch["isSubscribed"].(bool); ok {
+		cal.IsSubscribed = isSubscribed
+	}
+	if inc, ok := patch["includeInAvailability"].(string); ok {
+		cal.IncludeInAvailability = inc
+	}
+	if tz, ok := patch["timeZone"].(string); ok {
+		cal.TimeZone = tz
+	}
 	if isDefault, ok := patch["isDefault"].(bool); ok && isDefault {
 		for _, other := range us.calendars {
 			if other.ID != cal.ID {
@@ -232,6 +235,7 @@ func (b *MemoryCalendarsBackend) UpdateCalendar(ctx context.Context, id jmap.Id,
 		}
 		cal.IsDefault = true
 	}
+	cal.MyRights.EnforceInvariants()
 
 	b.recordChange(ctx, us.calState, id, "update", "Calendar")
 	return cal, nil
@@ -253,6 +257,40 @@ func (b *MemoryCalendarsBackend) DeleteCalendar(ctx context.Context, id jmap.Id)
 	delete(us.calendars, id)
 	b.recordChange(ctx, us.calState, id, "destroy", "Calendar")
 	return true, nil
+}
+
+func (b *MemoryCalendarsBackend) SetDefaultCalendar(ctx context.Context, id jmap.Id) error {
+	b.mu.Lock()
+	us := b.getStoreLocked(ctx)
+	defer b.mu.Unlock()
+
+	target, ok := us.calendars[id]
+	if !ok {
+		return fmt.Errorf("calendar not found: %s", id)
+	}
+
+	for _, cal := range us.calendars {
+		if cal.ID == id {
+			cal.IsDefault = true
+		} else {
+			cal.IsDefault = false
+		}
+	}
+	b.recordChange(ctx, us.calState, target.ID, "update", "Calendar")
+	return nil
+}
+
+func (b *MemoryCalendarsBackend) CalendarHasEvents(ctx context.Context, id jmap.Id) (bool, error) {
+	b.mu.RLock()
+	us := b.getStoreLocked(ctx)
+	defer b.mu.RUnlock()
+
+	for _, ev := range us.events {
+		if ev.CalendarIDs != nil && ev.CalendarIDs[id] {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (b *MemoryCalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmap.Id) ([]*jmap.CalendarEvent, []jmap.Id, error) {
