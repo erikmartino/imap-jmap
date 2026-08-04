@@ -79,7 +79,7 @@ the resolver for local delivery (inbound routing + outbound loopback). "The doma
 - [x] **Task object** (`@type:"Task"`: `due`, `start`, `estimatedDuration`, `percentComplete`, `progress`, `progressUpdated`) — model + set/get/query + tests (§5.2).
 - [x] **Group object** (`@type:"Group"`: `entries`, `source`) — model + set/get + tests (§5.3).
 - [x] **Create/set validation** (`calendar_handlers.go:255`, `setCalendarEventField`): reject unknown/invalid properties with `invalidProperties` instead of silently dropping; enum-validate `status`/`privacy`/`freeBusyStatus`/participant roles (§3 + RFC 8620 §5.3). Tests per rejected case.
-- [ ] **`uid` auto-generate + require on create** (`calendar_store.go:294` `CreateCalendarEvent`, §4.1.2). Test that a created event always has a stable uid.
+- [x] **`uid` auto-generate + require on create** (`calendar_store.go:294` `CreateCalendarEvent`, §4.1.2). Test that a created event always has a stable uid.
 
 ## JMAP for Calendars (I-D: methods / query / scheduling) — tests: `rfc8984_*_test.go` (repo convention)
 

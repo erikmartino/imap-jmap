@@ -300,6 +300,9 @@ func (b *MemoryCalendarsBackend) CreateCalendarEvent(ctx context.Context, ev *jm
 		b.nextID++
 		ev.ID = jmap.Id(fmt.Sprintf("evt-%d", b.nextID))
 	}
+	if ev.UID == "" {
+		ev.UID = fmt.Sprintf("uid-%s", string(ev.ID))
+	}
 	if ev.Type == "" {
 		ev.Type = "Event"
 	}
@@ -666,6 +669,13 @@ func setCalendarEventField(ev *jmap.CalendarEvent, path string, val any) {
 		}
 		if s, ok := val.(string); ok {
 			ev.Source = s
+		}
+	case "uid":
+		if val == nil {
+			return
+		}
+		if s, ok := val.(string); ok && s != "" {
+			ev.UID = s
 		}
 	}
 }
