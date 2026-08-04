@@ -13,8 +13,9 @@ import (
 	"imap-jmap/jmap"
 )
 
-// TestRFC9404_FileNodeCapabilityAndHandlers tests advertising urn:ietf:params:jmap:filenode and FileNode/* handlers per RFC 9404 JMAP Blob & File Management.
-func TestRFC9404_FileNodeCapabilityAndHandlers(t *testing.T) {
+// TestFileNode_CapabilityAndHandlers tests advertising urn:ietf:params:jmap:filenode and FileNode/* handlers.
+// FileNode is a custom (non-RFC) file-storage extension; see the rfcless_ test prefix convention.
+func TestFileNode_CapabilityAndHandlers(t *testing.T) {
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
