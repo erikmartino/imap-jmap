@@ -88,6 +88,7 @@ func handleBlobUpload(backend BlobBackend) MethodHandler {
 					}
 				} else {
 					created[clientKey] = blob
+					recordCreationRefs(ctx, nil, clientKey, Id(blob.ID))
 				}
 			}
 		}

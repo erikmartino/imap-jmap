@@ -41,6 +41,30 @@ func TestRFC8984_Capability(t *testing.T) {
 	if !calendarsCap.MayCreateCalendar {
 		t.Errorf("Expected mayCreateCalendar true, got false")
 	}
+
+	// Capability limits (draft-ietf-jmap-calendars Section 1.5): valid date-time ranges
+	// and the maximum expanded recurrence duration the server supports.
+	if calendarsCap.MinDateTime != "1900-01-01T00:00:00" {
+		t.Errorf("Expected minDateTime 1900-01-01T00:00:00, got %q", calendarsCap.MinDateTime)
+	}
+	if calendarsCap.MaxDateTime != "9999-12-31T23:59:59" {
+		t.Errorf("Expected maxDateTime 9999-12-31T23:59:59, got %q", calendarsCap.MaxDateTime)
+	}
+	if calendarsCap.MaxExpandedQueryDuration != "P730D" {
+		t.Errorf("Expected maxExpandedQueryDuration P730D, got %q", calendarsCap.MaxExpandedQueryDuration)
+	}
+
+	// The optional CalendarEvent/parse capability (Section 5.12) must be advertised both
+	// as a session capability and as the primary account for the calendars URI.
+	if _, ok := session.Capabilities[jmap.CalendarsParseCapabilityURI]; !ok {
+		t.Errorf("Capability %q missing in Session capabilities", jmap.CalendarsParseCapabilityURI)
+	}
+	if _, ok := session.PrimaryAccounts[jmap.CalendarsCapabilityURI]; !ok {
+		t.Errorf("Expected primary account for %q", jmap.CalendarsCapabilityURI)
+	}
+	if primary, ok := session.PrimaryAccounts[jmap.CalendarsParseCapabilityURI]; !ok || primary == "" {
+		t.Errorf("Expected primary account for %q, got %q", jmap.CalendarsParseCapabilityURI, primary)
+	}
 }
 
 // TestRFC8984_Calendar_GetAndSet tests Calendar/get and Calendar/set.

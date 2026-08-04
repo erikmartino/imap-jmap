@@ -109,10 +109,10 @@ the resolver for local delivery (inbound routing + outbound loopback). "The doma
 - [x] **PatchObject nested paths** (e.g. `participants/x/participationStatus`, `locations/x/name`) in `setCalendarEventField` (`calendar_store.go:320`) — currently only whole-key switches. Test nested patch.
 
 ### Method families & capability
-- [ ] **`CalendarEvent/parse`** (blobIds → parsed/notParsable/notFound) replacing the non-spec `CalendarEvent/parseInvitation` (`calendar_handlers.go:24,593`); advertise `urn:ietf:params:jmap:calendars:parse` (`session.go:119`). Tests.
-- [ ] **`CalendarsCapability` missing fields** (`session.go:119-123`): `minDateTime`, `maxDateTime`, `maxExpandedQueryDuration`, `maxParticipantsPerEvent`. Advertise + test.
-- [ ] **ParticipantIdentity** object + `ParticipantIdentity/get`/`changes`/`set` (with `onSuccessSetIsDefault`) — not implemented. Impl + tests. *(I-D; larger.)*
-- [ ] **CalendarEventNotification** object + `/get`/`changes`/`set`/`query`/`queryChanges`, and generation of notifications on scheduling changes — not implemented. Impl + tests. *(I-D; larger.)*
+- [x] **`CalendarEvent/parse`** (blobIds → parsed/notParsable/notFound) replacing the non-spec `CalendarEvent/parseInvitation` (`calendar_handlers.go:739` `handleCalendarEventParse`); advertise `urn:ietf:params:jmap:calendars:parse` (`session.go:40,229`). iCalendar→CalendarEvent conversion in `ical.go`. Tests: `rfc8984_calendar_event_parse_test.go`.
+- [x] **`CalendarsCapability` missing fields** (`session.go:119-123`): `minDateTime` (`1900-01-01T00:00:00`), `maxDateTime` (`9999-12-31T23:59:59`), `maxExpandedQueryDuration` (`P730D`), `maxParticipantsPerEvent` (nil). Advertise + test (`rfc8984_test.go`).
+- [x] **ParticipantIdentity** object + `ParticipantIdentity/get`/`changes`/`set` (with `onSuccessSetIsDefault`) — impl in `calendar_handlers.go:938-1117` + memory store (seeded `identity-default`); `isDefault`/`onSuccessSetIsDefault` server-side per §3.3; direct `isDefault` rejected; sendTo keys ASCII-alnum enforced; default demotion records change. Tests: `rfc8984_participant_identity_test.go`. *(I-D; larger.)*
+- [x] **CalendarEventNotification** object + `/get`/`changes`/`set`/`query`/`queryChanges` (`calendar_handlers.go:1121-1336`), generation of `created`/`updated`/`destroyed` notifications on `sendSchedulingMessages` changes in `handleCalendarEventSet`, `changedBy` from owner participant, `event` = pre-change + `eventPatch` on update, `created`-only sort default newest-first (seq tiebreaker in memory store), client create/update → `forbidden`, destroy-only set. Tests: `rfc8984_calendar_event_notification_test.go`. *(I-D; larger.)*
 - [ ] **Principals + availability** (`urn:ietf:params:jmap:principals`, `:availability`; `maxAvailabilityDuration`; principal `calendarAddress`/`mayGetAvailability`/`mayShareWith`; free-busy querying) — not implemented. Impl + tests. *(I-D; larger.)*
 
 ---

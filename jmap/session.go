@@ -35,6 +35,10 @@ const ContactsCapabilityURI = "urn:ietf:params:jmap:contacts"
 // CalendarsCapabilityURI is the standard JMAP Calendars capability URI.
 const CalendarsCapabilityURI = "urn:ietf:params:jmap:calendars"
 
+// CalendarsParseCapabilityURI is the JMAP capability URI advertising support for the
+// CalendarEvent/parse method per draft-ietf-jmap-calendars Section 1.5.3.
+const CalendarsParseCapabilityURI = "urn:ietf:params:jmap:calendars:parse"
+
 // SieveCapabilityURI is the standard JMAP Sieve capability URI defined in RFC 9661 Section 2.
 const SieveCapabilityURI = "urn:ietf:params:jmap:sieve"
 
@@ -116,10 +120,15 @@ type ContactsCapability struct {
 	MayCreateAddressBook   bool    `json:"mayCreateAddressBook"`
 }
 
-// CalendarsCapability defines the capability object for "urn:ietf:params:jmap:calendars".
+// CalendarsCapability defines the capability object for "urn:ietf:params:jmap:calendars"
+// per draft-ietf-jmap-calendars Section 1.5.1.
 type CalendarsCapability struct {
-	MaxCalendarsPerEvent *uint64 `json:"maxCalendarsPerEvent"`
-	MayCreateCalendar    bool    `json:"mayCreateCalendar"`
+	MaxCalendarsPerEvent     *uint64 `json:"maxCalendarsPerEvent"`
+	MayCreateCalendar        bool    `json:"mayCreateCalendar"`
+	MinDateTime              string  `json:"minDateTime"`
+	MaxDateTime              string  `json:"maxDateTime"`
+	MaxExpandedQueryDuration string  `json:"maxExpandedQueryDuration"`
+	MaxParticipantsPerEvent  *uint64 `json:"maxParticipantsPerEvent"`
 }
 
 // SieveCapability defines the capability object for "urn:ietf:params:jmap:sieve" per RFC 9661 Section 2.
@@ -209,9 +218,15 @@ func DefaultSession(baseURL string) *Session {
 			},
 			// JMAP for Calendars capability.
 			CalendarsCapabilityURI: CalendarsCapability{
-				MaxCalendarsPerEvent: nil,
-				MayCreateCalendar:    true,
+				MaxCalendarsPerEvent:     nil,
+				MayCreateCalendar:        true,
+				MinDateTime:              "1900-01-01T00:00:00",
+				MaxDateTime:              "9999-12-31T23:59:59",
+				MaxExpandedQueryDuration: "P730D",
+				MaxParticipantsPerEvent:  nil,
 			},
+			// Optional CalendarEvent/parse support (draft-ietf-jmap-calendars Section 1.5.3).
+			CalendarsParseCapabilityURI: struct{}{},
 			// RFC 9661: JMAP for Sieve Scripts capability.
 			SieveCapabilityURI: SieveCapability{
 				MaxScriptSize:   1048576, // 1MB max script size
@@ -230,34 +245,36 @@ func DefaultSession(baseURL string) *Session {
 				IsPrimary:  true,
 				IsReadOnly: false,
 				AccountCapabilities: map[string]any{
-					CoreCapabilityURI:         struct{}{},
-					MailCapabilityURI:         struct{}{},
-					SmimeCapabilityURI:        struct{}{},
-					BlobCapabilityURI:         struct{}{},
-					QuotaCapabilityURI:        struct{}{},
-					MdnCapabilityURI:          struct{}{},
-					WebPushVapidCapabilityURI: struct{}{},
-					ContactsCapabilityURI:     struct{}{},
-					CalendarsCapabilityURI:    struct{}{},
-					SieveCapabilityURI:        struct{}{},
-					ImapAccessCapabilityURI:   struct{}{},
-					FileNodeCapabilityURI:     struct{}{},
+					CoreCapabilityURI:           struct{}{},
+					MailCapabilityURI:           struct{}{},
+					SmimeCapabilityURI:          struct{}{},
+					BlobCapabilityURI:           struct{}{},
+					QuotaCapabilityURI:          struct{}{},
+					MdnCapabilityURI:            struct{}{},
+					WebPushVapidCapabilityURI:   struct{}{},
+					ContactsCapabilityURI:       struct{}{},
+					CalendarsCapabilityURI:      struct{}{},
+					CalendarsParseCapabilityURI: struct{}{},
+					SieveCapabilityURI:          struct{}{},
+					ImapAccessCapabilityURI:     struct{}{},
+					FileNodeCapabilityURI:       struct{}{},
 				},
 			},
 		},
 		PrimaryAccounts: map[string]string{
-			CoreCapabilityURI:         "primary",
-			MailCapabilityURI:         "primary",
-			SmimeCapabilityURI:        "primary",
-			BlobCapabilityURI:         "primary",
-			QuotaCapabilityURI:        "primary",
-			MdnCapabilityURI:          "primary",
-			WebPushVapidCapabilityURI: "primary",
-			ContactsCapabilityURI:     "primary",
-			CalendarsCapabilityURI:    "primary",
-			SieveCapabilityURI:        "primary",
-			ImapAccessCapabilityURI:   "primary",
-			FileNodeCapabilityURI:     "primary",
+			CoreCapabilityURI:           "primary",
+			MailCapabilityURI:           "primary",
+			SmimeCapabilityURI:          "primary",
+			BlobCapabilityURI:           "primary",
+			QuotaCapabilityURI:          "primary",
+			MdnCapabilityURI:            "primary",
+			WebPushVapidCapabilityURI:   "primary",
+			ContactsCapabilityURI:       "primary",
+			CalendarsCapabilityURI:      "primary",
+			CalendarsParseCapabilityURI: "primary",
+			SieveCapabilityURI:          "primary",
+			ImapAccessCapabilityURI:     "primary",
+			FileNodeCapabilityURI:       "primary",
 		},
 		Username:       "user@example.com",
 		APIURL:         baseURL + "/jmap",

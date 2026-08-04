@@ -1,15 +1,10 @@
 package jmap_test
 
 import (
-	"bytes"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
 )
 
 // TestRFC5546_BuildAndParseReply tests RFC 5546 iTIP METHOD:REPLY building & parsing.
@@ -90,60 +85,6 @@ func TestRFC5546_BuildRequestAndCancel(t *testing.T) {
 	}
 	if !strings.Contains(cancelICS, "STATUS:CANCELLED") {
 		t.Errorf("Expected STATUS:CANCELLED in generated ICS")
-	}
-}
-
-// TestRFC5546_CalendarEvent_ParseInvitation tests CalendarEvent/parseInvitation handler per RFC 5546.
-func TestRFC5546_CalendarEvent_ParseInvitation(t *testing.T) {
-	calBackend := memory.NewMemoryCalendarsBackend()
-	srv := jmap.NewServer(nil, jmap.WithCalendarsBackend(calBackend))
-	ts := httptest.NewServer(srv.Handler())
-	defer ts.Close()
-
-	rawICS := `BEGIN:VCALENDAR
-VERSION:2.0
-METHOD:REQUEST
-BEGIN:VEVENT
-UID:evt-rfc5546-99
-SUMMARY:Design Review
-ORGANIZER:mailto:lead@example.com
-DTSTART:20260825T110000Z
-ATTENDEE;PARTSTAT=NEEDS-ACTION:mailto:dev@example.com
-END:VEVENT
-END:VCALENDAR`
-
-	parseReq := map[string]any{
-		"using": []string{jmap.CoreCapabilityURI, jmap.CalendarsCapabilityURI},
-		"methodCalls": []any{
-			[]any{
-				"CalendarEvent/parseInvitation",
-				map[string]any{
-					"accountId": "primary",
-					"content":   rawICS,
-				},
-				"c1",
-			},
-		},
-	}
-
-	bodyBytes, _ := json.Marshal(parseReq)
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
-	if err != nil {
-		t.Fatalf("JMAP POST parseInvitation failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	var parseResp jmap.Response
-	if err := json.NewDecoder(resp.Body).Decode(&parseResp); err != nil {
-		t.Fatalf("Failed to decode response: %v", err)
-	}
-
-	parseArgs := parseResp.MethodResponses[0].Args
-	if parseArgs["method"] != "REQUEST" {
-		t.Errorf("Expected method REQUEST, got %v", parseArgs["method"])
-	}
-	if parseArgs["uid"] != "evt-rfc5546-99" {
-		t.Errorf("Expected UID evt-rfc5546-99, got %v", parseArgs["uid"])
 	}
 }
 

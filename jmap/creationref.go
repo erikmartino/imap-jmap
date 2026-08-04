@@ -223,7 +223,9 @@ func newSetCreationRefs(ctx context.Context) map[string]Id {
 // recordCreationRefs adds a newly assigned id to both the per-call map and the
 // request-scoped map so later method calls in the request can reference it.
 func recordCreationRefs(ctx context.Context, refs map[string]Id, cid string, realID Id) {
-	refs[cid] = realID
+	if refs != nil {
+		refs[cid] = realID
+	}
 	if r := CreationRefsFrom(ctx); r != nil {
 		r.m[cid] = string(realID)
 	}

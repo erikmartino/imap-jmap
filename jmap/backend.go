@@ -135,6 +135,25 @@ type CalendarsBackend interface {
 	UpdateCalendarEvent(ctx context.Context, id Id, patch map[string]any) (*CalendarEvent, error)
 	DeleteCalendarEvent(ctx context.Context, id Id) (bool, error)
 	QueryCalendarEvents(ctx context.Context, filter map[string]any, sort []Comparator, position int, limit *uint64, expandRecurrences bool) (ids []Id, total int, err error)
+
+	// ParticipantIdentities (draft-ietf-jmap-calendars Section 3)
+	ParticipantIdentityState(ctx context.Context) string
+	ParticipantIdentityChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
+	GetParticipantIdentities(ctx context.Context, ids []Id) (list []*ParticipantIdentity, notFound []Id, err error)
+	GetAllParticipantIdentities(ctx context.Context) ([]*ParticipantIdentity, error)
+	CreateParticipantIdentity(ctx context.Context, identity *ParticipantIdentity) (*ParticipantIdentity, error)
+	UpdateParticipantIdentity(ctx context.Context, id Id, patch map[string]any) (*ParticipantIdentity, error)
+	DeleteParticipantIdentity(ctx context.Context, id Id) (bool, error)
+	SetDefaultParticipantIdentity(ctx context.Context, id Id) error
+
+	// CalendarEventNotifications (draft-ietf-jmap-calendars Section 7)
+	CalendarEventNotificationState(ctx context.Context) string
+	CalendarEventNotificationChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
+	GetCalendarEventNotifications(ctx context.Context, ids []Id) (list []*CalendarEventNotification, notFound []Id, err error)
+	GetAllCalendarEventNotifications(ctx context.Context) ([]*CalendarEventNotification, error)
+	CreateCalendarEventNotification(ctx context.Context, notification *CalendarEventNotification) (*CalendarEventNotification, error)
+	DeleteCalendarEventNotification(ctx context.Context, id Id) (bool, error)
+	QueryCalendarEventNotifications(ctx context.Context, filter map[string]any, sort []Comparator, position int, limit *uint64) (ids []Id, total int, err error)
 }
 
 // SieveBackend defines the storage interface for JMAP for Sieve Scripts (RFC 9661) resources.

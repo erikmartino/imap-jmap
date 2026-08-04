@@ -181,9 +181,9 @@ type JSCalendarRecurrenceRule struct {
 
 // JSCalendarAlert defines an alert/alarm object per RFC 8984 Section 4.5.2.
 type JSCalendarAlert struct {
-	Type         string                         `json:"@type,omitempty"` // "Alert"
-	Trigger      any                            `json:"trigger"`         // OffsetTrigger, AbsoluteTrigger, or string (ISO 8601 duration)
-	Action       string                         `json:"action,omitempty"`// "display", "email"
+	Type         string                         `json:"@type,omitempty"`  // "Alert"
+	Trigger      any                            `json:"trigger"`          // OffsetTrigger, AbsoluteTrigger, or string (ISO 8601 duration)
+	Action       string                         `json:"action,omitempty"` // "display", "email"
 	Description  string                         `json:"description,omitempty"`
 	Acknowledged string                         `json:"acknowledged,omitempty"`
 	RelatedTo    map[string]*JSCalendarRelation `json:"relatedTo,omitempty"`
@@ -250,35 +250,68 @@ type JSCalendarTimeZone struct {
 	TZID string `json:"tzId,omitempty"`
 }
 
+// ParticipantIdentity represents a URI that identifies the user within an account in an
+// event's participants per draft-ietf-jmap-calendars Section 3.
+type ParticipantIdentity struct {
+	ID              Id                `json:"id"`
+	Name            string            `json:"name"`
+	CalendarAddress string            `json:"calendarAddress"`
+	SendTo          map[string]string `json:"sendTo"`
+	IsDefault       bool              `json:"isDefault"`
+}
+
+// CalendarEventNotificationPerson identifies who made a change to a calendar event per
+// draft-ietf-jmap-calendars Section 7.2.
+type CalendarEventNotificationPerson struct {
+	Name            string  `json:"name"`
+	Email           *string `json:"email"`
+	PrincipalID     *string `json:"principalId"`
+	CalendarAddress *string `json:"calendarAddress"`
+}
+
+// CalendarEventNotification records a change made by an external entity to an event in a
+// calendar the user is subscribed to per draft-ietf-jmap-calendars Section 7.2.
+type CalendarEventNotification struct {
+	ID              Id                              `json:"id"`
+	Created         string                          `json:"created"`
+	ChangedBy       CalendarEventNotificationPerson `json:"changedBy"`
+	Comment         *string                         `json:"comment"`
+	Type            string                          `json:"type"` // "created", "updated", "destroyed"
+	CalendarEventID Id                              `json:"calendarEventId"`
+	IsDraft         bool                            `json:"isDraft,omitempty"`
+	Event           *CalendarEvent                  `json:"event"`
+	EventPatch      map[string]any                  `json:"eventPatch,omitempty"`
+}
+
 // CalendarEvent represents a JSCalendar Event object per RFC 8984 & JMAP for Calendars.
 type CalendarEvent struct {
-	ID                     Id                                    `json:"id"`
-	CalendarIDs            map[Id]bool                           `json:"calendarIds"`
-	Type                   string                                `json:"@type"` // Always "Event"
-	Title                  string                                `json:"title"`
-	Description            string                                `json:"description,omitempty"`
-	DescriptionContentType string                                `json:"descriptionContentType,omitempty"`
-	ShowWithoutTime        bool                                  `json:"showWithoutTime"`
-	Start                  string                                `json:"start"`
-	Duration               string                                `json:"duration,omitempty"`
-	TimeZone               string                                `json:"timeZone,omitempty"`
-	Locations              map[string]*JSCalendarLocation        `json:"locations,omitempty"`
-	VirtualLocations       map[string]*JSCalendarVirtualLocation `json:"virtualLocations,omitempty"`
-	Links                  map[string]*JSCalendarLink            `json:"links,omitempty"`
-	Locale                 string                                `json:"locale,omitempty"`
-	Categories             map[string]bool                       `json:"categories,omitempty"`
-	Color                  string                                `json:"color,omitempty"`
-	Status                 string                                `json:"status,omitempty"`         // "confirmed", "tentative", "cancelled"
-	FreeBusyStatus         string                                `json:"freeBusyStatus,omitempty"` // "free", "busy", "tentative"
-	Privacy                string                                `json:"privacy,omitempty"`        // "public", "private", "secret"
-	Priority               uint32                                `json:"priority,omitempty"`
-	ReplyTo                map[string]string                     `json:"replyTo,omitempty"`
-	SentBy                 string                                `json:"sentBy,omitempty"`
-	RequestStatus          string                                `json:"requestStatus,omitempty"`
-	UseDefaultAlerts       bool                                  `json:"useDefaultAlerts"`
-	Localizations          map[string]map[string]any             `json:"localizations,omitempty"`
-	TimeZones              map[string]*JSCalendarTimeZone        `json:"timeZones,omitempty"`
-	Participants           map[string]*JSCalendarParticipant     `json:"participants,omitempty"`
+	ID                      Id                                    `json:"id"`
+	CalendarIDs             map[Id]bool                           `json:"calendarIds"`
+	Type                    string                                `json:"@type"` // Always "Event"
+	Title                   string                                `json:"title"`
+	Description             string                                `json:"description,omitempty"`
+	DescriptionContentType  string                                `json:"descriptionContentType,omitempty"`
+	ShowWithoutTime         bool                                  `json:"showWithoutTime"`
+	Start                   string                                `json:"start"`
+	Duration                string                                `json:"duration,omitempty"`
+	TimeZone                string                                `json:"timeZone,omitempty"`
+	Locations               map[string]*JSCalendarLocation        `json:"locations,omitempty"`
+	VirtualLocations        map[string]*JSCalendarVirtualLocation `json:"virtualLocations,omitempty"`
+	Links                   map[string]*JSCalendarLink            `json:"links,omitempty"`
+	Locale                  string                                `json:"locale,omitempty"`
+	Categories              map[string]bool                       `json:"categories,omitempty"`
+	Color                   string                                `json:"color,omitempty"`
+	Status                  string                                `json:"status,omitempty"`         // "confirmed", "tentative", "cancelled"
+	FreeBusyStatus          string                                `json:"freeBusyStatus,omitempty"` // "free", "busy", "tentative"
+	Privacy                 string                                `json:"privacy,omitempty"`        // "public", "private", "secret"
+	Priority                uint32                                `json:"priority,omitempty"`
+	ReplyTo                 map[string]string                     `json:"replyTo,omitempty"`
+	SentBy                  string                                `json:"sentBy,omitempty"`
+	RequestStatus           string                                `json:"requestStatus,omitempty"`
+	UseDefaultAlerts        bool                                  `json:"useDefaultAlerts"`
+	Localizations           map[string]map[string]any             `json:"localizations,omitempty"`
+	TimeZones               map[string]*JSCalendarTimeZone        `json:"timeZones,omitempty"`
+	Participants            map[string]*JSCalendarParticipant     `json:"participants,omitempty"`
 	RecurrenceRules         []*JSCalendarRecurrenceRule           `json:"recurrenceRules,omitempty"`
 	RecurrenceID            string                                `json:"recurrenceId,omitempty"`
 	RecurrenceIDTimeZone    string                                `json:"recurrenceIdTimeZone,omitempty"`
@@ -286,19 +319,19 @@ type CalendarEvent struct {
 	RecurrenceOverrides     map[string]map[string]any             `json:"recurrenceOverrides,omitempty"`
 	Excluded                map[string]bool                       `json:"excluded,omitempty"`
 	Alerts                  map[string]*JSCalendarAlert           `json:"alerts,omitempty"`
-	RelatedTo              map[string]*JSCalendarRelation        `json:"relatedTo,omitempty"`
-	ProdID                 string                                `json:"prodId,omitempty"`
-	Sequence               uint32                                `json:"sequence,omitempty"`
-	Method                 string                                `json:"method,omitempty"`
-	Due                    string                                `json:"due,omitempty"`
-	EstimatedDuration      string                                `json:"estimatedDuration,omitempty"`
-	PercentComplete        uint32                                `json:"percentComplete,omitempty"`
-	Progress               string                                `json:"progress,omitempty"`
-	ProgressUpdated        string                                `json:"progressUpdated,omitempty"`
-	Entries                map[string]map[string]any             `json:"entries,omitempty"`
-	Source                 string                                `json:"source,omitempty"`
-	Created                string                                `json:"created,omitempty"`
-	Updated                string                                `json:"updated,omitempty"`
-	UID                    string                                `json:"uid,omitempty"`
-	Keywords               map[string]bool                       `json:"keywords,omitempty"`
+	RelatedTo               map[string]*JSCalendarRelation        `json:"relatedTo,omitempty"`
+	ProdID                  string                                `json:"prodId,omitempty"`
+	Sequence                uint32                                `json:"sequence,omitempty"`
+	Method                  string                                `json:"method,omitempty"`
+	Due                     string                                `json:"due,omitempty"`
+	EstimatedDuration       string                                `json:"estimatedDuration,omitempty"`
+	PercentComplete         uint32                                `json:"percentComplete,omitempty"`
+	Progress                string                                `json:"progress,omitempty"`
+	ProgressUpdated         string                                `json:"progressUpdated,omitempty"`
+	Entries                 map[string]map[string]any             `json:"entries,omitempty"`
+	Source                  string                                `json:"source,omitempty"`
+	Created                 string                                `json:"created,omitempty"`
+	Updated                 string                                `json:"updated,omitempty"`
+	UID                     string                                `json:"uid,omitempty"`
+	Keywords                map[string]bool                       `json:"keywords,omitempty"`
 }
