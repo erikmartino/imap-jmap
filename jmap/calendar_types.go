@@ -243,8 +243,13 @@ type CalendarEvent struct {
 	Localizations          map[string]map[string]any             `json:"localizations,omitempty"`
 	TimeZones              map[string]*JSCalendarTimeZone        `json:"timeZones,omitempty"`
 	Participants           map[string]*JSCalendarParticipant     `json:"participants,omitempty"`
-	RecurrenceRules        []*JSCalendarRecurrenceRule           `json:"recurrenceRules,omitempty"`
-	Alerts                 map[string]*JSCalendarAlert           `json:"alerts,omitempty"`
+	RecurrenceRules         []*JSCalendarRecurrenceRule           `json:"recurrenceRules,omitempty"`
+	RecurrenceID            string                                `json:"recurrenceId,omitempty"`
+	RecurrenceIDTimeZone    string                                `json:"recurrenceIdTimeZone,omitempty"`
+	ExcludedRecurrenceRules []*JSCalendarRecurrenceRule           `json:"excludedRecurrenceRules,omitempty"`
+	RecurrenceOverrides     map[string]map[string]any             `json:"recurrenceOverrides,omitempty"`
+	Excluded                map[string]bool                       `json:"excluded,omitempty"`
+	Alerts                  map[string]*JSCalendarAlert           `json:"alerts,omitempty"`
 	RelatedTo              map[string]*JSCalendarRelation        `json:"relatedTo,omitempty"`
 	ProdID                 string                                `json:"prodId,omitempty"`
 	Sequence               uint32                                `json:"sequence,omitempty"`

@@ -561,6 +561,49 @@ func setCalendarEventField(ev *jmap.CalendarEvent, path string, val any) {
 		if err := decodeJSONField(val, &m); err == nil {
 			ev.TimeZones = m
 		}
+	case "recurrenceId":
+		if val == nil {
+			ev.RecurrenceID = ""
+			return
+		}
+		if s, ok := val.(string); ok {
+			ev.RecurrenceID = s
+		}
+	case "recurrenceIdTimeZone":
+		if val == nil {
+			ev.RecurrenceIDTimeZone = ""
+			return
+		}
+		if s, ok := val.(string); ok {
+			ev.RecurrenceIDTimeZone = s
+		}
+	case "excludedRecurrenceRules":
+		if val == nil {
+			ev.ExcludedRecurrenceRules = nil
+			return
+		}
+		var rules []*jmap.JSCalendarRecurrenceRule
+		if err := decodeJSONField(val, &rules); err == nil {
+			ev.ExcludedRecurrenceRules = rules
+		}
+	case "recurrenceOverrides":
+		if val == nil {
+			ev.RecurrenceOverrides = nil
+			return
+		}
+		var m map[string]map[string]any
+		if err := decodeJSONField(val, &m); err == nil {
+			ev.RecurrenceOverrides = m
+		}
+	case "excluded":
+		if val == nil {
+			ev.Excluded = nil
+			return
+		}
+		var m map[string]bool
+		if err := decodeJSONField(val, &m); err == nil {
+			ev.Excluded = m
+		}
 	}
 }
 
