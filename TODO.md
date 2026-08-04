@@ -94,8 +94,8 @@ the resolver for local delivery (inbound routing + outbound loopback). "The doma
 - [x] **Missing Calendar properties** (`calendar_types.go:12`): `isSubscribed`, `includeInAvailability`, `defaultAlertsWithTime`, `defaultAlertsWithoutTime`, `timeZone`, `shareWith`. Struct + patch + tests.
 - [x] **`isDefault` is server-set**: reject direct client set on create/update (`calendar_store.go:187,226`); change only via `onSuccessSetIsDefault` (below). Test rejection.
 - [x] **`CalendarRights` spec fields** (`calendar_types.go:3`): replace non-spec `mayWriteItems`/`mayAdmin` with `mayReadFreeBusy`, `mayReadItems`, `mayWriteAll`, `mayWriteOwn`, `mayUpdatePrivate`, `mayRSVP`, `mayDelete`, `mayShare`; enforce the `mayWriteAll ⇒ mayWriteOwn/mayUpdatePrivate/mayRSVP` invariant (`calendar_store.go:181`). Tests on emitted `myRights` names + invariant.
-- [ ] **`Calendar/get` MUST hide calendars the principal may only read free-busy on** (`calendar_handlers.go:28`). Test.
-- [ ] **`privacy` (`private`/`secret`) enforcement** on other principals' event reads (`calendar_handlers.go:167`). Test.
+- [x] **`Calendar/get` MUST hide calendars the principal may only read free-busy on** (`calendar_handlers.go:28`). Test.
+- [x] **`privacy` (`private`/`secret`) enforcement** on other principals' event reads (`calendar_handlers.go:167`). Test.
 
 ### Calendar/set lifecycle args
 - [x] **`onDestroyRemoveEvents` arg + `calendarHasEvents` SetError** (`calendar_handlers.go:92`, `calendar_store.go:239` `DeleteCalendar`): non-empty calendar destroy MUST fail unless flag set. Test both paths.

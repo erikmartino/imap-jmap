@@ -228,10 +228,34 @@ func handleCalendarEventGet(backend CalendarsBackend) MethodHandler {
 			notFound = []Id{}
 		}
 
+		var filteredList []*CalendarEvent
+		for _, ev := range list {
+			if ev == nil {
+				continue
+			}
+			if ev.Privacy == "secret" {
+				if hasIDs {
+					notFound = append(notFound, ev.ID)
+				}
+				continue
+			}
+			if ev.Privacy == "private" {
+				censoredEv := *ev
+				censoredEv.Title = "Busy"
+				censoredEv.Description = ""
+				censoredEv.Locations = nil
+				censoredEv.VirtualLocations = nil
+				censoredEv.Links = nil
+				filteredList = append(filteredList, &censoredEv)
+			} else {
+				filteredList = append(filteredList, ev)
+			}
+		}
+
 		return "CalendarEvent/get", map[string]any{
 			"accountId": accountID,
 			"state":     backend.CalendarEventState(ctx),
-			"list":      filterList(list, props),
+			"list":      filterList(filteredList, props),
 			"notFound":  notFound,
 		}
 	}
