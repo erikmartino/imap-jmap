@@ -8,8 +8,9 @@ import (
 	"imap-jmap/jmap"
 )
 
-// TestRFC9404_FileNodeFilterPropertiesPosNeg tests FileNode/query name, type, and isFolder filter conditions.
-func TestRFC9404_FileNodeFilterPropertiesPosNeg(t *testing.T) {
+// TestFileNode_FilterPropertiesPosNeg tests FileNode/query name, type, and isFolder filter conditions.
+// FileNode is a custom (non-RFC) file-storage extension; see the rfcless_ test prefix convention.
+func TestFileNode_FilterPropertiesPosNeg(t *testing.T) {
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
