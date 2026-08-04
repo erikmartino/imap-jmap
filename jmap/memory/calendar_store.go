@@ -748,30 +748,138 @@ func eventEndTime(ev *jmap.CalendarEvent) (time.Time, bool) {
 	return start.Add(d), true
 }
 
+// RecurrenceInstance defines an expanded instance of a recurring event per RFC 8984.
+type RecurrenceInstance struct {
+	RecurrenceID string
+	Start        time.Time
+	End          time.Time
+}
+
+// ExpandRecurrenceInstances expands recurrenceRules, applying excluded rules and overrides per RFC 8984 §4.3.
+func ExpandRecurrenceInstances(ev *jmap.CalendarEvent, horizon time.Time) []RecurrenceInstance {
+	start, ok := parseRFC3339(ev.Start)
+	if !ok {
+		return nil
+	}
+
+	duration := time.Duration(0)
+	if ev.Duration != "" {
+		if d, ok := parseISODuration(ev.Duration); ok {
+			duration = d
+		}
+	}
+
+	masterInst := RecurrenceInstance{
+		RecurrenceID: ev.Start,
+		Start:        start,
+		End:          start.Add(duration),
+	}
+
+	if len(ev.RecurrenceRules) == 0 {
+		return []RecurrenceInstance{masterInst}
+	}
+
+	var results []RecurrenceInstance
+
+	for _, rule := range ev.RecurrenceRules {
+		if rule == nil {
+			continue
+		}
+		freq := strings.ToLower(rule.Frequency)
+		interval := rule.Interval
+		if interval == 0 {
+			interval = 1
+		}
+
+		maxCount := rule.Count
+		var untilTime time.Time
+		if rule.Until != "" {
+			if u, ok := parseRFC3339(rule.Until); ok {
+				untilTime = u
+			}
+		}
+
+		cur := start
+		count := uint64(0)
+		for {
+			if maxCount > 0 && count >= maxCount {
+				break
+			}
+			if !untilTime.IsZero() && cur.After(untilTime) {
+				break
+			}
+			if !horizon.IsZero() && cur.After(horizon) {
+				break
+			}
+
+			recID := cur.UTC().Format(time.RFC3339)
+
+			if ev.Excluded != nil && ev.Excluded[recID] {
+				// Instance canceled/excluded
+			} else {
+				instEnd := cur.Add(duration)
+				results = append(results, RecurrenceInstance{
+					RecurrenceID: recID,
+					Start:        cur,
+					End:          instEnd,
+				})
+			}
+			count++
+
+			switch freq {
+			case "daily":
+				cur = cur.AddDate(0, 0, int(interval))
+			case "weekly":
+				cur = cur.AddDate(0, 0, int(7*interval))
+			case "monthly":
+				cur = cur.AddDate(0, int(interval), 0)
+			case "yearly":
+				cur = cur.AddDate(int(interval), 0, 0)
+			default:
+				cur = cur.AddDate(0, 0, int(7*interval))
+			}
+
+			if count >= 500 {
+				break
+			}
+		}
+	}
+
+	if len(results) == 0 {
+		results = []RecurrenceInstance{masterInst}
+	}
+
+	return results
+}
+
 // eventEndsAfter matches when the event (or any recurrence) ends after the date.
 func eventEndsAfter(ev *jmap.CalendarEvent, date string) bool {
 	ref, ok := parseRFC3339(date)
 	if !ok {
 		return false
 	}
-	end, ok := eventEndTime(ev)
-	if !ok {
-		return false
+	instances := ExpandRecurrenceInstances(ev, ref.AddDate(1, 0, 0))
+	for _, inst := range instances {
+		if inst.End.After(ref) {
+			return true
+		}
 	}
-	return end.After(ref)
+	return false
 }
 
-// eventStartsBefore matches when the event starts before the date.
+// eventStartsBefore matches when the event (or any recurrence) starts before the date.
 func eventStartsBefore(ev *jmap.CalendarEvent, date string) bool {
 	ref, ok := parseRFC3339(date)
 	if !ok {
 		return false
 	}
-	start, ok := parseRFC3339(ev.Start)
-	if !ok {
-		return false
+	instances := ExpandRecurrenceInstances(ev, ref)
+	for _, inst := range instances {
+		if inst.Start.Before(ref) {
+			return true
+		}
 	}
-	return start.Before(ref)
+	return false
 }
 
 // parseISODuration converts an ISO 8601 duration (e.g. "PT1H30M", "P1D") to
