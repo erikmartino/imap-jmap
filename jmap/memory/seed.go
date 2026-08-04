@@ -138,9 +138,11 @@ func SeedSampleData(mb *MemoryBackend, cb *MemoryCalendarsBackend) {
 			Start:       "2026-08-05T14:00:00Z",
 			Duration:    "PT1H30M",
 			TimeZone:    "UTC",
-			Location: &jmap.JSCalendarLocation{
-				Name:        "Virtual Meeting Room A",
-				Description: "Join via Video Link",
+			Locations: map[string]*jmap.JSCalendarLocation{
+				"loc-1": {
+					Name:        "Virtual Meeting Room A",
+					Description: "Join via Video Link",
+				},
 			},
 			VirtualLocations: map[string]*jmap.JSCalendarVirtualLocation{
 				"v1": {
@@ -202,8 +204,10 @@ func SeedSampleData(mb *MemoryBackend, cb *MemoryCalendarsBackend) {
 			Start:       "2026-08-06T12:00:00Z",
 			Duration:    "PT1H",
 			TimeZone:    "UTC",
-			Location: &jmap.JSCalendarLocation{
-				Name: "Bistro 42 (Downtown)",
+			Locations: map[string]*jmap.JSCalendarLocation{
+				"loc-1": {
+					Name: "Bistro 42 (Downtown)",
+				},
 			},
 			Status: "confirmed",
 		})

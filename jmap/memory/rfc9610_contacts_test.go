@@ -184,7 +184,7 @@ func TestRFC8984_UpdateCalendarEvent_FullPatch(t *testing.T) {
 		Start:       "2026-08-03T09:00:00Z",
 		Duration:    "PT1H",
 		Status:      "confirmed",
-		Location:    &jmap.JSCalendarLocation{Name: "Room A"},
+		Locations: map[string]*jmap.JSCalendarLocation{"loc-1": {Name: "Room A"}},
 	})
 	if err != nil {
 		t.Fatalf("CreateCalendarEvent: %v", err)
@@ -207,8 +207,8 @@ func TestRFC8984_UpdateCalendarEvent_FullPatch(t *testing.T) {
 	if updated.Status != "confirmed" {
 		t.Errorf("status clobbered: %s", updated.Status)
 	}
-	if updated.Location == nil || updated.Location.Name != "Room A" {
-		t.Errorf("location dropped: %+v", updated.Location)
+	if updated.Locations == nil || updated.Locations["loc-1"] == nil || updated.Locations["loc-1"].Name != "Room A" {
+		t.Errorf("location dropped: %+v", updated.Locations)
 	}
 	if updated.Created != createdAt {
 		t.Errorf("created clobbered: %s (was %s)", updated.Created, createdAt)

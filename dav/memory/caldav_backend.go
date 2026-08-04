@@ -189,7 +189,7 @@ func (b *CalDAVBackend) PutCalendarObject(ctx context.Context, path string, cal 
 					Start: startStr,
 				}
 				if locationProp != nil {
-					ev.Location = &jmap.JSCalendarLocation{Name: locationProp.Value}
+					ev.Locations = map[string]*jmap.JSCalendarLocation{"loc-1": {Name: locationProp.Value}}
 				}
 				if descriptionProp != nil {
 					ev.Description = descriptionProp.Value

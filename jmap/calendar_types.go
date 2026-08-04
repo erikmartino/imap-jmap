@@ -92,7 +92,7 @@ type CalendarEvent struct {
 	Start                  string                                `json:"start"`
 	Duration               string                                `json:"duration,omitempty"`
 	TimeZone               string                                `json:"timeZone,omitempty"`
-	Location               *JSCalendarLocation                   `json:"location,omitempty"`
+	Locations              map[string]*JSCalendarLocation        `json:"locations,omitempty"`
 	VirtualLocations       map[string]*JSCalendarVirtualLocation `json:"virtualLocations,omitempty"`
 	Links                  map[string]*JSCalendarLink            `json:"links,omitempty"`
 	Locale                 string                                `json:"locale,omitempty"`

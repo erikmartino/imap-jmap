@@ -65,7 +65,7 @@ the resolver for local delivery (inbound routing + outbound loopback). "The doma
 
 ## RFC 8984 (JSCalendar data model) — tests: `rfc8984_*_test.go`
 - [x] **Model missing Event/common properties** (`calendar_types.go:73` CalendarEvent, patch in `calendar_store.go:320` `setCalendarEventField`): `relatedTo` (§4.1.3), `prodId` (§4.1.4), `sequence` (§4.1.7), `method` (§4.1.8), `descriptionContentType` (§4.2.3), `showWithoutTime` (§4.2.4), `locale` (§4.2.8), `categories` (§4.2.10), event-level `color` (§4.2.11), `priority` (§4.4.1), `replyTo` (§4.4.4), `sentBy` (§4.4.5), `requestStatus` (§4.4.7), `useDefaultAlerts` (§4.5.1), `localizations` (§4.6.1), `timeZones` (§4.7.2). Each: struct field + patch path + round-trip test.
-- [ ] **`locations` map** (§4.2.5): replace the singular `Location` under key `"location"` with the `Id[Location]` map the spec defines (`calendar_types.go:83`). Keep back-compat parse if needed. Test map round-trip.
+- [x] **`locations` map** (§4.2.5): replace the singular `Location` under key `"location"` with the `Id[Location]` map the spec defines (`calendar_types.go:83`). Keep back-compat parse if needed. Test map round-trip.
 - [ ] **Complete nested object types + `@type` tags** (currently `@type` is only forced on the top-level Event at `calendar_store.go:303`, never set/validated on nested objects, §3.1/§3.2):
   - `Location` add `@type`, `locationTypes`, `relativeTo`, `coordinates`, `links` (§4.2.5, `calendar_types.go:24`).
   - `VirtualLocation` add `@type`, `features` (§4.2.6, `calendar_types.go:67`).

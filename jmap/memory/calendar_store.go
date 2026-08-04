@@ -351,14 +351,26 @@ func setCalendarEventField(ev *jmap.CalendarEvent, path string, val any) {
 		if s, ok := val.(string); ok {
 			ev.TimeZone = s
 		}
+	case "locations":
+		if val == nil {
+			ev.Locations = nil
+			return
+		}
+		var m map[string]*jmap.JSCalendarLocation
+		if err := decodeJSONField(val, &m); err == nil {
+			ev.Locations = m
+		}
 	case "location":
 		if val == nil {
-			ev.Location = nil
+			ev.Locations = nil
 			return
 		}
 		var loc jmap.JSCalendarLocation
 		if err := decodeJSONField(val, &loc); err == nil {
-			ev.Location = &loc
+			if ev.Locations == nil {
+				ev.Locations = make(map[string]*jmap.JSCalendarLocation)
+			}
+			ev.Locations["loc-1"] = &loc
 		}
 	case "status":
 		if s, ok := val.(string); ok {
@@ -587,8 +599,10 @@ func matchEventText(ev *jmap.CalendarEvent, q string) bool {
 	if containsFold(ev.Title, q) || containsFold(ev.Description, q) {
 		return true
 	}
-	if ev.Location != nil && (containsFold(ev.Location.Name, q) || containsFold(ev.Location.Description, q)) {
-		return true
+	for _, loc := range ev.Locations {
+		if loc != nil && (containsFold(loc.Name, q) || containsFold(loc.Description, q)) {
+			return true
+		}
 	}
 	for _, p := range ev.Participants {
 		if p != nil && (containsFold(p.Name, q) || containsFold(p.Email, q)) {
@@ -620,7 +634,14 @@ func MatchCalendarEvent(ev *jmap.CalendarEvent, filter map[string]any) bool {
 			}
 		case "location":
 			s, _ := v.(string)
-			if ev.Location == nil || !(containsFold(ev.Location.Name, s) || containsFold(ev.Location.Description, s)) {
+			matchedLoc := false
+			for _, loc := range ev.Locations {
+				if loc != nil && (containsFold(loc.Name, s) || containsFold(loc.Description, s)) {
+					matchedLoc = true
+					break
+				}
+			}
+			if !matchedLoc {
 				return false
 			}
 		case "text":
