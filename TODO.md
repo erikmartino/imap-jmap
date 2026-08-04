@@ -5,44 +5,142 @@ Done so far: FileNode backend + queryChanges, Calendar/Card/AddressBook copy, re
 ContactCard/* canonical naming, Identity/set, Mailbox/set update, result references (RFC 8620 §3.7);
 DAV: PUT property preservation, REPORT filters, sync-token/etag stability, RFC 6638 scheduling.
 
-## Next up (cross-cutting protocol gaps — tests would have caught these)
-- [x] **Negative `position` panics.** `Mailbox/query` (mailbox_handlers.go:203), `Quota/query` (quota_handlers.go:95), and `SieveScript/query` (memory/sieve_store.go:185) slice with `filtered[-1]` → remotely triggerable server crash. Per RFC 8620 §5.5 reject with `invalidArguments` (or clamp consistently across all backends). Add a test per method.
-- [x] **`EmailSubmission/query` is a hardcoded stub** (submission_handlers.go:120-121): always returns `ids: []`, `total: 0`, never queries state, ignores RFC 8621 §7.2 filters (`identityIds`, `emailIds`, `threadIds`, `before`, `after`). Implement real backend query + tests.
-- [x] **Email filter `from`/`to` are dead fields** (query.go:16-17): declared but never evaluated in `MatchesFilter`, so `{"from": "x"}` matches every email (silent fallthrough). Implement + positive/negative tests.
-- [x] **`Blob/lookup` never reports `notFound`** (blob_handlers.go:122): missing blobIds are silently dropped instead of returned per RFC 9404 §6. Fix + tests.
-- [x] **Push token inconsistency:** mutations publish `StateChange` tokens `"m<nanotime>"` via `bumpState` while `/changes`/`queryState` return tracker tokens `"~N"` — a pushed token fed into `/changes` hits the unknown-token path (mail_store.go:317-354). Align token formats + regression test.
-- [x] **StateChange not wired for calendar/contacts/sieve backends:** `MemoryCalendarsBackend`, `MemoryContactsBackend`, `MemorySieveBackend` have no `SetBroadcaster` (only mail/filenode, main.go:75-76) — every mutation there is invisible to `/eventsource`. Add broadcaster + one SSE StateChange test per type.
-- [x] **`properties` partial fetch unimplemented everywhere** (RFC 8620 §5.1): zero `properties` handling in any `/get` handler (Email, Mailbox, Thread, Identity, EmailSubmission, Quota, Calendar, CalendarEvent, AddressBook, Card, SieveScript, FileNode, PushSubscription, IMAPAccount). Implement + tests asserting only requested props (+id) are returned.
-- [x] **`anchor`/`anchorOffset` unimplemented everywhere** (RFC 8620 §5.5): zero occurrences in code or tests. Implement on all `*/query` + `anchorNotFound` error + tests.
-- [x] **`*/queryChanges` ignore `filter`/`sort`/`upToId`** (Email/Mailbox/Quota/CalendarEvent/Submission) — only FileNode re-evaluates the filter. Deltas must respect the query's filter/sort; `upToId` must truncate `added`. Fix + tests.
-- [x] **`/set` error-path correctness:** `Email/set` destroy of a missing id is silently dropped (no `notDestroyed`); `Email/set` has no `notCreated` path (any create "succeeds" with a fabricated blob id); Mailbox/set, Identity/set, SieveScript/set, FileNode/set report `invalidProperties`/`invalidScript` instead of `notFound` for missing update ids. Fix per RFC 8620 §5.3 + tests asserting exact SetError types.
-- [x] **Creation references (`#creationId`) only work for FileNode:** resolve for Email `mailboxIds`, Mailbox `parentId`, Card `addressBookIds`, CalendarEvent `calendarIds`, EmailSubmission `emailId` (forward refs, missing/cyclic → `notCreated`). One composite-set test per type.
-- [x] **`SieveScript/queryChanges` not registered** (RFC 9661 §4) — returns `unknownMethod`. Register + delta tests.
-- [x] **Missing sort comparators** (RFC 8621 §4.5.2): `SortEmails` implements only receivedAt/sentAt/subject/size; missing `from`, `to`, `cc`, `bcc`, `hasKeyword`, `allHeaderKeywords`, `someHeaderKeywords`, `noneHeaderKeywords`, `hasAttachment`; `collation` parsed but unused; unknown comparator silently passes. Implement + order-asserting tests.
-- [x] **Missing filter properties:** Mailbox `hasAnyRole`/`isSubscribed` (RFC 8621 §2.4.1); Quota/query ignores `filter` entirely (name/scope/resourceType/type, RFC 9425 §4.4); CalendarEvent `uid`/`updatedBefore`/`updatedAfter`. Implement + pos/neg tests.
-- [x] **`Thread/get` with `ids: null` returns empty list** instead of all threads (email_handlers.go:16) (RFC 8621 §3.1). Same defect class: EmailSubmission/get, SearchSnippet/get, Blob/get, Email/verifySmime.
-- [x] **`EmailSubmission/set` has no `destroy` support** (RFC 8621 §7.3) — backend has no `DeleteSubmission`; `onSuccessUpdate/DestroyEmail` error paths silently swallowed. Implement + tests.
-- [x] **`EmailSubmission/get`/`Identity/get`/`EmailSubmission/changes`/`Quota/changes`/`Quota/queryChanges`/`Thread/changes`/`Calendar/changes`/`CalendarEvent/changes`/`CalendarEvent/sendResponse`/`ContactCard/*` aliases have zero tests** (several are handler-level-only gaps with backend coverage). Add handler-level tests.
+Scope: the sections below are **JMAP-only** (per "focus on JMAP"). Tests MUST be filed under the primary
+RFC for the requirement and MUST NOT mix concerns across RFCs (e.g. JSCalendar data-model tests go in
+`rfc8984_*_test.go`; JMAP protocol/method tests for calendars also go under `rfc8984_*` per repo
+convention since JMAP-for-Calendars is still an I-D). DAV/iCal/vCard/iTIP are out of scope here and are
+covered by the `dav/` package's own tests (rfc4791/6352/4918/6350/2426/6638/5545/5546/6047).
 
-## Then (test coverage backlog — implemented but unexercised)
-- [x] `stateMismatch` tests for all 9 untested `*/set` handlers (only Email covered).
-- [x] `notDestroyed` asserted for all 10 handlers (0 tests today); `notUpdated` with correct SetError type (only 1 test, type unasserted).
-- [x] `cannotCalculateChanges` tests for all 5 `queryChanges` handlers (0 tests today).
-- [x] Pagination tests for every `*/query`: position/limit slicing, position beyond end, limit 0, negative position, calculateTotal with filter.
-- [x] Mixed valid+invalid `ids` → `notFound` tests for every `/get` (only Blob/get, verifySmime, MDN/parse covered).
-- [x] Sort tests: order assertions (asc/desc, multi-comparator tie-break, default sort) — current test asserts count only.
-- [x] Filter positive+negative per property: Email `cc`, `bcc`, `header` (name-only and name+value), `hasAttachment`, direct `notKeyword`; Mailbox `role`/`parentId`/`name`; Card 18 of 20 RFC 9610 §3.3.1 conditions untested (only `email`); CalendarEvent `inCalendar`/`description`/`location`/`text`; FileNode `name`/`type`/`isFolder`/`parentId:""`; SieveScript `name`/`isValid`.
-- [x] PushSubscription/get + set round-trip (create/get/update/destroy, notCreated/notDestroyed) + real `PushVerification` HTTP POST assertion.
-- [x] `Email/import`/`Email/parse` error paths: `blobNotFound`, missing blobId → `invalidProperties`, `notParsable`, `notFound`; client overrides (keywords/mailboxIds/receivedAt) applied.
-- [x] `Email/verifySmime` payload assertions (result fields), not just key presence.
-- [x] `Email/copy`: `notCreated` for missing source, new id + new threadId, overrides applied, original survives without `onSuccessDestroyOriginal`.
-- [x] `CalendarEvent/copy` full round-trip (mirror Calendar/copy test — currently name-only).
-- [x] `CalendarEvent/sendResponse`: participant status persisted, valid iTIP REPLY, notFound error.
-- [x] `Email/set` data-loss regression over HTTP: partial update (keywords/mailboxIds patch) leaves untouched fields intact.
-- [x] `maxChanges` truncation + `hasMoreChanges` over HTTP; `sinceQueryState` too old.
-- [x] JSON pointer escaping (`~0`/`~1`) and invalid pointer paths in result references.
-- [x] Compile-time assertions `var _ jmap.XxxBackend = (*MemoryXxxBackend)(nil)` for Contacts, Calendar, Sieve, IMAPAccess backends (AGENTS.md requirement).
+---
+
+# Calendar — full JMAP support
+
+## RFC 8984 (JSCalendar data model) — tests: `rfc8984_*_test.go`
+- [ ] **Model missing Event/common properties** (`calendar_types.go:73` CalendarEvent, patch in `calendar_store.go:320` `setCalendarEventField`): `relatedTo` (§4.1.3), `prodId` (§4.1.4), `sequence` (§4.1.7), `method` (§4.1.8), `descriptionContentType` (§4.2.3), `showWithoutTime` (§4.2.4), `locale` (§4.2.8), `categories` (§4.2.10), event-level `color` (§4.2.11), `priority` (§4.4.1), `replyTo` (§4.4.4), `sentBy` (§4.4.5), `requestStatus` (§4.4.7), `useDefaultAlerts` (§4.5.1), `localizations` (§4.6.1), `timeZones` (§4.7.2). Each: struct field + patch path + round-trip test.
+- [ ] **`locations` map** (§4.2.5): replace the singular `Location` under key `"location"` with the `Id[Location]` map the spec defines (`calendar_types.go:83`). Keep back-compat parse if needed. Test map round-trip.
+- [ ] **Complete nested object types + `@type` tags** (currently `@type` is only forced on the top-level Event at `calendar_store.go:303`, never set/validated on nested objects, §3.1/§3.2):
+  - `Location` add `@type`, `locationTypes`, `relativeTo`, `coordinates`, `links` (§4.2.5, `calendar_types.go:24`).
+  - `VirtualLocation` add `@type`, `features` (§4.2.6, `calendar_types.go:67`).
+  - `Link` add `@type`, `size`, `display`; rename `type`→`contentType` (§4.2.7, `calendar_types.go:58`).
+  - `Participant` add `roles` map + `participationStatus` (replacing singular `role`/`status`), `@type`, `sendTo`, `delegatedTo`/`delegatedFrom`, `memberOf`, `scheduleAgent`/`scheduleStatus`, `invitedBy`, `links`, `language`, `locationId` (§4.4.6, `calendar_types.go:31`).
+  - `RecurrenceRule` add `@type`, `rscale`, `skip`, `firstDayOfWeek`, `byMonthDay`, `byMonth`, `byYearDay`, `byWeekNo`, `byHour`, `byMinute`, `bySecond`, `bySetPosition`; change `byDay` from `[]string` to `NDay[]` (§4.3.3, `calendar_types.go:42`).
+  - `Alert` make `trigger` an `OffsetTrigger`/`AbsoluteTrigger` object (not string); add `@type`, `acknowledged`, `relatedTo` (§4.5.2, `calendar_types.go:50`).
+  - Add the `Relation`, `NDay`, `OffsetTrigger`, `AbsoluteTrigger` types (§1.4.10/§4.3.3/§4.5.2). Per-object round-trip tests.
+- [ ] **Recurrence properties** (`calendar_types.go`): `recurrenceId` (§4.3.1), `recurrenceIdTimeZone` (§4.3.2), `excludedRecurrenceRules` (§4.3.4, `calendar_store.go:392`), `recurrenceOverrides` (§4.3.5), `excluded` (§4.3.6). Struct + patch + tests.
+- [ ] **Recurrence expansion engine** (`calendar_store.go:622` `QueryCalendarEvents`): expand `recurrenceRules` with byX filtering, `bySetPosition`, `skip` (§4.3.3.1); apply `recurrenceOverrides` to instances (§4.3.5); make `after`/`before` filter the full recurrence set, not just master start/end (`calendar_store.go:498-507` `MatchCalendarEvent`, §4.3). Tests over expanded instances.
+- [ ] **Task object** (`@type:"Task"`: `due`, `start`, `estimatedDuration`, `percentComplete`, `progress`, `progressUpdated`) — model + set/get/query + tests (§5.2).
+- [ ] **Group object** (`@type:"Group"`: `entries`, `source`) — model + set/get + tests (§5.3).
+- [ ] **Create/set validation** (`calendar_handlers.go:255`, `setCalendarEventField`): reject unknown/invalid properties with `invalidProperties` instead of silently dropping; enum-validate `status`/`privacy`/`freeBusyStatus`/participant roles (§3 + RFC 8620 §5.3). Tests per rejected case.
+- [ ] **`uid` auto-generate + require on create** (`calendar_store.go:294` `CreateCalendarEvent`, §4.1.2). Test that a created event always has a stable uid.
+
+## JMAP for Calendars (I-D: methods / query / scheduling) — tests: `rfc8984_*_test.go` (repo convention)
+
+### Query
+- [ ] **Sort comparators** (MUST: `start`, `uid`, `recurrenceId`; SHOULD: `created`, `updated`): add `comparators []Comparator` to `CalendarsBackend.QueryCalendarEvents` (`backend.go:135`), parse `sort` in `handleCalendarEventQuery` (`calendar_handlers.go:439`), apply stable ordering. Order-asserting tests.
+- [ ] **`expandRecurrences` query arg** (`calendar_handlers.go:406`): return per-occurrence ids when true. Test.
+- [ ] **`timeZone` query arg** for floating-time bounds (`calendar_handlers.go:406`) — currently ignored. Test.
+- [ ] **`owner` and `attendee` filter conditions** (`calendar_store.go:470` `MatchCalendarEvent`) — pos/neg tests each.
+- [ ] **`canCalculateChanges` correctness** (`calendar_handlers.go:449`): stop hardcoding `true` unless a stable order backs it; make `CalendarEvent/queryChanges` sort/position-aware so `added` carries correct indices (`calendar_handlers.go:457`). Test.
+
+### Calendar object, rights & sharing
+- [ ] **Missing Calendar properties** (`calendar_types.go:12`): `isSubscribed`, `includeInAvailability`, `defaultAlertsWithTime`, `defaultAlertsWithoutTime`, `timeZone`, `shareWith`. Struct + patch + tests.
+- [ ] **`isDefault` is server-set**: reject direct client set on create/update (`calendar_store.go:187,226`); change only via `onSuccessSetIsDefault` (below). Test rejection.
+- [ ] **`CalendarRights` spec fields** (`calendar_types.go:3`): replace non-spec `mayWriteItems`/`mayAdmin` with `mayReadFreeBusy`, `mayReadItems`, `mayWriteAll`, `mayWriteOwn`, `mayUpdatePrivate`, `mayRSVP`, `mayDelete`, `mayShare`; enforce the `mayWriteAll ⇒ mayWriteOwn/mayUpdatePrivate/mayRSVP` invariant (`calendar_store.go:181`). Tests on emitted `myRights` names + invariant.
+- [ ] **`Calendar/get` MUST hide calendars the principal may only read free-busy on** (`calendar_handlers.go:28`). Test.
+- [ ] **`privacy` (`private`/`secret`) enforcement** on other principals' event reads (`calendar_handlers.go:167`). Test.
+
+### Calendar/set lifecycle args
+- [ ] **`onDestroyRemoveEvents` arg + `calendarHasEvents` SetError** (`calendar_handlers.go:92`, `calendar_store.go:239` `DeleteCalendar`): non-empty calendar destroy MUST fail unless flag set. Test both paths.
+- [ ] **`onSuccessSetIsDefault` arg** on `Calendar/set` (`calendar_handlers.go:92`). Test.
+
+### Scheduling (iTIP dispatch)
+- [ ] **Honor `sendSchedulingMessages`** (`calendar_handlers.go:266-386` `handleCalendarEventSet`): currently auto-dispatches iMIP unconditionally; default is `false`. Gate dispatch on the flag. Test both.
+- [ ] **`noSupportedScheduleMethods` SetError** path (`calendar_handlers.go:231`). Test.
+- [ ] **Participation constraints**: enforce `mayRSVP` / `mayInviteSelf` / `mayInviteOthers` (`calendar_handlers.go:231`). Tests.
+- [ ] **RSVP via `CalendarEvent/set`** (patch participant `participationStatus`) rather than the non-spec `CalendarEvent/sendResponse` (`calendar_handlers.go:25,618`). Fix the bug where the reply is written to event-level `status` and `p.Status` is never persisted (`calendar_handlers.go:648-650`, §5.1.3 vs §4.4.6). Test participant status persists.
+- [ ] **PatchObject nested paths** (e.g. `participants/x/participationStatus`, `locations/x/name`) in `setCalendarEventField` (`calendar_store.go:320`) — currently only whole-key switches. Test nested patch.
+
+### Method families & capability
+- [ ] **`CalendarEvent/parse`** (blobIds → parsed/notParsable/notFound) replacing the non-spec `CalendarEvent/parseInvitation` (`calendar_handlers.go:24,593`); advertise `urn:ietf:params:jmap:calendars:parse` (`session.go:119`). Tests.
+- [ ] **`CalendarsCapability` missing fields** (`session.go:119-123`): `minDateTime`, `maxDateTime`, `maxExpandedQueryDuration`, `maxParticipantsPerEvent`. Advertise + test.
+- [ ] **ParticipantIdentity** object + `ParticipantIdentity/get`/`changes`/`set` (with `onSuccessSetIsDefault`) — not implemented. Impl + tests. *(I-D; larger.)*
+- [ ] **CalendarEventNotification** object + `/get`/`changes`/`set`/`query`/`queryChanges`, and generation of notifications on scheduling changes — not implemented. Impl + tests. *(I-D; larger.)*
+- [ ] **Principals + availability** (`urn:ietf:params:jmap:principals`, `:availability`; `maxAvailabilityDuration`; principal `calendarAddress`/`mayGetAvailability`/`mayShareWith`; free-busy querying) — not implemented. Impl + tests. *(I-D; larger.)*
+
+---
+
+# Address Book / Contacts — full JMAP support
+
+## RFC 9610 (JMAP for Contacts) — tests: `rfc9610_*_test.go`
+
+### Methods & query
+- [ ] **`ContactCard/queryChanges`** (+ `Card/queryChanges` alias) not registered (`contacts_handlers.go:19-30`) → clients get `unknownMethod` (§3.4). Register + delta tests.
+- [ ] **`ContactCard/query` sort/comparators** (MUST: `created`, `updated`; SHOULD: `name/given`, `name/surname`, `name/surname2`, §3.3.2): add `comparators []Comparator` to `ContactsBackend.QueryCards` (`backend.go:113`), parse `sort` in `handleCardQuery` (`contacts_handlers.go:314-361`), order in `QueryCards` (`contacts_store.go:564`). Order-asserting tests.
+- [ ] **`ContactCard/query` real `queryState` + `canCalculateChanges`** — stop hardcoding `"0"`/`false` (`contacts_handlers.go:354-355`); reflect real state once queryChanges lands. Round-trip test.
+- [ ] **FilterOperator (AND/OR/NOT)** in `MatchCard` (`contacts_store.go:466`) — `operator`/`conditions` currently ignored (§3.3 / RFC 8620 §5.5). Tests.
+- [ ] **Filter conditions implemented-but-untested** (§3.3.1, `contacts_store.go:469-559`): `uid`, `hasMember`, `kind`, `createdBefore`, `createdAfter`, `updatedBefore`, `updatedAfter`, `text`, `name`, `name/given`, `name/surname`, `name/surname2`, `nickname`, `organization`, `phone`, `onlineService`, `address`, `note`. Pos + neg test each.
+
+### AddressBook & Card set semantics
+- [ ] **`AddressBookRights` spec names** (§2, `contacts_types.go:4-9`): emit `mayRead`, `mayWrite`, `mayShare`, `mayDelete` (currently `mayReadItems`/`mayWriteItems`/`mayAdmin`). Fix seed/create (`contacts_store.go:66-72,181-186`). Test emitted `myRights` keys.
+- [ ] **AddressBook `isSubscribed` + `shareWith`** (§2, `contacts_types.go:11-19`; `UpdateAddressBook` `contacts_store.go:197`): model, patch, enforce `mayShare` with `forbidden` SetError. Tests.
+- [ ] **AddressBook `isDefault` is server-set** (§2): reject direct create/update set (`contacts_store.go:187-191,218-225`); add **`onSuccessSetIsDefault`** arg to `AddressBook/set` (§2.3, `contacts_handlers.go:97`). Tests.
+- [ ] **`onDestroyRemoveContents` + `addressBookHasContents` SetError** (§2.3/§7.4.1): `DeleteAddressBook` (`contacts_store.go:231`) currently deletes unconditionally and orphans cards; destroying a non-empty book MUST fail unless the flag is set. Impl + tests.
+- [ ] **Card MUST belong to ≥1 AddressBook** (§3): validate `addressBookIds` non-empty and all values `true` in `CreateCard`/`UpdateCard` (`contacts_store.go:281,433`) → `invalidProperties`. Tests.
+- [ ] **Media `blobId` + photo type check** (§3/§3.5): `JSContactMedia` needs a server-set `blobId` (`contacts_types.go:104`); reject non-image files used as photos. Impl + tests.
+- [ ] **Enforce `maxAddressBooksPerCard`** on set (§1.4.1, advertised at `session.go:114-117` but unenforced). Test the limit.
+- [ ] **Remove/justify non-spec `AddressBook/copy`** (`contacts_handlers.go:16`) — RFC 9610 defines no such method. Decide: drop or document. (No new test.)
+
+## RFC 9553 (JSContact data model) — tests: `rfc9553_*_test.go`
+- [ ] **Required top-level `version` + `uid`** (§2.1.2, §2.1.9): add `version` to `Card` (`contacts_types.go:130`), populate/require both on create (`contacts_store.go:281`). Round-trip test.
+- [ ] **Missing top-level Card properties** (§2, `contacts_types.go:130-154`): `language` (§2.1.5), `prodId` (§2.1.7), `relatedTo` (§2.1.8), `preferredLanguages` (§2.3.4), `calendars` (§2.4.1), `schedulingAddresses` (§2.4.2), `cryptoKeys` (§2.6.1), `directories` (§2.6.2), `personalInfo` (§2.8.4), `localizations` (§2.7.1). Model + patch + tests.
+- [ ] **`speakToAs` correct shape; drop non-spec top-level `gender`** (§2.2.4): `speakToAs = { grammaticalGender, pronouns: Id[Pronouns] }`; remove `JSContactGender`/top-level `gender` (`contacts_types.go:111-115,149`; `JSContactSpeakToAs` `:117-120`). Conformant test.
+- [ ] **`Title` field name** (§2.2.5): `JSContactTitle` uses `title` → must be `name`; add `kind`, `organizationId` (`contacts_types.go:71-75`). Test asserts `name`.
+- [ ] **`anniversaries` date shape** (§2.8.1): `date` is a Timestamp/PartialDate object + `place`; kinds `birth`/`death`/`wedding`; drop non-spec `label` (`contacts_types.go:122-127`). Test object-form date.
+- [ ] **Sub-object field completeness**: `Name` add `isOrdered`/`defaultSeparator`/`phoneticSystem`/`phoneticScript`, make `sortAs` a `String[String]` map (§2.2.1, `contacts_types.go:22-26`); `NameComponent` add `phonetic` (§2.2.1.2, `:29-32`); `Address` use `components`(AddressComponent[])/`isOrdered`/`coordinates`/`timeZone`/`defaultSeparator`/`phoneticSystem`/`phoneticScript` instead of flat street/locality fields (§2.5.1, `:52-62`); `Organization` add `sortAs` (§2.2.3, `:65-69`). Tests per sub-field.
+- [ ] **Patch paths for existing-but-unpatchable properties** (§3.5 / RFC 8620 PatchObject): `setCardField` (`contacts_store.go:314-431`) can't patch `links`, `media`, `speakToAs`, `anniversaries`, or mutable `kind` — updates silently drop them. Add paths + persistence tests.
+- [ ] **Nested JSON-pointer patch paths** (`name/full`, `emails/e1/pref`, `addressBookIds/ab-1`) in `setCardField` (`contacts_store.go:314`) — currently top-level keys only (RFC 8620 §5.3). Test.
+
+---
+
+# Blobs — full JMAP support
+
+## RFC 9404 (JMAP Blob Management) — tests: `rfc9404_*_test.go`
+
+### Capability object (§3.1)
+- [ ] **Top-level `urn:...:blob` capability MUST be an empty object** (currently populated, `session.go:187-190`); the **account-level** blob capability object is entirely missing (is `struct{}{}`, `session.go:236`). Fix placement + test both.
+- [ ] **Capability fields**: add `maxSizeBlobSet`, `maxDataSources` (MUST allow ≥64), `supportedTypeNames`; rename `supportedAlgorithms` → `supportedDigestAlgorithms`; drop non-spec `MaxDataAsStream` (`session.go:85-89`). Update the test that asserts the wrong name (`rfc9404_test.go:41`). Impl + tests.
+
+### Blob/upload — DataSourceObject model (§4.1)
+- [ ] **Treat `data` as `DataSourceObject[]`** with concatenation (`handleBlobUpload`, `blob_handlers.go:67-83`) instead of a single field. Impl + tests.
+- [ ] **`data:asBase64` source** handled; **invalid base64 MUST → `notCreated`** (currently falls back to raw bytes, `blob_handlers.go:76-80`). Impl + tests.
+- [ ] **`data:asText` = raw octets** (currently base64-decoded); **invalid UTF-8 MUST → `notCreated`** (`blob_handlers.go:67-80`). Impl + tests.
+- [ ] **`{blobId, offset, length}` catenation source** with range semantics (null offset→0, null length→remaining, past-end MUST → `notCreated`) (`blob_handlers.go:65-93`). Impl + tests.
+- [ ] **Strict rejection**: MUST NOT guess intent on invalid refs/data — reject with `notCreated` (`blob_handlers.go:83-92`). Test.
+- [ ] **Populate `createdIds`** for successful uploads so back-references resolve (`blob_handlers.go:57-100`). Test a later method referencing `#creationId`.
+- [ ] **Empty-blob creation** (zero data sources) supported (`handleBlobUpload`). Test.
+- [ ] **Enforce `maxSizeBlobSet`** on created/concatenated blobs → SetError (§3.1/§4.1). Test.
+
+### Blob/get (§4.2)
+- [ ] **`offset`/`length` range params** applied (`blob_handlers.go:18-54`). Impl + tests.
+- [ ] **`properties` selection** (default `data`+`size`; full struct always returned today, `blob_handlers.go:29-52`, `blobs.go:13-21`). Impl + tests.
+- [ ] **Result data properties**: produce `data:asText` (with **`isEncodingProblem`** true + null data on non-UTF-8) and `data:asBase64` (`Data` is `json:"-"`, `blobs.go:13-21`,`:20`). Impl + tests.
+- [ ] **`digest:<algorithm>`** as base64 (currently base16) and per requested algorithm (`memory/blobs.go:34-47`, `blobs.go:19`). Impl + tests.
+- [ ] **`isTruncated`** true when offset+length exceeds the blob; **`size` MUST be whole-blob octet count** regardless of range; **digest MUST cover the selected range** (`blob_handlers.go:48-52`, `memory/blobs.go:33-47`). Impl + tests.
+
+### Blob/lookup (§4.3) & security (§5)
+- [ ] **`typeNames` validity from `supportedTypeNames`** (not the hardcoded `{Mailbox,Thread,Email}` map, `blob_handlers.go:113`) and **require the defining capability in the request `using` set** → else `unknownDataType` (§4.3). Impl + tests.
+- [ ] **Access-control leakage tests** (§5): a blob referenced only by an object the user can't see is excluded from `matchedIds` (`blob_handlers.go:139-144`); document/decide the empty-array-per-type vs `notFound` behavior for missing blobs (`blob_handlers.go:131-133`) — prose §4.3/§5 vs the §4.3.1 example conflict; do not silently change. Tests.
+
+## RFC 8620 §6 (Core binary data) — tests: `rfc8620_*_test.go`
+- [ ] **Blob/copy correct shape** (§6.3): args `blobIds: Id[]`, response `copied: Id[Id]` / `notCopied: Id[SetError]` (currently a `create`/creationId map returning Blob objects, `blob_handlers.go:163-194`). Rewrite the non-compliant test that asserts the old shape (`rfc9404_test.go:296-348`). Add `fromAccountNotFound` method error and full create-SetError set (`blob_handlers.go:176-180`). Impl + tests.
+- [ ] **Enforce `maxSizeUpload` → 413** on `/upload` (`HandleUpload` reads unbounded, `blobs.go:38-49`; advertised at `session.go:163`). Impl + test.
+- [ ] **Upload response fields** `accountId`/`blobId`/`type` asserted (test only asserts `id`/`size`, `rfc8620_test.go:419-449`). Test.
+- [ ] **Download headers**: assert `?type=` → `Content-Type` and `name` → `Content-Disposition` filename (`blobs.go:84-93`; untested at `rfc8620_test.go:721-749`). Set `Cache-Control: immutable` long max-age (RECOMMENDED). Impl(SHOULD) + tests.
+- [ ] **RFC 7807 problem-details JSON** for upload/download HTTP errors (SHOULD; currently `http.Error`/`http.NotFound`, `blobs.go:34,40,47,67,80`). Impl + tests.
+- [ ] **Uploader-only access to unreferenced blobs** even in shared accounts (§6.1; access keyed only by `accountID`, `memory/blobs.go:57-64`). Impl + test.
+- [ ] **Blob lifetime guarantees** (§6): unreferenced blob retained ≥1h, not deleted during the call that removed the last reference, over-quota oldest-first eviction (SHOULD). `BlobBackend` (`backend.go:81-86`) has no expiry/quota surface. Impl(partial) + tests. *(low priority)*
 
 ## Not a goal
 - RFC 9670 JMAP Sharing (explicitly out of scope in AGENTS.md).
 - Process restart persistence (in-memory backend data loss across process restarts is expected).
+- DAV (CalDAV/CardDAV/WebDAV, RFC 4791/6352/4918/6350/2426/6638): out of scope for now — revisit only if the Bulwark Webmail integration exercises it. The `dav/` package keeps its own RFC tests regardless.
