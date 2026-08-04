@@ -25,6 +25,11 @@ import (
 // In a create payload a placeholder naming a creation id that is not being made in this call
 // can never resolve, so it is reported as deferred to force the caller to reject the
 // creation (RFC 8620 Section 5.3 requires rejecting dangling references).
+func isIdProperty(k string) bool {
+	lk := strings.ToLower(k)
+	return lk == "id" || strings.HasSuffix(lk, "id") || strings.HasSuffix(lk, "ids")
+}
+
 func resolveCreationRef(v any, resolved map[string]Id, pending map[string]struct{}) (out any, deferred bool) {
 	s, ok := v.(string)
 	if !ok || !strings.HasPrefix(s, "#") {
@@ -49,6 +54,10 @@ func resolveCreationRef(v any, resolved map[string]Id, pending map[string]struct
 func resolveNodeCreationRefs(nodeMap map[string]any, resolved map[string]Id, pending map[string]struct{}) (map[string]any, bool) {
 	out := make(map[string]any, len(nodeMap))
 	for k, v := range nodeMap {
+		if !isIdProperty(k) {
+			out[k] = v
+			continue
+		}
 		rv, deferred := resolveCreationRef(v, resolved, pending)
 		if deferred {
 			return nil, true

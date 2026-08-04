@@ -416,6 +416,139 @@ func setCalendarEventField(ev *jmap.CalendarEvent, path string, val any) {
 		if err := decodeJSONField(val, &m); err == nil {
 			ev.Keywords = m
 		}
+	case "relatedTo":
+		if val == nil {
+			ev.RelatedTo = nil
+			return
+		}
+		var m map[string]*jmap.JSCalendarRelation
+		if err := decodeJSONField(val, &m); err == nil {
+			ev.RelatedTo = m
+		}
+	case "prodId":
+		if val == nil {
+			ev.ProdID = ""
+			return
+		}
+		if s, ok := val.(string); ok {
+			ev.ProdID = s
+		}
+	case "sequence":
+		if val == nil {
+			ev.Sequence = 0
+			return
+		}
+		if f, ok := val.(float64); ok {
+			ev.Sequence = uint32(f)
+		}
+	case "method":
+		if val == nil {
+			ev.Method = ""
+			return
+		}
+		if s, ok := val.(string); ok {
+			ev.Method = s
+		}
+	case "descriptionContentType":
+		if val == nil {
+			ev.DescriptionContentType = ""
+			return
+		}
+		if s, ok := val.(string); ok {
+			ev.DescriptionContentType = s
+		}
+	case "showWithoutTime":
+		if val == nil {
+			ev.ShowWithoutTime = false
+			return
+		}
+		if b, ok := val.(bool); ok {
+			ev.ShowWithoutTime = b
+		}
+	case "locale":
+		if val == nil {
+			ev.Locale = ""
+			return
+		}
+		if s, ok := val.(string); ok {
+			ev.Locale = s
+		}
+	case "categories":
+		if val == nil {
+			ev.Categories = nil
+			return
+		}
+		var m map[string]bool
+		if err := decodeJSONField(val, &m); err == nil {
+			ev.Categories = m
+		}
+	case "color":
+		if val == nil {
+			ev.Color = ""
+			return
+		}
+		if s, ok := val.(string); ok {
+			ev.Color = s
+		}
+	case "priority":
+		if val == nil {
+			ev.Priority = 0
+			return
+		}
+		if f, ok := val.(float64); ok {
+			ev.Priority = uint32(f)
+		}
+	case "replyTo":
+		if val == nil {
+			ev.ReplyTo = nil
+			return
+		}
+		var m map[string]string
+		if err := decodeJSONField(val, &m); err == nil {
+			ev.ReplyTo = m
+		}
+	case "sentBy":
+		if val == nil {
+			ev.SentBy = ""
+			return
+		}
+		if s, ok := val.(string); ok {
+			ev.SentBy = s
+		}
+	case "requestStatus":
+		if val == nil {
+			ev.RequestStatus = ""
+			return
+		}
+		if s, ok := val.(string); ok {
+			ev.RequestStatus = s
+		}
+	case "useDefaultAlerts":
+		if val == nil {
+			ev.UseDefaultAlerts = false
+			return
+		}
+		if b, ok := val.(bool); ok {
+			ev.UseDefaultAlerts = b
+		}
+	case "localizations":
+		if val == nil {
+			ev.Localizations = nil
+			return
+		}
+		var m map[string]map[string]any
+		if err := decodeJSONField(val, &m); err == nil {
+			ev.Localizations = m
+		}
+	case "timeZones":
+		if val == nil {
+			ev.TimeZones = nil
+			return
+		}
+		var m map[string]*jmap.JSCalendarTimeZone
+		if err := decodeJSONField(val, &m); err == nil {
+			ev.TimeZones = m
+		}
 	}
 }
 
