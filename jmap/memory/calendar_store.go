@@ -781,6 +781,32 @@ func MatchCalendarEvent(ev *jmap.CalendarEvent, filter map[string]any) bool {
 			if ev.UID != s {
 				return false
 			}
+		case "owner":
+			s, _ := v.(string)
+			matchedOwner := false
+			for _, p := range ev.Participants {
+				if p != nil && (p.Role == "owner" || (p.Roles != nil && p.Roles["owner"])) {
+					if containsFold(p.Email, s) || containsFold(p.Name, s) {
+						matchedOwner = true
+						break
+					}
+				}
+			}
+			if !matchedOwner {
+				return false
+			}
+		case "attendee":
+			s, _ := v.(string)
+			matchedAttendee := false
+			for _, p := range ev.Participants {
+				if p != nil && (containsFold(p.Email, s) || containsFold(p.Name, s)) {
+					matchedAttendee = true
+					break
+				}
+			}
+			if !matchedAttendee {
+				return false
+			}
 		case "updatedBefore":
 			s, _ := v.(string)
 			if s != "" && ev.Updated >= s {

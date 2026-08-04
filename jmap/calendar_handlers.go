@@ -435,6 +435,14 @@ func handleCalendarEventQuery(backend CalendarsBackend) MethodHandler {
 			limit = &l
 		}
 
+		filter, _ = args["filter"].(map[string]any)
+		if tz, ok := args["timeZone"].(string); ok && tz != "" {
+			if filter == nil {
+				filter = make(map[string]any)
+			}
+			filter["timeZone"] = tz
+		}
+
 		expandRecurrences, _ := args["expandRecurrences"].(bool)
 		comparators := parseComparators(args)
 
@@ -473,6 +481,10 @@ func handleCalendarEventQueryChanges(backend CalendarsBackend) MethodHandler {
 		accountID, _ := args["accountId"].(string)
 		upToID, _ := args["upToId"].(string)
 		sinceState, _ := args["sinceQueryState"].(string)
+
+		if sinceState == "" {
+			return "error", MethodErrorArgs("cannotCalculateChanges", "sinceQueryState is required")
+		}
 
 		createdIDs, updatedIDs, destroyedIDs, newState, hasMore := backend.CalendarEventChanges(ctx, sinceState)
 		if hasMore {

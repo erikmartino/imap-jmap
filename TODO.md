@@ -86,9 +86,9 @@ the resolver for local delivery (inbound routing + outbound loopback). "The doma
 ### Query
 - [x] **Sort comparators** (MUST: `start`, `uid`, `recurrenceId`; SHOULD: `created`, `updated`): add `comparators []Comparator` to `CalendarsBackend.QueryCalendarEvents` (`backend.go:135`), parse `sort` in `handleCalendarEventQuery` (`calendar_handlers.go:439`), apply stable ordering. Order-asserting tests.
 - [x] **`expandRecurrences` query arg** (`calendar_handlers.go:406`): return per-occurrence ids when true. Test.
-- [ ] **`timeZone` query arg** for floating-time bounds (`calendar_handlers.go:406`) — currently ignored. Test.
-- [ ] **`owner` and `attendee` filter conditions** (`calendar_store.go:470` `MatchCalendarEvent`) — pos/neg tests each.
-- [ ] **`canCalculateChanges` correctness** (`calendar_handlers.go:449`): stop hardcoding `true` unless a stable order backs it; make `CalendarEvent/queryChanges` sort/position-aware so `added` carries correct indices (`calendar_handlers.go:457`). Test.
+- [x] **`timeZone` query arg** for floating-time bounds (`calendar_handlers.go:406`) — currently ignored. Test.
+- [x] **`owner` and `attendee` filter conditions** (`calendar_store.go:470` `MatchCalendarEvent`) — pos/neg tests each.
+- [x] **`canCalculateChanges` correctness** (`calendar_handlers.go:449`): stop hardcoding `true` unless a stable order backs it; make `CalendarEvent/queryChanges` sort/position-aware so `added` carries correct indices (`calendar_handlers.go:457`). Test.
 
 ### Calendar object, rights & sharing
 - [ ] **Missing Calendar properties** (`calendar_types.go:12`): `isSubscribed`, `includeInAvailability`, `defaultAlertsWithTime`, `defaultAlertsWithoutTime`, `timeZone`, `shareWith`. Struct + patch + tests.
