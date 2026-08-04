@@ -13,6 +13,24 @@ covered by the `dav/` package's own tests (rfc4791/6352/4918/6350/2426/6638/5545
 
 ---
 
+# Implement first — outbound mail (primary domain + sendmail)
+
+These two land before the calendar/addressbook/blob work. Today `EmailSubmission/set` never sends:
+`CreateSubmission` (`memory/mail_store.go:1058`) just stores the submission and fabricates
+`deliveryStatus: {"user@example.com": {delivered: granted}}`; the `smtp/` server is inbound-only.
+Recipient routing is per-recipient (recipients come from `envelope.rcptTo`, RFC 8621 §7.1, falling back
+to the email's To/Cc/Bcc); "the domain of the user" is read as the **recipient** address's domain.
+
+- [ ] **1. Primary-domain config + CLI flag.** Introduce a configurable "primary domain" (default `example.com`) that marks which recipients are local. Expose it as an optional CLI flag `--primary-domain` in `main.go` (alongside the existing `flag.String` set at `main.go:39-43`), with an env default (`PRIMARY_DOMAIN`) matching the `smtp-port`/`smtp-host` pattern. Plumb it into a submission/send config that reaches the mail backend + `EmailSubmission/set` path. Tests: flag/env parsing + default resolves to `example.com`.
+
+- [ ] **2. Sendmail support with domain routing + external allow-list.** Implement real outbound delivery on `EmailSubmission/set` create (`submission_handlers.go:98-137`, `memory/mail_store.go:1058` `CreateSubmission` — replace the fabricated `deliveryStatus`). Build the envelope (mailFrom + rcptTo), and for **each recipient**:
+  - recipient domain **==** primary domain → hand the message to the built-in SMTP server for local delivery (`smtp/server.go`; wire an in-process delivery path since it is currently receive-only).
+  - recipient domain **!=** primary domain → send **only if** the recipient address is in an allow-list; otherwise reject that recipient (`deliveryStatus` failed for it; whole submission → appropriate SetError when no recipient is deliverable).
+  - **Allow-list** is an optional CLI flag `--allowed-recipients` (comma-separated addresses; **default empty = none**, so external send is blocked by default), env default `ALLOWED_RECIPIENTS`, plumbed the same way as the primary domain.
+  - Tests — keep concerns split by RFC: JMAP submission routing/allow-list behavior (local delivered, external-not-listed rejected, external-listed sent, empty allow-list blocks all external) → `rfc8621_*_test.go` (EmailSubmission §7); the message actually landing in the built-in SMTP receiver for a local recipient → `smtp/rfc5321_*_test.go`; CLI/env flag parsing with `main`.
+
+---
+
 # Calendar — full JMAP support
 
 ## RFC 8984 (JSCalendar data model) — tests: `rfc8984_*_test.go`
