@@ -287,3 +287,25 @@ func TestRFC8620_Auth_WebSocket_NoToken(t *testing.T) {
 		t.Errorf("Expected 401, got %d", resp.StatusCode)
 	}
 }
+
+// TestAccountIDForSubject tests that AccountIDForSubject is stable, URL-safe, and deterministic.
+func TestAccountIDForSubject(t *testing.T) {
+	cases := []string{
+		"alice",
+		"user@example.com",
+		"subject+with-special/chars?=&",
+	}
+	for _, subject := range cases {
+		id := jmap.AccountIDForSubject(subject)
+		if id == "" {
+			t.Errorf("Expected non-empty account ID for subject %q", subject)
+		}
+		if id2 := jmap.AccountIDForSubject(subject); id2 != id {
+			t.Errorf("AccountIDForSubject not deterministic for %q: %q vs %q", subject, id, id2)
+		}
+	}
+	if jmap.AccountIDForSubject("alice") == jmap.AccountIDForSubject("bob") {
+		t.Error("Different subjects should yield different account IDs")
+	}
+}
+

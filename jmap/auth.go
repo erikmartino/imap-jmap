@@ -1,10 +1,18 @@
 package jmap
 
-import "context"
+import (
+	"context"
+	"encoding/base64"
+)
 
 type contextKey int
 
 const authAccountIDKey contextKey = iota
+
+// AccountIDForSubject converts a subject (e.g. username or email address) to a stable, URL-safe account ID.
+func AccountIDForSubject(subject string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(subject))
+}
 
 // AuthBackend defines the authentication plugin interface per RFC 8620 Section 8.2.
 // Implementations are responsible for credential validation and token lifecycle.
