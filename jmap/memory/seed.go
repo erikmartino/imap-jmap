@@ -209,3 +209,153 @@ func SeedSampleData(mb *MemoryBackend, cb *MemoryCalendarsBackend) {
 		})
 	}
 }
+
+// SeedAccountSampleData populates sample emails, calendars, contacts, and filenodes for an account on first use.
+func SeedAccountSampleData(ctx context.Context, accountID string, mb jmap.MailBackend, cb jmap.CalendarsBackend, contactsB jmap.ContactsBackend, fnB jmap.FileNodeBackend) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	accountCtx := jmap.ContextWithAccountID(ctx, accountID)
+
+	if mb != nil {
+		emails, _ := mb.GetAllEmails(accountCtx)
+		if len(emails) == 0 {
+			stub1 := &jmap.Email{
+				ID:            "email-seed-1",
+				ThreadID:      "thread-seed-1",
+				Subject:       "Welcome to JMAP Server",
+				From:          []jmap.EmailAddress{{Name: "JMAP Admin", Email: "admin@example.com"}},
+				To:            []jmap.EmailAddress{{Name: accountID, Email: accountID + "@example.com"}},
+				MailboxIDs:    map[jmap.Id]bool{"mb-inbox": true},
+				Keywords:      map[string]bool{"$seen": false},
+				Size:          1024,
+				ReceivedAt:    "2026-08-01T12:00:00Z",
+				SentAt:        "2026-08-01T11:59:00Z",
+				Preview:       "Welcome to your new JMAP mail server.",
+				BlobID:        "blob-stub-1",
+				BodyStructure: jmap.EmailBodyPart{PartID: "1", Type: "text/plain", Size: 40},
+				BodyValues:    map[string]jmap.EmailBodyValue{"1": {Value: "Welcome to your new JMAP mail server."}},
+			}
+			_, _ = mb.CreateEmail(accountCtx, stub1)
+
+			stubSent := &jmap.Email{
+				ID:            "email-seed-sent",
+				ThreadID:      "thread-seed-sent",
+				Subject:       "Re: Welcome to JMAP Server",
+				From:          []jmap.EmailAddress{{Name: accountID, Email: accountID + "@example.com"}},
+				To:            []jmap.EmailAddress{{Name: "JMAP Admin", Email: "admin@example.com"}},
+				MailboxIDs:    map[jmap.Id]bool{"mb-sent": true},
+				Keywords:      map[string]bool{"$seen": true},
+				Size:          512,
+				ReceivedAt:    "2026-08-01T12:05:00Z",
+				SentAt:        "2026-08-01T12:05:00Z",
+				Preview:       "Thank you! Glad to be using JMAP.",
+				BlobID:        "blob-stub-sent",
+				BodyStructure: jmap.EmailBodyPart{PartID: "1", Type: "text/plain", Size: 34},
+				BodyValues:    map[string]jmap.EmailBodyValue{"1": {Value: "Thank you! Glad to be using JMAP."}},
+			}
+			_, _ = mb.CreateEmail(accountCtx, stubSent)
+
+			stubDraft := &jmap.Email{
+				ID:            "email-seed-draft",
+				ThreadID:      "thread-seed-draft",
+				Subject:       "Draft: Project Outline",
+				From:          []jmap.EmailAddress{{Name: accountID, Email: accountID + "@example.com"}},
+				MailboxIDs:    map[jmap.Id]bool{"mb-drafts": true},
+				Keywords:      map[string]bool{"$draft": true},
+				Size:          256,
+				ReceivedAt:    "2026-08-02T08:00:00Z",
+				SentAt:        "2026-08-02T08:00:00Z",
+				Preview:       "Draft notes for the project outline.",
+				BlobID:        "blob-stub-draft",
+				BodyStructure: jmap.EmailBodyPart{PartID: "1", Type: "text/plain", Size: 36},
+				BodyValues:    map[string]jmap.EmailBodyValue{"1": {Value: "Draft notes for the project outline."}},
+			}
+			_, _ = mb.CreateEmail(accountCtx, stubDraft)
+
+			stubArchive := &jmap.Email{
+				ID:            "email-seed-archive",
+				ThreadID:      "thread-seed-archive",
+				Subject:       "Archive: Setup Confirmation",
+				From:          []jmap.EmailAddress{{Name: "System", Email: "system@example.com"}},
+				To:            []jmap.EmailAddress{{Name: accountID, Email: accountID + "@example.com"}},
+				MailboxIDs:    map[jmap.Id]bool{"mb-archive": true},
+				Keywords:      map[string]bool{"$seen": true},
+				Size:          384,
+				ReceivedAt:    "2026-08-01T10:00:00Z",
+				SentAt:        "2026-08-01T10:00:00Z",
+				Preview:       "Account setup completed successfully.",
+				BlobID:        "blob-stub-archive",
+				BodyStructure: jmap.EmailBodyPart{PartID: "1", Type: "text/plain", Size: 37},
+				BodyValues:    map[string]jmap.EmailBodyValue{"1": {Value: "Account setup completed successfully."}},
+			}
+			_, _ = mb.CreateEmail(accountCtx, stubArchive)
+		}
+	}
+
+	if cb != nil {
+		events, _, _ := cb.GetCalendarEvents(accountCtx, nil)
+		if len(events) == 0 {
+			ev1 := &jmap.CalendarEvent{
+				ID:          "ev-seed-1",
+				CalendarIDs: map[jmap.Id]bool{"cal-default": true},
+				Type:        "Event",
+				Title:       "Welcome & Onboarding",
+				Description: "Initial team onboarding and platform overview.",
+				Start:       "2026-08-05T10:00:00Z",
+				Duration:    "PT1H",
+				TimeZone:    "UTC",
+				Status:      "confirmed",
+			}
+			_, _ = cb.CreateCalendarEvent(accountCtx, ev1)
+		}
+	}
+
+	if contactsB != nil {
+		cards, _, _ := contactsB.GetCards(accountCtx, nil)
+		if len(cards) == 0 {
+			card1 := &jmap.Card{
+				ID:             "card-seed-1",
+				AddressBookIDs: map[jmap.Id]bool{"ab-default": true},
+				Kind:           "individual",
+				Name:           &jmap.JSContactName{Full: "Alice Smith"},
+				Emails:         map[string]*jmap.JSContactEmailAddress{"e1": {Address: "alice@example.com"}},
+			}
+			_, _ = contactsB.CreateCard(accountCtx, card1)
+		}
+	}
+
+	if fnB != nil {
+		nodes, _ := fnB.GetAllFileNodes(accountCtx)
+		if len(nodes) == 0 {
+			folderID := jmap.Id("fn-folder-documents")
+			file1BlobID := jmap.Id("blob-seed-welcome")
+			file2BlobID := jmap.Id("blob-seed-notes")
+
+			folder := &jmap.FileNode{
+				ID:       folderID,
+				Name:     "Documents",
+				IsFolder: true,
+			}
+			file1 := &jmap.FileNode{
+				ID:       "fn-file-welcome",
+				Name:     "welcome.txt",
+				ParentID: &folderID,
+				BlobID:   &file1BlobID,
+				Size:     28,
+				IsFolder: false,
+			}
+			file2 := &jmap.FileNode{
+				ID:       "fn-file-notes",
+				Name:     "notes.pdf",
+				ParentID: &folderID,
+				BlobID:   &file2BlobID,
+				Size:     1024,
+				IsFolder: false,
+			}
+			_, _ = fnB.CreateFileNode(accountCtx, folder)
+			_, _ = fnB.CreateFileNode(accountCtx, file1)
+			_, _ = fnB.CreateFileNode(accountCtx, file2)
+		}
+	}
+}

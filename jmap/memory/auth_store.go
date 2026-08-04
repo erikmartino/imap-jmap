@@ -24,20 +24,36 @@ type tokenRecord struct {
 // MemoryAuthBackend is a test AuthBackend that accepts any username where username == password.
 // This is intentionally insecure and is only suitable for development and testing.
 type MemoryAuthBackend struct {
-	mu       sync.RWMutex
-	tokens   map[string]tokenRecord // token → tokenRecord
-	revoked  map[string]bool
-	tokenTTL time.Duration
+	mu               sync.RWMutex
+	tokens           map[string]tokenRecord // token → tokenRecord
+	revoked          map[string]bool
+	tokenTTL         time.Duration
+	mailBackend      jmap.MailBackend
+	calendarsBackend jmap.CalendarsBackend
+	contactsBackend  jmap.ContactsBackend
+	fileNodeBackend  jmap.FileNodeBackend
+	seededAccounts   map[string]bool
 }
 
 // NewMemoryAuthBackend creates a new MemoryAuthBackend instance pre-registered with default test users.
 func NewMemoryAuthBackend() *MemoryAuthBackend {
 	b := &MemoryAuthBackend{
-		tokens:   make(map[string]tokenRecord),
-		revoked:  make(map[string]bool),
-		tokenTTL: defaultTokenTTL,
+		tokens:         make(map[string]tokenRecord),
+		revoked:        make(map[string]bool),
+		tokenTTL:       defaultTokenTTL,
+		seededAccounts: make(map[string]bool),
 	}
 	return b
+}
+
+// SetBackends links memory backends for lazy per-account sample data seeding on first authentication.
+func (a *MemoryAuthBackend) SetBackends(mb jmap.MailBackend, cb jmap.CalendarsBackend, contactsB jmap.ContactsBackend, fnB jmap.FileNodeBackend) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.mailBackend = mb
+	a.calendarsBackend = cb
+	a.contactsBackend = contactsB
+	a.fileNodeBackend = fnB
 }
 
 // SetTokenTTL overrides the token lifetime. A non-positive value disables expiry.
@@ -71,7 +87,17 @@ func (a *MemoryAuthBackend) Authenticate(ctx context.Context, username, password
 	expiresAt := time.Now().Add(a.tokenTTL)
 	delete(a.revoked, token)
 	a.tokens[token] = tokenRecord{subject: username, accountID: accountID, expiresAt: expiresAt}
+	if a.seededAccounts == nil {
+		a.seededAccounts = make(map[string]bool)
+	}
+	alreadySeeded := a.seededAccounts[accountID]
+	a.seededAccounts[accountID] = true
+	mb, cb, contactsB, fnB := a.mailBackend, a.calendarsBackend, a.contactsBackend, a.fileNodeBackend
 	a.mu.Unlock()
+
+	if !alreadySeeded && (mb != nil || cb != nil || contactsB != nil || fnB != nil) {
+		SeedAccountSampleData(ctx, accountID, mb, cb, contactsB, fnB)
+	}
 
 	return token, nil
 }

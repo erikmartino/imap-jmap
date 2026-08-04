@@ -28,6 +28,9 @@ func newTestServer(opts ...jmap.Option) *jmap.Server {
 	allOpts = append(allOpts, opts...)
 
 	srv := jmap.NewServer(nil, allOpts...)
+	if memAuth, ok := srv.AuthBackend.(*memory.MemoryAuthBackend); ok && memAuth != nil {
+		memAuth.SetBackends(mb, cal, contacts, fb)
+	}
 	mb.SetBroadcaster(srv.Broadcaster)
 	cal.SetBroadcaster(srv.Broadcaster)
 	contacts.SetBroadcaster(srv.Broadcaster)

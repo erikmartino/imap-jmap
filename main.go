@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -93,10 +94,12 @@ func main() {
 	memIMAPBackend := memory.NewMemoryIMAPAccessBackend()
 	memFileNodeBackend := memory.NewMemoryFileNodeBackend()
 	authBackend := memory.NewMemoryAuthBackend()
+	authBackend.SetBackends(memBackend, memCalBackend, memContactsBackend, memFileNodeBackend)
 	accountResolver := jmap.PrimaryDomainResolver{PrimaryDomain: *primaryDomain}
 
-	// Seed realistic sample emails and calendars for server runtime execution
+	// Seed realistic sample emails, calendars, contacts, and filenodes for server execution
 	memory.SeedSampleData(memBackend, memCalBackend)
+	memory.SeedAccountSampleData(context.Background(), "primary", memBackend, memCalBackend, memContactsBackend, memFileNodeBackend)
 
 	server := jmap.NewServer(
 		session,
