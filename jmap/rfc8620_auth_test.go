@@ -347,4 +347,82 @@ func TestRFC8620_Auth_DerivedAccountID(t *testing.T) {
 	}
 }
 
+// TestRFC8620_PermissionGuard_Dispatch tests that self account access is allowed and foreign account access returns accountNotFound error.
+func TestRFC8620_PermissionGuard_Dispatch(t *testing.T) {
+	srv, authBackend := newAuthTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	tokenA, err := authBackend.Authenticate(context.Background(), "userA", "userA")
+	if err != nil {
+		t.Fatalf("Authenticate userA failed: %v", err)
+	}
+
+	idA := jmap.AccountIDForSubject("userA")
+	idB := jmap.AccountIDForSubject("userB")
+	usingMail := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}
+
+	// 1. Own account via "primary" alias -> OK
+	res1 := postJMAPWithToken(t, ts.URL, tokenA, usingMail, []any{
+		[]any{"Mailbox/get", map[string]any{"accountId": "primary"}, "c1"},
+	})
+	if res1.MethodResponses[0].Name == "error" {
+		t.Errorf("Accessing primary account failed: %v", res1.MethodResponses[0].Args)
+	}
+
+	// 2. Own account via derived accountId -> OK
+	res2 := postJMAPWithToken(t, ts.URL, tokenA, usingMail, []any{
+		[]any{"Mailbox/get", map[string]any{"accountId": idA}, "c2"},
+	})
+	if res2.MethodResponses[0].Name == "error" {
+		t.Errorf("Accessing own derived accountID failed: %v", res2.MethodResponses[0].Args)
+	}
+
+	// 3. Foreign account via userB's accountId -> method error accountNotFound
+	res3 := postJMAPWithToken(t, ts.URL, tokenA, usingMail, []any{
+		[]any{"Mailbox/get", map[string]any{"accountId": idB}, "c3"},
+	})
+	if res3.MethodResponses[0].Name != "error" {
+		t.Errorf("Expected error response for foreign account, got %s", res3.MethodResponses[0].Name)
+	}
+	errType, _ := res3.MethodResponses[0].Args["type"].(string)
+	if errType != "accountNotFound" {
+		t.Errorf("Expected accountNotFound method error, got %q", errType)
+	}
+}
+
+// TestRFC8620_AccountResolver_PrimaryDomain tests local vs external email address resolution.
+func TestRFC8620_AccountResolver_PrimaryDomain(t *testing.T) {
+	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
+	ctx := context.Background()
+
+	// Local address -> returns derived accountID and local = true
+	id, local := resolver.ResolveAccountID(ctx, "user@example.com")
+	if !local {
+		t.Errorf("Expected user@example.com to be local")
+	}
+	if id != jmap.AccountIDForSubject("user@example.com") {
+		t.Errorf("Expected accountID %q, got %q", jmap.AccountIDForSubject("user@example.com"), id)
+	}
+
+	// Case insensitive domain match
+	_, localUpper := resolver.ResolveAccountID(ctx, "user@EXAMPLE.COM")
+	if !localUpper {
+		t.Errorf("Expected case-insensitive local match for user@EXAMPLE.COM")
+	}
+
+	// External address -> local = false
+	idExt, localExt := resolver.ResolveAccountID(ctx, "user@external.com")
+	if localExt || idExt != "" {
+		t.Errorf("Expected external address to resolve ( \"\", false ), got ( %q, %v )", idExt, localExt)
+	}
+
+	// Malformed address -> local = false
+	idBad, localBad := resolver.ResolveAccountID(ctx, "not-an-email")
+	if localBad || idBad != "" {
+		t.Errorf("Expected malformed address to resolve ( \"\", false ), got ( %q, %v )", idBad, localBad)
+	}
+}
+
+
 

@@ -18,6 +18,8 @@ type Server struct {
 	IMAPAccessBackend IMAPAccessBackend
 	FileNodeBackend   FileNodeBackend
 	AuthBackend       AuthBackend
+	PermissionGuard   PermissionGuard
+	AccountResolver   AccountResolver
 	MethodRegistry    *MethodRegistry
 	Broadcaster       *Broadcaster
 }
@@ -88,6 +90,20 @@ func WithAuthBackend(ab AuthBackend) Option {
 	}
 }
 
+// WithPermissionGuard sets a custom PermissionGuard implementation for account authorization.
+func WithPermissionGuard(g PermissionGuard) Option {
+	return func(s *Server) {
+		s.PermissionGuard = g
+	}
+}
+
+// WithAccountResolver sets a custom AccountResolver implementation for email-to-account resolution.
+func WithAccountResolver(r AccountResolver) Option {
+	return func(s *Server) {
+		s.AccountResolver = r
+	}
+}
+
 // NewServer initializes a new Server instance.
 func NewServer(session *Session, opts ...Option) *Server {
 	if session == nil {
@@ -101,6 +117,13 @@ func NewServer(session *Session, opts ...Option) *Server {
 
 	for _, opt := range opts {
 		opt(s)
+	}
+
+	if s.PermissionGuard == nil {
+		s.PermissionGuard = SelfAccessGuard{}
+	}
+	if s.AccountResolver == nil {
+		s.AccountResolver = PrimaryDomainResolver{PrimaryDomain: "example.com"}
 	}
 
 	RegisterMailHandlers(s.MethodRegistry, s.MailBackend, s.BlobBackend)
@@ -284,6 +307,21 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 			responses = append(responses, respInv)
 			executedMap[call.ClientCallID] = respInv
 			continue
+		}
+
+		targetAccountID, _ := resolvedArgs["accountId"].(string)
+		principalAccountID, _ := AccountIDFromContext(reqCtx)
+		if s.AuthBackend != nil && targetAccountID != "" && targetAccountID != "primary" {
+			if s.PermissionGuard != nil && !s.PermissionGuard.CanAccessAccount(reqCtx, principalAccountID, targetAccountID) {
+				respInv := Invocation{
+					Name:         "error",
+					Args:         MethodErrorArgs(MethodErrorAccountNotFound, fmt.Sprintf("Account %q not found", targetAccountID)),
+					ClientCallID: call.ClientCallID,
+				}
+				responses = append(responses, respInv)
+				executedMap[call.ClientCallID] = respInv
+				continue
+			}
 		}
 
 		respName, respArgs := handler(reqCtx, resolvedArgs, call.ClientCallID)
