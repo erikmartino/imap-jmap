@@ -159,7 +159,7 @@ func matchesCardText(card *jmap.Card, q string) bool {
 		return true
 	}
 	for _, t := range card.Titles {
-		if t != nil && containsFold(t.Title, q) {
+		if t != nil && containsFold(t.Name, q) {
 			return true
 		}
 	}

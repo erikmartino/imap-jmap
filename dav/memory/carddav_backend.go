@@ -101,7 +101,7 @@ func (b *CardDAVBackend) DeleteAddressBook(ctx context.Context, path string) err
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 	if len(parts) > 0 {
 		abID := parts[len(parts)-1]
-		_, err := b.Backend.DeleteAddressBook(ctx, jmap.Id(abID))
+		_, err := b.Backend.DeleteAddressBook(ctx, jmap.Id(abID), true)
 		return err
 	}
 	return nil

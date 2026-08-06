@@ -433,3 +433,300 @@ func TestRFC9610_CardCopyRoundTrip(t *testing.T) {
 		t.Errorf("expected 2 cards after copy, got %d", len(list))
 	}
 }
+
+// TestRFC9610_AddressBookRightsAndDefault verifies RFC 9610 AddressBookRights names and isDefault behavior.
+func TestRFC9610_AddressBookRightsAndDefault(t *testing.T) {
+	contactsBackend := memory.NewMemoryContactsBackend()
+	srv := jmap.NewServer(nil, jmap.WithContactsBackend(contactsBackend))
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// 1. AddressBook/get verify rights keys
+	getReq := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.ContactsCapabilityURI},
+		"methodCalls": []any{
+			[]any{"AddressBook/get", map[string]any{"accountId": "primary"}, "c1"},
+		},
+	}
+	body, _ := json.Marshal(getReq)
+	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("AddressBook/get failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var jr jmap.Response
+	_ = json.NewDecoder(resp.Body).Decode(&jr)
+	list := jr.MethodResponses[0].Args["list"].([]any)
+	if len(list) == 0 {
+		t.Fatal("expected default address book")
+	}
+	ab := list[0].(map[string]any)
+	rights := ab["myRights"].(map[string]any)
+	if _, ok := rights["mayRead"]; !ok {
+		t.Errorf("expected mayRead in myRights, got %#v", rights)
+	}
+	if _, ok := rights["mayWrite"]; !ok {
+		t.Errorf("expected mayWrite in myRights, got %#v", rights)
+	}
+
+	// 2. Reject direct isDefault set on create
+	createReq := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.ContactsCapabilityURI},
+		"methodCalls": []any{
+			[]any{"AddressBook/set", map[string]any{
+				"accountId": "primary",
+				"create": map[string]any{
+					"ab1": map[string]any{"name": "Work", "isDefault": true},
+				},
+			}, "c2"},
+		},
+	}
+	body, _ = json.Marshal(createReq)
+	resp, err = http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("AddressBook/set failed: %v", err)
+	}
+	defer resp.Body.Close()
+	_ = json.NewDecoder(resp.Body).Decode(&jr)
+	notCreated := jr.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if _, ok := notCreated["ab1"]; !ok {
+		t.Fatalf("expected isDefault creation to be rejected with notCreated, got %#v", jr.MethodResponses[0].Args)
+	}
+
+	// 3. Create using onSuccessSetIsDefault
+	createSuccessReq := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.ContactsCapabilityURI},
+		"methodCalls": []any{
+			[]any{"AddressBook/set", map[string]any{
+				"accountId": "primary",
+				"create": map[string]any{
+					"ab2": map[string]any{"name": "Work Contacts"},
+				},
+				"onSuccessSetIsDefault": "#ab2",
+			}, "c3"},
+		},
+	}
+	body, _ = json.Marshal(createSuccessReq)
+	resp, err = http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("AddressBook/set failed: %v", err)
+	}
+	defer resp.Body.Close()
+	_ = json.NewDecoder(resp.Body).Decode(&jr)
+	createdMap := jr.MethodResponses[0].Args["created"].(map[string]any)
+	newAB := createdMap["ab2"].(map[string]any)
+	newID := newAB["id"].(string)
+
+	// Verify newAB is now default
+	getReq2 := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.ContactsCapabilityURI},
+		"methodCalls": []any{
+			[]any{"AddressBook/get", map[string]any{"accountId": "primary", "ids": []string{newID}}, "c4"},
+		},
+	}
+	body, _ = json.Marshal(getReq2)
+	resp, err = http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("AddressBook/get failed: %v", err)
+	}
+	defer resp.Body.Close()
+	_ = json.NewDecoder(resp.Body).Decode(&jr)
+	list2 := jr.MethodResponses[0].Args["list"].([]any)
+	if len(list2) == 0 || list2[0].(map[string]any)["isDefault"] != true {
+		t.Errorf("expected newly set default addressbook to have isDefault true, got %#v", list2)
+	}
+}
+
+// TestRFC9610_AddressBookDestroyRemoveContents tests onDestroyRemoveContents parameter semantics per RFC 9610.
+func TestRFC9610_AddressBookDestroyRemoveContents(t *testing.T) {
+	contactsBackend := memory.NewMemoryContactsBackend()
+	srv := jmap.NewServer(nil, jmap.WithContactsBackend(contactsBackend))
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// 1. Create a custom address book and a card inside it
+	post := func(calls []any) jmap.Response {
+		payload := map[string]any{
+			"using":       []string{jmap.CoreCapabilityURI, jmap.ContactsCapabilityURI},
+			"methodCalls": calls,
+		}
+		body, _ := json.Marshal(payload)
+		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST /jmap failed: %v", err)
+		}
+		defer resp.Body.Close()
+		var jr jmap.Response
+		_ = json.NewDecoder(resp.Body).Decode(&jr)
+		return jr
+	}
+
+	r1 := post([]any{
+		[]any{"AddressBook/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"ab1": map[string]any{"name": "Team"},
+			},
+		}, "c1"},
+	})
+	abID := r1.MethodResponses[0].Args["created"].(map[string]any)["ab1"].(map[string]any)["id"].(string)
+
+	post([]any{
+		[]any{"Card/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"card1": map[string]any{
+					"name":           map[string]any{"full": "Bob Developer"},
+					"addressBookIds": map[string]any{abID: true},
+				},
+			},
+		}, "c2"},
+	})
+
+	// 2. Destroy address book without onDestroyRemoveContents -> fails with addressBookHasContents
+	r2 := post([]any{
+		[]any{"AddressBook/set", map[string]any{
+			"accountId": "primary",
+			"destroy":   []string{abID},
+		}, "c3"},
+	})
+	notDestroyed := r2.MethodResponses[0].Args["notDestroyed"].(map[string]any)
+	if errObj, ok := notDestroyed[abID].(map[string]any); !ok || errObj["type"] != "addressBookHasContents" {
+		t.Fatalf("expected addressBookHasContents SetError, got %#v", notDestroyed)
+	}
+
+	// 3. Destroy with onDestroyRemoveContents: true -> succeeds
+	r3 := post([]any{
+		[]any{"AddressBook/set", map[string]any{
+			"accountId":                "primary",
+			"destroy":                  []string{abID},
+			"onDestroyRemoveContents": true,
+		}, "c4"},
+	})
+	destroyed := r3.MethodResponses[0].Args["destroyed"].([]any)
+	if len(destroyed) != 1 || destroyed[0] != abID {
+		t.Fatalf("expected abID %s to be destroyed, got %#v", abID, destroyed)
+	}
+}
+
+// TestRFC9610_CardQueryFilterOperatorAndConditions tests FilterOperator and all search filter conditions.
+func TestRFC9610_CardQueryFilterOperatorAndConditions(t *testing.T) {
+	contactsBackend := memory.NewMemoryContactsBackend()
+	srv := jmap.NewServer(nil, jmap.WithContactsBackend(contactsBackend))
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	post := func(calls []any) jmap.Response {
+		payload := map[string]any{
+			"using":       []string{jmap.CoreCapabilityURI, jmap.ContactsCapabilityURI},
+			"methodCalls": calls,
+		}
+		body, _ := json.Marshal(payload)
+		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST /jmap failed: %v", err)
+		}
+		defer resp.Body.Close()
+		var jr jmap.Response
+		_ = json.NewDecoder(resp.Body).Decode(&jr)
+		return jr
+	}
+
+	// Create test cards
+	r1 := post([]any{
+		[]any{"Card/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"c1": map[string]any{
+					"uid":  "uid-100",
+					"kind": "individual",
+					"name": map[string]any{
+						"full": "John Doe",
+						"components": []map[string]any{
+							{"kind": "given", "value": "John"},
+							{"kind": "surname", "value": "Doe"},
+						},
+					},
+					"nicknames": map[string]any{"n1": map[string]any{"name": "Johnny"}},
+					"emails":    map[string]any{"e1": map[string]any{"address": "john@example.com"}},
+					"phones":    map[string]any{"p1": map[string]any{"number": "+123456789"}},
+					"organizations": map[string]any{"o1": map[string]any{"name": "ACME Corp"}},
+					"notes":     map[string]any{"k1": map[string]any{"note": "Software Engineer"}},
+					"members":   map[string]any{"group-member-1": true},
+				},
+				"c2": map[string]any{
+					"uid":  "uid-200",
+					"kind": "group",
+					"name": map[string]any{
+						"full": "Jane Smith",
+						"components": []map[string]any{
+							{"kind": "given", "value": "Jane"},
+							{"kind": "surname", "value": "Smith"},
+						},
+					},
+					"emails": map[string]any{"e2": map[string]any{"address": "jane@example.org"}},
+				},
+			},
+		}, "c1"},
+	})
+	created := r1.MethodResponses[0].Args["created"].(map[string]any)
+	id1 := created["c1"].(map[string]any)["id"].(string)
+	id2 := created["c2"].(map[string]any)["id"].(string)
+
+	// Filter test cases: positive and negative
+	tests := []struct {
+		name     string
+		filter   map[string]any
+		expected []string
+	}{
+		{"uid match", map[string]any{"uid": "uid-100"}, []string{id1}},
+		{"uid mismatch", map[string]any{"uid": "nonexistent"}, []string{}},
+		{"kind match", map[string]any{"kind": "group"}, []string{id2}},
+		{"kind mismatch", map[string]any{"kind": "org"}, []string{}},
+		{"hasMember match", map[string]any{"hasMember": "group-member-1"}, []string{id1}},
+		{"hasMember mismatch", map[string]any{"hasMember": "group-member-99"}, []string{}},
+		{"email match", map[string]any{"email": "john@example.com"}, []string{id1}},
+		{"email mismatch", map[string]any{"email": "unknown@example.com"}, []string{}},
+		{"phone match", map[string]any{"phone": "+123456789"}, []string{id1}},
+		{"phone mismatch", map[string]any{"phone": "+999999999"}, []string{}},
+		{"name/given match", map[string]any{"name/given": "John"}, []string{id1}},
+		{"name/given mismatch", map[string]any{"name/given": "Jane"}, []string{id2}}, // Jane Smith has no components, mismatch for given
+		{"organization match", map[string]any{"organization": "ACME"}, []string{id1}},
+		{"organization mismatch", map[string]any{"organization": "Stark"}, []string{}},
+		{"note match", map[string]any{"note": "Software"}, []string{id1}},
+		{"note mismatch", map[string]any{"note": "Doctor"}, []string{}},
+		{"FilterOperator OR", map[string]any{
+			"operator": "OR",
+			"conditions": []map[string]any{
+				{"uid": "uid-100"},
+				{"uid": "uid-200"},
+			},
+		}, []string{id1, id2}},
+		{"FilterOperator NOT", map[string]any{
+			"operator": "NOT",
+			"conditions": []map[string]any{
+				{"kind": "group"},
+			},
+		}, []string{id1}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := post([]any{
+				[]any{"Card/query", map[string]any{"accountId": "primary", "filter": tt.filter}, "q1"},
+			})
+			idsRaw, ok := res.MethodResponses[0].Args["ids"].([]any)
+			if !ok {
+				t.Fatalf("expected ids array, got %#v", res.MethodResponses[0].Args)
+			}
+			gotIDs := make([]string, 0, len(idsRaw))
+			for _, item := range idsRaw {
+				gotIDs = append(gotIDs, item.(string))
+			}
+			if len(gotIDs) != len(tt.expected) {
+				t.Errorf("filter %#v: expected %d ids (%v), got %d (%v)", tt.filter, len(tt.expected), tt.expected, len(gotIDs), gotIDs)
+			}
+		})
+	}
+}

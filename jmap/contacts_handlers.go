@@ -3,6 +3,7 @@ package jmap
 import (
 	"context"
 	"encoding/json"
+	"strings"
 )
 
 // RegisterContactsHandlers registers RFC 9610 JMAP for Contacts method handlers into MethodRegistry.
@@ -113,7 +114,16 @@ func handleAddressBookSet(backend ContactsBackend) MethodHandler {
 		creationRefs := newSetCreationRefs(ctx)
 
 		if createRaw, ok := args["create"].(map[string]any); ok {
-			for creationID, abMap := range createRaw {
+			for creationID, itemRaw := range createRaw {
+				abMap, _ := itemRaw.(map[string]any)
+				if _, hasIsDefault := abMap["isDefault"]; hasIsDefault {
+					notCreated[creationID] = SetError{
+						Type:        "invalidProperties",
+						Description: "isDefault is server-set and cannot be set directly",
+						Properties:  []string{"isDefault"},
+					}
+					continue
+				}
 				abBytes, _ := json.Marshal(abMap)
 				var ab AddressBook
 				_ = json.Unmarshal(abBytes, &ab)
@@ -132,9 +142,21 @@ func handleAddressBookSet(backend ContactsBackend) MethodHandler {
 			for idStr, patchRaw := range updateRaw {
 				resolvedID := resolveCreationID(idStr, creationRefs)
 				if patch, ok := patchRaw.(map[string]any); ok {
+					if _, hasIsDefault := patch["isDefault"]; hasIsDefault {
+						notUpdated[string(resolvedID)] = SetError{
+							Type:        "invalidProperties",
+							Description: "isDefault is server-set and cannot be set directly",
+							Properties:  []string{"isDefault"},
+						}
+						continue
+					}
 					updatedAB, err := backend.UpdateAddressBook(ctx, Id(resolvedID), resolvePatchCreationRefs(patch, creationRefs))
 					if err != nil {
-						notUpdated[string(resolvedID)] = SetError{Type: "notFound", Description: err.Error()}
+						if strings.HasPrefix(err.Error(), "forbidden:") {
+							notUpdated[string(resolvedID)] = SetError{Type: "forbidden", Description: strings.TrimPrefix(err.Error(), "forbidden: ")}
+						} else {
+							notUpdated[string(resolvedID)] = SetError{Type: "notFound", Description: err.Error()}
+						}
 					} else {
 						updated[string(resolvedID)] = map[string]any{"name": updatedAB.Name}
 					}
@@ -142,12 +164,28 @@ func handleAddressBookSet(backend ContactsBackend) MethodHandler {
 			}
 		}
 
+		if setDefaultRaw, ok := args["onSuccessSetIsDefault"].(string); ok && setDefaultRaw != "" {
+			targetID := resolveCreationID(setDefaultRaw, creationRefs)
+			_ = backend.SetDefaultAddressBook(ctx, Id(targetID))
+		}
+
+		onDestroyRemoveContents, _ := args["onDestroyRemoveContents"].(bool)
 		if destroyRaw, ok := args["destroy"].([]any); ok {
 			for _, idItem := range destroyRaw {
 				if idStr, ok := idItem.(string); ok {
 					resolvedID := resolveCreationID(idStr, creationRefs)
-					ok, err := backend.DeleteAddressBook(ctx, Id(resolvedID))
-					if err != nil || !ok {
+					if !onDestroyRemoveContents {
+						hasContents, _ := backend.AddressBookHasContents(ctx, Id(resolvedID))
+						if hasContents {
+							notDestroyed[string(resolvedID)] = SetError{
+								Type:        "addressBookHasContents",
+								Description: "addressbook contains cards; use onDestroyRemoveContents to delete",
+							}
+							continue
+						}
+					}
+					okDel, err := backend.DeleteAddressBook(ctx, Id(resolvedID), onDestroyRemoveContents)
+					if err != nil || !okDel {
 						notDestroyed[string(resolvedID)] = SetError{Type: "notFound", Description: "addressbook not found"}
 					} else {
 						destroyed = append(destroyed, Id(resolvedID))
@@ -412,60 +450,6 @@ func handleCardQueryChanges(backend ContactsBackend) MethodHandler {
 		return "Card/queryChanges", res
 	}
 }
-
-// handleAddressBookCopy implements AddressBook/copy per RFC 8620 Section 5.4.
-func handleAddressBookCopy(backend ContactsBackend) MethodHandler {
-	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
-		accountID, _ := args["accountId"].(string)
-		fromAccountID, _ := args["fromAccountId"].(string)
-		if fromAccountID == "" {
-			fromAccountID = accountID
-		}
-		oldState := backend.AddressBookState(ctx)
-
-		created := make(map[string]*AddressBook)
-		notCreated := make(map[string]any)
-
-		if createRaw, ok := args["create"].(map[string]any); ok {
-			for creationID, raw := range createRaw {
-				m, _ := raw.(map[string]any)
-				srcID, _ := m["id"].(string)
-				if srcID == "" {
-					notCreated[creationID] = SetError{Type: "invalidProperties", Description: "copy create entry must reference a source id"}
-					continue
-				}
-				srcs, notFound, _ := backend.GetAddressBooks(ctx, []Id{Id(srcID)})
-				if len(srcs) == 0 || len(notFound) > 0 {
-					notCreated[creationID] = SetError{Type: "notFound", Description: "source address book not found: " + srcID}
-					continue
-				}
-
-				merged := mergeCopyOverrides(srcs[0], m)
-				abBytes, _ := json.Marshal(merged)
-				var ab AddressBook
-				_ = json.Unmarshal(abBytes, &ab)
-				ab.ID = ""
-
-				newAB, err := backend.CreateAddressBook(ctx, &ab)
-				if err != nil {
-					notCreated[creationID] = SetError{Type: "invalidProperties", Description: err.Error()}
-				} else {
-					created[creationID] = newAB
-				}
-			}
-		}
-
-		return "AddressBook/copy", map[string]any{
-			"fromAccountId": fromAccountID,
-			"accountId":     accountID,
-			"oldState":      oldState,
-			"newState":      backend.AddressBookState(ctx),
-			"created":       created,
-			"notCreated":    notCreated,
-		}
-	}
-}
-
 // handleCardCopy implements Card/copy per RFC 8620 Section 5.4: each create entry names a source
 // card by id, optionally overriding properties, and is recreated in the target account.
 func handleCardCopy(backend ContactsBackend) MethodHandler {
@@ -514,6 +498,59 @@ func handleCardCopy(backend ContactsBackend) MethodHandler {
 			"accountId":     accountID,
 			"oldState":      oldState,
 			"newState":      backend.CardState(ctx),
+			"created":       created,
+			"notCreated":    notCreated,
+		}
+	}
+}
+
+// handleAddressBookCopy implements AddressBook/copy as a server extension per RFC 8620 Section 5.4.
+func handleAddressBookCopy(backend ContactsBackend) MethodHandler {
+	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
+		accountID, _ := args["accountId"].(string)
+		fromAccountID, _ := args["fromAccountId"].(string)
+		if fromAccountID == "" {
+			fromAccountID = accountID
+		}
+		oldState := backend.AddressBookState(ctx)
+
+		created := make(map[string]*AddressBook)
+		notCreated := make(map[string]any)
+
+		if createRaw, ok := args["create"].(map[string]any); ok {
+			for creationID, raw := range createRaw {
+				m, _ := raw.(map[string]any)
+				srcID, _ := m["id"].(string)
+				if srcID == "" {
+					notCreated[creationID] = SetError{Type: "invalidProperties", Description: "copy create entry must reference a source id"}
+					continue
+				}
+				srcs, notFound, _ := backend.GetAddressBooks(ctx, []Id{Id(srcID)})
+				if len(srcs) == 0 || len(notFound) > 0 {
+					notCreated[creationID] = SetError{Type: "notFound", Description: "source address book not found: " + srcID}
+					continue
+				}
+
+				merged := mergeCopyOverrides(srcs[0], m)
+				abBytes, _ := json.Marshal(merged)
+				var ab AddressBook
+				_ = json.Unmarshal(abBytes, &ab)
+				ab.ID = ""
+
+				newAB, err := backend.CreateAddressBook(ctx, &ab)
+				if err != nil {
+					notCreated[creationID] = SetError{Type: "invalidProperties", Description: err.Error()}
+				} else {
+					created[creationID] = newAB
+				}
+			}
+		}
+
+		return "AddressBook/copy", map[string]any{
+			"fromAccountId": fromAccountID,
+			"accountId":     accountID,
+			"oldState":      oldState,
+			"newState":      backend.AddressBookState(ctx),
 			"created":       created,
 			"notCreated":    notCreated,
 		}

@@ -25,6 +25,7 @@ type MemoryContactsBackend struct {
 	users       map[string]*userContactsStore
 	nextID      uint64
 	broadcaster *jmap.Broadcaster
+	blobBackend jmap.BlobBackend
 }
 
 func (b *MemoryContactsBackend) getStoreLocked(ctx context.Context) *userContactsStore {
@@ -52,6 +53,13 @@ func (b *MemoryContactsBackend) SetBroadcaster(bc *jmap.Broadcaster) {
 	b.broadcaster = bc
 }
 
+// SetBlobBackend attaches a BlobBackend for media blob validations.
+func (b *MemoryContactsBackend) SetBlobBackend(bb jmap.BlobBackend) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.blobBackend = bb
+}
+
 func newMemoryUserContactsStore() *userContactsStore {
 	us := &userContactsStore{
 		addressBooks: make(map[jmap.Id]*jmap.AddressBook),
@@ -66,10 +74,10 @@ func newMemoryUserContactsStore() *userContactsStore {
 		SortOrder: 0,
 		IsDefault: true,
 		MyRights: jmap.AddressBookRights{
-			MayReadItems:  true,
-			MayWriteItems: true,
-			MayAdmin:      true,
-			MayDelete:     false,
+			MayRead:   true,
+			MayWrite:  true,
+			MayShare:  true,
+			MayDelete: false,
 		},
 	}
 	us.addressBooks[defaultAB.ID] = defaultAB
@@ -180,10 +188,10 @@ func (b *MemoryContactsBackend) CreateAddressBook(ctx context.Context, ab *jmap.
 		ab.ID = jmap.Id(fmt.Sprintf("ab-%d", b.nextID))
 	}
 	ab.MyRights = jmap.AddressBookRights{
-		MayReadItems:  true,
-		MayWriteItems: true,
-		MayAdmin:      true,
-		MayDelete:     true,
+		MayRead:   true,
+		MayWrite:  true,
+		MayShare:  true,
+		MayDelete: true,
 	}
 	if ab.IsDefault {
 		for _, other := range us.addressBooks {
@@ -216,20 +224,62 @@ func (b *MemoryContactsBackend) UpdateAddressBook(ctx context.Context, id jmap.I
 	if sortOrder, ok := patch["sortOrder"].(float64); ok {
 		ab.SortOrder = uint64(sortOrder)
 	}
-	if isDefault, ok := patch["isDefault"].(bool); ok && isDefault {
-		for _, other := range us.addressBooks {
-			if other.ID != ab.ID {
-				other.IsDefault = false
+	if isSubscribed, ok := patch["isSubscribed"].(bool); ok {
+		ab.IsSubscribed = isSubscribed
+	}
+	if rawShare, present := patch["shareWith"]; present {
+		if !ab.MyRights.MayShare {
+			return nil, fmt.Errorf("forbidden: user does not have mayShare right")
+		}
+		if rawShare == nil {
+			ab.ShareWith = nil
+		} else {
+			rawBytes, _ := json.Marshal(rawShare)
+			var sw map[string]*jmap.AddressBookRights
+			if err := json.Unmarshal(rawBytes, &sw); err == nil {
+				ab.ShareWith = sw
 			}
 		}
-		ab.IsDefault = true
 	}
 
 	b.recordChange(ctx, us.abState, id, "update", "AddressBook")
 	return ab, nil
 }
 
-func (b *MemoryContactsBackend) DeleteAddressBook(ctx context.Context, id jmap.Id) (bool, error) {
+func (b *MemoryContactsBackend) SetDefaultAddressBook(ctx context.Context, id jmap.Id) error {
+	b.mu.Lock()
+	us := b.getStoreLocked(ctx)
+	defer b.mu.Unlock()
+
+	if _, ok := us.addressBooks[id]; !ok {
+		return fmt.Errorf("addressbook not found: %s", id)
+	}
+
+	for _, ab := range us.addressBooks {
+		if ab.ID == id {
+			ab.IsDefault = true
+		} else {
+			ab.IsDefault = false
+		}
+	}
+	b.recordChange(ctx, us.abState, id, "update", "AddressBook")
+	return nil
+}
+
+func (b *MemoryContactsBackend) AddressBookHasContents(ctx context.Context, id jmap.Id) (bool, error) {
+	b.mu.RLock()
+	us := b.getStoreLocked(ctx)
+	defer b.mu.RUnlock()
+
+	for _, card := range us.cards {
+		if card.AddressBookIDs != nil && card.AddressBookIDs[id] {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (b *MemoryContactsBackend) DeleteAddressBook(ctx context.Context, id jmap.Id, removeContents bool) (bool, error) {
 	b.mu.Lock()
 	us := b.getStoreLocked(ctx)
 	defer b.mu.Unlock()
@@ -237,6 +287,21 @@ func (b *MemoryContactsBackend) DeleteAddressBook(ctx context.Context, id jmap.I
 	if _, ok := us.addressBooks[id]; !ok {
 		return false, nil
 	}
+
+	for cardID, card := range us.cards {
+		if card.AddressBookIDs != nil && card.AddressBookIDs[id] {
+			delete(card.AddressBookIDs, id)
+			if len(card.AddressBookIDs) == 0 {
+				if removeContents {
+					delete(us.cards, cardID)
+					b.recordChange(ctx, us.cardState, cardID, "destroy", "Card")
+				}
+			} else {
+				b.recordChange(ctx, us.cardState, cardID, "update", "Card")
+			}
+		}
+	}
+
 	delete(us.addressBooks, id)
 	b.recordChange(ctx, us.abState, id, "destroy", "AddressBook")
 	return true, nil
@@ -279,16 +344,76 @@ func (b *MemoryContactsBackend) GetAllCards(ctx context.Context) ([]*jmap.Card, 
 	return list, nil
 }
 
+func (b *MemoryContactsBackend) validateCard(ctx context.Context, us *userContactsStore, card *jmap.Card) error {
+	if len(card.AddressBookIDs) == 0 {
+		return fmt.Errorf("invalidProperties: card must belong to at least one address book")
+	}
+	hasTrue := false
+	for abID, val := range card.AddressBookIDs {
+		if val {
+			hasTrue = true
+			if _, exists := us.addressBooks[abID]; !exists {
+				return fmt.Errorf("invalidProperties: addressbook %s does not exist", abID)
+			}
+		}
+	}
+	if !hasTrue {
+		return fmt.Errorf("invalidProperties: card must belong to at least one address book")
+	}
+
+	if card.Media != nil {
+		accountID := "primary"
+		if ctxID, ok := jmap.AccountIDFromContext(ctx); ok && ctxID != "" {
+			accountID = ctxID
+		}
+		for _, m := range card.Media {
+			if m != nil && m.Kind == "photo" && m.BlobID != "" && b.blobBackend != nil {
+				blob, found, err := b.blobBackend.GetBlob(ctx, accountID, string(m.BlobID))
+				if err != nil || !found || blob == nil {
+					return fmt.Errorf("invalidProperties: photo media blob %s not found", m.BlobID)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func (b *MemoryContactsBackend) CreateCard(ctx context.Context, card *jmap.Card) (*jmap.Card, error) {
 	b.mu.Lock()
 	us := b.getStoreLocked(ctx)
 	defer b.mu.Unlock()
+
+	if card.AddressBookIDs == nil {
+		card.AddressBookIDs = make(map[jmap.Id]bool)
+		for id, ab := range us.addressBooks {
+			if ab.IsDefault {
+				card.AddressBookIDs[id] = true
+				break
+			}
+		}
+		if len(card.AddressBookIDs) == 0 {
+			for id := range us.addressBooks {
+				card.AddressBookIDs[id] = true
+				break
+			}
+		}
+	}
+
+	if err := b.validateCard(ctx, us, card); err != nil {
+		return nil, err
+	}
 
 	if card.ID == "" {
 		b.nextID++
 		card.ID = jmap.Id(fmt.Sprintf("card-%d", b.nextID))
 	}
 	card.Type = "Card"
+	if card.Version == "" {
+		card.Version = "1.0"
+	}
+	if card.Uid == "" {
+		card.Uid = fmt.Sprintf("urn:uuid:card-%d-%d", b.nextID, time.Now().UnixNano())
+	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	if card.Created == "" {
 		card.Created = now
@@ -301,136 +426,64 @@ func (b *MemoryContactsBackend) CreateCard(ctx context.Context, card *jmap.Card)
 	return card, nil
 }
 
-// decodeInto marshals src to JSON and unmarshals it into a typed destination,
-// mirroring how JMAP /set patches arrive over the wire.
-func decodeInto(src any, dest any) error {
-	raw, err := json.Marshal(src)
+func setNestedMapValue(m map[string]any, parts []string, val any) {
+	if len(parts) == 0 {
+		return
+	}
+	if len(parts) == 1 {
+		if val == nil {
+			delete(m, parts[0])
+		} else {
+			m[parts[0]] = val
+		}
+		return
+	}
+	key := parts[0]
+	sub, ok := m[key].(map[string]any)
+	if !ok {
+		if val == nil {
+			return
+		}
+		sub = make(map[string]any)
+		m[key] = sub
+	}
+	setNestedMapValue(sub, parts[1:], val)
+}
+
+func applyCardPatch(card *jmap.Card, patch map[string]any) error {
+	raw, err := json.Marshal(card)
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal(raw, dest)
-}
-
-// setCardField applies a single RFC 9553 / RFC 9610 Section 3.5 card patch path.
-// A null value removes the property; immutable fields (id, uid, created, kind)
-// are deliberately not applied.
-func setCardField(card *jmap.Card, path string, val any) {
-	switch path {
-	case "addressBookIds":
-		if val == nil {
-			card.AddressBookIDs = nil
-			return
-		}
-		var ids map[string]bool
-		if err := decodeJSONField(val, &ids); err != nil {
-			return
-		}
-		card.AddressBookIDs = make(map[jmap.Id]bool)
-		for k, v := range ids {
-			if v {
-				card.AddressBookIDs[jmap.Id(k)] = true
-			}
-		}
-	case "name":
-		if val == nil {
-			card.Name = nil
-			return
-		}
-		var name jmap.JSContactName
-		if err := decodeJSONField(val, &name); err == nil {
-			card.Name = &name
-		}
-	case "nicknames":
-		if val == nil {
-			card.Nicknames = nil
-			return
-		}
-		var m map[string]*jmap.JSContactNickname
-		if err := decodeJSONField(val, &m); err == nil {
-			card.Nicknames = m
-		}
-	case "emails":
-		if val == nil {
-			card.Emails = nil
-			return
-		}
-		var m map[string]*jmap.JSContactEmailAddress
-		if err := decodeJSONField(val, &m); err == nil {
-			card.Emails = m
-		}
-	case "phones":
-		if val == nil {
-			card.Phones = nil
-			return
-		}
-		var m map[string]*jmap.JSContactPhone
-		if err := decodeJSONField(val, &m); err == nil {
-			card.Phones = m
-		}
-	case "addresses":
-		if val == nil {
-			card.Addresses = nil
-			return
-		}
-		var m map[string]*jmap.JSContactAddress
-		if err := decodeJSONField(val, &m); err == nil {
-			card.Addresses = m
-		}
-	case "organizations":
-		if val == nil {
-			card.Organizations = nil
-			return
-		}
-		var m map[string]*jmap.JSContactOrganization
-		if err := decodeJSONField(val, &m); err == nil {
-			card.Organizations = m
-		}
-	case "titles":
-		if val == nil {
-			card.Titles = nil
-			return
-		}
-		var m map[string]*jmap.JSContactTitle
-		if err := decodeJSONField(val, &m); err == nil {
-			card.Titles = m
-		}
-	case "notes":
-		if val == nil {
-			card.Notes = nil
-			return
-		}
-		var m map[string]*jmap.JSContactNote
-		if err := decodeJSONField(val, &m); err == nil {
-			card.Notes = m
-		}
-	case "onlineServices":
-		if val == nil {
-			card.OnlineServices = nil
-			return
-		}
-		var m map[string]*jmap.JSContactOnlineService
-		if err := decodeJSONField(val, &m); err == nil {
-			card.OnlineServices = m
-		}
-	case "members":
-		if val == nil {
-			card.Members = nil
-			return
-		}
-		var m map[string]bool
-		if err := decodeJSONField(val, &m); err == nil {
-			card.Members = m
-		}
-	case "keywords":
-		if val == nil {
-			card.Keywords = nil
-			return
-		}
-		var m map[string]bool
-		if err := decodeJSONField(val, &m); err == nil {
-			card.Keywords = m
-		}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return err
 	}
+	if m == nil {
+		m = make(map[string]any)
+	}
+
+	for path, val := range patch {
+		parts := strings.Split(path, "/")
+		setNestedMapValue(m, parts, val)
+	}
+
+	rawUpdated, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+
+	origID := card.ID
+	origCreated := card.Created
+	var updatedCard jmap.Card
+	if err := json.Unmarshal(rawUpdated, &updatedCard); err != nil {
+		return err
+	}
+	updatedCard.ID = origID
+	updatedCard.Created = origCreated
+
+	*card = updatedCard
+	return nil
 }
 
 func (b *MemoryContactsBackend) UpdateCard(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.Card, error) {
@@ -443,9 +496,14 @@ func (b *MemoryContactsBackend) UpdateCard(ctx context.Context, id jmap.Id, patc
 		return nil, fmt.Errorf("card not found: %s", id)
 	}
 
-	for path, val := range patch {
-		setCardField(card, path, val)
+	if err := applyCardPatch(card, patch); err != nil {
+		return nil, err
 	}
+
+	if err := b.validateCard(ctx, us, card); err != nil {
+		return nil, err
+	}
+
 	card.Updated = time.Now().UTC().Format(time.RFC3339)
 	b.recordChange(ctx, us.cardState, id, "update", "Card")
 	return card, nil
@@ -464,10 +522,53 @@ func (b *MemoryContactsBackend) DeleteCard(ctx context.Context, id jmap.Id) (boo
 	return true, nil
 }
 
-// MatchCard reports whether a card satisfies an RFC 9610 Section 3.3.1 filter
-// condition. All specified conditions must match (logical AND).
+// MatchCard reports whether a card satisfies an RFC 9610 Section 3.3.1 filter condition or FilterOperator.
 func MatchCard(card *jmap.Card, filter map[string]any) bool {
+	if filter == nil {
+		return true
+	}
+	if opVal, ok := filter["operator"]; ok {
+		op, _ := opVal.(string)
+		var conds []map[string]any
+		if rawConds, ok := filter["conditions"].([]any); ok {
+			for _, c := range rawConds {
+				if cm, ok := c.(map[string]any); ok {
+					conds = append(conds, cm)
+				}
+			}
+		} else if rawConds, ok := filter["conditions"].([]map[string]any); ok {
+			conds = rawConds
+		}
+
+		switch strings.ToUpper(op) {
+		case "AND":
+			for _, c := range conds {
+				if !MatchCard(card, c) {
+					return false
+				}
+			}
+			return true
+		case "OR":
+			for _, c := range conds {
+				if MatchCard(card, c) {
+					return true
+				}
+			}
+			return false
+		case "NOT":
+			for _, c := range conds {
+				if MatchCard(card, c) {
+					return false
+				}
+			}
+			return true
+		}
+	}
+
 	for k, v := range filter {
+		if k == "operator" || k == "conditions" {
+			continue
+		}
 		switch k {
 		case "inAddressBook":
 			ab, ok := v.(string)
@@ -645,3 +746,4 @@ func (b *MemoryContactsBackend) QueryCards(ctx context.Context, filter map[strin
 	}
 	return ids, total, nil
 }
+

@@ -158,12 +158,9 @@ func TestRFC9553_JSContactFullCard(t *testing.T) {
 									"pref": 1,
 								},
 							},
-							"gender": map[string]any{
-								"grammatical": "masculine",
-								"identity":    "man",
-							},
 							"speakToAs": map[string]any{
-								"pronouns": map[string]any{"he/him": true},
+								"grammaticalGender": "masculine",
+								"pronouns":          map[string]any{"he/him": true},
 							},
 							"anniversaries": map[string]any{
 								"b1": map[string]any{
@@ -248,9 +245,9 @@ func TestRFC9553_JSContactFullCard(t *testing.T) {
 		t.Errorf("Expected media.m1 kind 'photo', got %v", mediaMap["m1"])
 	}
 
-	genderMap := cardData["gender"].(map[string]any)
-	if genderMap["identity"] != "man" {
-		t.Errorf("Expected gender identity 'man', got %v", genderMap["identity"])
+	speakToAsMap := cardData["speakToAs"].(map[string]any)
+	if speakToAsMap["grammaticalGender"] != "masculine" {
+		t.Errorf("Expected speakToAs grammaticalGender 'masculine', got %v", speakToAsMap["grammaticalGender"])
 	}
 
 	annivMap := cardData["anniversaries"].(map[string]any)
@@ -315,3 +312,118 @@ func TestRFC9553_JSContactGroup(t *testing.T) {
 		t.Errorf("Expected 2 members in group, got %d", len(membersMap))
 	}
 }
+
+// TestRFC9553_CardVersionAndUid tests version ("1.0") and uid requirement / auto-generation per RFC 9553 Section 2.1.2/2.1.9.
+func TestRFC9553_CardVersionAndUid(t *testing.T) {
+	contactsBackend := memory.NewMemoryContactsBackend()
+	srv := jmap.NewServer(nil, jmap.WithContactsBackend(contactsBackend))
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	reqPayload := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.ContactsCapabilityURI},
+		"methodCalls": []any{
+			[]any{"Card/set", map[string]any{
+				"accountId": "primary",
+				"create": map[string]any{
+					"c1": map[string]any{"name": map[string]any{"full": "Test Card"}},
+				},
+			}, "call1"},
+		},
+	}
+	body, _ := json.Marshal(reqPayload)
+	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /jmap failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var jr jmap.Response
+	_ = json.NewDecoder(resp.Body).Decode(&jr)
+	createdMap := jr.MethodResponses[0].Args["created"].(map[string]any)
+	c1 := createdMap["c1"].(map[string]any)
+
+	if c1["version"] != "1.0" {
+		t.Errorf("expected card version '1.0', got %v", c1["version"])
+	}
+	if c1["uid"] == "" || c1["uid"] == nil {
+		t.Errorf("expected auto-generated uid, got %v", c1["uid"])
+	}
+}
+
+// TestRFC9553_CardJSONPointerPatch tests nested JSON Pointer patch paths per RFC 8620 Section 5.3 / RFC 9610 Section 3.5.
+func TestRFC9553_CardJSONPointerPatch(t *testing.T) {
+	contactsBackend := memory.NewMemoryContactsBackend()
+	srv := jmap.NewServer(nil, jmap.WithContactsBackend(contactsBackend))
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// 1. Create card
+	post := func(calls []any) jmap.Response {
+		payload := map[string]any{
+			"using":       []string{jmap.CoreCapabilityURI, jmap.ContactsCapabilityURI},
+			"methodCalls": calls,
+		}
+		body, _ := json.Marshal(payload)
+		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST /jmap failed: %v", err)
+		}
+		defer resp.Body.Close()
+		var jr jmap.Response
+		_ = json.NewDecoder(resp.Body).Decode(&jr)
+		return jr
+	}
+
+	r1 := post([]any{
+		[]any{"Card/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"c1": map[string]any{
+					"name": map[string]any{"full": "Alice Smith"},
+					"emails": map[string]any{
+						"e1": map[string]any{"address": "alice@example.com", "pref": 1},
+					},
+				},
+			},
+		}, "call1"},
+	})
+	createdCard := r1.MethodResponses[0].Args["created"].(map[string]any)["c1"].(map[string]any)
+	cardID := createdCard["id"].(string)
+
+	// 2. Patch nested properties via JSON Pointer paths
+	post([]any{
+		[]any{"Card/set", map[string]any{
+			"accountId": "primary",
+			"update": map[string]any{
+				cardID: map[string]any{
+					"name/full":      "Alice Johnson",
+					"emails/e1/pref": 2,
+				},
+			},
+		}, "call2"},
+	})
+
+	// 3. Get and verify patched values
+	r3 := post([]any{
+		[]any{"Card/get", map[string]any{
+			"accountId": "primary",
+			"ids":       []string{cardID},
+		}, "call3"},
+	})
+	list := r3.MethodResponses[0].Args["list"].([]any)
+	if len(list) == 0 {
+		t.Fatal("expected card in list")
+	}
+	card := list[0].(map[string]any)
+	nameObj := card["name"].(map[string]any)
+	if nameObj["full"] != "Alice Johnson" {
+		t.Errorf("expected patched name/full 'Alice Johnson', got %v", nameObj["full"])
+	}
+	emailsMap := card["emails"].(map[string]any)
+	e1Map := emailsMap["e1"].(map[string]any)
+	if e1Map["pref"].(float64) != 2 {
+		t.Errorf("expected patched emails/e1/pref 2, got %v", e1Map["pref"])
+	}
+}
+

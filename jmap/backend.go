@@ -100,7 +100,9 @@ type ContactsBackend interface {
 	GetAllAddressBooks(ctx context.Context) ([]*AddressBook, error)
 	CreateAddressBook(ctx context.Context, ab *AddressBook) (*AddressBook, error)
 	UpdateAddressBook(ctx context.Context, id Id, patch map[string]any) (*AddressBook, error)
-	DeleteAddressBook(ctx context.Context, id Id) (bool, error)
+	DeleteAddressBook(ctx context.Context, id Id, removeContents bool) (bool, error)
+	SetDefaultAddressBook(ctx context.Context, id Id) error
+	AddressBookHasContents(ctx context.Context, id Id) (bool, error)
 
 	// Cards (RFC 9610 Section 3)
 	CardState(ctx context.Context) string
