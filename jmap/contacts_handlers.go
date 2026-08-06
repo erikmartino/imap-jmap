@@ -20,6 +20,7 @@ func RegisterContactsHandlers(r *MethodRegistry, backend ContactsBackend) {
 	r.Register("ContactCard/changes", aliasMethod("ContactCard/changes", handleCardChanges(backend)))
 	r.Register("ContactCard/set", aliasMethod("ContactCard/set", handleCardSet(backend)))
 	r.Register("ContactCard/query", aliasMethod("ContactCard/query", handleCardQuery(backend)))
+	r.Register("ContactCard/queryChanges", aliasMethod("ContactCard/queryChanges", handleCardQueryChanges(backend)))
 	r.Register("ContactCard/copy", aliasMethod("ContactCard/copy", handleCardCopy(backend)))
 
 	// "Card/*" retained as aliases for backward compatibility with existing clients/tests.
@@ -27,6 +28,7 @@ func RegisterContactsHandlers(r *MethodRegistry, backend ContactsBackend) {
 	r.Register("Card/changes", handleCardChanges(backend))
 	r.Register("Card/set", handleCardSet(backend))
 	r.Register("Card/query", handleCardQuery(backend))
+	r.Register("Card/queryChanges", handleCardQueryChanges(backend))
 	r.Register("Card/copy", handleCardCopy(backend))
 }
 
@@ -311,10 +313,23 @@ func handleCardSet(backend ContactsBackend) MethodHandler {
 	}
 }
 
+var cardSortableProperties = map[string]bool{
+	"created":       true,
+	"updated":       true,
+	"name/given":   true,
+	"name/surname":  true,
+	"name/surname2": true,
+}
+
 func handleCardQuery(backend ContactsBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		filter, _ := args["filter"].(map[string]any)
+
+		comparators := parseComparators(args)
+		if errType, errMsg := validateComparators(comparators, cardSortableProperties); errType != "" {
+			return "error", MethodErrorArgs(errType, errMsg)
+		}
 
 		position, posErr := parseQueryPosition(args)
 		if posErr != "" {
@@ -335,7 +350,7 @@ func handleCardQuery(backend ContactsBackend) MethodHandler {
 		var ids []Id
 		var total int
 		if anchor != "" {
-			allIDs, allTotal, _ := backend.QueryCards(ctx, filter, 0, nil)
+			allIDs, allTotal, _ := backend.QueryCards(ctx, filter, comparators, 0, nil)
 			total = allTotal
 			var found bool
 			position, ids, found = applyQueryAnchor(anchor, anchorOffset, allIDs, limit)
@@ -343,20 +358,58 @@ func handleCardQuery(backend ContactsBackend) MethodHandler {
 				return "error", MethodErrorArgs(MethodErrorAnchorNotFound, "anchor not found in results: "+anchor)
 			}
 		} else {
-			ids, total, _ = backend.QueryCards(ctx, filter, position, limit)
+			ids, total, _ = backend.QueryCards(ctx, filter, comparators, position, limit)
 		}
 		if ids == nil {
 			ids = []Id{}
 		}
 
+		state := backend.CardState(ctx)
 		return "Card/query", map[string]any{
 			"accountId":           accountID,
-			"queryState":          "0",
-			"canCalculateChanges": false,
+			"queryState":          state,
+			"canCalculateChanges": true,
 			"position":            position,
 			"total":               total,
 			"ids":                 ids,
 		}
+	}
+}
+
+func handleCardQueryChanges(backend ContactsBackend) MethodHandler {
+	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
+		accountID, _ := args["accountId"].(string)
+		upToID, _ := args["upToId"].(string)
+		sinceState, _ := args["sinceQueryState"].(string)
+
+		if sinceState == "" {
+			return "error", MethodErrorArgs(MethodErrorInvalidArguments, "sinceQueryState is required")
+		}
+
+		createdIDs, updatedIDs, destroyedIDs, newState, hasMore := backend.CardChanges(ctx, sinceState)
+		if hasMore {
+			return "error", MethodErrorArgs("cannotCalculateChanges", "sinceQueryState is too old")
+		}
+
+		filter, _ := args["filter"].(map[string]any)
+		comparators := parseComparators(args)
+		if errType, errMsg := validateComparators(comparators, cardSortableProperties); errType != "" {
+			return "error", MethodErrorArgs(errType, errMsg)
+		}
+		currentIDs, _, _ := backend.QueryCards(ctx, filter, comparators, 0, nil)
+		added, removed := computeQueryChanges(createdIDs, updatedIDs, destroyedIDs, currentIDs, upToID)
+
+		res := map[string]any{
+			"accountId":     accountID,
+			"oldQueryState": sinceState,
+			"newQueryState": newState,
+			"added":         added,
+			"removed":       removed,
+		}
+		if upToID != "" {
+			res["upToId"] = upToID
+		}
+		return "Card/queryChanges", res
 	}
 }
 

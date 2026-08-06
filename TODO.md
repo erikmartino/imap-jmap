@@ -122,9 +122,9 @@ the resolver for local delivery (inbound routing + outbound loopback). "The doma
 ## RFC 9610 (JMAP for Contacts) — tests: `rfc9610_*_test.go`
 
 ### Methods & query
-- [ ] **`ContactCard/queryChanges`** (+ `Card/queryChanges` alias) not registered (`contacts_handlers.go:19-30`) → clients get `unknownMethod` (§3.4). Register + delta tests.
-- [ ] **`ContactCard/query` sort/comparators** (MUST: `created`, `updated`; SHOULD: `name/given`, `name/surname`, `name/surname2`, §3.3.2): add `comparators []Comparator` to `ContactsBackend.QueryCards` (`backend.go:113`), parse `sort` in `handleCardQuery` (`contacts_handlers.go:314-361`), order in `QueryCards` (`contacts_store.go:564`). Order-asserting tests.
-- [ ] **`ContactCard/query` real `queryState` + `canCalculateChanges`** — stop hardcoding `"0"`/`false` (`contacts_handlers.go:354-355`); reflect real state once queryChanges lands. Round-trip test.
+- [x] **`ContactCard/queryChanges`** (+ `Card/queryChanges` alias) not registered (`contacts_handlers.go:19-30`) → clients get `unknownMethod` (§3.4). Register + delta tests.
+- [x] **`ContactCard/query` sort/comparators** (MUST: `created`, `updated`; SHOULD: `name/given`, `name/surname`, `name/surname2`, §3.3.2): add `comparators []Comparator` to `ContactsBackend.QueryCards` (`backend.go:113`), parse `sort` in `handleCardQuery` (`contacts_handlers.go:314-361`), order in `QueryCards` (`contacts_store.go:564`). Order-asserting tests.
+- [x] **`ContactCard/query` real `queryState` + `canCalculateChanges`** — stop hardcoding `"0"`/`false` (`contacts_handlers.go:354-355`); reflect real state once queryChanges lands. Round-trip test.
 - [ ] **FilterOperator (AND/OR/NOT)** in `MatchCard` (`contacts_store.go:466`) — `operator`/`conditions` currently ignored (§3.3 / RFC 8620 §5.5). Tests.
 - [ ] **Filter conditions implemented-but-untested** (§3.3.1, `contacts_store.go:469-559`): `uid`, `hasMember`, `kind`, `createdBefore`, `createdAfter`, `updatedBefore`, `updatedAfter`, `text`, `name`, `name/given`, `name/surname`, `name/surname2`, `nickname`, `organization`, `phone`, `onlineService`, `address`, `note`. Pos + neg test each.
 

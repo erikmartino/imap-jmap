@@ -110,7 +110,7 @@ type ContactsBackend interface {
 	CreateCard(ctx context.Context, card *Card) (*Card, error)
 	UpdateCard(ctx context.Context, id Id, patch map[string]any) (*Card, error)
 	DeleteCard(ctx context.Context, id Id) (bool, error)
-	QueryCards(ctx context.Context, filter map[string]any, position int, limit *uint64) (ids []Id, total int, err error)
+	QueryCards(ctx context.Context, filter map[string]any, comparators []Comparator, position int, limit *uint64) (ids []Id, total int, err error)
 }
 
 // CalendarsBackend defines the storage interface for JMAP Calendars & JSCalendar (RFC 8984) resources.

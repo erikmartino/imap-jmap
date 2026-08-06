@@ -164,7 +164,7 @@ func TestRFC9610_QueryCards_FilterEmail(t *testing.T) {
 		Emails:         map[string]*jmap.JSContactEmailAddress{"e1": {Address: "bob@example.com"}},
 	})
 
-	ids, total, err := b.QueryCards(ctx, map[string]any{"email": "jane@example.com"}, 0, nil)
+	ids, total, err := b.QueryCards(ctx, map[string]any{"email": "jane@example.com"}, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("QueryCards: %v", err)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -292,7 +293,9 @@ func (b *MemoryContactsBackend) CreateCard(ctx context.Context, card *jmap.Card)
 	if card.Created == "" {
 		card.Created = now
 	}
-	card.Updated = now
+	if card.Updated == "" {
+		card.Updated = now
+	}
 	us.cards[card.ID] = card
 	b.recordChange(ctx, us.cardState, card.ID, "create", "Card")
 	return card, nil
@@ -561,7 +564,57 @@ func MatchCard(card *jmap.Card, filter map[string]any) bool {
 	return true
 }
 
-func (b *MemoryContactsBackend) QueryCards(ctx context.Context, filter map[string]any, position int, limit *uint64) ([]jmap.Id, int, error) {
+func getCardNameComponent(card *jmap.Card, kind string) string {
+	if card == nil || card.Name == nil {
+		return ""
+	}
+	for _, comp := range card.Name.Components {
+		if comp != nil && comp.Kind == kind {
+			return comp.Value
+		}
+	}
+	return ""
+}
+
+func sortCards(cards []*jmap.Card, comparators []jmap.Comparator) {
+	if len(comparators) == 0 {
+		return
+	}
+	sort.SliceStable(cards, func(i, j int) bool {
+		c1, c2 := cards[i], cards[j]
+		for _, comp := range comparators {
+			var v1, v2 string
+			switch comp.Property {
+			case "created":
+				v1, v2 = c1.Created, c2.Created
+			case "updated":
+				v1, v2 = c1.Updated, c2.Updated
+			case "name/given":
+				v1 = getCardNameComponent(c1, "given")
+				v2 = getCardNameComponent(c2, "given")
+			case "name/surname":
+				v1 = getCardNameComponent(c1, "surname")
+				v2 = getCardNameComponent(c2, "surname")
+			case "name/surname2":
+				v1 = getCardNameComponent(c1, "surname2")
+				v2 = getCardNameComponent(c2, "surname2")
+			default:
+				continue
+			}
+
+			if v1 == v2 {
+				continue
+			}
+			if comp.IsAscending {
+				return v1 < v2
+			}
+			return v1 > v2
+		}
+		return string(c1.ID) < string(c2.ID)
+	})
+}
+
+func (b *MemoryContactsBackend) QueryCards(ctx context.Context, filter map[string]any, comparators []jmap.Comparator, position int, limit *uint64) ([]jmap.Id, int, error) {
 	b.mu.RLock()
 	us := b.getStoreLocked(ctx)
 	defer b.mu.RUnlock()
@@ -574,6 +627,8 @@ func (b *MemoryContactsBackend) QueryCards(ctx context.Context, filter map[strin
 	}
 
 	total := len(matched)
+	sortCards(matched, comparators)
+
 	position = jmap.NormalizePosition(position, total)
 	if position >= total {
 		return []jmap.Id{}, total, nil
