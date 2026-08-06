@@ -35,7 +35,7 @@ func TestRFC8620_Section2_1_DiscoveringTheJMAPSessionResource(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/.well-known/jmap")
+	resp, err := authedGet(ts.URL + "/.well-known/jmap")
 	if err != nil {
 		t.Fatalf("Failed to execute GET: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestRFC8620_Section2_2_TheJMAPSessionObject(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/.well-known/jmap")
+	resp, err := authedGet(ts.URL + "/.well-known/jmap")
 	if err != nil {
 		t.Fatalf("Failed GET: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestRFC8620_Section3_1_StructureOfAJMAPRequest(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestRFC8620_Section3_3_ResultReference(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestRFC8620_Section3_4_ProcessingARequest(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("Failed POST /jmap: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestRFC8620_Section3_5_StructureOfAJMAPResponse(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestRFC8620_Section3_6_1_RequestErrors_InvalidJSON(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader([]byte("{invalid-json")))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader([]byte("{invalid-json")))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestRFC8620_Section3_6_1_RequestErrors_UnknownCapability(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -301,7 +301,7 @@ func TestRFC8620_Section3_6_2_MethodErrors_UnknownMethod(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -347,7 +347,7 @@ func TestRFC8620_Section3_6_2_MethodErrors_InvalidResultReference(t *testing.T) 
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -389,7 +389,7 @@ func TestRFC8620_Section3_8_1_CoreEcho(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -423,7 +423,7 @@ func TestRFC8620_Section6_1_UploadingBlobs(t *testing.T) {
 	defer ts.Close()
 
 	blobData := []byte("Hello, JMAP Blobs!")
-	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/upload/primary/", bytes.NewReader(blobData))
+	req := authedRequest(t, http.MethodPost, ts.URL+"/upload/primary/", bytes.NewReader(blobData))
 	req.Header.Set("Content-Type", "text/plain")
 
 	resp, err := http.DefaultClient.Do(req)
@@ -485,7 +485,7 @@ func TestRFC8620_Section3_7_ResultReferences(t *testing.T) {
 	}
 
 	body, _ := json.Marshal(reqPayload)
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -606,7 +606,7 @@ func TestRFC8620_Section3_7_ResultReference_StarPointer(t *testing.T) {
 	}
 
 	body, _ := json.Marshal(reqPayload)
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -692,7 +692,7 @@ func TestRFC8620_Section3_7_ResultReference_Errors(t *testing.T) {
 				"methodCalls": methodCalls,
 			}
 			body, _ := json.Marshal(reqPayload)
-			resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+			resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 			if err != nil {
 				t.Fatalf("POST /jmap failed: %v", err)
 			}
@@ -729,7 +729,7 @@ func TestRFC8620_Section6_2_DownloadingBlobs(t *testing.T) {
 	blob, _ := srv.BlobBackend.PutBlob(context.Background(), "primary", "text/plain", blobData)
 
 	// Download blob
-	resp, err := http.Get(ts.URL + "/download/primary/" + blob.ID + "/test.txt")
+	resp, err := authedGet(ts.URL + "/download/primary/" + blob.ID + "/test.txt")
 	if err != nil {
 		t.Fatalf("GET /download/ failed: %v", err)
 	}
@@ -758,10 +758,7 @@ func TestRFC8620_Section6_2_MayProvisions_RangeDownload(t *testing.T) {
 	blobData := []byte("Sample Blob Data for Download")
 	blob, _ := srv.BlobBackend.PutBlob(context.Background(), "primary", "text/plain", blobData)
 
-	req, err := http.NewRequest("GET", ts.URL+"/download/primary/"+blob.ID+"/test.txt", nil)
-	if err != nil {
-		t.Fatalf("Failed to create request: %v", err)
-	}
+	req := authedRequest(t, "GET", ts.URL+"/download/primary/"+blob.ID+"/test.txt", nil)
 	req.Header.Set("Range", "bytes=0-5")
 
 	client := &http.Client{}
@@ -800,7 +797,7 @@ func TestRFC8620_Section5_1_GetProperties(t *testing.T) {
 			},
 		}
 		body, _ := json.Marshal(reqPayload)
-		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatalf("POST /jmap failed: %v", err)
 		}
@@ -918,7 +915,7 @@ func TestRFC8620_Section5_1_GetProperties(t *testing.T) {
 			},
 		}
 		body, _ := json.Marshal(reqPayload)
-		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatalf("POST /jmap failed: %v", err)
 		}
@@ -971,7 +968,7 @@ func TestRFC8620_Section5_1_GetProperties(t *testing.T) {
 			},
 		}
 		body, _ := json.Marshal(reqPayload)
-		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatalf("POST /jmap failed: %v", err)
 		}
@@ -1010,7 +1007,7 @@ func TestRFC8620_Section5_1_GetProperties(t *testing.T) {
 			},
 		}
 		body, _ := json.Marshal(reqPayload)
-		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatalf("POST /jmap failed: %v", err)
 		}

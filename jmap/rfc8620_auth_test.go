@@ -9,9 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coder/websocket"
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/memory"
+
+	"github.com/coder/websocket"
 )
 
 // newAuthTestServer creates a test server with MemoryAuthBackend wired in.
@@ -423,6 +424,3 @@ func TestRFC8620_AccountResolver_PrimaryDomain(t *testing.T) {
 		t.Errorf("Expected malformed address to resolve ( \"\", false ), got ( %q, %v )", idBad, localBad)
 	}
 }
-
-
-

@@ -276,10 +276,7 @@ func TestRFC8984_CalendarEventNotificationStateChangeEvent(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	req, err := http.NewRequest("GET", ts.URL+"/eventsource?types=CalendarEventNotification&closeafter=state", nil)
-	if err != nil {
-		t.Fatalf("Failed to create request: %v", err)
-	}
+	req := authedRequest(t, "GET", ts.URL+"/eventsource?types=CalendarEventNotification&closeafter=state", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET /eventsource failed: %v", err)
@@ -305,7 +302,7 @@ func TestRFC8984_CalendarEventNotificationStateChangeEvent(t *testing.T) {
 		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data:")), &sc); err != nil {
 			continue
 		}
-		changed, ok := sc.Changed["primary"]
+		changed, ok := sc.Changed[jmap.AccountIDForSubject(testUsername)]
 		if !ok {
 			continue
 		}

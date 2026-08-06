@@ -3,7 +3,6 @@ package jmap_test
 import (
 	"bytes"
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -18,7 +17,7 @@ func TestRFC9610_Capability(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/.well-known/jmap")
+	resp, err := authedGet(ts.URL + "/.well-known/jmap")
 	if err != nil {
 		t.Fatalf("GET /.well-known/jmap failed: %v", err)
 	}
@@ -59,7 +58,7 @@ func TestRFC9610_AddressBook_GetAndSet(t *testing.T) {
 	}
 
 	bodyBytes, _ := json.Marshal(reqBody)
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
 	if err != nil {
 		t.Fatalf("JMAP POST failed: %v", err)
 	}
@@ -100,7 +99,7 @@ func TestRFC9610_AddressBook_GetAndSet(t *testing.T) {
 	}
 
 	setBytes, _ := json.Marshal(setReqBody)
-	resp2, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(setBytes))
+	resp2, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(setBytes))
 	if err != nil {
 		t.Fatalf("JMAP POST set failed: %v", err)
 	}
@@ -175,7 +174,7 @@ func TestRFC9610_Card_GetSetQuery_JSContact(t *testing.T) {
 	}
 
 	setBytes, _ := json.Marshal(setReqBody)
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(setBytes))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(setBytes))
 	if err != nil {
 		t.Fatalf("Card/set POST failed: %v", err)
 	}
@@ -213,7 +212,7 @@ func TestRFC9610_Card_GetSetQuery_JSContact(t *testing.T) {
 	}
 
 	queryBytes, _ := json.Marshal(queryReqBody)
-	resp2, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(queryBytes))
+	resp2, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(queryBytes))
 	if err != nil {
 		t.Fatalf("Card/query POST failed: %v", err)
 	}
@@ -246,7 +245,7 @@ func TestRFC9610_Card_GetSetQuery_JSContact(t *testing.T) {
 	}
 
 	getBytes, _ := json.Marshal(getReqBody)
-	resp3, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(getBytes))
+	resp3, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(getBytes))
 	if err != nil {
 		t.Fatalf("Card/get POST failed: %v", err)
 	}
@@ -292,7 +291,7 @@ func TestRFC9610_CardAndAddressBookCopy(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -331,7 +330,7 @@ func TestRFC9610_ContactCardCanonicalNaming(t *testing.T) {
 			"methodCalls": calls,
 		}
 		body, _ := json.Marshal(payload)
-		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatalf("POST /jmap failed: %v", err)
 		}
@@ -381,7 +380,7 @@ func TestRFC9610_CardCopyRoundTrip(t *testing.T) {
 			"methodCalls": calls,
 		}
 		body, _ := json.Marshal(payload)
-		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatalf("POST /jmap failed: %v", err)
 		}
@@ -449,7 +448,7 @@ func TestRFC9610_AddressBookRightsAndDefault(t *testing.T) {
 		},
 	}
 	body, _ := json.Marshal(getReq)
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("AddressBook/get failed: %v", err)
 	}
@@ -483,7 +482,7 @@ func TestRFC9610_AddressBookRightsAndDefault(t *testing.T) {
 		},
 	}
 	body, _ = json.Marshal(createReq)
-	resp, err = http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err = authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("AddressBook/set failed: %v", err)
 	}
@@ -508,7 +507,7 @@ func TestRFC9610_AddressBookRightsAndDefault(t *testing.T) {
 		},
 	}
 	body, _ = json.Marshal(createSuccessReq)
-	resp, err = http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err = authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("AddressBook/set failed: %v", err)
 	}
@@ -526,7 +525,7 @@ func TestRFC9610_AddressBookRightsAndDefault(t *testing.T) {
 		},
 	}
 	body, _ = json.Marshal(getReq2)
-	resp, err = http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err = authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("AddressBook/get failed: %v", err)
 	}
@@ -552,7 +551,7 @@ func TestRFC9610_AddressBookDestroyRemoveContents(t *testing.T) {
 			"methodCalls": calls,
 		}
 		body, _ := json.Marshal(payload)
-		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatalf("POST /jmap failed: %v", err)
 		}
@@ -599,8 +598,8 @@ func TestRFC9610_AddressBookDestroyRemoveContents(t *testing.T) {
 	// 3. Destroy with onDestroyRemoveContents: true -> succeeds
 	r3 := post([]any{
 		[]any{"AddressBook/set", map[string]any{
-			"accountId":                "primary",
-			"destroy":                  []string{abID},
+			"accountId":               "primary",
+			"destroy":                 []string{abID},
 			"onDestroyRemoveContents": true,
 		}, "c4"},
 	})
@@ -623,7 +622,7 @@ func TestRFC9610_CardQueryFilterOperatorAndConditions(t *testing.T) {
 			"methodCalls": calls,
 		}
 		body, _ := json.Marshal(payload)
-		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatalf("POST /jmap failed: %v", err)
 		}
@@ -648,12 +647,12 @@ func TestRFC9610_CardQueryFilterOperatorAndConditions(t *testing.T) {
 							{"kind": "surname", "value": "Doe"},
 						},
 					},
-					"nicknames": map[string]any{"n1": map[string]any{"name": "Johnny"}},
-					"emails":    map[string]any{"e1": map[string]any{"address": "john@example.com"}},
-					"phones":    map[string]any{"p1": map[string]any{"number": "+123456789"}},
+					"nicknames":     map[string]any{"n1": map[string]any{"name": "Johnny"}},
+					"emails":        map[string]any{"e1": map[string]any{"address": "john@example.com"}},
+					"phones":        map[string]any{"p1": map[string]any{"number": "+123456789"}},
 					"organizations": map[string]any{"o1": map[string]any{"name": "ACME Corp"}},
-					"notes":     map[string]any{"k1": map[string]any{"note": "Software Engineer"}},
-					"members":   map[string]any{"group-member-1": true},
+					"notes":         map[string]any{"k1": map[string]any{"note": "Software Engineer"}},
+					"members":       map[string]any{"group-member-1": true},
 				},
 				"c2": map[string]any{
 					"uid":  "uid-200",

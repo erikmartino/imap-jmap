@@ -3,7 +3,6 @@ package jmap_test
 import (
 	"bytes"
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -16,7 +15,7 @@ func TestRFC9425_Section2_Capability(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/.well-known/jmap")
+	resp, err := authedGet(ts.URL + "/.well-known/jmap")
 	if err != nil {
 		t.Fatalf("GET /.well-known/jmap failed: %v", err)
 	}
@@ -57,7 +56,7 @@ func TestRFC9425_Section4_QuotaGet(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -95,7 +94,7 @@ func TestRFC9425_Section5_QuotaQuery(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}

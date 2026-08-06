@@ -177,11 +177,36 @@ type Session struct {
 // SubmissionCapability defines the capability object for "urn:ietf:params:jmap:submission" per RFC 8621 Section 7.
 type SubmissionCapability struct{}
 
-// DefaultSession creates a default RFC 8620 / 8621 / 9219 / 9404 / 9425 compliant Session object.
-func DefaultSession(baseURL string) *Session {
+// DefaultSession creates a default RFC 8620 / 8621 / 9219 / 9404 / 9425 compliant Session object
+// for a username, with the account keyed by the derived accountID (AccountIDForSubject(username)).
+func DefaultSession(baseURL string, username string) *Session {
 	if baseURL == "" {
 		baseURL = "http://localhost:8080"
 	}
+	if username == "" {
+		username = "user@example.com"
+	}
+	return sessionFor(baseURL, username, AccountIDForSubject(username))
+}
+
+// SessionForAccountID creates a Session for an authenticated accountID, used by the per-request
+// session handler where only the accountID (not the original username) is available. When username
+// is empty the accountID is used as the display name.
+func SessionForAccountID(baseURL, username, accountID string) *Session {
+	if baseURL == "" {
+		baseURL = "http://localhost:8080"
+	}
+	if accountID == "" {
+		accountID = AccountIDForSubject("user@example.com")
+	}
+	if username == "" {
+		username = accountID
+	}
+	return sessionFor(baseURL, username, accountID)
+}
+
+func sessionFor(baseURL, username, accountID string) *Session {
+
 	return &Session{
 		Capabilities: map[string]any{
 			CoreCapabilityURI: CoreCapability{
@@ -257,13 +282,13 @@ func DefaultSession(baseURL string) *Session {
 			AvailabilityCapabilityURI: struct{}{},
 		},
 		Accounts: map[string]Account{
-			"primary": {
-				Name:       "user@example.com",
+			accountID: {
+				Name:       username,
 				IsPrimary:  true,
 				IsReadOnly: false,
 				AccountCapabilities: map[string]any{
-					CoreCapabilityURI:           struct{}{},
-					MailCapabilityURI:           struct{}{},
+					CoreCapabilityURI: struct{}{},
+					MailCapabilityURI: struct{}{},
 					SmimeCapabilityURI: SmimeCapability{
 						SmimeVerificationSupported: true,
 					},
@@ -290,23 +315,23 @@ func DefaultSession(baseURL string) *Session {
 			},
 		},
 		PrimaryAccounts: map[string]string{
-			CoreCapabilityURI:           "primary",
-			MailCapabilityURI:           "primary",
-			SmimeCapabilityURI:          "primary",
-			BlobCapabilityURI:           "primary",
-			QuotaCapabilityURI:          "primary",
-			MdnCapabilityURI:            "primary",
-			WebPushVapidCapabilityURI:   "primary",
-			ContactsCapabilityURI:       "primary",
-			CalendarsCapabilityURI:      "primary",
-			CalendarsParseCapabilityURI: "primary",
-			SieveCapabilityURI:          "primary",
-			ImapAccessCapabilityURI:     "primary",
-			FileNodeCapabilityURI:       "primary",
-			PrincipalsCapabilityURI:     "primary",
-			AvailabilityCapabilityURI:   "primary",
+			CoreCapabilityURI:           accountID,
+			MailCapabilityURI:           accountID,
+			SmimeCapabilityURI:          accountID,
+			BlobCapabilityURI:           accountID,
+			QuotaCapabilityURI:          accountID,
+			MdnCapabilityURI:            accountID,
+			WebPushVapidCapabilityURI:   accountID,
+			ContactsCapabilityURI:       accountID,
+			CalendarsCapabilityURI:      accountID,
+			CalendarsParseCapabilityURI: accountID,
+			SieveCapabilityURI:          accountID,
+			ImapAccessCapabilityURI:     accountID,
+			FileNodeCapabilityURI:       accountID,
+			PrincipalsCapabilityURI:     accountID,
+			AvailabilityCapabilityURI:   accountID,
 		},
-		Username:       "user@example.com",
+		Username:       username,
 		APIURL:         baseURL + "/jmap",
 		DownloadURL:    baseURL + "/download/{accountId}/{blobId}/{name}?type={type}",
 		UploadURL:      baseURL + "/upload/{accountId}/",

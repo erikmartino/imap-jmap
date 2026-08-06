@@ -113,8 +113,8 @@ func TestRFC8984_CalendarLifecycleAndRights(t *testing.T) {
 	// 5. Destroy calendar WITH onDestroyRemoveEvents: true (and set cal-default as default) -> MUST succeed
 	destroyReq2 := []any{
 		[]any{"Calendar/set", map[string]any{
-			"accountId":              "primary",
-			"destroy":                []string{calID},
+			"accountId":             "primary",
+			"destroy":               []string{calID},
 			"onDestroyRemoveEvents": true,
 			"onSuccessSetIsDefault": "cal-default",
 		}, "call-6"},

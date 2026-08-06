@@ -3,7 +3,6 @@ package jmap_test
 import (
 	"bytes"
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -14,7 +13,7 @@ import (
 func postRaw(t *testing.T, url string, payload map[string]any) jmap.Response {
 	t.Helper()
 	body, _ := json.Marshal(payload)
-	resp, err := http.Post(url+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(url+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}

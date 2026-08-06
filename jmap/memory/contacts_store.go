@@ -29,7 +29,7 @@ type MemoryContactsBackend struct {
 }
 
 func (b *MemoryContactsBackend) getStoreLocked(ctx context.Context) *userContactsStore {
-	accountID := "primary"
+	accountID := jmap.AccountIDForSubject("user@example.com")
 	if ctxID, ok := jmap.AccountIDFromContext(ctx); ok && ctxID != "" {
 		accountID = ctxID
 	}
@@ -132,7 +132,7 @@ func (b *MemoryContactsBackend) CardChanges(ctx context.Context, sinceState stri
 func (b *MemoryContactsBackend) recordChange(ctx context.Context, tracker *changeTracker, id jmap.Id, action string, typeName string) string {
 	newState := tracker.record(id, action)
 	if b.broadcaster != nil {
-		accountID := "primary"
+		accountID := jmap.AccountIDForSubject("user@example.com")
 		if ctxID, ok := jmap.AccountIDFromContext(ctx); ok && ctxID != "" {
 			accountID = ctxID
 		}
@@ -362,7 +362,7 @@ func (b *MemoryContactsBackend) validateCard(ctx context.Context, us *userContac
 	}
 
 	if card.Media != nil {
-		accountID := "primary"
+		accountID := jmap.AccountIDForSubject("user@example.com")
 		if ctxID, ok := jmap.AccountIDFromContext(ctx); ok && ctxID != "" {
 			accountID = ctxID
 		}
@@ -746,4 +746,3 @@ func (b *MemoryContactsBackend) QueryCards(ctx context.Context, filter map[strin
 	}
 	return ids, total, nil
 }
-

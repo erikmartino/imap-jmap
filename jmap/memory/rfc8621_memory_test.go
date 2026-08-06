@@ -67,7 +67,7 @@ func TestRFC8620_ChangeTrackerHasMoreWhenHistoryDiscarded(t *testing.T) {
 func TestRFC9404_BlobIDFullSHA256Digest(t *testing.T) {
 	b := NewMemoryBlobBackend()
 	data := []byte("hello world")
-	blob, err := b.PutBlob(context.Background(), "primary", "text/plain", data)
+	blob, err := b.PutBlob(context.Background(), jmap.AccountIDForSubject("user@example.com"), "text/plain", data)
 	if err != nil {
 		t.Fatalf("PutBlob: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestRFC9404_BlobIDFullSHA256Digest(t *testing.T) {
 	}
 
 	// Identical content must dedupe to the same blob ID.
-	blob2, err := b.PutBlob(context.Background(), "folder", "text/plain", data)
+	blob2, err := b.PutBlob(context.Background(), jmap.AccountIDForSubject("user@example.com"), "text/plain", data)
 	if err != nil {
 		t.Fatalf("PutBlob: %v", err)
 	}

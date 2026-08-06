@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -18,7 +17,7 @@ func TestRFC9404_Section2_Capability(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/.well-known/jmap")
+	resp, err := authedGet(ts.URL + "/.well-known/jmap")
 	if err != nil {
 		t.Fatalf("GET /.well-known/jmap failed: %v", err)
 	}
@@ -34,7 +33,7 @@ func TestRFC9404_Section2_Capability(t *testing.T) {
 		t.Fatalf("Capability %q missing in Session capabilities", jmap.BlobCapabilityURI)
 	}
 
-	acc, ok := session.Accounts["primary"]
+	acc, ok := session.Accounts[jmap.AccountIDForSubject(testUsername)]
 	if !ok {
 		t.Fatal("primary account missing in session")
 	}
@@ -58,14 +57,15 @@ func TestRFC9404_Section2_Capability(t *testing.T) {
 // TestRFC9404_Section4_BlobGet tests Blob/get method per RFC 9404 Section 4.
 func TestRFC9404_Section4_BlobGet(t *testing.T) {
 	blobBackend := memory.NewMemoryBlobBackend()
-	_, _ = blobBackend.PutBlob(context.TODO(), "primary", "text/plain", []byte("Hello RFC 9404"))
+	acctID := jmap.AccountIDForSubject(testUsername)
+	_, _ = blobBackend.PutBlob(context.TODO(), acctID, "text/plain", []byte("Hello RFC 9404"))
 
 	srv := jmap.NewServer(nil, jmap.WithBlobBackend(blobBackend))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
 	// Upload a blob first via HTTP upload
-	uploadResp, err := http.Post(ts.URL+"/upload/primary/", "text/plain", bytes.NewReader([]byte("Test Data")))
+	uploadResp, err := authedPost(ts.URL+"/upload/"+acctID+"/", "text/plain", bytes.NewReader([]byte("Test Data")))
 	if err != nil {
 		t.Fatalf("Upload failed: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestRFC9404_Section4_BlobGet(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestRFC9404_Section5_BlobUpload(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestRFC9404_Section4_3_BlobLookup(t *testing.T) {
 			"methodCalls": methodCalls,
 		}
 		body, _ := json.Marshal(reqPayload)
-		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatalf("POST /jmap failed: %v", err)
 		}
@@ -313,12 +313,12 @@ func TestRFC9404_Section4_BlobCopy(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	reqPayload := map[string]any{
+reqPayload := map[string]any{
 		"using": []string{jmap.CoreCapabilityURI, jmap.BlobCapabilityURI},
 		"methodCalls": []any{
 			[]any{"Blob/copy", map[string]any{
 				"fromAccountId": "account-a",
-				"accountId":     "account-b",
+				"accountId":     jmap.AccountIDForSubject(testUsername),
 				"create": map[string]any{
 					"c1": map[string]any{
 						"blobId": b1.ID,
@@ -332,7 +332,7 @@ func TestRFC9404_Section4_BlobCopy(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}

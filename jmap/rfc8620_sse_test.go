@@ -19,10 +19,7 @@ func TestRFC8620_Section7_1_EventSourceConnection(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	req, err := http.NewRequest("GET", ts.URL+"/eventsource?ping=1", nil)
-	if err != nil {
-		t.Fatalf("Failed to create request: %v", err)
-	}
+	req := authedRequest(t, "GET", ts.URL+"/eventsource?ping=1", nil)
 
 	client := &http.Client{Timeout: 3 * time.Second}
 	resp, err := client.Do(req)
@@ -48,10 +45,7 @@ func TestRFC8620_Section7_1_StateChangeBroadcast(t *testing.T) {
 	defer ts.Close()
 
 	// 1. Connect SSE listener
-	req, err := http.NewRequest("GET", ts.URL+"/eventsource?types=Email&closeafter=state", nil)
-	if err != nil {
-		t.Fatalf("Failed to create request: %v", err)
-	}
+	req := authedRequest(t, "GET", ts.URL+"/eventsource?types=Email&closeafter=state", nil)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -77,7 +71,7 @@ func TestRFC8620_Section7_1_StateChangeBroadcast(t *testing.T) {
 			},
 		}
 		body, _ := json.Marshal(reqPayload)
-		_, _ = http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		_, _ = authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	}()
 
 	// 3. Read SSE stream
@@ -114,7 +108,7 @@ func TestRFC8620_Section7_1_StateChangeAllBackends(t *testing.T) {
 	post := func(ts *httptest.Server, using []string, methodCalls []any) map[string]any {
 		reqPayload := map[string]any{"using": using, "methodCalls": methodCalls}
 		body, _ := json.Marshal(reqPayload)
-		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatalf("POST /jmap failed: %v", err)
 		}
@@ -128,10 +122,7 @@ func TestRFC8620_Section7_1_StateChangeAllBackends(t *testing.T) {
 
 	// pushState connects to /eventsource filtered by type and returns the pushed token.
 	pushState := func(ts *httptest.Server, typeName string, mutate func()) (string, error) {
-		req, err := http.NewRequest("GET", ts.URL+"/eventsource?types="+typeName+"&closeafter=state", nil)
-		if err != nil {
-			t.Fatalf("Failed to create request: %v", err)
-		}
+		req := authedRequest(t, "GET", ts.URL+"/eventsource?types="+typeName+"&closeafter=state", nil)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatalf("GET /eventsource failed: %v", err)
@@ -153,8 +144,10 @@ func TestRFC8620_Section7_1_StateChangeAllBackends(t *testing.T) {
 			if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data:")), &sc); err != nil {
 				continue
 			}
-			if token, ok := sc.Changed["primary"][typeName]; ok {
-				return token, nil
+			for _, accMap := range sc.Changed {
+				if token, ok := accMap[typeName]; ok {
+					return token, nil
+				}
 			}
 		}
 		return "", scanner.Err()
@@ -244,7 +237,7 @@ func TestRFC8620_Section7_1_PushTokenMatchesChangesState(t *testing.T) {
 			},
 		}
 		body, _ := json.Marshal(reqPayload)
-		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatalf("POST /jmap failed: %v", err)
 		}
@@ -261,10 +254,7 @@ func TestRFC8620_Section7_1_PushTokenMatchesChangesState(t *testing.T) {
 	oldMailboxState := getState("Mailbox/get")
 
 	// Listen for push events, then create an email in the background.
-	req, err := http.NewRequest("GET", ts.URL+"/eventsource", nil)
-	if err != nil {
-		t.Fatalf("Failed to create request: %v", err)
-	}
+	req := authedRequest(t, "GET", ts.URL+"/eventsource", nil)
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -289,7 +279,7 @@ func TestRFC8620_Section7_1_PushTokenMatchesChangesState(t *testing.T) {
 			},
 		}
 		body, _ := json.Marshal(reqPayload)
-		_, _ = http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		_, _ = authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	}()
 
 	pushed := make(map[string]string)
@@ -303,9 +293,11 @@ func TestRFC8620_Section7_1_PushTokenMatchesChangesState(t *testing.T) {
 		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data:")), &sc); err != nil {
 			continue
 		}
-		for typeName, token := range sc.Changed["primary"] {
-			if _, seen := pushed[typeName]; !seen {
-				pushed[typeName] = token
+		for _, accMap := range sc.Changed {
+			for typeName, token := range accMap {
+				if _, seen := pushed[typeName]; !seen {
+					pushed[typeName] = token
+				}
 			}
 		}
 		if _, ok := pushed["Email"]; ok {
@@ -336,7 +328,7 @@ func TestRFC8620_Section7_1_PushTokenMatchesChangesState(t *testing.T) {
 			},
 		}
 		body, _ := json.Marshal(reqPayload)
-		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatalf("POST /jmap failed: %v", err)
 		}

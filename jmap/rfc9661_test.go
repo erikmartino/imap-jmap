@@ -3,7 +3,6 @@ package jmap_test
 import (
 	"bytes"
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -18,7 +17,7 @@ func TestRFC9661_Capability(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/.well-known/jmap")
+	resp, err := authedGet(ts.URL + "/.well-known/jmap")
 	if err != nil {
 		t.Fatalf("GET /.well-known/jmap failed: %v", err)
 	}
@@ -70,7 +69,7 @@ func TestRFC9661_SieveScript_Validate(t *testing.T) {
 	}
 
 	bodyBytes, _ := json.Marshal(valReq)
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
 	if err != nil {
 		t.Fatalf("JMAP POST validate failed: %v", err)
 	}
@@ -103,7 +102,7 @@ func TestRFC9661_SieveScript_Validate(t *testing.T) {
 	}
 
 	bodyBytesInvalid, _ := json.Marshal(invalidValReq)
-	respInvalid, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytesInvalid))
+	respInvalid, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytesInvalid))
 	if err != nil {
 		t.Fatalf("JMAP POST validate failed: %v", err)
 	}
@@ -154,7 +153,7 @@ func TestRFC9661_SieveScript_GetSetQuery(t *testing.T) {
 	}
 
 	bodyBytes, _ := json.Marshal(createReq)
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
 	if err != nil {
 		t.Fatalf("JMAP POST set failed: %v", err)
 	}
@@ -193,7 +192,7 @@ func TestRFC9661_SieveScript_GetSetQuery(t *testing.T) {
 	}
 
 	bodyBytesQuery, _ := json.Marshal(queryReq)
-	respQuery, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytesQuery))
+	respQuery, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytesQuery))
 	if err != nil {
 		t.Fatalf("JMAP POST query failed: %v", err)
 	}

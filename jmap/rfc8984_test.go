@@ -3,7 +3,6 @@ package jmap_test
 import (
 	"bytes"
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -18,7 +17,7 @@ func TestRFC8984_Capability(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/.well-known/jmap")
+	resp, err := authedGet(ts.URL + "/.well-known/jmap")
 	if err != nil {
 		t.Fatalf("GET /.well-known/jmap failed: %v", err)
 	}
@@ -83,7 +82,7 @@ func TestRFC8984_Calendar_GetAndSet(t *testing.T) {
 	}
 
 	bodyBytes, _ := json.Marshal(reqBody)
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
 	if err != nil {
 		t.Fatalf("JMAP POST failed: %v", err)
 	}
@@ -125,7 +124,7 @@ func TestRFC8984_Calendar_GetAndSet(t *testing.T) {
 	}
 
 	bodyBytes2, _ := json.Marshal(setReqBody)
-	resp2, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes2))
+	resp2, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes2))
 	if err != nil {
 		t.Fatalf("JMAP POST failed: %v", err)
 	}
@@ -203,7 +202,7 @@ func TestRFC8984_CalendarEvent_GetSetQuery(t *testing.T) {
 	}
 
 	bodyBytes, _ := json.Marshal(createReq)
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
 	if err != nil {
 		t.Fatalf("JMAP POST failed: %v", err)
 	}
@@ -239,7 +238,7 @@ func TestRFC8984_CalendarEvent_GetSetQuery(t *testing.T) {
 	}
 
 	bodyBytesQuery, _ := json.Marshal(queryReq)
-	respQuery, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytesQuery))
+	respQuery, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytesQuery))
 	if err != nil {
 		t.Fatalf("JMAP POST query failed: %v", err)
 	}
@@ -271,7 +270,7 @@ func TestRFC8984_CalendarEvent_GetSetQuery(t *testing.T) {
 	}
 
 	bodyBytesGet, _ := json.Marshal(getReq)
-	respGet, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytesGet))
+	respGet, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytesGet))
 	if err != nil {
 		t.Fatalf("JMAP POST get failed: %v", err)
 	}
@@ -341,7 +340,7 @@ func TestRFC8984_JSCalendarFullEvent(t *testing.T) {
 	}
 
 	bodyBytes, _ := json.Marshal(createReq)
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
 	if err != nil {
 		t.Fatalf("CalendarEvent/set failed: %v", err)
 	}
@@ -372,7 +371,7 @@ func TestRFC8984_JSCalendarFullEvent(t *testing.T) {
 	}
 
 	bodyBytesGet, _ := json.Marshal(getReq)
-	respGet, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytesGet))
+	respGet, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytesGet))
 	if err != nil {
 		t.Fatalf("CalendarEvent/get failed: %v", err)
 	}
@@ -429,7 +428,7 @@ func TestRFC8984_CalendarAndEventCopy(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -467,7 +466,7 @@ func TestRFC8984_CalendarCopyRoundTrip(t *testing.T) {
 			"methodCalls": calls,
 		}
 		body, _ := json.Marshal(payload)
-		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatalf("POST /jmap failed: %v", err)
 		}

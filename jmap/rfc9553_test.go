@@ -3,7 +3,6 @@ package jmap_test
 import (
 	"bytes"
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -46,7 +45,7 @@ func TestRFC9553_JSContactDataModel(t *testing.T) {
 	}
 
 	bodyBytes, _ := json.Marshal(cardReq)
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
 	if err != nil {
 		t.Fatalf("JMAP POST Card/set failed: %v", err)
 	}
@@ -182,7 +181,7 @@ func TestRFC9553_JSContactFullCard(t *testing.T) {
 	}
 
 	bodyBytes, _ := json.Marshal(cardReq)
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
 	if err != nil {
 		t.Fatalf("Card/set failed: %v", err)
 	}
@@ -206,7 +205,7 @@ func TestRFC9553_JSContactFullCard(t *testing.T) {
 	}
 
 	bodyBytesGet, _ := json.Marshal(getReq)
-	respGet, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytesGet))
+	respGet, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytesGet))
 	if err != nil {
 		t.Fatalf("Card/get failed: %v", err)
 	}
@@ -290,7 +289,7 @@ func TestRFC9553_JSContactGroup(t *testing.T) {
 	}
 
 	bodyBytes, _ := json.Marshal(groupReq)
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
 	if err != nil {
 		t.Fatalf("Card/set group failed: %v", err)
 	}
@@ -332,7 +331,7 @@ func TestRFC9553_CardVersionAndUid(t *testing.T) {
 		},
 	}
 	body, _ := json.Marshal(reqPayload)
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -365,7 +364,7 @@ func TestRFC9553_CardJSONPointerPatch(t *testing.T) {
 			"methodCalls": calls,
 		}
 		body, _ := json.Marshal(payload)
-		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatalf("POST /jmap failed: %v", err)
 		}
@@ -426,4 +425,3 @@ func TestRFC9553_CardJSONPointerPatch(t *testing.T) {
 		t.Errorf("expected patched emails/e1/pref 2, got %v", e1Map["pref"])
 	}
 }
-

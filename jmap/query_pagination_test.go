@@ -49,7 +49,7 @@ func TestQueryNegativePositionFromEnd(t *testing.T) {
 				}
 				body, _ := json.Marshal(reqPayload)
 
-				resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+				resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 				if err != nil {
 					t.Fatalf("POST /jmap failed: %v", err)
 				}
@@ -164,7 +164,7 @@ func TestQueryPagination(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -221,7 +221,7 @@ func TestQueryPaginationMailbox(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -267,7 +267,13 @@ func postJMAP(t *testing.T, url string, using []string, calls []any) jmap.Respon
 	t.Helper()
 	payload := map[string]any{"using": using, "methodCalls": calls}
 	body, _ := json.Marshal(payload)
-	resp, err := http.Post(url+"/jmap", "application/json", bytes.NewReader(body))
+	req, err := http.NewRequest("POST", url+"/jmap", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("NewRequest failed: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.SetBasicAuth("user@example.com", "user@example.com")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}

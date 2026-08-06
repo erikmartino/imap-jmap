@@ -124,7 +124,7 @@ func TestRFC5321_SMTPServerReceive(t *testing.T) {
 	}
 
 	// Verify Blob backend has stored the message payload
-	blob, found, err := memBlobBackend.GetBlob(context.Background(), "primary", string(delivered.BlobID))
+	blob, found, err := memBlobBackend.GetBlob(context.Background(), jmap.AccountIDForSubject("user@example.com"), string(delivered.BlobID))
 	if err != nil || !found {
 		t.Errorf("expected blob %s to exist in BlobBackend, found=%v, err=%v", delivered.BlobID, found, err)
 	} else if strings.TrimRight(string(blob.Data), "\r\n") != strings.TrimRight(string(msg), "\r\n") {

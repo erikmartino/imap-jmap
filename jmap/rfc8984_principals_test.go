@@ -3,7 +3,6 @@ package jmap_test
 import (
 	"bytes"
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -17,7 +16,7 @@ func TestRFC8984_PrincipalsCapability(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/.well-known/jmap")
+	resp, err := authedGet(ts.URL + "/.well-known/jmap")
 	if err != nil {
 		t.Fatalf("GET /.well-known/jmap failed: %v", err)
 	}
@@ -35,7 +34,7 @@ func TestRFC8984_PrincipalsCapability(t *testing.T) {
 		t.Errorf("expected capability %q in session", jmap.AvailabilityCapabilityURI)
 	}
 
-	accCap := session.Accounts["primary"].AccountCapabilities[jmap.PrincipalsCapabilityURI]
+	accCap := session.Accounts[jmap.AccountIDForSubject(testUsername)].AccountCapabilities[jmap.PrincipalsCapabilityURI]
 	if accCap == nil {
 		t.Fatalf("expected account capability %q", jmap.PrincipalsCapabilityURI)
 	}
@@ -60,7 +59,7 @@ func TestRFC8984_PrincipalGetAndQuery(t *testing.T) {
 			"methodCalls": calls,
 		}
 		body, _ := json.Marshal(payload)
-		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatalf("POST /jmap failed: %v", err)
 		}
@@ -104,7 +103,7 @@ func TestRFC8984_PrincipalSetLifecycle(t *testing.T) {
 			"methodCalls": calls,
 		}
 		body, _ := json.Marshal(payload)
-		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatalf("POST /jmap failed: %v", err)
 		}
@@ -177,7 +176,7 @@ func TestRFC8984_PrincipalGetAvailability(t *testing.T) {
 			"methodCalls": calls,
 		}
 		body, _ := json.Marshal(payload)
-		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatalf("POST /jmap failed: %v", err)
 		}

@@ -24,7 +24,7 @@ func TestRFC8621_SMTPReceiveToJMAPPushIntegration(t *testing.T) {
 	// 1. Initialize backends & JMAP Server
 	memBackend := memory.NewMemoryBackend()
 	memBlobBackend := memory.NewMemoryBlobBackend()
-	session := jmap.DefaultSession("http://localhost:8080")
+	session := jmap.DefaultSession("http://localhost:8080", "user@example.com")
 
 	server := jmap.NewServer(
 		session,
@@ -56,10 +56,7 @@ func TestRFC8621_SMTPReceiveToJMAPPushIntegration(t *testing.T) {
 
 	// 4. Connect SSE Push Client to GET /eventsource
 	sseURL := ts.URL + "/eventsource?types=Email,Mailbox&closeafter=state"
-	req, err := http.NewRequest("GET", sseURL, nil)
-	if err != nil {
-		t.Fatalf("Failed to create SSE request: %v", err)
-	}
+	req := authedRequest(t, "GET", sseURL, nil)
 
 	sseResp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -76,9 +73,9 @@ func TestRFC8621_SMTPReceiveToJMAPPushIntegration(t *testing.T) {
 	go func() {
 		time.Sleep(100 * time.Millisecond)
 		from := "push-sender@example.com"
-		to := []string{"bulwark-user@example.com"}
+		to := []string{"user@example.com"}
 		msg := []byte("From: Push Sender <push-sender@example.com>\r\n" +
-			"To: Bulwark User <bulwark-user@example.com>\r\n" +
+			"To: User Example <user@example.com>\r\n" +
 			"Subject: " + sentSubject + "\r\n" +
 			"Message-ID: <smtp-push-1@example.com>\r\n" +
 			"\r\n" +
@@ -134,7 +131,7 @@ func TestRFC8621_SMTPReceiveToJMAPPushIntegration(t *testing.T) {
 		},
 	}
 	reqBytes, _ := json.Marshal(jmapReqBody)
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(reqBytes))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(reqBytes))
 	if err != nil {
 		t.Fatalf("POST /jmap Email/get failed: %v", err)
 	}

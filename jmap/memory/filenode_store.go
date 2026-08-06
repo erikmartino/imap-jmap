@@ -26,7 +26,7 @@ type MemoryFileNodeBackend struct {
 }
 
 func (b *MemoryFileNodeBackend) getStoreLocked(ctx context.Context) *userFileNodeStore {
-	accountID := "primary"
+	accountID := jmap.AccountIDForSubject("user@example.com")
 	if ctxID, ok := jmap.AccountIDFromContext(ctx); ok && ctxID != "" {
 		accountID = ctxID
 	}
@@ -65,7 +65,7 @@ func (b *MemoryFileNodeBackend) SetBroadcaster(bc *jmap.Broadcaster) {
 func (b *MemoryFileNodeBackend) record(ctx context.Context, tracker *changeTracker, id jmap.Id, action string) {
 	newState := tracker.record(id, action)
 	if b.broadcaster != nil {
-		accountID := "primary"
+		accountID := jmap.AccountIDForSubject("user@example.com")
 		if ctxID, ok := jmap.AccountIDFromContext(ctx); ok && ctxID != "" {
 			accountID = ctxID
 		}

@@ -354,7 +354,7 @@ func handleCardSet(backend ContactsBackend) MethodHandler {
 var cardSortableProperties = map[string]bool{
 	"created":       true,
 	"updated":       true,
-	"name/given":   true,
+	"name/given":    true,
 	"name/surname":  true,
 	"name/surname2": true,
 }
@@ -450,6 +450,7 @@ func handleCardQueryChanges(backend ContactsBackend) MethodHandler {
 		return "Card/queryChanges", res
 	}
 }
+
 // handleCardCopy implements Card/copy per RFC 8620 Section 5.4: each create entry names a source
 // card by id, optionally overriding properties, and is recreated in the target account.
 func handleCardCopy(backend ContactsBackend) MethodHandler {

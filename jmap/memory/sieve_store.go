@@ -26,7 +26,7 @@ type MemorySieveBackend struct {
 }
 
 func (b *MemorySieveBackend) getStoreLocked(ctx context.Context) *userSieveStore {
-	accountID := "primary"
+	accountID := jmap.AccountIDForSubject("user@example.com")
 	if ctxID, ok := jmap.AccountIDFromContext(ctx); ok && ctxID != "" {
 		accountID = ctxID
 	}
@@ -83,7 +83,7 @@ func (b *MemorySieveBackend) SieveScriptChanges(ctx context.Context, sinceState 
 func (b *MemorySieveBackend) recordChange(ctx context.Context, tracker *changeTracker, id jmap.Id, action string) string {
 	newState := tracker.record(id, action)
 	if b.broadcaster != nil {
-		accountID := "primary"
+		accountID := jmap.AccountIDForSubject("user@example.com")
 		if ctxID, ok := jmap.AccountIDFromContext(ctx); ok && ctxID != "" {
 			accountID = ctxID
 		}

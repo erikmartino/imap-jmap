@@ -130,7 +130,7 @@ func WithAllowedRecipients(allowed []string) Option {
 // NewServer initializes a new Server instance.
 func NewServer(session *Session, opts ...Option) *Server {
 	if session == nil {
-		session = DefaultSession("")
+		session = DefaultSession("", "user@example.com")
 	}
 	s := &Server{
 		Session:        session,
@@ -148,6 +148,9 @@ func NewServer(session *Session, opts ...Option) *Server {
 	if s.AccountResolver == nil {
 		s.AccountResolver = PrimaryDomainResolver{PrimaryDomain: "example.com"}
 	}
+	if s.AuthBackend == nil {
+		s.AuthBackend = defaultAuthBackend{}
+	}
 
 	RegisterMailHandlers(s.MethodRegistry, s.MailBackend, s.BlobBackend, s.AccountResolver, s.AllowedRecipients)
 	refs, _ := s.MailBackend.(BlobReferenceBackend)
@@ -164,7 +167,7 @@ func NewServer(session *Session, opts ...Option) *Server {
 }
 
 // Handler returns an http.Handler wrapped with CORS middleware that routes requests.
-// If an AuthBackend is configured, all endpoints except OPTIONS are protected by Bearer token auth.
+// All endpoints except OPTIONS and /jmap/login are protected by authentication per RFC 8620.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/jmap", s.handleWellKnownJMAP)
@@ -173,14 +176,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/upload/", s.HandleUpload)
 	mux.HandleFunc("/download/", s.HandleDownload)
 	mux.HandleFunc("/eventsource", s.HandleEventSource)
+	mux.HandleFunc("/jmap/login", s.handleLogin)
 	mux.HandleFunc("/", s.handleNotFound)
 
-	if s.AuthBackend != nil {
-		// Register login endpoint and wrap all routes with auth middleware.
-		mux.HandleFunc("/jmap/login", s.handleLogin)
-		return s.corsMiddleware(s.authMiddleware(mux))
-	}
-	return s.corsMiddleware(mux)
+	return s.corsMiddleware(s.authMiddleware(mux))
 }
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
@@ -216,16 +215,22 @@ func requestBaseURL(r *http.Request) string {
 }
 
 func (s *Server) sessionForRequest(r *http.Request) *Session {
-	if s.Session == nil {
-		return DefaultSession(requestBaseURL(r))
+	baseURL := requestBaseURL(r)
+	accountID, authed := AccountIDFromContext(r.Context())
+	subject := accountID
+	if !authed || subject == "" {
+		subject = "user@example.com"
+		accountID = AccountIDForSubject(subject)
+	}
+	if subj, ok := SubjectFromContext(r.Context()); ok {
+		subject = subj
 	}
 
-	baseURL := requestBaseURL(r)
-	sess := *s.Session
+	sess := *SessionForAccountID(baseURL, subject, accountID)
 
 	// Clone capabilities map to avoid mutating template session concurrently
-	caps := make(map[string]any, len(s.Session.Capabilities))
-	for k, v := range s.Session.Capabilities {
+	caps := make(map[string]any, len(sess.Capabilities))
+	for k, v := range sess.Capabilities {
 		if k == WebSocketCapabilityURI {
 			wsScheme := "ws"
 			if strings.HasPrefix(baseURL, "https://") {
@@ -336,7 +341,10 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 
 		targetAccountID, _ := resolvedArgs["accountId"].(string)
 		principalAccountID, _ := AccountIDFromContext(reqCtx)
-		if s.AuthBackend != nil && targetAccountID != "" && targetAccountID != "primary" {
+		if targetAccountID == "" || targetAccountID == "primary" || targetAccountID == principalAccountID || AccountIDForSubject(targetAccountID) == principalAccountID {
+			targetAccountID = principalAccountID
+			resolvedArgs["accountId"] = principalAccountID
+		} else {
 			if s.PermissionGuard != nil && !s.PermissionGuard.CanAccessAccount(reqCtx, principalAccountID, targetAccountID) {
 				respInv := Invocation{
 					Name:         "error",

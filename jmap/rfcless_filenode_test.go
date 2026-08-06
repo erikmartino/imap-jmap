@@ -21,7 +21,7 @@ func TestFileNode_CapabilityAndHandlers(t *testing.T) {
 	defer ts.Close()
 
 	// 1. Verify capability URI in /.well-known/jmap
-	respSession, err := http.Get(ts.URL + "/.well-known/jmap")
+	respSession, err := authedGet(ts.URL + "/.well-known/jmap")
 	if err != nil {
 		t.Fatalf("GET /.well-known/jmap failed: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestFileNode_CapabilityAndHandlers(t *testing.T) {
 	}
 	bodyBytes, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -85,7 +85,7 @@ func doFileNodeRequest(t *testing.T, url string, methodCalls []any) jmap.Respons
 		"methodCalls": methodCalls,
 	}
 	body, _ := json.Marshal(payload)
-	resp, err := http.Post(url+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(url+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -370,10 +370,7 @@ func TestFileNode_PushStateChangeOnSet(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	req, err := http.NewRequest("GET", ts.URL+"/eventsource?types=FileNode&closeafter=state", nil)
-	if err != nil {
-		t.Fatalf("Failed to create request: %v", err)
-	}
+	req := authedRequest(t, "GET", ts.URL+"/eventsource?types=FileNode&closeafter=state", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET /eventsource failed: %v", err)

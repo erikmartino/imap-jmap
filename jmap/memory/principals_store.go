@@ -27,6 +27,7 @@ func NewMemoryPrincipalsBackend() *MemoryPrincipalsBackend {
 	}
 
 	// Seed default user principal
+	defaultAccID := jmap.AccountIDForSubject("user@example.com")
 	defaultPrincipal := &jmap.Principal{
 		ID:                 "p-primary",
 		Type:               "individual",
@@ -36,7 +37,7 @@ func NewMemoryPrincipalsBackend() *MemoryPrincipalsBackend {
 		CalendarAddress:    "mailto:user@example.com",
 		MayGetAvailability: true,
 		MayShareWith:       true,
-		AccountIDs:         map[string]bool{"primary": true},
+		AccountIDs:         map[string]bool{defaultAccID: true},
 	}
 	b.principals[defaultPrincipal.ID] = defaultPrincipal
 

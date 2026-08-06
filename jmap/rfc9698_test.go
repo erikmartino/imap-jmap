@@ -3,7 +3,6 @@ package jmap_test
 import (
 	"bytes"
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -13,12 +12,12 @@ import (
 
 // TestRFC9698_CapabilityDiscovery tests RFC 9698 capability advertising in session.
 func TestRFC9698_CapabilityDiscovery(t *testing.T) {
-	session := jmap.DefaultSession("http://localhost:8080")
+	session := jmap.DefaultSession("http://localhost:8080", "user@example.com")
 	srv := jmap.NewServer(session)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/.well-known/jmap")
+	resp, err := authedGet(ts.URL + "/.well-known/jmap")
 	if err != nil {
 		t.Fatalf("GET /.well-known/jmap failed: %v", err)
 	}
@@ -50,7 +49,7 @@ func TestRFC9698_IMAPAccountGetSetChanges(t *testing.T) {
 		},
 	}
 	bodyBytes, _ := json.Marshal(getReq)
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
 	if err != nil {
 		t.Fatalf("POST IMAPAccount/get failed: %v", err)
 	}
@@ -94,7 +93,7 @@ func TestRFC9698_IMAPAccountGetSetChanges(t *testing.T) {
 	}
 
 	bodyCreate, _ := json.Marshal(createReq)
-	respCreate, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyCreate))
+	respCreate, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyCreate))
 	if err != nil {
 		t.Fatalf("POST IMAPAccount/set create failed: %v", err)
 	}
@@ -124,7 +123,7 @@ func TestRFC9698_IMAPAccountGetSetChanges(t *testing.T) {
 	}
 
 	bodyChanges, _ := json.Marshal(changesReq)
-	respChanges, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyChanges))
+	respChanges, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyChanges))
 	if err != nil {
 		t.Fatalf("POST IMAPAccount/changes failed: %v", err)
 	}

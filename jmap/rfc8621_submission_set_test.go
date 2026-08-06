@@ -274,5 +274,3 @@ func TestEmailSubmission_ExternalAllowList(t *testing.T) {
 		t.Errorf("Expected SetError type 'forbidden', got %q", errObj2["type"])
 	}
 }
-
-

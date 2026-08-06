@@ -104,12 +104,12 @@ func handlePrincipalQuery(backend PrincipalsBackend) MethodHandler {
 		}
 
 		return "Principal/query", map[string]any{
-			"accountId":          accountID,
-			"queryState":         backend.PrincipalState(ctx),
+			"accountId":           accountID,
+			"queryState":          backend.PrincipalState(ctx),
 			"canCalculateChanges": true,
-			"position":           position,
-			"total":              total,
-			"ids":                ids,
+			"position":            position,
+			"total":               total,
+			"ids":                 ids,
 		}
 	}
 }

@@ -3,7 +3,6 @@ package jmap_test
 import (
 	"bytes"
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -58,7 +57,7 @@ func TestRFC9610_ContactCard_QuerySort(t *testing.T) {
 		},
 	}
 	bodyBytes, _ := json.Marshal(setReq)
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
 	if err != nil {
 		t.Fatalf("JMAP POST failed: %v", err)
 	}
@@ -81,7 +80,7 @@ func TestRFC9610_ContactCard_QuerySort(t *testing.T) {
 			},
 		}
 		b, _ := json.Marshal(req)
-		r, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(b))
+		r, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(b))
 		if err != nil {
 			t.Fatalf("POST failed: %v", err)
 		}

@@ -2,7 +2,6 @@ package jmap_test
 
 import (
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -11,12 +10,12 @@ import (
 
 // TestRFC9749_VAPIDPushCapability tests RFC 9749 VAPID Web Push capability advertising and endpoint options.
 func TestRFC9749_VAPIDPushCapability(t *testing.T) {
-	session := jmap.DefaultSession("http://localhost:8080")
+	session := jmap.DefaultSession("http://localhost:8080", "user@example.com")
 	srv := jmap.NewServer(session)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/.well-known/jmap")
+	resp, err := authedGet(ts.URL + "/.well-known/jmap")
 	if err != nil {
 		t.Fatalf("GET /.well-known/jmap failed: %v", err)
 	}

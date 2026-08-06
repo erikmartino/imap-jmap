@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
-	"github.com/coder/websocket"
 	"imap-jmap/jmap"
+
+	"github.com/coder/websocket"
 )
 
 // TestRFC8887_SessionCapability tests that urn:ietf:params:jmap:websocket is present in the session per RFC 8887 Section 3.
@@ -19,7 +19,7 @@ func TestRFC8887_SessionCapability(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/.well-known/jmap")
+	resp, err := authedGet(ts.URL + "/.well-known/jmap")
 	if err != nil {
 		t.Fatalf("Failed to fetch session: %v", err)
 	}
@@ -61,6 +61,7 @@ func TestRFC8887_WebSocketJMAPRequest(t *testing.T) {
 
 	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
 		Subprotocols: []string{"jmap"},
+		HTTPHeader:   basicAuthHeader(),
 	})
 	if err != nil {
 		t.Fatalf("WebSocket dial failed: %v", err)
@@ -117,6 +118,7 @@ func TestRFC8887_WebSocketPushEnable(t *testing.T) {
 
 	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
 		Subprotocols: []string{"jmap"},
+		HTTPHeader:   basicAuthHeader(),
 	})
 	if err != nil {
 		t.Fatalf("WebSocket dial failed: %v", err)
@@ -200,6 +202,7 @@ func TestRFC8887_WebSocketInvalidCapability(t *testing.T) {
 
 	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
 		Subprotocols: []string{"jmap"},
+		HTTPHeader:   basicAuthHeader(),
 	})
 	if err != nil {
 		t.Fatalf("WebSocket dial failed: %v", err)
@@ -249,6 +252,7 @@ func TestRFC8887_WebSocketPushDisable(t *testing.T) {
 
 	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
 		Subprotocols: []string{"jmap"},
+		HTTPHeader:   basicAuthHeader(),
 	})
 	if err != nil {
 		t.Fatalf("WebSocket dial failed: %v", err)

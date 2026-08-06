@@ -247,7 +247,7 @@ func handleEmailSubmissionSet(backend MailBackend, resolver AccountResolver, all
 			for clientKey := range updateMap {
 				resolvedID := resolveCreationID(clientKey, creationRefs)
 				notUpdated[resolvedID] = SetError{
-					Type: "invalidProperties",
+					Type:        "invalidProperties",
 					Description: "EmailSubmission objects cannot be updated",
 				}
 			}
@@ -262,7 +262,7 @@ func handleEmailSubmissionSet(backend MailBackend, resolver AccountResolver, all
 					ok, err := backend.DeleteSubmission(ctx, Id(resolvedID))
 					if err != nil || !ok {
 						notDestroyed[resolvedID] = SetError{
-							Type: "notFound",
+							Type:        "notFound",
 							Description: "EmailSubmission not found or cannot be destroyed",
 						}
 					} else {

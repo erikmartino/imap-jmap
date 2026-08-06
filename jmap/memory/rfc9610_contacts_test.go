@@ -184,7 +184,7 @@ func TestRFC8984_UpdateCalendarEvent_FullPatch(t *testing.T) {
 		Start:       "2026-08-03T09:00:00Z",
 		Duration:    "PT1H",
 		Status:      "confirmed",
-		Locations: map[string]*jmap.JSCalendarLocation{"loc-1": {Name: "Room A"}},
+		Locations:   map[string]*jmap.JSCalendarLocation{"loc-1": {Name: "Room A"}},
 	})
 	if err != nil {
 		t.Fatalf("CreateCalendarEvent: %v", err)

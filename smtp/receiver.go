@@ -31,7 +31,7 @@ func NewReceiverBackend(mailBackend jmap.MailBackend, blobBackend jmap.BlobBacke
 		BlobBackend:      blobBackend,
 		CalendarsBackend: calBackend,
 		AccountResolver:  r,
-		AccountID:        "primary",
+		AccountID:        jmap.AccountIDForSubject("user@example.com"),
 	}
 }
 
@@ -86,7 +86,7 @@ func (s *Session) Data(r io.Reader) error {
 	if len(targetAccountIDs) == 0 {
 		fallbackID := s.backend.AccountID
 		if fallbackID == "" {
-			fallbackID = "primary"
+			fallbackID = jmap.AccountIDForSubject("user@example.com")
 		}
 		targetAccountIDs[fallbackID] = true
 	}

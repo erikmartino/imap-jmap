@@ -3,7 +3,6 @@ package jmap_test
 import (
 	"bytes"
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -25,7 +24,7 @@ func TestRFC9610_ContactCard_QueryChanges(t *testing.T) {
 		},
 	}
 	bodyBytes, _ := json.Marshal(queryReq)
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
 	if err != nil {
 		t.Fatalf("JMAP POST failed: %v", err)
 	}
@@ -66,7 +65,7 @@ func TestRFC9610_ContactCard_QueryChanges(t *testing.T) {
 		},
 	}
 	bodyBytes, _ = json.Marshal(setReq)
-	resp, err = http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
+	resp, err = authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
 	if err != nil {
 		t.Fatalf("JMAP POST failed: %v", err)
 	}
@@ -92,7 +91,7 @@ func TestRFC9610_ContactCard_QueryChanges(t *testing.T) {
 		},
 	}
 	bodyBytes, _ = json.Marshal(qcReq)
-	resp, err = http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
+	resp, err = authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
 	if err != nil {
 		t.Fatalf("JMAP POST failed: %v", err)
 	}
@@ -127,7 +126,7 @@ func TestRFC9610_ContactCard_QueryChanges(t *testing.T) {
 		},
 	}
 	bodyBytes, _ = json.Marshal(cardQcReq)
-	resp, err = http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
+	resp, err = authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
 	if err != nil {
 		t.Fatalf("JMAP POST failed: %v", err)
 	}

@@ -15,7 +15,7 @@ func TestRFC8620_WellKnownJMAP_Get(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/.well-known/jmap")
+	resp, err := authedGet(ts.URL + "/.well-known/jmap")
 	if err != nil {
 		t.Fatalf("Failed to execute GET request: %v", err)
 	}
@@ -60,6 +60,7 @@ func TestRFC8620_WellKnownJMAP_RequestBasedURLs(t *testing.T) {
 	}
 	req.Host = "jmap.example.com:8443"
 	req.Header.Set("X-Forwarded-Proto", "https")
+	req.SetBasicAuth(testUsername, testUsername)
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -107,7 +108,8 @@ func TestRFC8620_WellKnownJMAP_Head(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Head(ts.URL + "/.well-known/jmap")
+	req := authedRequest(t, "HEAD", ts.URL+"/.well-known/jmap", nil)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("Failed to execute HEAD request: %v", err)
 	}
@@ -129,7 +131,7 @@ func TestRFC8620_WellKnownJMAP_MethodNotAllowed(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Post(ts.URL+"/.well-known/jmap", "application/json", nil)
+	resp, err := authedPost(ts.URL+"/.well-known/jmap", "application/json", nil)
 	if err != nil {
 		t.Fatalf("Failed to execute POST request: %v", err)
 	}
@@ -148,7 +150,7 @@ func TestRFC8620_OtherRoutes_NotFound(t *testing.T) {
 
 	paths := []string{"/", "/api", "/.well-known", "/.well-known/jmap/extra", "/unknown"}
 	for _, path := range paths {
-		resp, err := http.Get(ts.URL + path)
+		resp, err := authedGet(ts.URL + path)
 		if err != nil {
 			t.Fatalf("Failed to execute GET request for %s: %v", path, err)
 		}

@@ -496,7 +496,7 @@ var emailMutableSortProperties = map[string]bool{
 // /queryChanges call per RFC 8620 Section 5.6: the server may omit added/removed ids with
 // a higher index than the anchor only when the query's filter and sort are both over
 // immutable properties — "if they are not immutable, this argument is ignored". Filter
-//Operator conditions are examined recursively; properties absent from the mutable sets are
+// Operator conditions are examined recursively; properties absent from the mutable sets are
 // treated as immutable.
 func upToIdTruncationApplicable(filter map[string]any, comparators []Comparator, mutableFilter, mutableSort map[string]bool) bool {
 	for k, v := range filter {

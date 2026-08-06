@@ -3,7 +3,6 @@ package jmap_test
 import (
 	"context"
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -368,7 +367,7 @@ func TestRFC8620_Section5_5_QuerySortValidation(t *testing.T) {
 	// 8621 Section 1.3.1 places it in the account capabilities; the server currently
 	// advertises it in the session capabilities object.
 	var sess jmap.Session
-	sessResp, err := http.Get(ts.URL + "/.well-known/jmap")
+	sessResp, err := authedGet(ts.URL + "/.well-known/jmap")
 	if err != nil {
 		t.Fatalf("Failed to fetch session: %v", err)
 	}

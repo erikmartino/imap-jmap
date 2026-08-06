@@ -31,8 +31,9 @@ func TestQueryChangesFilterReevaluation(t *testing.T) {
 	sState0, _ := r1.MethodResponses[1].Args["queryState"].(string)
 
 	// 2. Create an email OUTSIDE mb-inbox (must be filtered out of the deltas), one INSIDE
-	//    mb-inbox (must be added), and submissions referencing different emails so the
-	//    emailIds filter splits them.
+	//    mb-inbox (must be added), and submissions referencing those emails via creation
+	//    references so the emailIds filter splits them. The created emails have no
+	//    recipient headers, so no delivery copies are produced.
 	r2 := post([]any{
 		[]any{"Email/set", map[string]any{
 			"accountId": "primary",
@@ -44,8 +45,8 @@ func TestQueryChangesFilterReevaluation(t *testing.T) {
 		[]any{"EmailSubmission/set", map[string]any{
 			"accountId": "primary",
 			"create": map[string]any{
-				"s1": map[string]any{"identityId": "id-primary", "emailId": "email-3"},
-				"s2": map[string]any{"identityId": "id-primary", "emailId": "email-1"},
+				"s1": map[string]any{"identityId": "id-primary", "emailId": "#e1"},
+				"s2": map[string]any{"identityId": "id-primary", "emailId": "#e2"},
 			},
 		}, "c4"},
 	})
@@ -67,7 +68,7 @@ func TestQueryChangesFilterReevaluation(t *testing.T) {
 		[]any{"EmailSubmission/queryChanges", map[string]any{
 			"accountId":       "primary",
 			"sinceQueryState": sState0,
-			"filter":          map[string]any{"emailIds": []any{"email-1"}},
+			"filter":          map[string]any{"emailIds": []any{e2ID}},
 		}, "c6"},
 	})
 
@@ -117,7 +118,9 @@ func TestQueryChangesUpToId(t *testing.T) {
 	sState0, _ := r1.MethodResponses[1].Args["queryState"].(string)
 
 	// 2. Create two inbox emails ("aaa" sorts before "bbb" under the subject sort) and two
-	//    submissions with explicit sendAt values (sendAt descending is the default sort).
+	//    submissions referencing them via creation references with explicit sendAt values
+	//    (sendAt descending is the default sort). The created emails have no recipient
+	//    headers, so no delivery copies are produced.
 	r2 := post([]any{
 		[]any{"Email/set", map[string]any{
 			"accountId": "primary",
@@ -129,8 +132,8 @@ func TestQueryChangesUpToId(t *testing.T) {
 		[]any{"EmailSubmission/set", map[string]any{
 			"accountId": "primary",
 			"create": map[string]any{
-				"s1": map[string]any{"identityId": "id-primary", "emailId": "email-1", "sendAt": "2026-01-15T10:00:00Z"},
-				"s2": map[string]any{"identityId": "id-primary", "emailId": "email-1", "sendAt": "2026-02-15T10:00:00Z"},
+				"s1": map[string]any{"identityId": "id-primary", "emailId": "#e1", "sendAt": "2026-01-15T10:00:00Z"},
+				"s2": map[string]any{"identityId": "id-primary", "emailId": "#e2", "sendAt": "2026-02-15T10:00:00Z"},
 			},
 		}, "c4"},
 	})

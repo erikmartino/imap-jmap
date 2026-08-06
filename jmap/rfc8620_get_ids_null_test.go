@@ -29,7 +29,7 @@ func TestGetMethods_IdsNullAllRecords(t *testing.T) {
 		EmailID:    em1.ID,
 		IdentityID: "id1",
 	})
-	_, _ = srv.BlobBackend.PutBlob(context.Background(), "primary", "text/plain", []byte("hello blob"))
+	_, _ = srv.BlobBackend.PutBlob(context.Background(), jmap.AccountIDForSubject(testUsername), "text/plain", []byte("hello blob"))
 
 	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.SubmissionCapabilityURI, jmap.BlobCapabilityURI}
 	calls := []any{

@@ -85,7 +85,7 @@ func main() {
 		publicURL = fmt.Sprintf("http://%s", addr)
 	}
 
-	session := jmap.DefaultSession(publicURL)
+	session := jmap.DefaultSession(publicURL, "user@example.com")
 	memBackend := memory.NewMemoryBackend()
 	memBlobBackend := memory.NewMemoryBlobBackend()
 	memCalBackend := memory.NewMemoryCalendarsBackend()

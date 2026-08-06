@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -50,7 +49,7 @@ func TestRFC6047_AutoSendInvitationAndCancellation(t *testing.T) {
 	}
 
 	bodyBytes, _ := json.Marshal(createReq)
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
 	if err != nil {
 		t.Fatalf("JMAP POST set failed: %v", err)
 	}
@@ -100,7 +99,7 @@ func TestRFC6047_AutoSendInvitationAndCancellation(t *testing.T) {
 	}
 
 	bodyBytesDestroy, _ := json.Marshal(destroyReq)
-	respDestroy, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytesDestroy))
+	respDestroy, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytesDestroy))
 	if err != nil {
 		t.Fatalf("JMAP POST destroy failed: %v", err)
 	}

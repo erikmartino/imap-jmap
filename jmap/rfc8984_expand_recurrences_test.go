@@ -46,7 +46,7 @@ func TestRFC8984_ExpandRecurrencesQueryArg(t *testing.T) {
 	// 2. Query with expandRecurrences: true
 	queryReq := []any{
 		[]any{"CalendarEvent/query", map[string]any{
-			"accountId":          "primary",
+			"accountId":         "primary",
 			"expandRecurrences": true,
 		}, "call-2"},
 	}

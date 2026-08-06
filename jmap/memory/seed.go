@@ -116,7 +116,7 @@ func SeedSampleData(mb *MemoryBackend, cb *MemoryCalendarsBackend) {
 			SortOrder:   10,
 			IsDefault:   false,
 			IsVisible:   true,
-			MyRights: jmap.FullCalendarRights(),
+			MyRights:    jmap.FullCalendarRights(),
 		})
 
 		calID := jmap.Id("cal-default")
@@ -186,7 +186,7 @@ func SeedSampleData(mb *MemoryBackend, cb *MemoryCalendarsBackend) {
 				{
 					Frequency: "weekly",
 					Interval:  1,
-					ByDay: []*jmap.NDay{{Day: "we"}},
+					ByDay:     []*jmap.NDay{{Day: "we"}},
 				},
 			},
 		})

@@ -16,7 +16,7 @@ func TestRFC8621_Section4_8_EmailImportAndParseErrorPaths(t *testing.T) {
 
 	// 1. Create a valid raw MIME blob via BlobBackend
 	rawMIME := []byte("From: alice@example.com\r\nTo: bob@example.com\r\nSubject: RFC Import Test\r\n\r\nHello RFC Import World!")
-	blob, err := srv.BlobBackend.PutBlob(context.Background(), "primary", "text/plain", rawMIME)
+	blob, err := srv.BlobBackend.PutBlob(context.Background(), jmap.AccountIDForSubject(testUsername), "text/plain", rawMIME)
 	if err != nil {
 		t.Fatalf("Failed to upload blob: %v", err)
 	}

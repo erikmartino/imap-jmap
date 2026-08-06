@@ -24,7 +24,7 @@ func TestRFC8621_Section2_1_MailboxGet(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestRFC8621_Section2_3_MailboxSet(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestRFC8621_Section2_5_MailboxUpdate(t *testing.T) {
 			"methodCalls": calls,
 		}
 		body, _ := json.Marshal(payload)
-		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatalf("POST /jmap failed: %v", err)
 		}
@@ -176,7 +176,7 @@ func TestRFC8621_Section2_4_MailboxQuery(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestRFC8621_Section3_1_ThreadGet(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestRFC8621_Section4_1_EmailGet(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -282,7 +282,7 @@ func TestRFC8621_Section4_3_EmailSet(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -318,7 +318,7 @@ func TestRFC8621_Section4_5_EmailQuery(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -354,7 +354,7 @@ func TestRFC8621_Section4_7_EmailImport(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -388,7 +388,7 @@ func TestRFC8621_Section4_8_EmailParse(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -419,7 +419,7 @@ func TestRFC8621_Section6_1_IdentityGet(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -450,7 +450,7 @@ func TestRFC8621_Section7_1_EmailSubmissionGet(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -489,7 +489,7 @@ func TestRFC8621_Section7_3_EmailSubmissionSet(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -540,7 +540,7 @@ func TestRFC8621_Section7_2_EmailSubmissionQuery(t *testing.T) {
 		},
 	}
 	body, _ := json.Marshal(reqPayload)
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -572,7 +572,7 @@ func TestRFC8621_Section7_2_EmailSubmissionQuery(t *testing.T) {
 		},
 	}
 	body, _ = json.Marshal(reqPayload)
-	resp, err = http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err = authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -608,7 +608,7 @@ func TestRFC8621_Section7_2_EmailSubmissionQuery(t *testing.T) {
 			},
 		}
 		body, _ := json.Marshal(reqPayload)
-		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatalf("POST /jmap failed: %v", err)
 		}
@@ -716,7 +716,7 @@ func TestRFC8621_Section4_5_1_EmailQueryFromToFilters(t *testing.T) {
 			},
 		}
 		body, _ := json.Marshal(reqPayload)
-		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatalf("POST /jmap failed: %v", err)
 		}
@@ -776,7 +776,7 @@ func TestRFC8621_Section4_5_1_EmailQueryFilteringAndSorting(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -812,7 +812,7 @@ func TestRFC8621_Section4_5_1_EmailQueryFilteringAndSorting(t *testing.T) {
 	}
 	bodyText, _ := json.Marshal(reqText)
 
-	respText, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyText))
+	respText, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyText))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -846,7 +846,7 @@ func TestRFC8621_EmailQueryAllFilterConditions(t *testing.T) {
 		},
 	}
 	bodyBytes, _ := json.Marshal(reqBody)
-	respBody, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
+	respBody, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -872,7 +872,7 @@ func TestRFC8621_EmailQueryAllFilterConditions(t *testing.T) {
 		},
 	}
 	bodyNoMatch, _ := json.Marshal(reqNoMatch)
-	respNoMatch, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyNoMatch))
+	respNoMatch, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyNoMatch))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -903,7 +903,7 @@ func TestRFC8621_Section3_ThreadGet(t *testing.T) {
 		},
 	}
 	bodyGet, _ := json.Marshal(getReq)
-	respGet, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyGet))
+	respGet, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyGet))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -928,7 +928,7 @@ func TestRFC8621_Section3_ThreadGet(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -974,7 +974,7 @@ func TestRFC8621_Section2_MailboxCopy(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -1008,7 +1008,7 @@ func TestRFC8621_Section4_EmailCopy(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -1040,7 +1040,7 @@ func TestRFC8621_Section5_SearchSnippetGet(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -1081,7 +1081,7 @@ func TestRFC8621_Section2_1_MayProvisions_OptionalSystemRoles(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -1143,7 +1143,7 @@ func TestRFC8621_Section4_5_MayProvisions_CalculateTotalAndUpToId(t *testing.T) 
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -1180,7 +1180,7 @@ func TestRFC8621_Section6_IdentitySet(t *testing.T) {
 			"methodCalls": calls,
 		}
 		body, _ := json.Marshal(payload)
-		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatalf("POST /jmap failed: %v", err)
 		}
@@ -1257,7 +1257,7 @@ func TestRFC8621_Section4_EmailImportAndParse(t *testing.T) {
 
 	// 1. Upload a blob first for Email/import and Email/parse
 	rawMsg := []byte("From: alice@example.com\r\nTo: bob@example.com\r\nSubject: Test Import & Parse\r\n\r\nHello World JMAP\r\n")
-	reqUp, _ := http.NewRequest("POST", ts.URL+"/upload/primary/", bytes.NewReader(rawMsg))
+	reqUp := authedRequest(t, "POST", ts.URL+"/upload/"+jmap.AccountIDForSubject(testUsername)+"/", bytes.NewReader(rawMsg))
 	reqUp.Header.Set("Content-Type", "message/rfc822")
 	respUp, err := http.DefaultClient.Do(reqUp)
 	if err != nil {
@@ -1294,7 +1294,7 @@ func TestRFC8621_Section4_EmailImportAndParse(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqPayload)
 
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap failed: %v", err)
 	}
@@ -1338,7 +1338,7 @@ func TestRFC8621_ChangesEndpoints(t *testing.T) {
 			"methodCalls": calls,
 		}
 		body, _ := json.Marshal(payload)
-		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatalf("POST /jmap failed: %v", err)
 		}
@@ -1433,7 +1433,7 @@ func TestRFC8621_EmailCopy_SearchSnippet_Sieve_CalendarEvent(t *testing.T) {
 			"methodCalls": calls,
 		}
 		body, _ := json.Marshal(payload)
-		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatalf("POST /jmap failed: %v", err)
 		}
@@ -1572,7 +1572,7 @@ func TestRFC8621_EmailQueryFilters_PositiveAndNegative(t *testing.T) {
 			},
 		}
 		body, _ := json.Marshal(payload)
-		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatalf("POST /jmap Email/query failed: %v", err)
 		}
@@ -1711,7 +1711,7 @@ func TestRFC8621_MailboxCopy(t *testing.T) {
 		},
 	}
 	body, _ := json.Marshal(payload)
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /jmap Mailbox/copy failed: %v", err)
 	}
@@ -1745,7 +1745,7 @@ func TestRFC8621_MailboxCopy(t *testing.T) {
 		},
 	}
 	body2, _ := json.Marshal(payload2)
-	resp2, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body2))
+	resp2, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body2))
 	if err != nil {
 		t.Fatalf("POST /jmap Mailbox/copy failed: %v", err)
 	}
@@ -1773,7 +1773,7 @@ func TestRFC8621_QueryChanges_DeltaCalculations(t *testing.T) {
 			"methodCalls": calls,
 		}
 		body, _ := json.Marshal(payload)
-		resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatalf("POST /jmap failed: %v", err)
 		}

@@ -64,6 +64,7 @@ func (s *Server) HandleEventSource(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	principalAccountID, _ := AccountIDFromContext(r.Context())
 	ctx := r.Context()
 	for {
 		select {
@@ -82,27 +83,28 @@ func (s *Server) HandleEventSource(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			// Filter event by requested types
-			if typesParam != "*" {
-				filteredChanged := make(map[string]map[string]string)
-				for accID, typeMap := range stateEvt.Changed {
-					filteredMap := make(map[string]string)
-					for tName, token := range typeMap {
-						if filterTypes[tName] {
-							filteredMap[tName] = token
-						}
-					}
-					if len(filteredMap) > 0 {
-						filteredChanged[accID] = filteredMap
-					}
-				}
-				if len(filteredChanged) == 0 {
+			// Filter event by authenticated accountID and requested types
+			filteredChanged := make(map[string]map[string]string)
+			for accID, typeMap := range stateEvt.Changed {
+				if principalAccountID != "" && accID != principalAccountID {
 					continue
 				}
-				stateEvt = &StateChange{
-					Type:    "StateChange",
-					Changed: filteredChanged,
+				filteredMap := make(map[string]string)
+				for tName, token := range typeMap {
+					if typesParam == "*" || filterTypes[tName] {
+						filteredMap[tName] = token
+					}
 				}
+				if len(filteredMap) > 0 {
+					filteredChanged[accID] = filteredMap
+				}
+			}
+			if len(filteredChanged) == 0 {
+				continue
+			}
+			stateEvt = &StateChange{
+				Type:    "StateChange",
+				Changed: filteredChanged,
 			}
 
 			dataBytes, err := json.Marshal(stateEvt)

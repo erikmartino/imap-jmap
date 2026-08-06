@@ -55,6 +55,11 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 
 		// Inject authenticated accountID into request context for downstream handlers.
 		ctx := ContextWithAccountID(r.Context(), accountID)
+		if strings.HasPrefix(auth, "Basic ") {
+			if username, _, ok := r.BasicAuth(); ok {
+				ctx = ContextWithSubject(ctx, username)
+			}
+		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

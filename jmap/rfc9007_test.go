@@ -3,7 +3,6 @@ package jmap_test
 import (
 	"bytes"
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -16,7 +15,7 @@ func TestRFC9007_SessionCapability(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/.well-known/jmap")
+	resp, err := authedGet(ts.URL + "/.well-known/jmap")
 	if err != nil {
 		t.Fatalf("Failed to fetch session: %v", err)
 	}
@@ -31,7 +30,7 @@ func TestRFC9007_SessionCapability(t *testing.T) {
 		t.Errorf("Expected session capabilities to contain %q", jmap.MdnCapabilityURI)
 	}
 
-	primaryAcc, ok := session.Accounts["primary"]
+	primaryAcc, ok := session.Accounts[jmap.AccountIDForSubject(testUsername)]
 	if !ok {
 		t.Fatalf("Primary account missing")
 	}
@@ -77,7 +76,7 @@ func TestRFC9007_MDNSend(t *testing.T) {
 	}
 
 	bodyBytes, _ := json.Marshal(reqBody)
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
 	if err != nil {
 		t.Fatalf("POST /jmap MDN/send failed: %v", err)
 	}
@@ -129,7 +128,7 @@ func TestRFC9007_MDNParse(t *testing.T) {
 	}
 
 	bodyBytes, _ := json.Marshal(reqBody)
-	resp, err := http.Post(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(bodyBytes))
 	if err != nil {
 		t.Fatalf("POST /jmap MDN/parse failed: %v", err)
 	}
