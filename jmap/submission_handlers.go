@@ -221,23 +221,6 @@ func handleEmailSubmissionSet(backend MailBackend, resolver AccountResolver, all
 				created[clientKey] = sub
 				recordCreationRefs(ctx, creationRefs, clientKey, sub.ID)
 
-				// RFC 8621 Section 7.5: onSuccessUpdateEmail
-				if patch, ok := subData["onSuccessUpdateEmail"].(map[string]any); ok && emailID != "" {
-					if _, err := backend.UpdateEmail(ctx, Id(emailID), patch); err != nil {
-						// Email update failed
-						delete(created, clientKey)
-						_, _ = backend.DeleteSubmission(ctx, sub.ID)
-						return "", err
-					}
-				}
-				// RFC 8621 Section 7.5: onSuccessDestroyEmail
-				if destroy, ok := subData["onSuccessDestroyEmail"].(bool); ok && destroy && emailID != "" {
-					if _, err := backend.DeleteEmail(ctx, Id(emailID)); err != nil {
-						delete(created, clientKey)
-						_, _ = backend.DeleteSubmission(ctx, sub.ID)
-						return "", err
-					}
-				}
 				return string(sub.ID), nil
 			})
 		}
@@ -254,11 +237,16 @@ func handleEmailSubmissionSet(backend MailBackend, resolver AccountResolver, all
 		}
 
 		// RFC 8621 Section 7.3: destroy cancels / deletes submissions
+		destroyedEmailIDs := make(map[string]Id)
 		if destroySlice, ok := args["destroy"].([]any); ok {
 			destroyed = make([]Id, 0, len(destroySlice))
 			for _, item := range destroySlice {
 				if idStr, ok := item.(string); ok {
 					resolvedID := resolveCreationID(idStr, creationRefs)
+					var emailID Id
+					if subs, _, err := backend.GetSubmissions(ctx, []Id{Id(resolvedID)}); err == nil && len(subs) > 0 {
+						emailID = subs[0].EmailID
+					}
 					ok, err := backend.DeleteSubmission(ctx, Id(resolvedID))
 					if err != nil || !ok {
 						notDestroyed[resolvedID] = SetError{
@@ -267,6 +255,9 @@ func handleEmailSubmissionSet(backend MailBackend, resolver AccountResolver, all
 						}
 					} else {
 						destroyed = append(destroyed, Id(resolvedID))
+						if emailID != "" {
+							destroyedEmailIDs[resolvedID] = emailID
+						}
 					}
 				}
 			}
@@ -274,6 +265,120 @@ func handleEmailSubmissionSet(backend MailBackend, resolver AccountResolver, all
 
 		if destroyed == nil {
 			destroyed = []Id{}
+		}
+
+		// RFC 8621 Section 7.5: onSuccessUpdateEmail / onSuccessDestroyEmail are top-level
+		// arguments mapping EmailSubmission ids (possibly "#creationId" refs to submissions
+		// created in this same call) to a patch/destroy request applied to the Email the
+		// submission references, after the submission itself succeeds. A failed email may
+		// still have left the server, so the submission is NOT rolled back (RFC 8621
+		// Section 7.5: "If the referenced Email is destroyed at any point after the
+		// EmailSubmission object is created, this MUST NOT change the behaviour of the
+		// submission"). Instead the failures are reported via the implicit Email/set
+		// response that MUST follow the EmailSubmission/set response.
+		oldEmailState := backend.EmailState(ctx)
+		var emailUpdated, emailNotUpdated map[string]any
+		var emailDestroyed []string
+		var emailNotDestroyed map[string]any
+
+		// On success-reference threading (RFC 8620 Section 5.3) the EmailSubmission created
+		// id is resolved from its "#creationId"; a plain id names a pre-existing submission.
+		// "succeeded" means the submission's create/update/destroy in this call succeeded.
+		succeededEmailID := func(idStr string) (Id, bool) {
+			var resolvedID string
+			if strings.HasPrefix(idStr, "#") {
+				// Submission created in this same call: resolve via the created map (keyed by
+				// the client's creation id) and read its Email id from the created record.
+				sub, ok := created[idStr[1:]]
+				if !ok {
+					return "", false
+				}
+				return sub.EmailID, true
+			}
+			resolvedID = resolveCreationID(idStr, creationRefs)
+			// Pre-existing submission destroyed in this call: capture its Email id before it
+			// was removed.
+			if emailID, ok := destroyedEmailIDs[resolvedID]; ok {
+				return emailID, true
+			}
+			// Pre-existing submission (e.g. destroyed in a different account access): fetch it.
+			subs, _, err := backend.GetSubmissions(ctx, []Id{Id(resolvedID)})
+			if err != nil || len(subs) == 0 {
+				return "", false
+			}
+			return subs[0].EmailID, true
+		}
+
+		if patchMap, ok := args["onSuccessUpdateEmail"].(map[string]any); ok {
+			emailUpdated = map[string]any{}
+			emailNotUpdated = map[string]any{}
+			for idStr, patch := range patchMap {
+				emailID, ok := succeededEmailID(idStr)
+				if !ok {
+					continue
+				}
+				p, _ := patch.(map[string]any)
+				if p == nil {
+					emailNotUpdated[string(emailID)] = SetError{
+						Type:        "invalidProperties",
+						Description: "onSuccessUpdateEmail patch must be an object",
+					}
+					continue
+				}
+				resolvedPatch := resolvePatchCreationRefs(p, creationRefs)
+				if _, err := backend.UpdateEmail(ctx, emailID, resolvedPatch); err != nil {
+					emailNotUpdated[string(emailID)] = SetError{
+						Type:        "invalidProperties",
+						Description: err.Error(),
+					}
+				} else {
+					emailUpdated[string(emailID)] = nil
+				}
+			}
+		}
+
+		if destroyIDs, ok := args["onSuccessDestroyEmail"].([]any); ok {
+			emailDestroyed = []string{}
+			emailNotDestroyed = map[string]any{}
+			for _, item := range destroyIDs {
+				idStr, _ := item.(string)
+				if idStr == "" {
+					continue
+				}
+				emailID, ok := succeededEmailID(idStr)
+				if !ok {
+					continue
+				}
+				delOK, delErr := backend.DeleteEmail(ctx, emailID)
+				if delErr != nil || !delOK {
+					emailNotDestroyed[string(emailID)] = SetError{
+						Type:        "notFound",
+						Description: "Email referenced by onSuccessDestroyEmail not found",
+					}
+				} else {
+					emailDestroyed = append(emailDestroyed, string(emailID))
+				}
+			}
+		}
+
+		// Emit the implicit Email/set response AFTER this response (RFC 8621 Section 7.5),
+		// reusing the same client call id, when any email was touched by the two arguments.
+		if len(emailUpdated) > 0 || len(emailNotUpdated) > 0 || len(emailDestroyed) > 0 || len(emailNotDestroyed) > 0 {
+			appendSpillResponse(ctx, Invocation{
+				Name: "Email/set",
+				Args: map[string]any{
+					"accountId":    accountID,
+					"oldState":     oldEmailState,
+					"newState":     backend.EmailState(ctx),
+					"created":      nil,
+					"updated":      emailUpdated,
+					"destroyed":    emailDestroyed,
+					"notCreated":   nil,
+					"notUpdated":   emailNotUpdated,
+					"notDestroyed": emailNotDestroyed,
+				},
+				ClientCallID: clientCallID,
+			})
 		}
 
 		return "EmailSubmission/set", map[string]any{

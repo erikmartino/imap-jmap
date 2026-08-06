@@ -274,3 +274,198 @@ func TestEmailSubmission_ExternalAllowList(t *testing.T) {
 		t.Errorf("Expected SetError type 'forbidden', got %q", errObj2["type"])
 	}
 }
+
+// TestEmailSubmission_OnSuccessUpdateEmail tests the RFC 8621 Section 7.5 top-level
+// onSuccessUpdateEmail argument: a patch applied to the Email referenced by the
+// EmailSubmission once the submission succeeds, with the implicit Email/set response
+// emitted after the EmailSubmission/set response (same client call id).
+func TestEmailSubmission_OnSuccessUpdateEmail(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Seed a draft email in the drafts mailbox with the $draft keyword.
+	em, err := srv.MailBackend.CreateEmail(context.Background(), &jmap.Email{
+		MailboxIDs: map[jmap.Id]bool{"mb-drafts": true},
+		Keywords:   map[string]bool{"$draft": true},
+		Subject:    "OnSuccessUpdateEmail Test",
+		To:         []jmap.EmailAddress{{Email: "localuser@example.com"}},
+	})
+	if err != nil {
+		t.Fatalf("Failed to create email: %v", err)
+	}
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.SubmissionCapabilityURI}
+	res := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sub1": map[string]any{
+					"emailId":    string(em.ID),
+					"identityId": "id-primary",
+				},
+			},
+			"onSuccessUpdateEmail": map[string]any{
+				"#sub1": map[string]any{
+					"mailboxIds/mb-sent":   true,
+					"mailboxIds/mb-drafts": false,
+					"keywords/$draft":      nil,
+				},
+			},
+		}, "c1"},
+	})
+
+	if len(res.MethodResponses) != 2 {
+		t.Fatalf("Expected 2 method responses (EmailSubmission/set + implicit Email/set), got %d: %v",
+			len(res.MethodResponses), res.MethodResponses)
+	}
+	first, second := res.MethodResponses[0], res.MethodResponses[1]
+
+	if first.Name != "EmailSubmission/set" {
+		t.Errorf("First response must be EmailSubmission/set, got %q", first.Name)
+	}
+	created, _ := first.Args["created"].(map[string]any)
+	if created["sub1"] == nil {
+		t.Fatalf("Submission creation failed: %v", first.Args)
+	}
+
+	// The implicit Email/set MUST follow with the same client call id.
+	if second.Name != "Email/set" {
+		t.Fatalf("Second response must be the implicit Email/set, got %q", second.Name)
+	}
+	if second.ClientCallID != "c1" {
+		t.Errorf("Implicit Email/set must reuse client call id, got %q", second.ClientCallID)
+	}
+	updated, _ := second.Args["updated"].(map[string]any)
+	if _, ok := updated[string(em.ID)]; !ok {
+		t.Errorf("Implicit Email/set must list the updated email, got %v", second.Args)
+	}
+
+	// Verify the patch was applied: moved to Sent, out of Drafts, $draft removed.
+	emails, _, err := srv.MailBackend.GetEmails(context.Background(), []jmap.Id{em.ID})
+	if err != nil || len(emails) == 0 {
+		t.Fatalf("Failed to re-fetch email: %v", err)
+	}
+	got := emails[0]
+	if !got.MailboxIDs["mb-sent"] {
+		t.Errorf("Expected email in Sent mailbox after onSuccessUpdateEmail, got %v", got.MailboxIDs)
+	}
+	if got.MailboxIDs["mb-drafts"] {
+		t.Errorf("Expected email removed from Drafts mailbox after onSuccessUpdateEmail, got %v", got.MailboxIDs)
+	}
+	if got.Keywords["$draft"] {
+		t.Errorf("Expected $draft keyword removed after onSuccessUpdateEmail, got %v", got.Keywords)
+	}
+}
+
+// TestEmailSubmission_OnSuccessDestroyEmail tests the RFC 8621 Section 7.5 top-level
+// onSuccessDestroyEmail argument: the Email referenced by a successfully created
+// EmailSubmission is destroyed, reported via the implicit Email/set response.
+func TestEmailSubmission_OnSuccessDestroyEmail(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	em, err := srv.MailBackend.CreateEmail(context.Background(), &jmap.Email{
+		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
+		Subject:    "OnSuccessDestroyEmail Test",
+		To:         []jmap.EmailAddress{{Email: "localuser@example.com"}},
+	})
+	if err != nil {
+		t.Fatalf("Failed to create email: %v", err)
+	}
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.SubmissionCapabilityURI}
+	res := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sub1": map[string]any{
+					"emailId":    string(em.ID),
+					"identityId": "id-primary",
+				},
+			},
+			"onSuccessDestroyEmail": []any{"#sub1"},
+		}, "c1"},
+	})
+
+	if len(res.MethodResponses) != 2 {
+		t.Fatalf("Expected 2 method responses, got %d: %v", len(res.MethodResponses), res.MethodResponses)
+	}
+	second := res.MethodResponses[1]
+	if second.Name != "Email/set" {
+		t.Fatalf("Second response must be the implicit Email/set, got %q", second.Name)
+	}
+	destroyed, _ := second.Args["destroyed"].([]any)
+	if len(destroyed) != 1 || destroyed[0] != string(em.ID) {
+		t.Errorf("Implicit Email/set must list destroyed email, got %v", second.Args)
+	}
+
+	emails, _, _ := srv.MailBackend.GetEmails(context.Background(), []jmap.Id{em.ID})
+	if len(emails) != 0 {
+		t.Errorf("Expected email destroyed after onSuccessDestroyEmail, still present: %v", emails)
+	}
+}
+
+// TestEmailSubmission_OnSuccessUpdateEmailIgnoredForFailedCreation tests that the
+// onSuccessUpdateEmail patch is NOT applied when the submission itself failed
+// (RFC 8621 Section 7.5: applied "if the create succeeds").
+func TestEmailSubmission_OnSuccessUpdateEmailIgnoredForFailedCreation(t *testing.T) {
+	// Submit to a recipient that is not local and not in the allow-list, so the submission
+	// is rejected with a forbidden SetError.
+	memBackend := memory.NewMemoryBackend()
+	memBlobBackend := memory.NewMemoryBlobBackend()
+	srv := jmap.NewServer(
+		nil,
+		jmap.WithMailBackend(memBackend),
+		jmap.WithBlobBackend(memBlobBackend),
+		jmap.WithAllowedRecipients([]string{"allowed@external.com"}),
+	)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	em2, err := memBackend.CreateEmail(context.Background(), &jmap.Email{
+		MailboxIDs: map[jmap.Id]bool{"mb-drafts": true},
+		Keywords:   map[string]bool{"$draft": true},
+		Subject:    "Failed Submission Test",
+		To:         []jmap.EmailAddress{{Email: "blocked@external.test"}},
+	})
+	if err != nil {
+		t.Fatalf("Failed to create email: %v", err)
+	}
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.SubmissionCapabilityURI}
+	res := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sub1": map[string]any{
+					"emailId":    string(em2.ID),
+					"identityId": "id-primary",
+				},
+			},
+			"onSuccessUpdateEmail": map[string]any{
+				"#sub1": map[string]any{
+					"mailboxIds/mb-sent": true,
+				},
+			},
+		}, "c1"},
+	})
+
+	if len(res.MethodResponses) != 1 {
+		t.Fatalf("Expected only EmailSubmission/set response (no implicit Email/set for a failed create), got %d: %v",
+			len(res.MethodResponses), res.MethodResponses)
+	}
+	notCreated, _ := res.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if notCreated["sub1"] == nil {
+		t.Fatalf("Expected submission in notCreated, got %v", res.MethodResponses[0].Args)
+	}
+
+	emails, _, _ := memBackend.GetEmails(context.Background(), []jmap.Id{em2.ID})
+	if len(emails) == 0 {
+		t.Fatalf("Email must survive a failed submission")
+	}
+	if emails[0].MailboxIDs["mb-sent"] {
+		t.Errorf("onSuccessUpdateEmail must NOT be applied when the submission failed, got %v", emails[0].MailboxIDs)
+	}
+}

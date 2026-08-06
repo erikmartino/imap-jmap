@@ -327,6 +327,7 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	refs := NewCreationRefs(req.CreatedIds)
 	reqCtx := WithCreationRefs(r.Context(), refs)
 	reqCtx = WithUsingCapabilities(reqCtx, req.Using)
+	reqCtx = withResponseSpill(reqCtx)
 
 	for _, call := range req.MethodCalls {
 		// Resolve Result References in arguments (RFC 8620 Section 3.7)
@@ -381,6 +382,13 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		responses = append(responses, respInv)
 		executedMap[call.ClientCallID] = respInv
+
+		// RFC 8621 Section 7.5: a single EmailSubmission/set may trigger an implicit
+		// Email/set (onSuccessUpdateEmail / onSuccessDestroyEmail), whose response MUST
+		// follow the EmailSubmission/set response with the same client call id.
+		for _, extra := range drainResponseSpill(reqCtx) {
+			responses = append(responses, extra)
+		}
 	}
 
 	resp := Response{
