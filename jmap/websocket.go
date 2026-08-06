@@ -149,7 +149,7 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			// Validate capabilities per RFC 8620 Section 3.1.
 			capErr := ""
 			for _, capURI := range req.Using {
-				if _, ok := s.Session.Capabilities[capURI]; !ok {
+				if !s.capabilitySupported(capURI) {
 					capErr = "Unknown capability: " + capURI
 					break
 				}

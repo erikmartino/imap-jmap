@@ -278,6 +278,21 @@ func (s *Server) handleWellKnownJMAP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// capabilitySupported reports whether a capability URI from a request "using" array is
+// supported by this server. Besides capabilities advertised directly in the Session
+// "capabilities" object (RFC 8620 Section 2), this accepts sub-capabilities whose support
+// is implied by an advertised capability, such as "urn:ietf:params:jmap:principals:owner"
+// which is implied by "urn:ietf:params:jmap:principals" (RFC 9670 Section 1.5.2).
+func (s *Server) capabilitySupported(capURI string) bool {
+	if capURI == PrincipalsOwnerCapabilityURI {
+		if _, ok := s.Session.Capabilities[PrincipalsCapabilityURI]; ok {
+			return true
+		}
+	}
+	_, ok := s.Session.Capabilities[capURI]
+	return ok
+}
+
 func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/jmap" {
 		http.NotFound(w, r)
@@ -298,7 +313,7 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 
 	// Validate 'using' capabilities (RFC 8620 Section 3.1 & 3.6.1)
 	for _, capURI := range req.Using {
-		if _, ok := s.Session.Capabilities[capURI]; !ok {
+		if !s.capabilitySupported(capURI) {
 			s.writeRequestError(w, http.StatusBadRequest, ErrorUnknownCapability, "Unknown capability: "+capURI)
 			return
 		}
@@ -358,6 +373,7 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		}
 
 		respName, respArgs := handler(reqCtx, resolvedArgs, call.ClientCallID)
+		normalizeSetResult(respName, respArgs)
 		respInv := Invocation{
 			Name:         respName,
 			Args:         respArgs,
@@ -379,6 +395,25 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// normalizeSetResult applies RFC 8620 Section 5.3 to every set-family method response:
+// the six set result properties (created, updated, destroyed, notCreated, notUpdated,
+// notDestroyed) are typed "Id[...]|null" (or "Id[]|null" for destroyed) and MUST
+// serialize as JSON null when empty, never as "{}"/"[]". Clients such as Bulwark
+// webmail treat a truthy empty object as an error marker.
+func normalizeSetResult(respName string, args map[string]any) {
+	inSet := strings.HasSuffix(respName, "/set") ||
+		strings.HasSuffix(respName, "/copy") ||
+		strings.HasSuffix(respName, "/import")
+	if !inSet {
+		return
+	}
+	for _, k := range []string{"created", "updated", "destroyed", "notCreated", "notUpdated", "notDestroyed"} {
+		if v, ok := args[k]; ok {
+			args[k] = nilIfEmpty(v)
+		}
+	}
 }
 
 // resolveResultReferences replaces every result-reference argument (an argument whose name is

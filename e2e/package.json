@@ -1,0 +1,19 @@
+{
+  "name": "imap-jmap-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Playwright end-to-end tests driving the Bulwark webmail client against the imap-jmap server. Not part of ordinary (go test) testing.",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:report": "playwright show-report",
+    "install:browsers": "playwright install chromium",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.1",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.7.2"
+  }
+}

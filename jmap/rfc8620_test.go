@@ -287,6 +287,92 @@ func TestRFC8620_Section3_6_1_RequestErrors_UnknownCapability(t *testing.T) {
 	}
 }
 
+// TestRFC9670_Section1_5_2_PrincipalsOwnerImpliedCapability tests RFC 9670 Section 1.5.2:
+// "urn:ietf:params:jmap:principals:owner" never appears in session capabilities but its support
+// is implied by "urn:ietf:params:jmap:principals". Clients (e.g. Bulwark webmail) include it in
+// the request "using" array, which MUST be accepted rather than rejected as unknownCapability.
+func TestRFC9670_Section1_5_2_PrincipalsOwnerImpliedCapability(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// The session must advertise urn:ietf:params:jmap:principals but MUST NOT advertise
+	// urn:ietf:params:jmap:principals:owner in its capabilities object (RFC 9670 Section 1.5.2).
+	sessResp, err := authedGet(ts.URL + "/.well-known/jmap")
+	if err != nil {
+		t.Fatalf("GET /.well-known/jmap failed: %v", err)
+	}
+	defer sessResp.Body.Close()
+	var sess jmap.Session
+	if err := json.NewDecoder(sessResp.Body).Decode(&sess); err != nil {
+		t.Fatalf("Failed to decode session: %v", err)
+	}
+	if _, ok := sess.Capabilities[jmap.PrincipalsCapabilityURI]; !ok {
+		t.Fatalf("Session must advertise %q", jmap.PrincipalsCapabilityURI)
+	}
+	if _, ok := sess.Capabilities[jmap.PrincipalsOwnerCapabilityURI]; ok {
+		t.Errorf("Session capabilities must not advertise %q directly (RFC 9670 Section 1.5.2)", jmap.PrincipalsOwnerCapabilityURI)
+	}
+
+	// A request whose "using" includes the implied sub-capability must succeed.
+	reqPayload := map[string]any{
+		"using": []string{
+			jmap.CoreCapabilityURI,
+			jmap.MailCapabilityURI,
+			jmap.PrincipalsCapabilityURI,
+			jmap.PrincipalsOwnerCapabilityURI,
+		},
+		"methodCalls": []any{
+			[]any{"Mailbox/get", map[string]any{}, "c1"},
+		},
+	}
+	body, _ := json.Marshal(reqPayload)
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /jmap failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected HTTP 200 for request with implied principals:owner capability, got %d", resp.StatusCode)
+	}
+
+	var apiResp struct {
+		MethodResponses [][]any `json:"methodResponses"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+		t.Fatalf("Failed to decode API response: %v", err)
+	}
+	if len(apiResp.MethodResponses) != 1 {
+		t.Fatalf("Expected 1 method response, got %d", len(apiResp.MethodResponses))
+	}
+	if name, _ := apiResp.MethodResponses[0][0].(string); name != "Mailbox/get" {
+		t.Errorf("Expected Mailbox/get method response, got %q", name)
+	}
+
+	// Sanity check: an unrelated unknown capability is still rejected.
+	reqPayload2 := map[string]any{
+		"using":       []string{jmap.CoreCapabilityURI, "urn:ietf:params:jmap:does-not-exist"},
+		"methodCalls": []any{},
+	}
+	body2, _ := json.Marshal(reqPayload2)
+	resp2, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body2))
+	if err != nil {
+		t.Fatalf("POST /jmap failed: %v", err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusBadRequest {
+		t.Errorf("Expected HTTP 400 for unknown capability, got %d", resp2.StatusCode)
+	}
+	var reqErr jmap.RequestError
+	if err := json.NewDecoder(resp2.Body).Decode(&reqErr); err != nil {
+		t.Fatalf("Failed to decode RequestError: %v", err)
+	}
+	if reqErr.Type != jmap.ErrorUnknownCapability {
+		t.Errorf("Expected error type %q, got %q", jmap.ErrorUnknownCapability, reqErr.Type)
+	}
+}
+
 // TestRFC8620_Section3_6_2_MethodErrors_UnknownMethod tests unknownMethod error per RFC 8620 Section 3.6.2.
 func TestRFC8620_Section3_6_2_MethodErrors_UnknownMethod(t *testing.T) {
 	srv := newTestServer()

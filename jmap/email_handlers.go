@@ -229,16 +229,65 @@ func handleEmailSet(backend MailBackend) MethodHandler {
 				if textBody, ok := emData["textBody"].(string); ok {
 					em.BodyValues = map[string]EmailBodyValue{"1": {Value: textBody}}
 					em.TextBody = []EmailBodyPart{{PartID: "1", Type: "text/plain", Size: uint64(len(textBody))}}
-					em.Preview = textBody
-				} else if bodyValObj, ok := emData["bodyValues"].(map[string]any); ok {
-					bvMap := make(map[string]EmailBodyValue)
-					for k, v := range bodyValObj {
-						if bvData, ok := v.(map[string]any); ok {
-							val, _ := bvData["value"].(string)
-							bvMap[k] = EmailBodyValue{Value: val}
+					em.Preview = preview(textBody, 256)
+					em.BodyStructure = EmailBodyPart{PartID: "1", Type: "text/plain", Size: uint64(len(textBody))}
+				} else {
+					if bodyValObj, ok := emData["bodyValues"].(map[string]any); ok {
+						bvMap := make(map[string]EmailBodyValue)
+						for k, v := range bodyValObj {
+							if bvData, ok := v.(map[string]any); ok {
+								val, _ := bvData["value"].(string)
+								bvMap[k] = EmailBodyValue{Value: val}
+							}
+						}
+						em.BodyValues = bvMap
+					}
+					// RFC 8621 Section 4.6: the server MUST reconstruct bodyStructure,
+					// textBody, htmlBody, and preview from the given body parts and values.
+					if parts, ok := emData["textBody"].([]any); ok {
+						for _, raw := range parts {
+							if part, ok := raw.(map[string]any); ok {
+								partID, _ := part["partId"].(string)
+								typ, _ := part["type"].(string)
+								if typ == "" {
+									typ = "text/plain"
+								}
+								size := uint64(0)
+								if v, has := em.BodyValues[partID]; has {
+									size = uint64(len(v.Value))
+								}
+								em.TextBody = append(em.TextBody, EmailBodyPart{PartID: partID, Type: typ, Size: size})
+								em.BodyStructure = EmailBodyPart{PartID: partID, Type: typ, Size: size}
+								if v, has := em.BodyValues[partID]; has {
+									em.Preview = preview(v.Value, 256)
+								}
+							}
 						}
 					}
-					em.BodyValues = bvMap
+					if parts, ok := emData["htmlBody"].([]any); ok {
+						for _, raw := range parts {
+							if part, ok := raw.(map[string]any); ok {
+								partID, _ := part["partId"].(string)
+								typ, _ := part["type"].(string)
+								if typ == "" {
+									typ = "text/html"
+								}
+								size := uint64(0)
+								if v, has := em.BodyValues[partID]; has {
+									size = uint64(len(v.Value))
+								}
+								em.HTMLBody = append(em.HTMLBody, EmailBodyPart{PartID: partID, Type: typ, Size: size})
+								if em.BodyStructure.Type == "" {
+									em.BodyStructure = EmailBodyPart{PartID: partID, Type: typ, Size: size}
+								}
+								if em.Preview == "" {
+									if v, has := em.BodyValues[partID]; has {
+										em.Preview = preview(v.Value, 256)
+									}
+								}
+							}
+						}
+					}
 				}
 
 				createdEM, err := backend.CreateEmail(ctx, em)
@@ -286,12 +335,12 @@ func handleEmailSet(backend MailBackend) MethodHandler {
 			"accountId":    accountID,
 			"oldState":     oldState,
 			"newState":     backend.EmailState(ctx),
-			"created":      created,
-			"updated":      updated,
-			"notUpdated":   notUpdated,
-			"notCreated":   notCreated,
-			"destroyed":    destroyed,
-			"notDestroyed": notDestroyed,
+			"created":      nilIfEmpty(created),
+			"updated":      nilIfEmpty(updated),
+			"notUpdated":   nilIfEmpty(notUpdated),
+			"notCreated":   nilIfEmpty(notCreated),
+			"destroyed":    nilIfEmpty(destroyed),
+			"notDestroyed": nilIfEmpty(notDestroyed),
 		}
 	}
 }
@@ -318,7 +367,9 @@ func validateEmailCreateData(emData map[string]any) string {
 		if len(parts) != 1 {
 			return "\"textBody\" MUST contain exactly one body part of type \"text/plain\" (RFC 8621 Section 4.6)"
 		}
-		if part, ok := parts[0].(map[string]any); !ok || part["type"] != "text/plain" {
+		if part, ok := parts[0].(map[string]any); !ok {
+			return "\"textBody\" MUST contain exactly one body part of type \"text/plain\" (RFC 8621 Section 4.6)"
+		} else if t, has := part["type"]; has && t != "text/plain" {
 			return "\"textBody\" MUST contain exactly one body part of type \"text/plain\" (RFC 8621 Section 4.6)"
 		}
 	}
@@ -326,7 +377,9 @@ func validateEmailCreateData(emData map[string]any) string {
 		if len(parts) != 1 {
 			return "\"htmlBody\" MUST contain exactly one body part of type \"text/html\" (RFC 8621 Section 4.6)"
 		}
-		if part, ok := parts[0].(map[string]any); !ok || part["type"] != "text/html" {
+		if part, ok := parts[0].(map[string]any); !ok {
+			return "\"htmlBody\" MUST contain exactly one body part of type \"text/html\" (RFC 8621 Section 4.6)"
+		} else if t, has := part["type"]; has && t != "text/html" {
 			return "\"htmlBody\" MUST contain exactly one body part of type \"text/html\" (RFC 8621 Section 4.6)"
 		}
 	}

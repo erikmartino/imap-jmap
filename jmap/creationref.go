@@ -2,6 +2,7 @@ package jmap
 
 import (
 	"context"
+	"reflect"
 	"strings"
 )
 
@@ -28,6 +29,25 @@ import (
 func isIdProperty(k string) bool {
 	lk := strings.ToLower(k)
 	return lk == "id" || strings.HasSuffix(lk, "id") || strings.HasSuffix(lk, "ids")
+}
+
+// nilIfEmpty returns nil when v is an empty map or slice, so that RFC 8620
+// Section 5.3 set-method arguments typed "Id[...]|null" (created, updated,
+// destroyed, notCreated, notUpdated, notDestroyed) serialize as JSON null
+// instead of "{}"/"[]" when there are no records. Clients such as Bulwark
+// webmail treat a truthy empty object as an error marker.
+func nilIfEmpty(v any) any {
+	if v == nil {
+		return nil
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Map, reflect.Slice, reflect.Array:
+		if rv.Len() == 0 {
+			return nil
+		}
+	}
+	return v
 }
 
 func resolveCreationRef(v any, resolved map[string]Id, pending map[string]struct{}) (out any, deferred bool) {

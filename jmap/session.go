@@ -54,6 +54,13 @@ const PrincipalsCapabilityURI = "urn:ietf:params:jmap:principals"
 // AvailabilityCapabilityURI is the JMAP capability URI for Availability per draft-ietf-jmap-principals.
 const AvailabilityCapabilityURI = "urn:ietf:params:jmap:principals:availability"
 
+// PrincipalsOwnerCapabilityURI is the sub-capability URI for "urn:ietf:params:jmap:principals:owner"
+// defined in RFC 9670 Section 1.5.2. Unlike regular capabilities it never appears in the JMAP
+// Session "capabilities" object; support is implied by the presence of the
+// "urn:ietf:params:jmap:principals" URI in session capabilities. Clients (e.g. Bulwark webmail)
+// still include it in the "using" array of API requests, so the server MUST accept it there.
+const PrincipalsOwnerCapabilityURI = "urn:ietf:params:jmap:principals:owner"
+
 // PrincipalCapability defines the capability object for "urn:ietf:params:jmap:principals".
 type PrincipalCapability struct {
 	MaxAvailabilityDuration string `json:"maxAvailabilityDuration"`
