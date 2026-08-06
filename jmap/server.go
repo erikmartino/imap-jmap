@@ -297,6 +297,7 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	// "#creationId" in a later call (RFC 8620 Sections 3.3 & 5.3).
 	refs := NewCreationRefs(req.CreatedIds)
 	reqCtx := WithCreationRefs(r.Context(), refs)
+	reqCtx = WithUsingCapabilities(reqCtx, req.Using)
 
 	for _, call := range req.MethodCalls {
 		// Resolve Result References in arguments (RFC 8620 Section 3.7)

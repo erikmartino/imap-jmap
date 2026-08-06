@@ -1,6 +1,9 @@
 package jmap
 
-import "strings"
+import (
+	"context"
+	"strings"
+)
 
 // CoreCapabilityURI is the standard JMAP core capability URI defined in RFC 8620 Section 2.2.
 const CoreCapabilityURI = "urn:ietf:params:jmap:core"
@@ -86,10 +89,12 @@ type SmimeCapability struct {
 	SmimeVerificationSupported bool `json:"smimeVerificationSupported"`
 }
 
-// BlobCapability defines the capability object for "urn:ietf:params:jmap:blob" per RFC 9404 Section 2.
+// BlobCapability defines the capability object for "urn:ietf:params:jmap:blob" per RFC 9404 Section 3.1.
 type BlobCapability struct {
-	SupportedAlgorithms []string `json:"supportedAlgorithms"`
-	MaxDataAsStream     uint64   `json:"maxDataAsStream"`
+	MaxSizeBlobSet            *uint64  `json:"maxSizeBlobSet"`
+	MaxDataSources            uint64   `json:"maxDataSources"`
+	SupportedTypeNames        []string `json:"supportedTypeNames"`
+	SupportedDigestAlgorithms []string `json:"supportedDigestAlgorithms"`
 }
 
 // QuotaCapability defines the capability object for "urn:ietf:params:jmap:quota" per RFC 9425 Section 2.
@@ -193,10 +198,7 @@ func DefaultSession(baseURL string) *Session {
 			SmimeCapabilityURI: SmimeCapability{
 				SmimeVerificationSupported: true,
 			},
-			BlobCapabilityURI: BlobCapability{
-				SupportedAlgorithms: []string{"sha-256"},
-				MaxDataAsStream:     50000000,
-			},
+			BlobCapabilityURI: struct{}{},
 			QuotaCapabilityURI: QuotaCapability{
 				MaxQuotaResources: 10,
 			},
@@ -247,8 +249,15 @@ func DefaultSession(baseURL string) *Session {
 				AccountCapabilities: map[string]any{
 					CoreCapabilityURI:           struct{}{},
 					MailCapabilityURI:           struct{}{},
-					SmimeCapabilityURI:          struct{}{},
-					BlobCapabilityURI:           struct{}{},
+					SmimeCapabilityURI: SmimeCapability{
+						SmimeVerificationSupported: true,
+					},
+					BlobCapabilityURI: BlobCapability{
+						MaxSizeBlobSet:            nil,
+						MaxDataSources:            100,
+						SupportedTypeNames:        []string{"Mailbox", "Thread", "Email", "Calendar", "CalendarEvent", "AddressBook", "ContactCard", "Card", "FileNode", "SieveScript"},
+						SupportedDigestAlgorithms: []string{"sha-256"},
+					},
 					QuotaCapabilityURI:          struct{}{},
 					MdnCapabilityURI:            struct{}{},
 					WebPushVapidCapabilityURI:   struct{}{},
@@ -283,4 +292,28 @@ func DefaultSession(baseURL string) *Session {
 		EventSourceURL: baseURL + "/eventsource?types={types}&closeafter={closeafter}&ping={ping}",
 		State:          "0",
 	}
+}
+
+type usingCtxKey struct{}
+
+func WithUsingCapabilities(ctx context.Context, using []string) context.Context {
+	return context.WithValue(ctx, usingCtxKey{}, using)
+}
+
+func UsingCapabilitiesFromContext(ctx context.Context) ([]string, bool) {
+	using, ok := ctx.Value(usingCtxKey{}).([]string)
+	return using, ok
+}
+
+func IsUsingCapability(ctx context.Context, capURI string) bool {
+	using, ok := UsingCapabilitiesFromContext(ctx)
+	if !ok {
+		return true // Default to true when context not set in unit tests
+	}
+	for _, u := range using {
+		if u == capURI {
+			return true
+		}
+	}
+	return false
 }

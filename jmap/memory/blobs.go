@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"sync"
 
@@ -32,6 +33,7 @@ func (b *MemoryBlobBackend) PutBlob(ctx context.Context, accountID, contentType 
 
 	hash := sha256.Sum256(data)
 	fullHex := hex.EncodeToString(hash[:])
+	digestBase64 := base64.StdEncoding.EncodeToString(hash[:])
 	blobID := fullHex
 
 	if contentType == "" {
@@ -44,7 +46,7 @@ func (b *MemoryBlobBackend) PutBlob(ctx context.Context, accountID, contentType 
 		AccountID:    accountID,
 		Type:         contentType,
 		Size:         int64(len(data)),
-		DigestSHA256: fullHex,
+		DigestSHA256: digestBase64,
 		Data:         data,
 	}
 

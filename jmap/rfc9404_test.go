@@ -29,17 +29,29 @@ func TestRFC9404_Section2_Capability(t *testing.T) {
 		t.Fatalf("Failed to decode session: %v", err)
 	}
 
-	capRaw, ok := session.Capabilities[jmap.BlobCapabilityURI]
+	_, ok := session.Capabilities[jmap.BlobCapabilityURI]
 	if !ok {
-		t.Fatalf("Capability %q missing in Session", jmap.BlobCapabilityURI)
+		t.Fatalf("Capability %q missing in Session capabilities", jmap.BlobCapabilityURI)
 	}
 
-	capBytes, _ := json.Marshal(capRaw)
+	acc, ok := session.Accounts["primary"]
+	if !ok {
+		t.Fatal("primary account missing in session")
+	}
+	accCapRaw, ok := acc.AccountCapabilities[jmap.BlobCapabilityURI]
+	if !ok {
+		t.Fatalf("Capability %q missing in primary account capabilities", jmap.BlobCapabilityURI)
+	}
+
+	capBytes, _ := json.Marshal(accCapRaw)
 	var blobCap jmap.BlobCapability
 	_ = json.Unmarshal(capBytes, &blobCap)
 
-	if len(blobCap.SupportedAlgorithms) == 0 || blobCap.SupportedAlgorithms[0] != "sha-256" {
-		t.Errorf("Expected supportedAlgorithms ['sha-256'], got %v", blobCap.SupportedAlgorithms)
+	if len(blobCap.SupportedDigestAlgorithms) == 0 || blobCap.SupportedDigestAlgorithms[0] != "sha-256" {
+		t.Errorf("Expected supportedDigestAlgorithms ['sha-256'], got %v", blobCap.SupportedDigestAlgorithms)
+	}
+	if blobCap.MaxDataSources < 64 {
+		t.Errorf("Expected maxDataSources >= 64, got %d", blobCap.MaxDataSources)
 	}
 }
 
