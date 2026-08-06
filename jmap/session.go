@@ -48,6 +48,17 @@ const SieveCapabilityURI = "urn:ietf:params:jmap:sieve"
 // ImapAccessCapabilityURI is the JMAPACCESS extension for IMAP capability URI defined in RFC 9698 Section 2.
 const ImapAccessCapabilityURI = "urn:ietf:params:jmap:imapaccess"
 
+// PrincipalsCapabilityURI is the JMAP capability URI for Principals per draft-ietf-jmap-principals.
+const PrincipalsCapabilityURI = "urn:ietf:params:jmap:principals"
+
+// AvailabilityCapabilityURI is the JMAP capability URI for Availability per draft-ietf-jmap-principals.
+const AvailabilityCapabilityURI = "urn:ietf:params:jmap:principals:availability"
+
+// PrincipalCapability defines the capability object for "urn:ietf:params:jmap:principals".
+type PrincipalCapability struct {
+	MaxAvailabilityDuration string `json:"maxAvailabilityDuration"`
+}
+
 // FileNodeCapabilityURI is the JMAP capability URI for FileNode file storage extension.
 const FileNodeCapabilityURI = "urn:ietf:params:jmap:filenode"
 
@@ -240,6 +251,10 @@ func DefaultSession(baseURL string) *Session {
 			FileNodeCapabilityURI: FileNodeCapability{
 				MaxFileSize: 50000000,
 			},
+			PrincipalsCapabilityURI: PrincipalCapability{
+				MaxAvailabilityDuration: "P30D",
+			},
+			AvailabilityCapabilityURI: struct{}{},
 		},
 		Accounts: map[string]Account{
 			"primary": {
@@ -267,6 +282,10 @@ func DefaultSession(baseURL string) *Session {
 					SieveCapabilityURI:          struct{}{},
 					ImapAccessCapabilityURI:     struct{}{},
 					FileNodeCapabilityURI:       struct{}{},
+					PrincipalsCapabilityURI: PrincipalCapability{
+						MaxAvailabilityDuration: "P30D",
+					},
+					AvailabilityCapabilityURI: struct{}{},
 				},
 			},
 		},
@@ -284,6 +303,8 @@ func DefaultSession(baseURL string) *Session {
 			SieveCapabilityURI:          "primary",
 			ImapAccessCapabilityURI:     "primary",
 			FileNodeCapabilityURI:       "primary",
+			PrincipalsCapabilityURI:     "primary",
+			AvailabilityCapabilityURI:   "primary",
 		},
 		Username:       "user@example.com",
 		APIURL:         baseURL + "/jmap",

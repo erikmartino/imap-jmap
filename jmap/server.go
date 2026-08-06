@@ -17,6 +17,7 @@ type Server struct {
 	SieveBackend      SieveBackend
 	IMAPAccessBackend IMAPAccessBackend
 	FileNodeBackend   FileNodeBackend
+	PrincipalsBackend PrincipalsBackend
 	AuthBackend       AuthBackend
 	PermissionGuard   PermissionGuard
 	AccountResolver   AccountResolver
@@ -98,6 +99,13 @@ func WithPermissionGuard(g PermissionGuard) Option {
 	}
 }
 
+// WithPrincipalsBackend sets a custom PrincipalsBackend implementation for JMAP Principals & Availability.
+func WithPrincipalsBackend(pb PrincipalsBackend) Option {
+	return func(s *Server) {
+		s.PrincipalsBackend = pb
+	}
+}
+
 // WithAccountResolver sets a custom AccountResolver implementation for email-to-account resolution.
 func WithAccountResolver(r AccountResolver) Option {
 	return func(s *Server) {
@@ -150,6 +158,7 @@ func NewServer(session *Session, opts ...Option) *Server {
 	RegisterSieveHandlers(s.MethodRegistry, s.SieveBackend)
 	RegisterIMAPAccessHandlers(s.MethodRegistry, s.IMAPAccessBackend)
 	RegisterFileNodeHandlers(s.MethodRegistry, s.FileNodeBackend)
+	RegisterPrincipalsHandlers(s.MethodRegistry, s.PrincipalsBackend)
 
 	return s
 }

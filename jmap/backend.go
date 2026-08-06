@@ -192,3 +192,16 @@ type IMAPAccessBackend interface {
 	DeleteIMAPAccount(ctx context.Context, id Id) (bool, error)
 	State(ctx context.Context) string
 }
+
+// PrincipalsBackend defines the storage interface for JMAP Principals & Availability (draft-ietf-jmap-principals).
+type PrincipalsBackend interface {
+	PrincipalState(ctx context.Context) string
+	PrincipalChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
+	GetPrincipals(ctx context.Context, ids []Id) (list []*Principal, notFound []Id, err error)
+	GetAllPrincipals(ctx context.Context) ([]*Principal, error)
+	CreatePrincipal(ctx context.Context, principal *Principal) (*Principal, error)
+	UpdatePrincipal(ctx context.Context, id Id, patch map[string]any) (*Principal, error)
+	DeletePrincipal(ctx context.Context, id Id) (bool, error)
+	QueryPrincipals(ctx context.Context, filter map[string]any, position int, limit *uint64) (ids []Id, total int, err error)
+	GetAvailability(ctx context.Context, principalID Id, utcStart, utcEnd string) ([]*AvailabilityWindow, error)
+}

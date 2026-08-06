@@ -113,7 +113,7 @@ the resolver for local delivery (inbound routing + outbound loopback). "The doma
 - [x] **`CalendarsCapability` missing fields** (`session.go:119-123`): `minDateTime` (`1900-01-01T00:00:00`), `maxDateTime` (`9999-12-31T23:59:59`), `maxExpandedQueryDuration` (`P730D`), `maxParticipantsPerEvent` (nil). Advertise + test (`rfc8984_test.go`).
 - [x] **ParticipantIdentity** object + `ParticipantIdentity/get`/`changes`/`set` (with `onSuccessSetIsDefault`) — impl in `calendar_handlers.go:938-1117` + memory store (seeded `identity-default`); `isDefault`/`onSuccessSetIsDefault` server-side per §3.3; direct `isDefault` rejected; sendTo keys ASCII-alnum enforced; default demotion records change. Tests: `rfc8984_participant_identity_test.go`. *(I-D; larger.)*
 - [x] **CalendarEventNotification** object + `/get`/`changes`/`set`/`query`/`queryChanges` (`calendar_handlers.go:1121-1336`), generation of `created`/`updated`/`destroyed` notifications on `sendSchedulingMessages` changes in `handleCalendarEventSet`, `changedBy` from owner participant, `event` = pre-change + `eventPatch` on update, `created`-only sort default newest-first (seq tiebreaker in memory store), client create/update → `forbidden`, destroy-only set. Tests: `rfc8984_calendar_event_notification_test.go`. *(I-D; larger.)*
-- [ ] **Principals + availability** (`urn:ietf:params:jmap:principals`, `:availability`; `maxAvailabilityDuration`; principal `calendarAddress`/`mayGetAvailability`/`mayShareWith`; free-busy querying) — not implemented. Impl + tests. *(I-D; larger.)*
+- [x] **Principals + availability** (`urn:ietf:params:jmap:principals`, `:availability`; `maxAvailabilityDuration`; principal `calendarAddress`/`mayGetAvailability`/`mayShareWith`; free-busy querying) — Impl + tests.
 
 ---
 
@@ -125,28 +125,28 @@ the resolver for local delivery (inbound routing + outbound loopback). "The doma
 - [x] **`ContactCard/queryChanges`** (+ `Card/queryChanges` alias) not registered (`contacts_handlers.go:19-30`) → clients get `unknownMethod` (§3.4). Register + delta tests.
 - [x] **`ContactCard/query` sort/comparators** (MUST: `created`, `updated`; SHOULD: `name/given`, `name/surname`, `name/surname2`, §3.3.2): add `comparators []Comparator` to `ContactsBackend.QueryCards` (`backend.go:113`), parse `sort` in `handleCardQuery` (`contacts_handlers.go:314-361`), order in `QueryCards` (`contacts_store.go:564`). Order-asserting tests.
 - [x] **`ContactCard/query` real `queryState` + `canCalculateChanges`** — stop hardcoding `"0"`/`false` (`contacts_handlers.go:354-355`); reflect real state once queryChanges lands. Round-trip test.
-- [ ] **FilterOperator (AND/OR/NOT)** in `MatchCard` (`contacts_store.go:466`) — `operator`/`conditions` currently ignored (§3.3 / RFC 8620 §5.5). Tests.
-- [ ] **Filter conditions implemented-but-untested** (§3.3.1, `contacts_store.go:469-559`): `uid`, `hasMember`, `kind`, `createdBefore`, `createdAfter`, `updatedBefore`, `updatedAfter`, `text`, `name`, `name/given`, `name/surname`, `name/surname2`, `nickname`, `organization`, `phone`, `onlineService`, `address`, `note`. Pos + neg test each.
+- [x] **FilterOperator (AND/OR/NOT)** in `MatchCard` (`contacts_store.go:466`) — `operator`/`conditions` currently ignored (§3.3 / RFC 8620 §5.5). Tests.
+- [x] **Filter conditions implemented-but-untested** (§3.3.1, `contacts_store.go:469-559`): `uid`, `hasMember`, `kind`, `createdBefore`, `createdAfter`, `updatedBefore`, `updatedAfter`, `text`, `name`, `name/given`, `name/surname`, `name/surname2`, `nickname`, `organization`, `phone`, `onlineService`, `address`, `note`. Pos + neg test each.
 
 ### AddressBook & Card set semantics
-- [ ] **`AddressBookRights` spec names** (§2, `contacts_types.go:4-9`): emit `mayRead`, `mayWrite`, `mayShare`, `mayDelete` (currently `mayReadItems`/`mayWriteItems`/`mayAdmin`). Fix seed/create (`contacts_store.go:66-72,181-186`). Test emitted `myRights` keys.
-- [ ] **AddressBook `isSubscribed` + `shareWith`** (§2, `contacts_types.go:11-19`; `UpdateAddressBook` `contacts_store.go:197`): model, patch, enforce `mayShare` with `forbidden` SetError. Tests.
-- [ ] **AddressBook `isDefault` is server-set** (§2): reject direct create/update set (`contacts_store.go:187-191,218-225`); add **`onSuccessSetIsDefault`** arg to `AddressBook/set` (§2.3, `contacts_handlers.go:97`). Tests.
-- [ ] **`onDestroyRemoveContents` + `addressBookHasContents` SetError** (§2.3/§7.4.1): `DeleteAddressBook` (`contacts_store.go:231`) currently deletes unconditionally and orphans cards; destroying a non-empty book MUST fail unless the flag is set. Impl + tests.
-- [ ] **Card MUST belong to ≥1 AddressBook** (§3): validate `addressBookIds` non-empty and all values `true` in `CreateCard`/`UpdateCard` (`contacts_store.go:281,433`) → `invalidProperties`. Tests.
-- [ ] **Media `blobId` + photo type check** (§3/§3.5): `JSContactMedia` needs a server-set `blobId` (`contacts_types.go:104`); reject non-image files used as photos. Impl + tests.
-- [ ] **Enforce `maxAddressBooksPerCard`** on set (§1.4.1, advertised at `session.go:114-117` but unenforced). Test the limit.
-- [ ] **Remove/justify non-spec `AddressBook/copy`** (`contacts_handlers.go:16`) — RFC 9610 defines no such method. Decide: drop or document. (No new test.)
+- [x] **`AddressBookRights` spec names** (§2, `contacts_types.go:4-9`): emit `mayRead`, `mayWrite`, `mayShare`, `mayDelete` (currently `mayReadItems`/`mayWriteItems`/`mayAdmin`). Fix seed/create (`contacts_store.go:66-72,181-186`). Test emitted `myRights` keys.
+- [x] **AddressBook `isSubscribed` + `shareWith`** (§2, `contacts_types.go:11-19`; `UpdateAddressBook` `contacts_store.go:197`): model, patch, enforce `mayShare` with `forbidden` SetError. Tests.
+- [x] **AddressBook `isDefault` is server-set** (§2): reject direct create/update set (`contacts_store.go:187-191,218-225`); add **`onSuccessSetIsDefault`** arg to `AddressBook/set` (§2.3, `contacts_handlers.go:97`). Tests.
+- [x] **`onDestroyRemoveContents` + `addressBookHasContents` SetError** (§2.3/§7.4.1): `DeleteAddressBook` (`contacts_store.go:231`) currently deletes unconditionally and orphans cards; destroying a non-empty book MUST fail unless the flag is set. Impl + tests.
+- [x] **Card MUST belong to ≥1 AddressBook** (§3): validate `addressBookIds` non-empty and all values `true` in `CreateCard`/`UpdateCard` (`contacts_store.go:281,433`) → `invalidProperties`. Tests.
+- [x] **Media `blobId` + photo type check** (§3/§3.5): `JSContactMedia` needs a server-set `blobId` (`contacts_types.go:104`); reject non-image files used as photos. Impl + tests.
+- [x] **Enforce `maxAddressBooksPerCard`** on set (§1.4.1, advertised at `session.go:114-117` but unenforced). Test the limit.
+- [x] **Remove/justify non-spec `AddressBook/copy`** (`contacts_handlers.go:16`) — RFC 9610 defines no such method. Decide: drop or document. (No new test.)
 
 ## RFC 9553 (JSContact data model) — tests: `rfc9553_*_test.go`
-- [ ] **Required top-level `version` + `uid`** (§2.1.2, §2.1.9): add `version` to `Card` (`contacts_types.go:130`), populate/require both on create (`contacts_store.go:281`). Round-trip test.
-- [ ] **Missing top-level Card properties** (§2, `contacts_types.go:130-154`): `language` (§2.1.5), `prodId` (§2.1.7), `relatedTo` (§2.1.8), `preferredLanguages` (§2.3.4), `calendars` (§2.4.1), `schedulingAddresses` (§2.4.2), `cryptoKeys` (§2.6.1), `directories` (§2.6.2), `personalInfo` (§2.8.4), `localizations` (§2.7.1). Model + patch + tests.
-- [ ] **`speakToAs` correct shape; drop non-spec top-level `gender`** (§2.2.4): `speakToAs = { grammaticalGender, pronouns: Id[Pronouns] }`; remove `JSContactGender`/top-level `gender` (`contacts_types.go:111-115,149`; `JSContactSpeakToAs` `:117-120`). Conformant test.
-- [ ] **`Title` field name** (§2.2.5): `JSContactTitle` uses `title` → must be `name`; add `kind`, `organizationId` (`contacts_types.go:71-75`). Test asserts `name`.
-- [ ] **`anniversaries` date shape** (§2.8.1): `date` is a Timestamp/PartialDate object + `place`; kinds `birth`/`death`/`wedding`; drop non-spec `label` (`contacts_types.go:122-127`). Test object-form date.
-- [ ] **Sub-object field completeness**: `Name` add `isOrdered`/`defaultSeparator`/`phoneticSystem`/`phoneticScript`, make `sortAs` a `String[String]` map (§2.2.1, `contacts_types.go:22-26`); `NameComponent` add `phonetic` (§2.2.1.2, `:29-32`); `Address` use `components`(AddressComponent[])/`isOrdered`/`coordinates`/`timeZone`/`defaultSeparator`/`phoneticSystem`/`phoneticScript` instead of flat street/locality fields (§2.5.1, `:52-62`); `Organization` add `sortAs` (§2.2.3, `:65-69`). Tests per sub-field.
-- [ ] **Patch paths for existing-but-unpatchable properties** (§3.5 / RFC 8620 PatchObject): `setCardField` (`contacts_store.go:314-431`) can't patch `links`, `media`, `speakToAs`, `anniversaries`, or mutable `kind` — updates silently drop them. Add paths + persistence tests.
-- [ ] **Nested JSON-pointer patch paths** (`name/full`, `emails/e1/pref`, `addressBookIds/ab-1`) in `setCardField` (`contacts_store.go:314`) — currently top-level keys only (RFC 8620 §5.3). Test.
+- [x] **Required top-level `version` + `uid`** (§2.1.2, §2.1.9): add `version` to `Card` (`contacts_types.go:130`), populate/require both on create (`contacts_store.go:281`). Round-trip test.
+- [x] **Missing top-level Card properties** (§2, `contacts_types.go:130-154`): `language` (§2.1.5), `prodId` (§2.1.7), `relatedTo` (§2.1.8), `preferredLanguages` (§2.3.4), `calendars` (§2.4.1), `schedulingAddresses` (§2.4.2), `cryptoKeys` (§2.6.1), `directories` (§2.6.2), `personalInfo` (§2.8.4), `localizations` (§2.7.1). Model + patch + tests.
+- [x] **`speakToAs` correct shape; drop non-spec top-level `gender`** (§2.2.4): `speakToAs = { grammaticalGender, pronouns: Id[Pronouns] }`; remove `JSContactGender`/top-level `gender` (`contacts_types.go:111-115,149`; `JSContactSpeakToAs` `:117-120`). Conformant test.
+- [x] **`Title` field name** (§2.2.5): `JSContactTitle` uses `title` → must be `name`; add `kind`, `organizationId` (`contacts_types.go:71-75`). Test asserts `name`.
+- [x] **`anniversaries` date shape** (§2.8.1): `date` is a Timestamp/PartialDate object + `place`; kinds `birth`/`death`/`wedding`; drop non-spec `label` (`contacts_types.go:122-127`). Test object-form date.
+- [x] **Sub-object field completeness**: `Name` add `isOrdered`/`defaultSeparator`/`phoneticSystem`/`phoneticScript`, make `sortAs` a `String[String]` map (§2.2.1, `contacts_types.go:22-26`); `NameComponent` add `phonetic` (§2.2.1.2, `:29-32`); `Address` use `components`(AddressComponent[])/`isOrdered`/`coordinates`/`timeZone`/`defaultSeparator`/`phoneticSystem`/`phoneticScript` instead of flat street/locality fields (§2.5.1, `:52-62`); `Organization` add `sortAs` (§2.2.3, `:65-69`). Tests per sub-field.
+- [x] **Patch paths for existing-but-unpatchable properties** (§3.5 / RFC 8620 PatchObject): `setCardField` (`contacts_store.go:314-431`) can't patch `links`, `media`, `speakToAs`, `anniversaries`, or mutable `kind` — updates silently drop them. Add paths + persistence tests.
+- [x] **Nested JSON-pointer patch paths** (`name/full`, `emails/e1/pref`, `addressBookIds/ab-1`) in `setCardField` (`contacts_store.go:314`) — currently top-level keys only (RFC 8620 §5.3). Test.
 
 ---
 
@@ -155,38 +155,38 @@ the resolver for local delivery (inbound routing + outbound loopback). "The doma
 ## RFC 9404 (JMAP Blob Management) — tests: `rfc9404_*_test.go`
 
 ### Capability object (§3.1)
-- [ ] **Top-level `urn:...:blob` capability MUST be an empty object** (currently populated, `session.go:187-190`); the **account-level** blob capability object is entirely missing (is `struct{}{}`, `session.go:236`). Fix placement + test both.
-- [ ] **Capability fields**: add `maxSizeBlobSet`, `maxDataSources` (MUST allow ≥64), `supportedTypeNames`; rename `supportedAlgorithms` → `supportedDigestAlgorithms`; drop non-spec `MaxDataAsStream` (`session.go:85-89`). Update the test that asserts the wrong name (`rfc9404_test.go:41`). Impl + tests.
+- [x] **Top-level `urn:...:blob` capability MUST be an empty object** (currently populated, `session.go:187-190`); the **account-level** blob capability object is entirely missing (is `struct{}{}`, `session.go:236`). Fix placement + test both.
+- [x] **Capability fields**: add `maxSizeBlobSet`, `maxDataSources` (MUST allow ≥64), `supportedTypeNames`; rename `supportedAlgorithms` → `supportedDigestAlgorithms`; drop non-spec `MaxDataAsStream` (`session.go:85-89`). Update the test that asserts the wrong name (`rfc9404_test.go:41`). Impl + tests.
 
 ### Blob/upload — DataSourceObject model (§4.1)
-- [ ] **Treat `data` as `DataSourceObject[]`** with concatenation (`handleBlobUpload`, `blob_handlers.go:67-83`) instead of a single field. Impl + tests.
-- [ ] **`data:asBase64` source** handled; **invalid base64 MUST → `notCreated`** (currently falls back to raw bytes, `blob_handlers.go:76-80`). Impl + tests.
-- [ ] **`data:asText` = raw octets** (currently base64-decoded); **invalid UTF-8 MUST → `notCreated`** (`blob_handlers.go:67-80`). Impl + tests.
-- [ ] **`{blobId, offset, length}` catenation source** with range semantics (null offset→0, null length→remaining, past-end MUST → `notCreated`) (`blob_handlers.go:65-93`). Impl + tests.
-- [ ] **Strict rejection**: MUST NOT guess intent on invalid refs/data — reject with `notCreated` (`blob_handlers.go:83-92`). Test.
-- [ ] **Populate `createdIds`** for successful uploads so back-references resolve (`blob_handlers.go:57-100`). Test a later method referencing `#creationId`.
-- [ ] **Empty-blob creation** (zero data sources) supported (`handleBlobUpload`). Test.
-- [ ] **Enforce `maxSizeBlobSet`** on created/concatenated blobs → SetError (§3.1/§4.1). Test.
+- [x] **Treat `data` as `DataSourceObject[]`** with concatenation (`handleBlobUpload`, `blob_handlers.go:67-83`) instead of a single field. Impl + tests.
+- [x] **`data:asBase64` source** handled; **invalid base64 MUST → `notCreated`** (currently falls back to raw bytes, `blob_handlers.go:76-80`). Impl + tests.
+- [x] **`data:asText` = raw octets** (currently base64-decoded); **invalid UTF-8 MUST → `notCreated`** (`blob_handlers.go:67-80`). Impl + tests.
+- [x] **`{blobId, offset, length}` catenation source** with range semantics (null offset→0, null length→remaining, past-end MUST → `notCreated`) (`blob_handlers.go:65-93`). Impl + tests.
+- [x] **Strict rejection**: MUST NOT guess intent on invalid refs/data — reject with `notCreated` (`blob_handlers.go:83-92`). Test.
+- [x] **Populate `createdIds`** for successful uploads so back-references resolve (`blob_handlers.go:57-100`). Test a later method referencing `#creationId`.
+- [x] **Empty-blob creation** (zero data sources) supported (`handleBlobUpload`). Test.
+- [x] **Enforce `maxSizeBlobSet`** on created/concatenated blobs → SetError (§3.1/§4.1). Test.
 
 ### Blob/get (§4.2)
-- [ ] **`offset`/`length` range params** applied (`blob_handlers.go:18-54`). Impl + tests.
-- [ ] **`properties` selection** (default `data`+`size`; full struct always returned today, `blob_handlers.go:29-52`, `blobs.go:13-21`). Impl + tests.
-- [ ] **Result data properties**: produce `data:asText` (with **`isEncodingProblem`** true + null data on non-UTF-8) and `data:asBase64` (`Data` is `json:"-"`, `blobs.go:13-21`,`:20`). Impl + tests.
-- [ ] **`digest:<algorithm>`** as base64 (currently base16) and per requested algorithm (`memory/blobs.go:34-47`, `blobs.go:19`). Impl + tests.
-- [ ] **`isTruncated`** true when offset+length exceeds the blob; **`size` MUST be whole-blob octet count** regardless of range; **digest MUST cover the selected range** (`blob_handlers.go:48-52`, `memory/blobs.go:33-47`). Impl + tests.
+- [x] **`offset`/`length` range params** applied (`blob_handlers.go:18-54`). Impl + tests.
+- [x] **`properties` selection** (default `data`+`size`; full struct always returned today, `blob_handlers.go:29-52`, `blobs.go:13-21`). Impl + tests.
+- [x] **Result data properties**: produce `data:asText` (with **`isEncodingProblem`** true + null data on non-UTF-8) and `data:asBase64` (`Data` is `json:"-"`, `blobs.go:13-21`,`:20`). Impl + tests.
+- [x] **`digest:<algorithm>`** as base64 (currently base16) and per requested algorithm (`memory/blobs.go:34-47`, `blobs.go:19`). Impl + tests.
+- [x] **`isTruncated`** true when offset+length exceeds the blob; **`size` MUST be whole-blob octet count** regardless of range; **digest MUST cover the selected range** (`blob_handlers.go:48-52`, `memory/blobs.go:33-47`). Impl + tests.
 
 ### Blob/lookup (§4.3) & security (§5)
-- [ ] **`typeNames` validity from `supportedTypeNames`** (not the hardcoded `{Mailbox,Thread,Email}` map, `blob_handlers.go:113`) and **require the defining capability in the request `using` set** → else `unknownDataType` (§4.3). Impl + tests.
-- [ ] **Access-control leakage tests** (§5): a blob referenced only by an object the user can't see is excluded from `matchedIds` (`blob_handlers.go:139-144`); document/decide the empty-array-per-type vs `notFound` behavior for missing blobs (`blob_handlers.go:131-133`) — prose §4.3/§5 vs the §4.3.1 example conflict; do not silently change. Tests.
+- [x] **`typeNames` validity from `supportedTypeNames`** (not the hardcoded `{Mailbox,Thread,Email}` map, `blob_handlers.go:113`) and **require the defining capability in the request `using` set** → else `unknownDataType` (§4.3). Impl + tests.
+- [x] **Access-control leakage tests** (§5): a blob referenced only by an object the user can't see is excluded from `matchedIds` (`blob_handlers.go:139-144`); document/decide the empty-array-per-type vs `notFound` behavior for missing blobs (`blob_handlers.go:131-133`) — prose §4.3/§5 vs the §4.3.1 example conflict; do not silently change. Tests.
 
 ## RFC 8620 §6 (Core binary data) — tests: `rfc8620_*_test.go`
-- [ ] **Blob/copy correct shape** (§6.3): args `blobIds: Id[]`, response `copied: Id[Id]` / `notCopied: Id[SetError]` (currently a `create`/creationId map returning Blob objects, `blob_handlers.go:163-194`). Rewrite the non-compliant test that asserts the old shape (`rfc9404_test.go:296-348`). Add `fromAccountNotFound` method error and full create-SetError set (`blob_handlers.go:176-180`). Impl + tests.
-- [ ] **Enforce `maxSizeUpload` → 413** on `/upload` (`HandleUpload` reads unbounded, `blobs.go:38-49`; advertised at `session.go:163`). Impl + test.
-- [ ] **Upload response fields** `accountId`/`blobId`/`type` asserted (test only asserts `id`/`size`, `rfc8620_test.go:419-449`). Test.
-- [ ] **Download headers**: assert `?type=` → `Content-Type` and `name` → `Content-Disposition` filename (`blobs.go:84-93`; untested at `rfc8620_test.go:721-749`). Set `Cache-Control: immutable` long max-age (RECOMMENDED). Impl(SHOULD) + tests.
-- [ ] **RFC 7807 problem-details JSON** for upload/download HTTP errors (SHOULD; currently `http.Error`/`http.NotFound`, `blobs.go:34,40,47,67,80`). Impl + tests.
-- [ ] **Uploader-only access to unreferenced blobs** even in shared accounts (§6.1; access keyed only by `accountID`, `memory/blobs.go:57-64`). Impl + test.
-- [ ] **Blob lifetime guarantees** (§6): unreferenced blob retained ≥1h, not deleted during the call that removed the last reference, over-quota oldest-first eviction (SHOULD). `BlobBackend` (`backend.go:81-86`) has no expiry/quota surface. Impl(partial) + tests. *(low priority)*
+- [x] **Blob/copy correct shape** (§6.3): args `blobIds: Id[]`, response `copied: Id[Id]` / `notCopied: Id[SetError]` (currently a `create`/creationId map returning Blob objects, `blob_handlers.go:163-194`). Rewrite the non-compliant test that asserts the old shape (`rfc9404_test.go:296-348`). Add `fromAccountNotFound` method error and full create-SetError set (`blob_handlers.go:176-180`). Impl + tests.
+- [x] **Enforce `maxSizeUpload` → 413** on `/upload` (`HandleUpload` reads unbounded, `blobs.go:38-49`; advertised at `session.go:163`). Impl + test.
+- [x] **Upload response fields** `accountId`/`blobId`/`type` asserted (test only asserts `id`/`size`, `rfc8620_test.go:419-449`). Test.
+- [x] **Download headers**: assert `?type=` → `Content-Type` and `name` → `Content-Disposition` filename (`blobs.go:84-93`; untested at `rfc8620_test.go:721-749`). Set `Cache-Control: immutable` long max-age (RECOMMENDED). Impl(SHOULD) + tests.
+- [x] **RFC 7807 problem-details JSON** for upload/download HTTP errors (SHOULD; currently `http.Error`/`http.NotFound`, `blobs.go:34,40,47,67,80`). Impl + tests.
+- [x] **Uploader-only access to unreferenced blobs** even in shared accounts (§6.1; access keyed only by `accountID`, `memory/blobs.go:57-64`). Impl + test.
+- [x] **Blob lifetime guarantees** (§6): unreferenced blob retained ≥1h, not deleted during the call that removed the last reference, over-quota oldest-first eviction (SHOULD). `BlobBackend` (`backend.go:81-86`) has no expiry/quota surface. Impl(partial) + tests. *(low priority)*
 
 ## Not a goal
 - RFC 9670 JMAP Sharing (explicitly out of scope in AGENTS.md).

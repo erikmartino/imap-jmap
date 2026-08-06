@@ -125,6 +125,8 @@ const (
 	MethodErrorUnknownDataType        = "unknownDataType"
 	MethodErrorAnchorNotFound         = "anchorNotFound"
 	MethodErrorAccountNotFound        = "accountNotFound"
+	MethodErrorServerFail             = "serverFail"
+	MethodErrorForbidden              = "forbidden"
 )
 
 // ResultReference represents a result reference object per RFC 8620 Section 3.7.
