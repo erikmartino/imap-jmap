@@ -6,5 +6,21 @@
     "text": "A receiving SMTP server prepends a Received: trace header to the accepted message content.",
     "tests": ["TestLocalDelivery_UserToUserOverSMTP"],
     "status": "covered"
+  },
+  {
+    "spec": "RFC5546",
+    "section": "3.2.3",
+    "level": "MUST",
+    "text": "An inbound REPLY updates the replying attendee's participationStatus on the UID-correlated event, not the event-level status.",
+    "tests": ["TestRFC6047_InboundReplyUpdatesParticipationStatus"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC6047",
+    "section": "2.4",
+    "level": "MUST",
+    "text": "A received text/calendar body part with method=REPLY is processed as an iTIP scheduling response.",
+    "tests": ["TestRFC6047_InboundReplyUpdatesParticipationStatus"],
+    "status": "covered"
   }
 ]
