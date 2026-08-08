@@ -2,9 +2,11 @@ package smtp
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/emersion/go-smtp"
 
@@ -18,6 +20,9 @@ type ReceiverBackend struct {
 	CalendarsBackend jmap.CalendarsBackend
 	AccountResolver  jmap.AccountResolver
 	AccountID        string
+	// ServerName is the receiving host name used in the RFC 5321 Section 4.4
+	// "Received:" trace header prepended to every accepted message.
+	ServerName string
 }
 
 // NewReceiverBackend initializes a new SMTP ReceiverBackend linked to JMAP backends.
@@ -32,21 +37,30 @@ func NewReceiverBackend(mailBackend jmap.MailBackend, blobBackend jmap.BlobBacke
 		CalendarsBackend: calBackend,
 		AccountResolver:  r,
 		AccountID:        jmap.AccountIDForSubject("user@example.com"),
+		ServerName:       "localhost",
 	}
 }
 
-// NewSession starts a new SMTP receiving session per connection.
+// NewSession starts a new SMTP receiving session per connection, capturing the
+// client's HELO name and remote address for the Received trace header.
 func (b *ReceiverBackend) NewSession(c *smtp.Conn) (smtp.Session, error) {
-	return &Session{
-		backend: b,
-	}, nil
+	s := &Session{backend: b}
+	if c != nil {
+		s.helo = c.Hostname()
+		if conn := c.Conn(); conn != nil {
+			s.remoteAddr = conn.RemoteAddr().String()
+		}
+	}
+	return s, nil
 }
 
 // Session handles individual SMTP transaction commands (MAIL FROM, RCPT TO, DATA).
 type Session struct {
-	backend *ReceiverBackend
-	from    string
-	to      []string
+	backend    *ReceiverBackend
+	from       string
+	to         []string
+	helo       string
+	remoteAddr string
 }
 
 // AuthPlain handles PLAIN authentication (noop / accepts all for receiving server).
@@ -72,6 +86,11 @@ func (s *Session) Data(r io.Reader) error {
 	if err != nil {
 		return err
 	}
+
+	// Prepend an RFC 5321 Section 4.4 trace ("Received:") header. A receiving SMTP
+	// server MUST insert this at the top of the message so delivery is auditable in
+	// the message headers, recording where it came from, the receiving host, and when.
+	data = append([]byte(s.buildReceivedHeader()), data...)
 
 	// 1. Determine target accountIDs per recipient
 	targetAccountIDs := make(map[string]bool)
@@ -183,6 +202,32 @@ func (s *Session) Data(r io.Reader) error {
 	}
 
 	return nil
+}
+
+// buildReceivedHeader constructs an RFC 5321 Section 4.4 / RFC 5322 Section 3.6.7
+// "Received:" trace header for the current transaction, recording the client (HELO
+// name and remote address), the receiving host, a delivery id, the envelope
+// recipient, and the receipt time.
+func (s *Session) buildReceivedHeader() string {
+	from := s.helo
+	if from == "" {
+		from = "unknown"
+	}
+	remote := s.remoteAddr
+	if remote == "" {
+		remote = "unknown"
+	}
+	by := s.backend.ServerName
+	if by == "" {
+		by = "localhost"
+	}
+	now := time.Now().UTC()
+	forClause := ""
+	if len(s.to) > 0 {
+		forClause = fmt.Sprintf("\r\n\tfor <%s>", s.to[0])
+	}
+	return fmt.Sprintf("Received: from %s (%s)\r\n\tby %s with ESMTP id %d%s;\r\n\t%s\r\n",
+		from, remote, by, now.UnixNano(), forClause, now.Format(time.RFC1123Z))
 }
 
 // Reset clears transaction state (RSET command).

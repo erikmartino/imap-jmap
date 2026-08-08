@@ -1,0 +1,10 @@
+[
+  {
+    "spec": "RFC5321",
+    "section": "4.4",
+    "level": "MUST",
+    "text": "A receiving SMTP server prepends a Received: trace header to the accepted message content.",
+    "tests": ["TestLocalDelivery_UserToUserOverSMTP"],
+    "status": "covered"
+  }
+]
