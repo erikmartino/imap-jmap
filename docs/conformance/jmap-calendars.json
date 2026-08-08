@@ -202,6 +202,14 @@
   },
   {
     "spec": "draft-ietf-jmap-calendars-27",
+    "section": "5.9.2.1",
+    "level": "MUST",
+    "text": "A REQUEST to a local participant delivers the event into that participant's own calendar with participation still pending.",
+    "tests": ["TestRFC8984_SameServerInviteAcceptRoundTrip"],
+    "status": "covered"
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
     "section": "5.9.2.2",
     "level": "MUST",
     "text": "On destroy the origin sends a CANCEL to every participant except the calendar owner.",
@@ -214,6 +222,14 @@
     "level": "MUST",
     "text": "When not the origin, a REPLY is sent to the organizer when a user participant's participationStatus changes to a value other than needs-action.",
     "tests": ["TestRFC8984_SchedulingReplyOnRSVP"],
+    "status": "covered"
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
+    "section": "5.9.2.3",
+    "level": "MUST",
+    "text": "A REPLY from a local participant is reflected into the organizer's own copy of the event.",
+    "tests": ["TestRFC8984_SameServerInviteAcceptRoundTrip"],
     "status": "covered"
   },
   {
