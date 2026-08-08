@@ -50,6 +50,28 @@ test.describe('calendar (Bulwark UI ↔ imap-jmap over JMAP)', () => {
     expect(ev.title).toBe(title);
   });
 
+  test('a saved event appears in the month grid (regression: it used to disappear)', async ({ page }) => {
+    // Regression for the calendar month view showing nothing after Save. The month grid
+    // queries CalendarEvent/query with floating LocalDateTime before/after bounds
+    // (draft-ietf-jmap-calendars-27 Section 5.11.1); the server previously required a "Z"
+    // suffix and so returned no events, making saved entries vanish from the view.
+    const acct = uniqueUser('cal-month');
+    await login(page, acct.username, acct.password);
+    await goToApp(page, '/en/calendar');
+    await expect(page).toHaveURL(/\/calendar\/month\//);
+
+    await page.getByRole('button', { name: 'Create event' }).first().click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible({ timeout: 15_000 });
+    const title = `Month Grid ${Date.now()}`;
+    await dialog.getByPlaceholder('Title').fill(title);
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(dialog).toBeHidden({ timeout: 15_000 });
+
+    // The event must remain visible in the month grid after saving.
+    await expect(page.getByText(title).first()).toBeVisible({ timeout: 20_000 });
+  });
+
   // ---- Protocol (the exact wire API the client uses) -----------------------
 
   test('CalendarEvent lifecycle over JMAP: create → query → get → update → destroy', async () => {
