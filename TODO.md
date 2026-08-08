@@ -33,14 +33,22 @@ marked done. All are now fixed (one commit each):
 - **CAL-7** — Event `status` no longer accepts Task states; `calendarIds` must reference existing
   calendars; `Calendar/set` rejects unknown properties.
 
-### Follow-ups worth tracking (not yet done)
-- `Principal/getAvailability` collapses each window's end to its start (`memory/principals_store.go`
-  GetAvailability), so busy windows are zero-length and ignore recurrence — should expand instances
-  and use start+duration; `secret`/`includeInAvailability` should govern contribution.
-- JSCalendar `progress` value enum (needs-action/in-process/completed/failed/pending/cancelled) is
-  unvalidated; a Task test uses the non-spec `in-progress`.
-- `CalendarEvent/query` `canCalculateChanges` is hardcoded `true`.
-- Filter uses singular `inCalendar`; the draft's canonical condition is `inCalendars: Id[]`.
+### Follow-ups from the audit — completed (2026-08-08)
+- **FU-1** `Principal/getAvailability` now emits real busy windows: end = start+duration, recurrence
+  expanded across the query window, and `free`/cancelled/`secret` events excluded.
+- **FU-2** JSCalendar Task `progress` enum validated
+  (needs-action/in-process/completed/failed/pending/cancelled); fixed the test that used the
+  non-spec `in-progress`.
+- **FU-3** `CalendarEvent/query` reports `canCalculateChanges=false` when `expandRecurrences` is set
+  (synthetic occurrence ids are not change-tracked).
+- **FU-4** `inCalendars` (plural `Id[]`) canonical filter condition covered by tests (evaluation
+  added in CAL-6).
+
+### Still open
+- `Principal/getAvailability` reads events from the caller's account context, not the target
+  principal's — genuine cross-principal availability needs account resolution by principal.
+- Calendar-level `includeInAvailability` ("all"/"none"/"attending") is stored but not yet consulted
+  when building free-busy.
 
 ---
 

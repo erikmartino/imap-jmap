@@ -86,3 +86,30 @@ func TestRFC8984_CalendarSetRejectsUnknownProperty(t *testing.T) {
 		t.Errorf("expected invalidProperties, got %q", et)
 	}
 }
+
+// TestRFC8984_TaskProgressEnum verifies the JSCalendar Task progress enum (RFC 8984 Section 5.2.5):
+// a valid value (in-process) is accepted and a non-spec value (in-progress) is rejected.
+func TestRFC8984_TaskProgressEnum(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	using := []string{jmap.CoreCapabilityURI, jmap.CalendarsCapabilityURI}
+
+	resp := postJMAP(t, ts.URL, using, []any{
+		[]any{"CalendarEvent/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"ok":  map[string]any{"@type": "Task", "title": "Do", "progress": "in-process"},
+				"bad": map[string]any{"@type": "Task", "title": "Do", "progress": "in-progress"},
+			},
+		}, "c1"},
+	})
+	created, _ := resp.MethodResponses[0].Args["created"].(map[string]any)
+	notCreated, _ := resp.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if created["ok"] == nil {
+		t.Errorf("progress=in-process should be accepted")
+	}
+	if notCreated["bad"] == nil {
+		t.Errorf("progress=in-progress (non-spec) must be rejected")
+	}
+}

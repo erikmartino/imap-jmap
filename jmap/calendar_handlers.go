@@ -583,9 +583,12 @@ func handleCalendarEventQuery(backend CalendarsBackend) MethodHandler {
 		}
 
 		return "CalendarEvent/query", map[string]any{
-			"accountId":           accountID,
-			"queryState":          backend.CalendarEventState(ctx),
-			"canCalculateChanges": true,
+			"accountId":  accountID,
+			"queryState": backend.CalendarEventState(ctx),
+			// When expandRecurrences is set the result ids are synthetic per-occurrence ids
+			// (evtId#recurrenceId) that the change system does not track, so CalendarEvent/
+			// queryChanges cannot compute deltas over them: report canCalculateChanges=false.
+			"canCalculateChanges": !expandRecurrences,
 			"position":            position,
 			"total":               total,
 			"ids":                 ids,
@@ -995,6 +998,15 @@ func validateCalendarEventMap(m map[string]any) error {
 				case "free", "busy", "tentative":
 				default:
 					return SetError{Type: "invalidProperties", Description: "invalid freeBusyStatus value: " + s, Properties: []string{"freeBusyStatus"}}
+				}
+			}
+		case "progress":
+			// JSCalendar Task progress (RFC 8984 Section 5.2.5).
+			if s, ok := v.(string); ok && s != "" {
+				switch s {
+				case "needs-action", "in-process", "completed", "failed", "pending", "cancelled":
+				default:
+					return SetError{Type: "invalidProperties", Description: "invalid progress value: " + s, Properties: []string{"progress"}}
 				}
 			}
 		}
