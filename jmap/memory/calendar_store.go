@@ -514,6 +514,14 @@ func setCalendarEventField(ev *jmap.CalendarEvent, path string, val any) {
 		if s, ok := val.(string); ok {
 			ev.Privacy = s
 		}
+	case "hideAttendees":
+		if val == nil {
+			ev.HideAttendees = false
+			return
+		}
+		if b, ok := val.(bool); ok {
+			ev.HideAttendees = b
+		}
 	case "participants":
 		if val == nil {
 			ev.Participants = nil

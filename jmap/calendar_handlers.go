@@ -241,28 +241,20 @@ func handleCalendarEventGet(backend CalendarsBackend) MethodHandler {
 			notFound = []Id{}
 		}
 
-		var filteredList []*CalendarEvent
+		// Privacy (draft-ietf-jmap-calendars-27 Section 4.2.10) governs what NON-owner
+		// sharees see: "private" returns only a reduced property set and "secret" makes the
+		// server behave as though the event does not exist. The Principal that owns the
+		// calendar always sees the full event, including its private and secret events.
+		// CalendarEvent/get only ever runs against the caller's own account (SelfAccessGuard),
+		// i.e. the owner, so no censoring is applied here. Cross-principal disclosure is
+		// limited to the free-busy windows returned by Principal/getAvailability, which never
+		// expose event titles or details.
+		filteredList := make([]*CalendarEvent, 0, len(list))
 		for _, ev := range list {
 			if ev == nil {
 				continue
 			}
-			if ev.Privacy == "secret" {
-				if hasIDs {
-					notFound = append(notFound, ev.ID)
-				}
-				continue
-			}
-			if ev.Privacy == "private" {
-				censoredEv := *ev
-				censoredEv.Title = "Busy"
-				censoredEv.Description = ""
-				censoredEv.Locations = nil
-				censoredEv.VirtualLocations = nil
-				censoredEv.Links = nil
-				filteredList = append(filteredList, &censoredEv)
-			} else {
-				filteredList = append(filteredList, ev)
-			}
+			filteredList = append(filteredList, ev)
 		}
 
 		return "CalendarEvent/get", map[string]any{
@@ -885,7 +877,7 @@ var validCalendarEventProperties = map[string]bool{
 	"descriptionContentType": true, "showWithoutTime": true, "start": true, "duration": true,
 	"timeZone": true, "locations": true, "location": true, "virtualLocations": true,
 	"links": true, "locale": true, "categories": true, "color": true, "status": true,
-	"freeBusyStatus": true, "privacy": true, "priority": true, "replyTo": true,
+	"freeBusyStatus": true, "privacy": true, "hideAttendees": true, "priority": true, "replyTo": true,
 	"sentBy": true, "requestStatus": true, "useDefaultAlerts": true, "localizations": true,
 	"timeZones": true, "participants": true, "recurrenceRules": true, "recurrenceId": true,
 	"recurrenceIdTimeZone": true, "excludedRecurrenceRules": true, "recurrenceOverrides": true,

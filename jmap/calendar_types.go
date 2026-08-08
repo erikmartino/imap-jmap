@@ -304,6 +304,7 @@ type CalendarEvent struct {
 	Status                  string                                `json:"status,omitempty"`         // "confirmed", "tentative", "cancelled"
 	FreeBusyStatus          string                                `json:"freeBusyStatus,omitempty"` // "free", "busy", "tentative"
 	Privacy                 string                                `json:"privacy,omitempty"`        // "public", "private", "secret"
+	HideAttendees           bool                                  `json:"hideAttendees,omitempty"`  // owner-only participant visibility (draft-ietf-jmap-calendars-27 Section 4.4.5)
 	Priority                uint32                                `json:"priority,omitempty"`
 	ReplyTo                 map[string]string                     `json:"replyTo,omitempty"`
 	SentBy                  string                                `json:"sentBy,omitempty"`
