@@ -5,6 +5,7 @@ export const JMAP_URL = process.env.JMAP_SERVER_URL ?? 'https://localhost:8443';
 
 const MAIL_CAPABILITY = 'urn:ietf:params:jmap:mail';
 const CONTACTS_CAPABILITY = 'urn:ietf:params:jmap:contacts';
+const CALENDAR_CAPABILITY = 'urn:ietf:params:jmap:calendars';
 const CORE_CAPABILITY = 'urn:ietf:params:jmap:core';
 
 let counter = 0;
@@ -94,11 +95,14 @@ export async function visibleEmails(page: Page): Promise<EmailListItem[]> {
 export class JMAPClient {
   private readonly apiUrl: string;
   private readonly accountId: string;
+  /** Account that owns the calendars capability; falls back to the mail account. */
+  private calendarAccountId: string;
   private ctx: APIRequestContext | null = null;
 
   private constructor(apiUrl: string, accountId: string) {
     this.apiUrl = apiUrl;
     this.accountId = accountId;
+    this.calendarAccountId = accountId;
   }
 
   static async connect(username: string, password: string): Promise<JMAPClient> {
@@ -115,8 +119,26 @@ export class JMAPClient {
       throw new Error('JMAP session exposes no mail account for ' + username);
     }
     const client = new JMAPClient(session.apiUrl, primary);
+    client.calendarAccountId = session.primaryAccounts?.[CALENDAR_CAPABILITY] ?? primary;
     client.ctx = ctx;
     return client;
+  }
+
+  /** True when the server advertises the JMAP for Calendars capability in the session. */
+  static async supportsCalendars(username: string, password: string): Promise<boolean> {
+    const ctx = await request.newContext({
+      ignoreHTTPSErrors: true,
+      baseURL: JMAP_URL,
+      extraHTTPHeaders: {
+        Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`,
+      },
+    });
+    try {
+      const session = await (await ctx.get('/.well-known/jmap')).json();
+      return Boolean(session.capabilities?.[CALENDAR_CAPABILITY]);
+    } finally {
+      await ctx.dispose();
+    }
   }
 
   async api(methods: Array<[string, Record<string, unknown>, string]>, opts?: { using?: string[] }): Promise<any> {
@@ -209,5 +231,82 @@ export class JMAPClient {
       }
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
+  }
+
+  // --- JMAP for Calendars (draft-ietf-jmap-calendars) -----------------------
+  // These drive the exact wire protocol the Bulwark client uses, so calendar
+  // behaviour is verified end-to-end against the running server, not a stub.
+
+  private async callCalendar(method: string, args: Record<string, unknown>): Promise<any> {
+    const responses = await this.api([[method, { accountId: this.calendarAccountId, ...args }, 'c0']], {
+      using: [CORE_CAPABILITY, CALENDAR_CAPABILITY],
+    });
+    const [name, payload] = responses[0];
+    if (name === 'error') {
+      throw new Error(`${method} failed: ${JSON.stringify(payload)}`);
+    }
+    return payload;
+  }
+
+  /** Returns every Calendar object for the account (Calendar/get). */
+  async calendars(): Promise<any[]> {
+    return (await this.callCalendar('Calendar/get', {})).list ?? [];
+  }
+
+  /** Returns the id of the account's default calendar, if any. */
+  async defaultCalendarId(): Promise<string | undefined> {
+    return (await this.calendars()).find((c: any) => c.isDefault)?.id;
+  }
+
+  /**
+   * Creates a CalendarEvent (CalendarEvent/set create) and returns its server id.
+   * `props` is a JSCalendar Event object; calendarIds defaults to the default calendar.
+   */
+  async createEvent(props: Record<string, unknown>): Promise<string> {
+    let event = props;
+    if (!('calendarIds' in props)) {
+      const calId = await this.defaultCalendarId();
+      if (calId) event = { ...props, calendarIds: { [calId]: true } };
+    }
+    const res = await this.callCalendar('CalendarEvent/set', { create: { e0: event } });
+    const created = res.created?.e0;
+    if (!created) {
+      throw new Error(`CalendarEvent/set did not create the event: ${JSON.stringify(res.notCreated)}`);
+    }
+    return created.id;
+  }
+
+  /** Applies a partial patch to an event (CalendarEvent/set update). */
+  async updateEvent(id: string, patch: Record<string, unknown>): Promise<void> {
+    const res = await this.callCalendar('CalendarEvent/set', { update: { [id]: patch } });
+    if (res.notUpdated?.[id]) {
+      throw new Error(`CalendarEvent/set update failed: ${JSON.stringify(res.notUpdated[id])}`);
+    }
+  }
+
+  /** Destroys an event (CalendarEvent/set destroy). */
+  async destroyEvent(id: string): Promise<void> {
+    const res = await this.callCalendar('CalendarEvent/set', { destroy: [id] });
+    if (res.notDestroyed?.[id]) {
+      throw new Error(`CalendarEvent/set destroy failed: ${JSON.stringify(res.notDestroyed[id])}`);
+    }
+  }
+
+  /** Fetches events by id (CalendarEvent/get), optionally limiting properties. */
+  async getEvents(ids: string[], properties?: string[]): Promise<any[]> {
+    if (ids.length === 0) return [];
+    const args: Record<string, unknown> = { ids };
+    if (properties) args.properties = properties;
+    return (await this.callCalendar('CalendarEvent/get', args)).list ?? [];
+  }
+
+  /** Returns matching event ids (CalendarEvent/query). Pass extra args like expandRecurrences. */
+  async queryEventIds(
+    filter?: Record<string, unknown>,
+    extra?: Record<string, unknown>,
+  ): Promise<string[]> {
+    const args: Record<string, unknown> = { ...extra };
+    if (filter) args.filter = filter;
+    return (await this.callCalendar('CalendarEvent/query', args)).ids ?? [];
   }
 }
