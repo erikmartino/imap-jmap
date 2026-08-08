@@ -369,7 +369,20 @@ func (b *MemoryCalendarsBackend) CreateCalendarEvent(ctx context.Context, ev *jm
 		ev.Type = "Event"
 	}
 	if len(ev.CalendarIDs) == 0 {
+		// Dev convenience: an event with no explicit calendarIds lands in the default
+		// calendar. When calendarIds ARE given, every referenced calendar MUST exist and
+		// map to true, or the create is rejected (data-integrity: never point an event at a
+		// dangling calendar).
 		ev.CalendarIDs = map[jmap.Id]bool{"cal-default": true}
+	} else {
+		for calID, member := range ev.CalendarIDs {
+			if !member {
+				return nil, fmt.Errorf("calendarIds values must be true: %s", calID)
+			}
+			if _, ok := us.calendars[calID]; !ok {
+				return nil, fmt.Errorf("calendarIds references unknown calendar: %s", calID)
+			}
+		}
 	}
 
 	nowStr := time.Now().UTC().Format(time.RFC3339)

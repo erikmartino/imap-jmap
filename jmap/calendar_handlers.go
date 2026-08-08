@@ -131,6 +131,10 @@ func handleCalendarSet(backend CalendarsBackend) MethodHandler {
 					}
 					continue
 				}
+				if err := validateCalendarMap(calMap); err != nil {
+					notCreated[creationID] = err
+					continue
+				}
 				calBytes, _ := json.Marshal(calMap)
 				var cal Calendar
 				_ = json.Unmarshal(calBytes, &cal)
@@ -158,6 +162,10 @@ func handleCalendarSet(backend CalendarsBackend) MethodHandler {
 					continue
 				}
 				resolvedID := resolveCreationID(idStr, creationRefs)
+				if err := validateCalendarMap(patch); err != nil {
+					notUpdated[string(resolvedID)] = err
+					continue
+				}
 				updatedCal, err := backend.UpdateCalendar(ctx, Id(resolvedID), resolvePatchCreationRefs(patch, creationRefs))
 				if err != nil {
 					notUpdated[string(resolvedID)] = SetError{Type: "notFound", Description: err.Error()}
@@ -909,6 +917,30 @@ func validateCalendarEventFilter(filter map[string]any) (errType, errMsg string)
 	return "", ""
 }
 
+// validCalendarProperties are the settable/known Calendar properties (draft-ietf-jmap-calendars
+// Section 2). id and myRights are server-set; unknown properties are rejected.
+var validCalendarProperties = map[string]bool{
+	"id": true, "name": true, "description": true, "color": true, "sortOrder": true,
+	"isDefault": true, "isVisible": true, "isSubscribed": true, "includeInAvailability": true,
+	"defaultAlertsWithTime": true, "defaultAlertsWithoutTime": true, "timeZone": true,
+	"shareWith": true, "myRights": true,
+}
+
+// validateCalendarMap rejects unknown Calendar properties (including JSON-pointer patch paths)
+// with invalidProperties, so Calendar/set never silently drops a misspelled property.
+func validateCalendarMap(m map[string]any) error {
+	for k := range m {
+		baseKey := k
+		if strings.Contains(k, "/") {
+			baseKey = strings.Split(k, "/")[0]
+		}
+		if !validCalendarProperties[baseKey] {
+			return SetError{Type: "invalidProperties", Description: "unknown property: " + k, Properties: []string{k}}
+		}
+	}
+	return nil
+}
+
 var validCalendarEventProperties = map[string]bool{
 	"@type": true, "id": true, "calendarIds": true, "title": true, "description": true,
 	"descriptionContentType": true, "showWithoutTime": true, "start": true, "duration": true,
@@ -939,9 +971,12 @@ func validateCalendarEventMap(m map[string]any) error {
 		}
 		switch baseKey {
 		case "status":
+			// "status" is an Event property (RFC 8984 Section 4.4.2); its only valid values
+			// are confirmed/tentative/cancelled. JSCalendar Tasks track state via "progress"
+			// (Section 5.2.5), not "status", so the Task states must not be accepted here.
 			if s, ok := v.(string); ok && s != "" {
 				switch s {
-				case "confirmed", "tentative", "cancelled", "needs-action", "completed", "in-progress":
+				case "confirmed", "tentative", "cancelled":
 				default:
 					return SetError{Type: "invalidProperties", Description: "invalid status value: " + s, Properties: []string{"status"}}
 				}
