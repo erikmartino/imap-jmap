@@ -40,6 +40,7 @@ var conformanceMatrices = []struct {
 	TestDir string
 }{
 	{"../docs/conformance/jmap-calendars.json", "."},
+	{"../docs/conformance/jmap-mail.json", "."},
 	{"../docs/conformance/smtp.json", "../smtp"},
 }
 

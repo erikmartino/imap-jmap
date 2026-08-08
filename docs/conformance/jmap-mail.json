@@ -1,0 +1,210 @@
+[
+  {
+    "spec": "RFC2045",
+    "section": "5",
+    "level": "MUST",
+    "text": "MIME multipart messages are parsed into a nested body-part structure.",
+    "tests": ["TestRFC2045_MIMEPartStructure"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC5322",
+    "section": "3.6",
+    "level": "MUST",
+    "text": "RFC 5322 messages are parsed into JMAP Email header/address/subject/date fields.",
+    "tests": ["TestRFC5322_MessageParsing"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8620",
+    "section": "5.4",
+    "level": "MUST",
+    "text": "Email/copy recreates emails in the target account.",
+    "tests": ["TestRFC8621_Section4_6_EmailCopyRoundTrip", "TestRFC8621_Section4_EmailCopy"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8620",
+    "section": "5.4",
+    "level": "MUST",
+    "text": "Mailbox/copy recreates mailboxes in the target account.",
+    "tests": ["TestRFC8621_MailboxCopy", "TestRFC8621_Section2_MailboxCopy"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8621",
+    "section": "2.1",
+    "level": "MUST",
+    "text": "Mailbox/get returns Mailbox objects with rights and counts.",
+    "tests": ["TestRFC8621_Section2_1_MailboxGet"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8621",
+    "section": "2.1",
+    "level": "MAY",
+    "text": "Optional system mailbox roles are supported.",
+    "tests": ["TestRFC8621_Section2_1_MayProvisions_OptionalSystemRoles"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8621",
+    "section": "2.3",
+    "level": "MUST",
+    "text": "Mailbox/set create/update/destroy, including notUpdated notFound for a missing id.",
+    "tests": ["TestRFC8621_MailboxSetUpdateMissingNotFound", "TestRFC8621_Section2_3_MailboxSet", "TestRFC8621_Section2_5_MailboxUpdate"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8621",
+    "section": "2.4",
+    "level": "MUST",
+    "text": "Mailbox/query filter conditions and sort, positive and negative.",
+    "tests": ["TestMailboxQuery_HasAnyRole_IsSubscribed", "TestRFC8621_Section2_4_MailboxFilterPropertiesPosNeg", "TestRFC8621_Section2_4_MailboxQuery"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8621",
+    "section": "3.1",
+    "level": "MUST",
+    "text": "Thread/get groups related emails; threadIds filter returns all emails of a thread.",
+    "tests": ["TestRFC8621_Section3_1_ThreadGet", "TestRFC8621_Section3_ThreadGet"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8621",
+    "section": "4.1",
+    "level": "MUST",
+    "text": "Email/get returns parsed properties and reconstructed body structure.",
+    "tests": ["TestRFC8621_EmailCreateImplicitBodyPartType", "TestRFC8621_EmailCreateReconstructsBodyStructure", "TestRFC8621_Section4_1_EmailGet"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8621",
+    "section": "4.3",
+    "level": "MUST",
+    "text": "Email/set create/update applies partial patches (incl. keywords/*) without dropping unaddressed properties.",
+    "tests": ["TestRFC8621_EmailSetEmptyFieldsNull", "TestRFC8621_EmailSetErrorPaths", "TestRFC8621_Section4_3_EmailSet", "TestRFC8621_Section4_3_EmailSetUpdateKeywords", "TestRFC8621_Section4_4_EmailSetPartialUpdateDataLossPrevention"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8621",
+    "section": "4.4",
+    "level": "MUST",
+    "text": "Email/query filter conditions, positive and negative.",
+    "tests": ["TestRFC8621_EmailQueryAllFilterConditions", "TestRFC8621_EmailQueryFilters_PositiveAndNegative", "TestRFC8621_Section4_5_1_EmailQueryFromToFilters", "TestRFC8621_Section4_5_EmailFilterPropertiesPosNeg", "TestRFC8621_Section4_5_EmailQuery"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8621",
+    "section": "4.4.2",
+    "level": "MUST",
+    "text": "Email/query sort comparators, including base-subject and multi-comparator tie-breaks.",
+    "tests": ["TestRFC8621_Section4_4_2_EmailSortBaseSubject", "TestRFC8621_Section4_4_2_EmailSortComparators", "TestRFC8621_Section4_4_2_EmailSortMultiComparator", "TestRFC8621_Section4_4_SortOrderAndMultiComparatorTieBreak"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8621",
+    "section": "4.7",
+    "level": "MUST",
+    "text": "Email/import imports RFC 5322 blobs; error paths are handled.",
+    "tests": ["TestRFC8621_Section4_7_EmailImport", "TestRFC8621_Section4_8_EmailImportAndParseErrorPaths", "TestRFC8621_Section4_EmailImportAndParse"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8621",
+    "section": "4.8",
+    "level": "MUST",
+    "text": "Email/parse parses blobs into Email objects; error paths are handled.",
+    "tests": ["TestRFC8621_Section4_8_EmailParse"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8621",
+    "section": "5",
+    "level": "MUST",
+    "text": "SearchSnippet/get returns subject/preview snippets with <mark> highlighting.",
+    "tests": ["TestRFC8621_EmailCopy_SearchSnippet_Sieve_CalendarEvent", "TestRFC8621_Section5_SearchSnippetGet"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8621",
+    "section": "6.3",
+    "level": "MUST",
+    "text": "Identity/get and Identity/set (incl. notUpdated notFound for a missing id).",
+    "tests": ["TestRFC8621_IdentitySetUpdateMissingNotFound", "TestRFC8621_Section6_1_IdentityGet", "TestRFC8621_Section6_IdentitySet"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8621",
+    "section": "7.1",
+    "level": "MUST",
+    "text": "EmailSubmission/get and /query with envelope and delivery status.",
+    "tests": ["TestEmailSubmission_Envelope_RoundTrip", "TestRFC8621_Section7_1_EmailSubmissionGet", "TestRFC8621_Section7_2_EmailSubmissionQuery"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8621",
+    "section": "7.5",
+    "level": "MUST",
+    "text": "EmailSubmission/set sends, and applies onSuccessUpdateEmail / onSuccessDestroyEmail.",
+    "tests": ["TestEmailSubmission_LocalDelivery", "TestEmailSubmission_OnSuccessDestroyEmail", "TestEmailSubmission_OnSuccessUpdateEmail", "TestRFC8621_Section7_3_EmailSubmissionSet"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8621",
+    "section": "8",
+    "level": "MUST",
+    "text": "VacationResponse capability, singleton get/set, and singleton create/destroy rejection.",
+    "tests": ["TestRFC8621_VacationResponseCapability", "TestRFC8621_VacationResponseGetSet", "TestRFC8621_VacationResponseIfInState"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC9007",
+    "section": "2",
+    "level": "MUST",
+    "text": "The MDN capability is advertised.",
+    "tests": ["TestRFC9007_SessionCapability"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC9007",
+    "section": "3",
+    "level": "MUST",
+    "text": "MDN/send generates a Message Disposition Notification.",
+    "tests": ["TestRFC9007_MDNSend"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC9007",
+    "section": "4",
+    "level": "MUST",
+    "text": "MDN/parse parses an MDN blob.",
+    "tests": ["TestRFC9007_MDNParse"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC9219",
+    "section": "2",
+    "level": "MUST",
+    "text": "The S/MIME verification capability is advertised.",
+    "tests": ["TestRFC9219_Section2_Capability"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC9219",
+    "section": "3",
+    "level": "MUST",
+    "text": "Email exposes S/MIME status properties.",
+    "tests": ["TestRFC9219_Section3_EmailSMIMEProperties"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC9219",
+    "section": "4",
+    "level": "MUST",
+    "text": "Email/verifySmime verifies S/MIME signatures.",
+    "tests": ["TestRFC9219_Section4_EmailVerifySmime", "TestRFC9219_VerifySmimePayloadStructure"],
+    "status": "covered"
+  }
+]
