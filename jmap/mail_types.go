@@ -160,3 +160,15 @@ type SearchSnippet struct {
 	Subject   *string `json:"subject,omitempty"`
 	Preview   *string `json:"preview,omitempty"`
 }
+
+// VacationResponse is the per-account auto-reply singleton per RFC 8621 Section 8.
+// Its id is always "singleton".
+type VacationResponse struct {
+	ID        Id      `json:"id"`
+	IsEnabled bool    `json:"isEnabled"`
+	FromDate  *string `json:"fromDate"`
+	ToDate    *string `json:"toDate"`
+	Subject   *string `json:"subject"`
+	TextBody  *string `json:"textBody"`
+	HTMLBody  *string `json:"htmlBody"`
+}

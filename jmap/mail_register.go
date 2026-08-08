@@ -36,6 +36,10 @@ func RegisterMailHandlers(r *MethodRegistry, backend MailBackend, blobBackend Bl
 	r.Register("Identity/changes", handleIdentityChanges(backend))
 	r.Register("Identity/set", handleIdentitySet(backend))
 
+	// VacationResponse (RFC 8621 Section 8): per-account singleton, get + set only.
+	r.Register("VacationResponse/get", handleVacationResponseGet(backend))
+	r.Register("VacationResponse/set", handleVacationResponseSet(backend))
+
 	// EmailSubmission (Section 7)
 	r.Register("EmailSubmission/get", handleEmailSubmissionGet(backend))
 	r.Register("EmailSubmission/changes", handleEmailSubmissionChanges(backend))

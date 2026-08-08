@@ -20,6 +20,7 @@ type userMailStore struct {
 	identities        map[jmap.Id]*jmap.Identity
 	submissions       map[jmap.Id]*jmap.EmailSubmission
 	pushSubscriptions map[jmap.Id]*jmap.PushSubscription
+	vacationResponse  *jmap.VacationResponse
 	state             string
 
 	mailboxState    *changeTracker
@@ -28,6 +29,7 @@ type userMailStore struct {
 	identityState   *changeTracker
 	submissionState *changeTracker
 	quotaState      *changeTracker
+	vacationState   *changeTracker
 }
 
 type MemoryBackend struct {
@@ -73,6 +75,7 @@ func newMemoryUserStore(accountID string) *userMailStore {
 		identities:        make(map[jmap.Id]*jmap.Identity),
 		submissions:       make(map[jmap.Id]*jmap.EmailSubmission),
 		pushSubscriptions: make(map[jmap.Id]*jmap.PushSubscription),
+		vacationResponse:  &jmap.VacationResponse{ID: "singleton", IsEnabled: false},
 		state:             "m1",
 
 		mailboxState:    newChangeTracker(1000),
@@ -81,6 +84,7 @@ func newMemoryUserStore(accountID string) *userMailStore {
 		identityState:   newChangeTracker(1000),
 		submissionState: newChangeTracker(1000),
 		quotaState:      newChangeTracker(1000),
+		vacationState:   newChangeTracker(1000),
 	}
 
 	// Create default Quotas per RFC 9425
@@ -1052,6 +1056,68 @@ func (mb *MemoryBackend) DeleteIdentity(ctx context.Context, id jmap.Id) (bool, 
 
 	mb.recordChange(ctx, us.identityState, id, "destroy", "Identity")
 	return true, nil
+}
+
+// VacationResponseState returns the change token for the VacationResponse singleton (RFC 8621 Section 8).
+func (mb *MemoryBackend) VacationResponseState(ctx context.Context) string {
+	mb.mu.RLock()
+	defer mb.mu.RUnlock()
+	return mb.getStoreLocked(ctx).vacationState.State()
+}
+
+// GetVacationResponse returns the per-account VacationResponse singleton (id "singleton").
+func (mb *MemoryBackend) GetVacationResponse(ctx context.Context) (*jmap.VacationResponse, error) {
+	mb.mu.RLock()
+	defer mb.mu.RUnlock()
+	us := mb.getStoreLocked(ctx)
+	cp := *us.vacationResponse
+	return &cp, nil
+}
+
+// UpdateVacationResponse applies a partial patch to the VacationResponse singleton, leaving
+// unaddressed properties untouched (RFC 8621 Section 8.2 / RFC 8620 Section 5.3).
+func (mb *MemoryBackend) UpdateVacationResponse(ctx context.Context, patch map[string]any) (*jmap.VacationResponse, error) {
+	mb.mu.Lock()
+	us := mb.getStoreLocked(ctx)
+	vr := us.vacationResponse
+
+	setStrPtr := func(v any, dst **string) {
+		if v == nil {
+			*dst = nil
+			return
+		}
+		if s, ok := v.(string); ok {
+			*dst = &s
+		}
+	}
+	for k, v := range patch {
+		switch k {
+		case "id":
+			// Server-set; ignore.
+		case "isEnabled":
+			if b, ok := v.(bool); ok {
+				vr.IsEnabled = b
+			}
+		case "fromDate":
+			setStrPtr(v, &vr.FromDate)
+		case "toDate":
+			setStrPtr(v, &vr.ToDate)
+		case "subject":
+			setStrPtr(v, &vr.Subject)
+		case "textBody":
+			setStrPtr(v, &vr.TextBody)
+		case "htmlBody":
+			setStrPtr(v, &vr.HTMLBody)
+		default:
+			mb.mu.Unlock()
+			return nil, fmt.Errorf("unknown VacationResponse property: %s", k)
+		}
+	}
+	cp := *vr
+	mb.mu.Unlock()
+
+	mb.recordChange(ctx, us.vacationState, "singleton", "update", "VacationResponse")
+	return &cp, nil
 }
 
 // CreateSubmission creates an EmailSubmission.
