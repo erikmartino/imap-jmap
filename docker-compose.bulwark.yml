@@ -17,9 +17,17 @@ services:
       - SMTP_PORT=1025
       - SMTP_HOST=0.0.0.0
       # Browser clients (Bulwark) enforce a `connect-src ... https:` CSP, so the
-      # webmail can only talk to the JMAP server over HTTPS. imap-jmap serves TLS
-      # (self-signed) on 8443; that is the endpoint the e2e suite points at.
+      # webmail can only talk to the JMAP server over HTTPS on 8443.
       - PUBLIC_URL=http://imap-jmap:8080
+      # Use a browser-trusted TLS cert if present under ./certs (e.g. mkcert output),
+      # so there is no certificate warning. Generate with:
+      #   mkcert -install
+      #   mkcert -cert-file certs/cert.pem -key-file certs/key.pem localhost 127.0.0.1
+      # If ./certs is empty, imap-jmap falls back to a self-signed cert automatically.
+      - TLS_CERT_FILE=/certs/cert.pem
+      - TLS_KEY_FILE=/certs/key.pem
+    volumes:
+      - ./certs:/certs:ro
     restart: unless-stopped
 
   bulwark:
@@ -31,7 +39,14 @@ services:
       - HOSTNAME=0.0.0.0
       - PORT=3000
       - NODE_ENV=development
-      - JMAP_SERVER_URL=http://imap-jmap:8080
+      # Default JMAP endpoint prefilled in the login form. Bulwark talks JMAP from
+      # the user's BROWSER, which cannot resolve the "imap-jmap" container name and
+      # enforces a `connect-src ... https:` CSP — so the endpoint must be the
+      # host-published TLS port. Preconfiguring it means the user does not have to
+      # type the JMAP URL to log in. NOTE: imap-jmap's 8443 cert is self-signed, so
+      # the first time you must open https://localhost:8443 and accept the warning,
+      # otherwise the browser blocks it with "Unable to reach the server".
+      - JMAP_SERVER_URL=https://localhost:8443
       - ALLOW_CUSTOM_JMAP_ENDPOINT=true
       - STALWART_EXTENSIONS=false
     depends_on:

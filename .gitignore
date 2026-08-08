@@ -51,3 +51,7 @@ Thumbs.db
 /e2e/test-results/
 /e2e/playwright-report/
 /e2e/.last-run.json
+
+# Local TLS certs/keys for docker-compose (mkcert etc.) — never commit private keys
+certs/*.pem
+certs/*key*

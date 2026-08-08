@@ -18,6 +18,23 @@ func AccountIDForSubject(subject string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(subject))
 }
 
+// SubjectForAccountID reverses AccountIDForSubject, recovering the original subject (e.g. the
+// user's email address) from an account ID. Returns ok=false when the id was not produced by
+// AccountIDForSubject (e.g. a literal alias), so callers can fall back safely.
+func SubjectForAccountID(accountID string) (string, bool) {
+	b, err := base64.RawURLEncoding.DecodeString(accountID)
+	if err != nil {
+		return "", false
+	}
+	s := string(b)
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			return "", false // non-printable → not a real decoded subject
+		}
+	}
+	return s, s != ""
+}
+
 // SubjectFromContext retrieves the authenticated subject (e.g. username/email) injected by the
 // auth middleware. It is only present for credential-based authentication where the subject is
 // known; token-authenticated requests carry only the accountID instead.

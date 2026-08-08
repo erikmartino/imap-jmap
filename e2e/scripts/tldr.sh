@@ -29,6 +29,27 @@ docker info >/dev/null 2>&1 || { echo "ERROR: no reachable Docker/Podman daemon.
 # 2. Compose command: v2 plugin if present, else the standalone binary.
 if docker compose version >/dev/null 2>&1; then COMPOSE=(docker compose); else COMPOSE=(docker-compose); fi
 
+# 2b. If mkcert is installed, generate a browser-trusted TLS cert so there is no
+#     certificate warning. The compose mounts ./certs into imap-jmap; when absent it
+#     falls back to a self-signed cert (which needs a one-time manual accept).
+CERTS_DIR="$E2E_DIR/../certs"
+if command -v mkcert >/dev/null 2>&1; then
+  if [ ! -f "$CERTS_DIR/cert.pem" ] || [ ! -f "$CERTS_DIR/key.pem" ]; then
+    echo "==> Generating a browser-trusted TLS cert with mkcert"
+    mkdir -p "$CERTS_DIR"
+    mkcert -install >/dev/null 2>&1 || true
+    if mkcert -cert-file "$CERTS_DIR/cert.pem" -key-file "$CERTS_DIR/key.pem" localhost 127.0.0.1 imap-jmap >/dev/null 2>&1; then
+      echo "    wrote certs/cert.pem (trusted — no browser warning)"
+    else
+      echo "    mkcert failed; imap-jmap will fall back to a self-signed cert"
+    fi
+  else
+    echo "==> Using existing certs/cert.pem"
+  fi
+else
+  echo "==> mkcert not installed; imap-jmap will use a self-signed cert (accept https://localhost:8443 once)"
+fi
+
 echo "==> Bringing up the stack"
 "${COMPOSE[@]}" -f "$COMPOSE_FILE" up -d --build
 
