@@ -997,6 +997,15 @@ func validateCalendarEventMap(m map[string]any) error {
 					return SetError{Type: "invalidProperties", Description: "invalid freeBusyStatus value: " + s, Properties: []string{"freeBusyStatus"}}
 				}
 			}
+		case "progress":
+			// JSCalendar Task progress (RFC 8984 Section 5.2.5).
+			if s, ok := v.(string); ok && s != "" {
+				switch s {
+				case "needs-action", "in-process", "completed", "failed", "pending", "cancelled":
+				default:
+					return SetError{Type: "invalidProperties", Description: "invalid progress value: " + s, Properties: []string{"progress"}}
+				}
+			}
 		}
 	}
 	return nil

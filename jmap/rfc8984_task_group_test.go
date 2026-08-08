@@ -26,7 +26,7 @@ func TestRFC8984_TaskAndGroupObjects(t *testing.T) {
 					"due":               "2026-08-15T17:00:00Z",
 					"estimatedDuration": "PT4H",
 					"percentComplete":   50,
-					"progress":          "in-progress",
+					"progress":          "in-process",
 					"progressUpdated":   "2026-08-04T12:00:00Z",
 				},
 				"g1": map[string]any{
@@ -77,7 +77,7 @@ func TestRFC8984_TaskAndGroupObjects(t *testing.T) {
 		}
 	}
 
-	if taskData["@type"] != "Task" || taskData["due"] != "2026-08-15T17:00:00Z" || taskData["progress"] != "in-progress" {
+	if taskData["@type"] != "Task" || taskData["due"] != "2026-08-15T17:00:00Z" || taskData["progress"] != "in-process" {
 		t.Errorf("unexpected Task data: %+v", taskData)
 	}
 
