@@ -30,6 +30,7 @@ func WithAccountResolver(resolver jmap.AccountResolver) Option {
 // NewServer initializes a new SMTP server instance configured for receiving mail into JMAP storage.
 func NewServer(addr string, mailBackend jmap.MailBackend, blobBackend jmap.BlobBackend, calBackend jmap.CalendarsBackend, opts ...Option) *Server {
 	backend := NewReceiverBackend(mailBackend, blobBackend, calBackend)
+	backend.ServerName = "localhost"
 
 	s := gosmtp.NewServer(backend)
 	s.Addr = addr

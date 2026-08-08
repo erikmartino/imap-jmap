@@ -33,8 +33,15 @@ var validLevels = map[string]bool{
 
 var validStatuses = map[string]bool{"covered": true, "gap": true, "non-goal": true}
 
-// conformanceMatrices are the requirement-traceability files checked by TestSpecCoverage.
-var conformanceMatrices = []string{"../docs/conformance/jmap-calendars.json"}
+// conformanceMatrices are the requirement-traceability files checked by TestSpecCoverage,
+// each paired with the package test directory whose Test* functions its rows may reference.
+var conformanceMatrices = []struct {
+	Path    string
+	TestDir string
+}{
+	{"../docs/conformance/jmap-calendars.json", "."},
+	{"../docs/conformance/smtp.json", "../smtp"},
+}
 
 // TestSpecCoverage gates the requirement-traceability matrices: it fails on dangling
 // test references, "covered" rows without tests, unsorted or malformed rows, and
@@ -43,16 +50,15 @@ var conformanceMatrices = []string{"../docs/conformance/jmap-calendars.json"}
 // that is enforced by the AGENTS.md coverage rules and the spectest.Require() citations,
 // not by this structural check.
 func TestSpecCoverage(t *testing.T) {
-	testNames := collectTestNames(t)
-
-	for _, matrixPath := range conformanceMatrices {
-		data, err := os.ReadFile(matrixPath)
+	for _, m := range conformanceMatrices {
+		testNames := collectTestNames(t, m.TestDir)
+		data, err := os.ReadFile(m.Path)
 		if err != nil {
-			t.Fatalf("read matrix %s: %v", matrixPath, err)
+			t.Fatalf("read matrix %s: %v", m.Path, err)
 		}
 		var rows []requirementRow
 		if err := json.Unmarshal(data, &rows); err != nil {
-			t.Fatalf("parse matrix %s: %v", matrixPath, err)
+			t.Fatalf("parse matrix %s: %v", m.Path, err)
 		}
 
 		seen := map[string]bool{}
@@ -60,7 +66,7 @@ func TestSpecCoverage(t *testing.T) {
 		var mustGaps []string
 
 		for i, r := range rows {
-			where := matrixPath + " [" + strconv.Itoa(i) + "] " + r.Spec + " §" + r.Section
+			where := m.Path + " [" + strconv.Itoa(i) + "] " + r.Spec + " §" + r.Section
 
 			if !validLevels[r.Level] {
 				t.Errorf("%s: invalid RFC 2119 level %q", where, r.Level)
@@ -108,7 +114,7 @@ func TestSpecCoverage(t *testing.T) {
 			}
 		}
 
-		t.Logf("%s: %d covered, %d gap(s)", filepath.Base(matrixPath), covered, gaps)
+		t.Logf("%s: %d covered, %d gap(s)", filepath.Base(m.Path), covered, gaps)
 		for _, g := range mustGaps {
 			t.Logf("  OUTSTANDING MUST gap: %s", g)
 		}
@@ -147,20 +153,21 @@ func sectionCompare(a, b string) int {
 
 // collectTestNames parses every *_test.go in the package directory and returns the set
 // of top-level Test function names, so the matrix's test references can be verified.
-func collectTestNames(t *testing.T) map[string]bool {
+func collectTestNames(t *testing.T, dir string) map[string]bool {
 	names := map[string]bool{}
-	entries, err := os.ReadDir(".")
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		t.Fatalf("read package dir: %v", err)
+		t.Fatalf("read test dir %s: %v", dir, err)
 	}
 	fset := token.NewFileSet()
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), "_test.go") {
 			continue
 		}
-		file, err := parser.ParseFile(fset, e.Name(), nil, 0)
+		path := filepath.Join(dir, e.Name())
+		file, err := parser.ParseFile(fset, path, nil, 0)
 		if err != nil {
-			t.Fatalf("parse %s: %v", e.Name(), err)
+			t.Fatalf("parse %s: %v", path, err)
 		}
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)

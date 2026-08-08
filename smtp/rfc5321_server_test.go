@@ -127,8 +127,16 @@ func TestRFC5321_SMTPServerReceive(t *testing.T) {
 	blob, found, err := memBlobBackend.GetBlob(context.Background(), jmap.AccountIDForSubject("user@example.com"), string(delivered.BlobID))
 	if err != nil || !found {
 		t.Errorf("expected blob %s to exist in BlobBackend, found=%v, err=%v", delivered.BlobID, found, err)
-	} else if strings.TrimRight(string(blob.Data), "\r\n") != strings.TrimRight(string(msg), "\r\n") {
-		t.Errorf("blob content mismatch. Expected %q, got %q", string(msg), string(blob.Data))
+	} else {
+		// The receiver prepends an RFC 5321 Section 4.4 Received: trace header, so the
+		// stored message is the original with that header on top.
+		stored := string(blob.Data)
+		if !strings.HasPrefix(stored, "Received:") {
+			t.Errorf("expected stored message to begin with a Received: header, got %q", stored[:min(40, len(stored))])
+		}
+		if !strings.HasSuffix(strings.TrimRight(stored, "\r\n"), strings.TrimRight(string(msg), "\r\n")) {
+			t.Errorf("expected stored message to end with the original message; got %q", stored)
+		}
 	}
 
 	// Verify Mailbox stats updated
