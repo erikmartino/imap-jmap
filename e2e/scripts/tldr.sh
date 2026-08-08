@@ -50,8 +50,10 @@ else
   echo "==> mkcert not installed; imap-jmap will use a self-signed cert (accept https://localhost:8443 once)"
 fi
 
-echo "==> Bringing up the stack"
-"${COMPOSE[@]}" -f "$COMPOSE_FILE" up -d --build
+echo "==> Bringing up the stack (fresh)"
+# --force-recreate guarantees a clean environment (and that a freshly generated cert
+# is loaded, since it is a runtime mount rather than baked into the image).
+"${COMPOSE[@]}" -f "$COMPOSE_FILE" up -d --build --force-recreate
 
 # 3. Wait for both services to answer.
 wait_for() {
