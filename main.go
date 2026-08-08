@@ -65,6 +65,11 @@ func main() {
 	smtpHost := flag.String("smtp-host", defaultSMTPHost, "SMTP receiver listening host")
 	primaryDomain := flag.String("primary-domain", defaultPrimaryDomain, "Primary email domain for local account resolution")
 	allowedRecipientsStr := flag.String("allowed-recipients", defaultAllowedRecipients, "Comma-separated list of allowed external recipient email addresses")
+	// TLS cert/key files for the HTTPS server. When provided (e.g. an mkcert cert),
+	// they are used instead of the built-in self-signed certificate, so browsers
+	// trust the endpoint with no warning. Falls back to self-signed when unset.
+	tlsCertFile := flag.String("tls-cert", os.Getenv("TLS_CERT_FILE"), "Path to a PEM TLS certificate for the HTTPS server (default: self-signed)")
+	tlsKeyFile := flag.String("tls-key", os.Getenv("TLS_KEY_FILE"), "Path to the PEM TLS private key for the HTTPS server (default: self-signed)")
 	flag.Parse()
 
 	var allowedSlice []string
@@ -134,8 +139,15 @@ func main() {
 	httpMux.Handle("/carddav/", davServer.CardDAVHandler)
 	httpMux.Handle("/", server.Handler())
 
-	// Start HTTPS TLS Listener for browser clients enforcing HTTPS connect-src CSP
-	if tlsCert, err := generateSelfSignedCert(); err == nil {
+	// Start HTTPS TLS Listener for browser clients enforcing HTTPS connect-src CSP.
+	// Prefer a caller-supplied certificate (e.g. mkcert, which is trusted by the
+	// browser so there is no warning); fall back to a self-signed certificate.
+	tlsCert, certErr := loadTLSCertificate(*tlsCertFile, *tlsKeyFile)
+	if certErr != nil {
+		log.Printf("HTTPS TLS: %v; falling back to a self-signed certificate", certErr)
+		tlsCert, certErr = generateSelfSignedCert()
+	}
+	if certErr == nil {
 		tlsConfig := &tls.Config{
 			Certificates: []tls.Certificate{tlsCert},
 		}
@@ -145,7 +157,11 @@ func main() {
 			TLSConfig: tlsConfig,
 		}
 		go func() {
-			log.Printf("Starting HTTPS TLS server on https://%s", httpsAddr)
+			if *tlsCertFile != "" && *tlsKeyFile != "" {
+				log.Printf("Starting HTTPS TLS server on https://%s (cert %s)", httpsAddr, *tlsCertFile)
+			} else {
+				log.Printf("Starting HTTPS TLS server on https://%s (self-signed)", httpsAddr)
+			}
 			if err := httpsServer.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
 				log.Printf("HTTPS TLS server error: %v", err)
 			}
@@ -160,6 +176,20 @@ func main() {
 	if err := http.ListenAndServe(addr, httpMux); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
+}
+
+// loadTLSCertificate loads a PEM certificate/key pair from disk (e.g. an mkcert cert).
+// It returns an error when either path is empty or the files cannot be loaded, so the
+// caller can fall back to a self-signed certificate.
+func loadTLSCertificate(certFile, keyFile string) (tls.Certificate, error) {
+	if certFile == "" || keyFile == "" {
+		return tls.Certificate{}, fmt.Errorf("no TLS cert/key configured")
+	}
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("loading TLS cert %q / key %q: %w", certFile, keyFile, err)
+	}
+	return cert, nil
 }
 
 func generateSelfSignedCert() (tls.Certificate, error) {

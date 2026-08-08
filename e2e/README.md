@@ -105,11 +105,21 @@ Any `username == password` at `@example.com` is a valid local account (the memor
 fresh accounts are seeded with sample data on first use, so tests use throwaway accounts
 (`uniqueUser()`) without shared-state races.
 
-## First-time: trust the self-signed certificate
+## TLS certificate for 8443
 
-imap-jmap serves TLS on 8443 with a **self-signed** certificate. A real browser will refuse it, and
-Bulwark shows **"Unable to reach the server. Check your internet connection and try again."** even
-though the URL is correct. Accept the certificate once:
+imap-jmap serves TLS on 8443. The compose mounts `../certs` into the container and, if
+`certs/cert.pem` + `certs/key.pem` are present (e.g. from **mkcert**), uses them so the browser
+trusts the endpoint with **no warning**. Otherwise it falls back to a self-signed cert.
+
+- **`pnpm test:tldr` auto-generates a trusted cert** when `mkcert` is installed (runs `mkcert -install`
+  and writes `certs/cert.pem`). Nothing to do.
+- Manually: `mkcert -install && mkcert -cert-file certs/cert.pem -key-file certs/key.pem localhost 127.0.0.1 imap-jmap`, then restart imap-jmap.
+
+### Self-signed fallback: trust it once
+
+Without mkcert, imap-jmap uses a self-signed cert; a real browser refuses it and Bulwark shows
+**"Unable to reach the server. Check your internet connection and try again."** even though the URL
+is correct. Accept the certificate once:
 
 1. Open **https://localhost:8443/.well-known/jmap** directly in the same browser.
 2. Click **Advanced → Proceed to localhost (unsafe)** (you'll see a 401 — that's expected).
