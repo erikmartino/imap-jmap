@@ -18,13 +18,28 @@ type ITIPMessage struct {
 	Status    string         `json:"status,omitempty"` // For REPLY: "ACCEPTED", "DECLINED", "TENTATIVE"
 }
 
-// BuildITIPReply generates an iCalendar RFC 5545 / RFC 5546 string for a METHOD:REPLY.
+// eventUID returns the RFC 5545 UID for iTIP messages. It MUST be the event's stable
+// "uid" property (the cross-system correlation key, RFC 5546 Section 2.1.5), not the
+// server-assigned JMAP id; it falls back to the id only when no uid is set.
+func eventUID(event *CalendarEvent) string {
+	if event != nil && event.UID != "" {
+		return event.UID
+	}
+	if event != nil {
+		return string(event.ID)
+	}
+	return ""
+}
+
+// BuildITIPReply generates an iCalendar RFC 5545 / RFC 5546 string for a METHOD:REPLY
+// (RFC 5546 Section 3.2.3). A REPLY carries the ORGANIZER being answered, the replying
+// ATTENDEE with its PARTSTAT, and the UID/SEQUENCE correlation keys (Section 2.1.5).
 func BuildITIPReply(event *CalendarEvent, attendeeEmail, status string) (string, error) {
 	if event == nil {
 		return "", fmt.Errorf("event cannot be nil")
 	}
 
-	uid := string(event.ID)
+	uid := eventUID(event)
 
 	partStat := strings.ToUpper(status)
 	if partStat != "ACCEPTED" && partStat != "DECLINED" && partStat != "TENTATIVE" {
@@ -41,12 +56,18 @@ func BuildITIPReply(event *CalendarEvent, attendeeEmail, status string) (string,
 	sb.WriteString("BEGIN:VEVENT\r\n")
 	fmt.Fprintf(&sb, "UID:%s\r\n", uid)
 	fmt.Fprintf(&sb, "DTSTAMP:%s\r\n", nowStr)
+	fmt.Fprintf(&sb, "SEQUENCE:%d\r\n", event.Sequence)
 	if event.Title != "" {
 		fmt.Fprintf(&sb, "SUMMARY:%s\r\n", event.Title)
 	}
 	if event.Start != "" {
 		startClean := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(event.Start, "-", ""), ":", ""), ".000", "")
 		fmt.Fprintf(&sb, "DTSTART:%s\r\n", startClean)
+	}
+	// A REPLY MUST identify the ORGANIZER whose request is being answered (RFC 5546
+	// Section 3.2.3): derive it from the event's replyTo / owner participant.
+	if org := organizerAddress(event); org != "" {
+		fmt.Fprintf(&sb, "ORGANIZER:mailto:%s\r\n", org)
 	}
 	fmt.Fprintf(&sb, "ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=%s:mailto:%s\r\n", partStat, attendeeEmail)
 	sb.WriteString("END:VEVENT\r\n")
@@ -61,7 +82,7 @@ func BuildITIPRequest(event *CalendarEvent, organizerEmail string) (string, erro
 		return "", fmt.Errorf("event cannot be nil")
 	}
 
-	uid := string(event.ID)
+	uid := eventUID(event)
 	nowStr := time.Now().UTC().Format("20060102T150405Z")
 
 	var sb strings.Builder
@@ -72,6 +93,7 @@ func BuildITIPRequest(event *CalendarEvent, organizerEmail string) (string, erro
 	sb.WriteString("BEGIN:VEVENT\r\n")
 	fmt.Fprintf(&sb, "UID:%s\r\n", uid)
 	fmt.Fprintf(&sb, "DTSTAMP:%s\r\n", nowStr)
+	fmt.Fprintf(&sb, "SEQUENCE:%d\r\n", event.Sequence)
 	if event.Title != "" {
 		fmt.Fprintf(&sb, "SUMMARY:%s\r\n", event.Title)
 	}
@@ -112,7 +134,7 @@ func BuildITIPCancel(event *CalendarEvent, organizerEmail string) (string, error
 		return "", fmt.Errorf("event cannot be nil")
 	}
 
-	uid := string(event.ID)
+	uid := eventUID(event)
 	nowStr := time.Now().UTC().Format("20060102T150405Z")
 
 	var sb strings.Builder
@@ -123,6 +145,8 @@ func BuildITIPCancel(event *CalendarEvent, organizerEmail string) (string, error
 	sb.WriteString("BEGIN:VEVENT\r\n")
 	fmt.Fprintf(&sb, "UID:%s\r\n", uid)
 	fmt.Fprintf(&sb, "DTSTAMP:%s\r\n", nowStr)
+	// A CANCEL obsoletes prior revisions; carry the SEQUENCE (RFC 5546 Section 2.1.5).
+	fmt.Fprintf(&sb, "SEQUENCE:%d\r\n", event.Sequence)
 	if event.Title != "" {
 		fmt.Fprintf(&sb, "SUMMARY:Cancelled: %s\r\n", event.Title)
 	}
@@ -170,7 +194,7 @@ func BuildITIPCounter(event *CalendarEvent, attendeeEmail, proposedStart string)
 	if event == nil {
 		return "", fmt.Errorf("event cannot be nil")
 	}
-	uid := string(event.ID)
+	uid := eventUID(event)
 	nowStr := time.Now().UTC().Format("20060102T150405Z")
 
 	var sb strings.Builder

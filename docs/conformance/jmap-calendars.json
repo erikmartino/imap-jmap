@@ -1,5 +1,45 @@
 [
   {
+    "spec": "RFC5546",
+    "section": "2.1.5",
+    "level": "MUST",
+    "text": "iTIP messages use the event's uid (with SEQUENCE) as the cross-system correlation key, not the server-assigned JMAP id.",
+    "tests": ["TestRFC5546_ITIPUsesEventUIDAndSequence"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC5546",
+    "section": "3.2.2",
+    "level": "MUST",
+    "text": "A REQUEST invitation carries the event's UID, SEQUENCE, ORGANIZER, and ATTENDEE lines.",
+    "tests": ["TestRFC5546_BuildRequestAndCancel", "TestRFC5546_ITIPUsesEventUIDAndSequence", "TestRFC8984_SchedulingRequestExcludesOwner"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC5546",
+    "section": "3.2.3",
+    "level": "MUST",
+    "text": "A REPLY carries the ORGANIZER being answered and the replying ATTENDEE with its PARTSTAT.",
+    "tests": ["TestRFC5546_BuildAndParseReply", "TestRFC5546_ITIPUsesEventUIDAndSequence", "TestRFC8984_SchedulingReplyOnRSVP"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC5546",
+    "section": "3.2.5",
+    "level": "MUST",
+    "text": "A CANCEL carries STATUS:CANCELLED with the event's UID and SEQUENCE.",
+    "tests": ["TestRFC5546_BuildRequestAndCancel", "TestRFC6047_AutoSendInvitationAndCancellation"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC6047",
+    "section": "2.4",
+    "level": "MUST",
+    "text": "The iMIP body part is text/calendar with a method parameter matching the iCalendar METHOD.",
+    "tests": ["TestRFC6047_AutoSendInvitationAndCancellation", "TestRFC8984_SchedulingRequestExcludesOwner"],
+    "status": "covered"
+  },
+  {
     "spec": "RFC8620",
     "section": "5.3",
     "level": "MUST",
@@ -126,6 +166,54 @@
     "level": "MAY",
     "text": "hideAttendees limits participant visibility to owners; it round-trips through set/get.",
     "tests": ["TestRFC8984_HideAttendeesRoundTrip"],
+    "status": "covered"
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
+    "section": "5.9",
+    "level": "MUST",
+    "text": "sendSchedulingMessages (default false): when true the server sends iTIP scheduling messages after a successful create/update/destroy.",
+    "tests": ["TestRFC6047_AutoSendInvitationAndCancellation"],
+    "status": "covered"
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
+    "section": "5.9",
+    "level": "MUST",
+    "text": "noSupportedScheduleMethods is returned when scheduling is requested but no schedule method is available.",
+    "tests": ["TestRFC8984_SchedulingNoSupportedScheduleMethods"],
+    "status": "covered"
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
+    "section": "5.9.2.1",
+    "level": "MUST",
+    "text": "On create/update the origin sends a REQUEST to every current participant except the calendar owner.",
+    "tests": ["TestRFC8984_SchedulingRequestExcludesOwner"],
+    "status": "covered"
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
+    "section": "5.9.2.1",
+    "level": "MUST",
+    "text": "With hideAttendees, each REQUEST contains only its recipient (plus the owner); other attendees are omitted.",
+    "tests": ["TestRFC8984_SchedulingHideAttendees"],
+    "status": "covered"
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
+    "section": "5.9.2.2",
+    "level": "MUST",
+    "text": "On destroy the origin sends a CANCEL to every participant except the calendar owner.",
+    "tests": ["TestRFC6047_AutoSendInvitationAndCancellation"],
+    "status": "covered"
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
+    "section": "5.9.2.3",
+    "level": "MUST",
+    "text": "When not the origin, a REPLY is sent to the organizer when a user participant's participationStatus changes to a value other than needs-action.",
+    "tests": ["TestRFC8984_SchedulingReplyOnRSVP"],
     "status": "covered"
   },
   {
