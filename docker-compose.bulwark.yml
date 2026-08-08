@@ -35,7 +35,9 @@ services:
       # the user's BROWSER, which cannot resolve the "imap-jmap" container name and
       # enforces a `connect-src ... https:` CSP — so the endpoint must be the
       # host-published TLS port. Preconfiguring it means the user does not have to
-      # type the JMAP URL to log in.
+      # type the JMAP URL to log in. NOTE: imap-jmap's 8443 cert is self-signed, so
+      # the first time you must open https://localhost:8443 and accept the warning,
+      # otherwise the browser blocks it with "Unable to reach the server".
       - JMAP_SERVER_URL=https://localhost:8443
       - ALLOW_CUSTOM_JMAP_ENDPOINT=true
       - STALWART_EXTENSIONS=false

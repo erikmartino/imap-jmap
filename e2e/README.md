@@ -105,13 +105,29 @@ Any `username == password` at `@example.com` is a valid local account (the memor
 fresh accounts are seeded with sample data on first use, so tests use throwaway accounts
 (`uniqueUser()`) without shared-state races.
 
+## First-time: trust the self-signed certificate
+
+imap-jmap serves TLS on 8443 with a **self-signed** certificate. A real browser will refuse it, and
+Bulwark shows **"Unable to reach the server. Check your internet connection and try again."** even
+though the URL is correct. Accept the certificate once:
+
+1. Open **https://localhost:8443/.well-known/jmap** directly in the same browser.
+2. Click **Advanced → Proceed to localhost (unsafe)** (you'll see a 401 — that's expected).
+3. Go back to Bulwark (http://localhost:3000) and log in; the JMAP URL is prefilled with
+   `https://localhost:8443`.
+
+(The Playwright suite doesn't hit this because its browser context sets `ignoreHTTPSErrors`. For a
+permanently-trusted cert, generate one with `mkcert` and mount it instead of the built-in self-signed
+cert.)
+
 ## Troubleshooting
 
 - **`Bulwark ... not reachable` / `JMAP ... did not require authentication`** — the stack isn't up
   or the env points at the wrong ports. Use `pnpm test:tldr`, or `pnpm docker:up` + export the two
   URLs above.
-- **Login shows "Unable to reach the server" / a CSP error** — you pointed the client at
-  `http://localhost:8080`. Use `https://localhost:8443` (browser CSP requires HTTPS).
+- **Login shows "Unable to reach the server"** — almost always the untrusted self-signed cert: accept
+  it once (see "First-time: trust the self-signed certificate" above). Make sure the JMAP URL is
+  `https://localhost:8443` (the browser CSP forbids plain-HTTP `http://localhost:8080`).
 - **No Docker daemon** — start Docker Desktop or `podman machine start`; `test:tldr` auto-detects the
   endpoint.
 - **Browser missing** — `pnpm install:browsers` (or just use `test:tldr`, which installs it).
