@@ -79,3 +79,60 @@ func TestRFC8984_CalendarEventCopyRoundTrip(t *testing.T) {
 		t.Errorf("Expected notFound in notCreated for missing source event, got %q", errType)
 	}
 }
+
+// TestRFC8984_CalendarEventCopyDestroyOriginal verifies onSuccessDestroyOriginal removes the
+// source event after a successful copy, and destroyFromIfInState guards it (RFC 8620 Section 5.4).
+func TestRFC8984_CalendarEventCopyDestroyOriginal(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	cal, _ := srv.CalendarsBackend.CreateCalendar(context.Background(), &jmap.Calendar{Name: "Cal Src"})
+	ev, err := srv.CalendarsBackend.CreateCalendarEvent(context.Background(), &jmap.CalendarEvent{
+		CalendarIDs: map[jmap.Id]bool{cal.ID: true},
+		Title:       "Move Me",
+	})
+	if err != nil {
+		t.Fatalf("seed event: %v", err)
+	}
+
+	using := []string{jmap.CoreCapabilityURI, jmap.CalendarsCapabilityURI}
+
+	// Wrong destroyFromIfInState -> stateMismatch method error, nothing copied or destroyed.
+	res0 := postJMAP(t, ts.URL, using, []any{
+		[]any{"CalendarEvent/copy", map[string]any{
+			"fromAccountId":            "primary",
+			"accountId":                "primary",
+			"onSuccessDestroyOriginal": true,
+			"destroyFromIfInState":     "not-the-state",
+			"create": map[string]any{
+				"c": map[string]any{"id": string(ev.ID), "calendarIds": map[string]bool{string(cal.ID): true}},
+			},
+		}, "c0"},
+	})
+	if res0.MethodResponses[0].Name != "error" {
+		t.Fatalf("expected stateMismatch error for wrong destroyFromIfInState, got %+v", res0.MethodResponses[0])
+	}
+	if still, _, _ := srv.CalendarsBackend.GetCalendarEvents(context.Background(), []jmap.Id{ev.ID}); len(still) != 1 {
+		t.Fatalf("source event must survive a failed copy")
+	}
+
+	// Correct copy with onSuccessDestroyOriginal -> copy created, original destroyed.
+	res := postJMAP(t, ts.URL, using, []any{
+		[]any{"CalendarEvent/copy", map[string]any{
+			"fromAccountId":            "primary",
+			"accountId":                "primary",
+			"onSuccessDestroyOriginal": true,
+			"create": map[string]any{
+				"c": map[string]any{"id": string(ev.ID), "calendarIds": map[string]bool{string(cal.ID): true}, "title": "Moved"},
+			},
+		}, "c1"},
+	})
+	created, _ := res.MethodResponses[0].Args["created"].(map[string]any)
+	if created["c"] == nil {
+		t.Fatalf("copy failed: %+v", res.MethodResponses[0].Args)
+	}
+	if still, _, _ := srv.CalendarsBackend.GetCalendarEvents(context.Background(), []jmap.Id{ev.ID}); len(still) != 0 {
+		t.Errorf("expected original event destroyed after onSuccessDestroyOriginal, still present")
+	}
+}

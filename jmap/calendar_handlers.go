@@ -630,10 +630,18 @@ func handleCalendarCopy(backend CalendarsBackend) MethodHandler {
 		if fromAccountID == "" {
 			fromAccountID = accountID
 		}
+		// Read the source objects from the "from" account, not the destination account.
+		srcCtx := sourceAccountContext(ctx, args)
 		oldState := backend.CalendarState(ctx)
+
+		onSuccessDestroyOriginal, _ := args["onSuccessDestroyOriginal"].(bool)
+		if dfis, ok := args["destroyFromIfInState"].(string); ok && dfis != "" && dfis != backend.CalendarState(srcCtx) {
+			return "error", MethodErrorArgs("stateMismatch", "destroyFromIfInState does not match the source account state")
+		}
 
 		created := make(map[string]*Calendar)
 		notCreated := make(map[string]any)
+		destroyOriginals := make([]Id, 0)
 
 		if createRaw, ok := args["create"].(map[string]any); ok {
 			for creationID, raw := range createRaw {
@@ -643,7 +651,7 @@ func handleCalendarCopy(backend CalendarsBackend) MethodHandler {
 					notCreated[creationID] = SetError{Type: "invalidProperties", Description: "copy create entry must reference a source id"}
 					continue
 				}
-				srcs, notFound, _ := backend.GetCalendars(ctx, []Id{Id(srcID)})
+				srcs, notFound, _ := backend.GetCalendars(srcCtx, []Id{Id(srcID)})
 				if len(srcs) == 0 || len(notFound) > 0 {
 					notCreated[creationID] = SetError{Type: "notFound", Description: "source calendar not found: " + srcID}
 					continue
@@ -660,7 +668,14 @@ func handleCalendarCopy(backend CalendarsBackend) MethodHandler {
 					notCreated[creationID] = SetError{Type: "invalidProperties", Description: err.Error()}
 				} else {
 					created[creationID] = newCal
+					destroyOriginals = append(destroyOriginals, Id(srcID))
 				}
+			}
+		}
+
+		if onSuccessDestroyOriginal {
+			for _, srcID := range destroyOriginals {
+				_, _ = backend.DeleteCalendar(srcCtx, srcID)
 			}
 		}
 
@@ -675,6 +690,16 @@ func handleCalendarCopy(backend CalendarsBackend) MethodHandler {
 	}
 }
 
+// sourceAccountContext returns a context scoped to the copy's fromAccountId so source objects
+// are read from the correct account. An empty or "primary" fromAccountId means the caller's own
+// account, i.e. the context is left unchanged.
+func sourceAccountContext(ctx context.Context, args map[string]any) context.Context {
+	if raw, _ := args["fromAccountId"].(string); raw != "" && raw != "primary" {
+		return ContextWithAccountID(ctx, raw)
+	}
+	return ctx
+}
+
 // handleCalendarEventCopy implements CalendarEvent/copy per RFC 8620 Section 5.4.
 func handleCalendarEventCopy(backend CalendarsBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
@@ -683,10 +708,17 @@ func handleCalendarEventCopy(backend CalendarsBackend) MethodHandler {
 		if fromAccountID == "" {
 			fromAccountID = accountID
 		}
+		srcCtx := sourceAccountContext(ctx, args)
 		oldState := backend.CalendarEventState(ctx)
+
+		onSuccessDestroyOriginal, _ := args["onSuccessDestroyOriginal"].(bool)
+		if dfis, ok := args["destroyFromIfInState"].(string); ok && dfis != "" && dfis != backend.CalendarEventState(srcCtx) {
+			return "error", MethodErrorArgs("stateMismatch", "destroyFromIfInState does not match the source account state")
+		}
 
 		created := make(map[string]*CalendarEvent)
 		notCreated := make(map[string]any)
+		destroyOriginals := make([]Id, 0)
 
 		if createRaw, ok := args["create"].(map[string]any); ok {
 			for creationID, raw := range createRaw {
@@ -696,7 +728,7 @@ func handleCalendarEventCopy(backend CalendarsBackend) MethodHandler {
 					notCreated[creationID] = SetError{Type: "invalidProperties", Description: "copy create entry must reference a source id"}
 					continue
 				}
-				srcs, notFound, _ := backend.GetCalendarEvents(ctx, []Id{Id(srcID)})
+				srcs, notFound, _ := backend.GetCalendarEvents(srcCtx, []Id{Id(srcID)})
 				if len(srcs) == 0 || len(notFound) > 0 {
 					notCreated[creationID] = SetError{Type: "notFound", Description: "source event not found: " + srcID}
 					continue
@@ -713,7 +745,14 @@ func handleCalendarEventCopy(backend CalendarsBackend) MethodHandler {
 					notCreated[creationID] = SetError{Type: "invalidProperties", Description: err.Error()}
 				} else {
 					created[creationID] = newEv
+					destroyOriginals = append(destroyOriginals, Id(srcID))
 				}
+			}
+		}
+
+		if onSuccessDestroyOriginal {
+			for _, srcID := range destroyOriginals {
+				_, _ = backend.DeleteCalendarEvent(srcCtx, srcID)
 			}
 		}
 
