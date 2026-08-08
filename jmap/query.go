@@ -327,7 +327,7 @@ func MatchesFilter(em *Email, filter map[string]any) bool {
 
 	// subject
 	if subjRaw, ok := filter["subject"].(string); ok && subjRaw != "" {
-		if !strings.Contains(strings.ToLower(em.Subject), strings.ToLower(subjRaw)) {
+		if !containsAllTerms(em.Subject, searchTerms(subjRaw)) {
 			return false
 		}
 	}
@@ -393,17 +393,11 @@ func MatchesFilter(em *Email, filter map[string]any) bool {
 		}
 	}
 
-	// text
+	// text: a free-text search across all human-readable fields (RFC 8621 Section
+	// 4.4.1). Every term must appear somewhere in the message so a multi-word query
+	// can span fields.
 	if textRaw, ok := filter["text"].(string); ok && textRaw != "" {
-		needle := strings.ToLower(textRaw)
-		textMatch := strings.Contains(strings.ToLower(em.Subject), needle) ||
-			strings.Contains(strings.ToLower(em.Preview), needle) ||
-			matchAddresses(em.From, needle) ||
-			matchAddresses(em.To, needle) ||
-			matchAddresses(em.CC, needle) ||
-			matchAddresses(em.BCC, needle) ||
-			matchBody(em, needle)
-		if !textMatch {
+		if !containsAllTerms(emailSearchText(em), searchTerms(textRaw)) {
 			return false
 		}
 	}
@@ -411,13 +405,61 @@ func MatchesFilter(em *Email, filter map[string]any) bool {
 	return true
 }
 
-func matchBody(em *Email, needle string) bool {
-	needle = strings.ToLower(needle)
-	if strings.Contains(strings.ToLower(em.Preview), needle) {
+// searchTerms splits a free-text query into lowercased terms, stripping the "*"
+// prefix-wildcard that clients (e.g. Bulwark) append and surrounding quotes. JMAP
+// text filters are free-text, not literal substrings (RFC 8621 Section 4.4.1), so a
+// query like "core*" must match the word "Core".
+func searchTerms(q string) []string {
+	var terms []string
+	for _, f := range strings.Fields(strings.ToLower(q)) {
+		if f = strings.Trim(f, "*\"'"); f != "" {
+			terms = append(terms, f)
+		}
+	}
+	return terms
+}
+
+// containsAllTerms reports whether haystack contains every term (case-insensitive).
+// An empty term list matches everything (e.g. a bare "*" query).
+func containsAllTerms(haystack string, terms []string) bool {
+	h := strings.ToLower(haystack)
+	for _, t := range terms {
+		if !strings.Contains(h, t) {
+			return false
+		}
+	}
+	return true
+}
+
+// emailSearchText concatenates the human-readable fields searched by the "text" filter.
+func emailSearchText(em *Email) string {
+	var sb strings.Builder
+	sb.WriteString(em.Subject)
+	sb.WriteByte(' ')
+	sb.WriteString(em.Preview)
+	sb.WriteByte(' ')
+	for _, group := range [][]EmailAddress{em.From, em.To, em.CC, em.BCC} {
+		for _, a := range group {
+			sb.WriteString(a.Name)
+			sb.WriteByte(' ')
+			sb.WriteString(a.Email)
+			sb.WriteByte(' ')
+		}
+	}
+	for _, v := range em.BodyValues {
+		sb.WriteString(v.Value)
+		sb.WriteByte(' ')
+	}
+	return sb.String()
+}
+
+func matchBody(em *Email, query string) bool {
+	terms := searchTerms(query)
+	if containsAllTerms(em.Preview, terms) {
 		return true
 	}
 	for _, val := range em.BodyValues {
-		if strings.Contains(strings.ToLower(val.Value), needle) {
+		if containsAllTerms(val.Value, terms) {
 			return true
 		}
 	}
@@ -455,11 +497,10 @@ func matchHeader(em *Email, headerName, headerValue string) bool {
 	return false
 }
 
-func matchAddresses(addrs []EmailAddress, needle string) bool {
-	needle = strings.ToLower(needle)
+func matchAddresses(addrs []EmailAddress, query string) bool {
+	terms := searchTerms(query)
 	for _, addr := range addrs {
-		if strings.Contains(strings.ToLower(addr.Name), needle) ||
-			strings.Contains(strings.ToLower(addr.Email), needle) {
+		if containsAllTerms(addr.Name, terms) || containsAllTerms(addr.Email, terms) {
 			return true
 		}
 	}

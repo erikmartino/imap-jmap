@@ -97,6 +97,14 @@
   },
   {
     "spec": "RFC8621",
+    "section": "4.4.1",
+    "level": "MUST",
+    "text": "Email/query text/subject/body/from are free-text searches; a client prefix-wildcard term matches a word.",
+    "tests": ["TestRFC8621_EmailQueryTextSearchWildcard"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8621",
     "section": "4.4.2",
     "level": "MUST",
     "text": "Email/query sort comparators, including base-subject and multi-comparator tie-breaks.",
