@@ -143,11 +143,12 @@ func (s *Session) Data(r io.Reader) error {
 		if s.backend.CalendarsBackend != nil && (strings.Contains(dataStr, "BEGIN:VCALENDAR") || strings.Contains(dataStr, "text/calendar")) {
 			msg, err := jmap.ParseITIPMessage(dataStr)
 			if err == nil && msg != nil && msg.UID != "" {
-				eventID := jmap.Id(msg.UID)
 				if strings.EqualFold(msg.Method, "REPLY") {
-					events, _, err := s.backend.CalendarsBackend.GetCalendarEvents(rcptCtx, []jmap.Id{eventID})
-					if err == nil && len(events) > 0 {
-						ev := events[0]
+					// An inbound REPLY (RFC 5546 Section 3.2.3 / RFC 6047) updates the
+					// replying attendee's participationStatus on the event identified by
+					// UID (RFC 5546 Section 2.1.5) — never the event-level status.
+					ev := s.findEventByUID(rcptCtx, msg.UID)
+					if ev != nil {
 						attendeeEmail := s.from
 						if len(msg.Attendees) > 0 && msg.Attendees[0].Email != "" {
 							attendeeEmail = msg.Attendees[0].Email
@@ -157,30 +158,35 @@ func (s *Session) Data(r io.Reader) error {
 							status = "accepted"
 						}
 
-						if ev.Participants == nil {
-							ev.Participants = make(map[string]*jmap.JSCalendarParticipant)
+						patch := map[string]any{
+							"participants/" + attendeeEmail + "/participationStatus": status,
 						}
-						if p, ok := ev.Participants[attendeeEmail]; ok && p != nil {
-							p.Status = status
-						} else {
-							ev.Participants[attendeeEmail] = &jmap.JSCalendarParticipant{
-								Email:  attendeeEmail,
-								Status: status,
-							}
+						if _, err := s.backend.CalendarsBackend.UpdateCalendarEvent(rcptCtx, ev.ID, patch); err == nil {
+							log.Printf("SMTP receiver: applied iTIP REPLY to event %s: participant %s -> %s", ev.ID, attendeeEmail, status)
+							// The change was made by an external party, so record a
+							// CalendarEventNotification (draft-ietf-jmap-calendars-27 Section 7).
+							replyEmail := attendeeEmail
+							s.backend.CalendarsBackend.CreateCalendarEventNotification(rcptCtx, &jmap.CalendarEventNotification{
+								Type:            "updated",
+								CalendarEventID: ev.ID,
+								ChangedBy: jmap.CalendarEventNotificationPerson{
+									Email:           &replyEmail,
+									CalendarAddress: &replyEmail,
+								},
+								Event:      ev,
+								EventPatch: patch,
+							})
 						}
-
-						_, _ = s.backend.CalendarsBackend.UpdateCalendarEvent(rcptCtx, eventID, map[string]any{
-							"status": status,
-						})
-						log.Printf("SMTP receiver: auto-updated calendar event %s participant %s status to %s", eventID, attendeeEmail, status)
 					}
 				} else if strings.EqualFold(msg.Method, "REQUEST") {
 					title := msg.Summary
 					if title == "" {
 						title = "External Meeting Invitation"
 					}
+					// Preserve the iTIP UID so a later REPLY correlates to this event
+					// (RFC 5546 Section 2.1.5); let the backend assign the JMAP id.
 					newEvent := &jmap.CalendarEvent{
-						ID:          eventID,
+						UID:         msg.UID,
 						Title:       title,
 						Start:       msg.Start,
 						Status:      "tentative",
@@ -201,6 +207,27 @@ func (s *Session) Data(r io.Reader) error {
 		}
 	}
 
+	return nil
+}
+
+// findEventByUID locates the calendar event whose iCalendar UID (RFC 5546 Section
+// 2.1.5) matches uid. It scans the account's events by their "uid" property, and
+// falls back to treating uid as a JMAP id for events imported before uid tracking.
+func (s *Session) findEventByUID(ctx context.Context, uid string) *jmap.CalendarEvent {
+	if s.backend.CalendarsBackend == nil || uid == "" {
+		return nil
+	}
+	if all, err := s.backend.CalendarsBackend.GetAllCalendarEvents(ctx); err == nil {
+		for _, ev := range all {
+			if ev != nil && ev.UID == uid {
+				return ev
+			}
+		}
+	}
+	events, _, err := s.backend.CalendarsBackend.GetCalendarEvents(ctx, []jmap.Id{jmap.Id(uid)})
+	if err == nil && len(events) > 0 {
+		return events[0]
+	}
 	return nil
 }
 

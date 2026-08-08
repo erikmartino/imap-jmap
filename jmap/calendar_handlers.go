@@ -338,34 +338,10 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend) M
 				created[creationID] = createdEv
 				recordCreationRefs(ctx, creationRefs, creationID, createdEv.ID)
 
-				if sendSchedulingMessages && mailBackend != nil && len(createdEv.Participants) > 0 {
-					reqICS, _ := BuildITIPRequest(createdEv, accountID)
-					for emailStr, p := range createdEv.Participants {
-						recipientEmail := emailStr
-						if p != nil && p.Email != "" {
-							recipientEmail = p.Email
-						}
-						if recipientEmail != "" {
-							inviteEmail := &Email{
-								Subject: "Invitation: " + createdEv.Title,
-								To:      []EmailAddress{{Email: recipientEmail}},
-								TextBody: []EmailBodyPart{{
-									Type: "text/calendar; method=REQUEST",
-									Size: uint64(len(reqICS)),
-								}},
-								BodyValues: map[string]EmailBodyValue{
-									"1": {Value: reqICS},
-								},
-							}
-							savedEmail, err := mailBackend.CreateEmail(ctx, inviteEmail)
-							if err == nil && savedEmail != nil {
-								_, _ = mailBackend.CreateSubmission(ctx, &EmailSubmission{
-									EmailID:  savedEmail.ID,
-									ThreadID: savedEmail.ThreadID,
-								})
-							}
-						}
-					}
+				// REQUEST to every participant except the calendar owner
+				// (draft-ietf-jmap-calendars-27 Section 5.9.2.1).
+				if sendSchedulingMessages && mailBackend != nil {
+					dispatchITIPRequests(ctx, mailBackend, createdEv, "Invitation: ", accountID)
 				}
 				// A scheduling change (iTIP dispatch) is recorded as a CalendarEventNotification
 				// (Section 7): the event data after creation.
@@ -427,33 +403,12 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend) M
 						})
 					}
 
-					if sendSchedulingMessages && mailBackend != nil && updatedEv != nil && len(updatedEv.Participants) > 0 {
-						reqICS, _ := BuildITIPRequest(updatedEv, accountID)
-						for emailStr, p := range updatedEv.Participants {
-							recipientEmail := emailStr
-							if p != nil && p.Email != "" {
-								recipientEmail = p.Email
-							}
-							if recipientEmail != "" {
-								inviteEmail := &Email{
-									Subject: "Updated Invitation: " + updatedEv.Title,
-									To:      []EmailAddress{{Email: recipientEmail}},
-									TextBody: []EmailBodyPart{{
-										Type: "text/calendar; method=REQUEST",
-										Size: uint64(len(reqICS)),
-									}},
-									BodyValues: map[string]EmailBodyValue{
-										"1": {Value: reqICS},
-									},
-								}
-								savedEmail, err := mailBackend.CreateEmail(ctx, inviteEmail)
-								if err == nil && savedEmail != nil {
-									_, _ = mailBackend.CreateSubmission(ctx, &EmailSubmission{
-										EmailID:  savedEmail.ID,
-										ThreadID: savedEmail.ThreadID,
-									})
-								}
-							}
+					// A bare RSVP (participationStatus changed to non-needs-action) is a
+					// REPLY to the organizer (Section 5.9.2.3); any other change is a
+					// re-invitation REQUEST to the attendees (Section 5.9.2.1).
+					if sendSchedulingMessages && mailBackend != nil && updatedEv != nil {
+						if !dispatchITIPRepliesForPatch(ctx, mailBackend, updatedEv, patch) {
+							dispatchITIPRequests(ctx, mailBackend, updatedEv, "Updated Invitation: ", accountID)
 						}
 					}
 				}
@@ -483,36 +438,10 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend) M
 							})
 						}
 
-						// Auto-dispatch iMIP METHOD:CANCEL notice to participants if mailBackend is available
-						if mailBackend != nil && len(events) > 0 && events[0] != nil && len(events[0].Participants) > 0 {
-							ev := events[0]
-							cancelICS, _ := BuildITIPCancel(ev, accountID)
-							for emailStr, p := range ev.Participants {
-								recipientEmail := emailStr
-								if p != nil && p.Email != "" {
-									recipientEmail = p.Email
-								}
-								if recipientEmail != "" {
-									cancelEmail := &Email{
-										Subject: "Cancelled: " + ev.Title,
-										To:      []EmailAddress{{Email: recipientEmail}},
-										TextBody: []EmailBodyPart{{
-											Type: "text/calendar; method=CANCEL",
-											Size: uint64(len(cancelICS)),
-										}},
-										BodyValues: map[string]EmailBodyValue{
-											"1": {Value: cancelICS},
-										},
-									}
-									savedEmail, err := mailBackend.CreateEmail(ctx, cancelEmail)
-									if err == nil && savedEmail != nil {
-										_, _ = mailBackend.CreateSubmission(ctx, &EmailSubmission{
-											EmailID:  savedEmail.ID,
-											ThreadID: savedEmail.ThreadID,
-										})
-									}
-								}
-							}
+						// CANCEL to every participant except the calendar owner when the
+						// event is destroyed (draft-ietf-jmap-calendars-27 Section 5.9.2.2).
+						if mailBackend != nil && len(events) > 0 && events[0] != nil {
+							dispatchITIPCancels(ctx, mailBackend, events[0], accountID)
 						}
 					}
 				}
