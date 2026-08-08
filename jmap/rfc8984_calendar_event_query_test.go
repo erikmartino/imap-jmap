@@ -17,9 +17,11 @@ func TestCalendarEventQuery_FilterProperties(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	// Seed calendar event
+	// Seed a calendar, then an event referencing it (calendarIds must reference an existing
+	// calendar).
+	cal, _ := srv.CalendarsBackend.CreateCalendar(context.Background(), &jmap.Calendar{Name: "Cal 1"})
 	ev, err := srv.CalendarsBackend.CreateCalendarEvent(context.Background(), &jmap.CalendarEvent{
-		CalendarIDs: map[jmap.Id]bool{"cal-1": true},
+		CalendarIDs: map[jmap.Id]bool{cal.ID: true},
 		Title:       "Meeting",
 		UID:         "unique-uid-123",
 		Updated:     "2026-06-01T12:00:00Z",

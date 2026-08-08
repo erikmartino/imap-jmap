@@ -23,7 +23,6 @@ func RegisterCalendarHandlers(r *MethodRegistry, backend CalendarsBackend, mailB
 	r.Register("CalendarEvent/queryChanges", handleCalendarEventQueryChanges(backend))
 	r.Register("CalendarEvent/copy", handleCalendarEventCopy(backend))
 	r.Register("CalendarEvent/parse", handleCalendarEventParse(backend, blobBackend))
-	r.Register("CalendarEvent/sendResponse", handleCalendarEventSendResponse(backend))
 
 	// ParticipantIdentity (draft-ietf-jmap-calendars Section 3)
 	r.Register("ParticipantIdentity/get", handleParticipantIdentityGet(backend))
@@ -132,6 +131,10 @@ func handleCalendarSet(backend CalendarsBackend) MethodHandler {
 					}
 					continue
 				}
+				if err := validateCalendarMap(calMap); err != nil {
+					notCreated[creationID] = err
+					continue
+				}
 				calBytes, _ := json.Marshal(calMap)
 				var cal Calendar
 				_ = json.Unmarshal(calBytes, &cal)
@@ -159,6 +162,10 @@ func handleCalendarSet(backend CalendarsBackend) MethodHandler {
 					continue
 				}
 				resolvedID := resolveCreationID(idStr, creationRefs)
+				if err := validateCalendarMap(patch); err != nil {
+					notUpdated[string(resolvedID)] = err
+					continue
+				}
 				updatedCal, err := backend.UpdateCalendar(ctx, Id(resolvedID), resolvePatchCreationRefs(patch, creationRefs))
 				if err != nil {
 					notUpdated[string(resolvedID)] = SetError{Type: "notFound", Description: err.Error()}
@@ -241,28 +248,20 @@ func handleCalendarEventGet(backend CalendarsBackend) MethodHandler {
 			notFound = []Id{}
 		}
 
-		var filteredList []*CalendarEvent
+		// Privacy (draft-ietf-jmap-calendars-27 Section 4.2.10) governs what NON-owner
+		// sharees see: "private" returns only a reduced property set and "secret" makes the
+		// server behave as though the event does not exist. The Principal that owns the
+		// calendar always sees the full event, including its private and secret events.
+		// CalendarEvent/get only ever runs against the caller's own account (SelfAccessGuard),
+		// i.e. the owner, so no censoring is applied here. Cross-principal disclosure is
+		// limited to the free-busy windows returned by Principal/getAvailability, which never
+		// expose event titles or details.
+		filteredList := make([]*CalendarEvent, 0, len(list))
 		for _, ev := range list {
 			if ev == nil {
 				continue
 			}
-			if ev.Privacy == "secret" {
-				if hasIDs {
-					notFound = append(notFound, ev.ID)
-				}
-				continue
-			}
-			if ev.Privacy == "private" {
-				censoredEv := *ev
-				censoredEv.Title = "Busy"
-				censoredEv.Description = ""
-				censoredEv.Locations = nil
-				censoredEv.VirtualLocations = nil
-				censoredEv.Links = nil
-				filteredList = append(filteredList, &censoredEv)
-			} else {
-				filteredList = append(filteredList, ev)
-			}
+			filteredList = append(filteredList, ev)
 		}
 
 		return "CalendarEvent/get", map[string]any{
@@ -539,6 +538,9 @@ func handleCalendarEventQuery(backend CalendarsBackend) MethodHandler {
 		accountID, _ := args["accountId"].(string)
 
 		filter, _ := args["filter"].(map[string]any)
+		if errType, errMsg := validateCalendarEventFilter(filter); errType != "" {
+			return "error", MethodErrorArgs(errType, errMsg)
+		}
 		position, posErr := parseQueryPosition(args)
 		if posErr != "" {
 			return "error", MethodErrorArgs(MethodErrorInvalidArguments, posErr)
@@ -555,16 +557,11 @@ func handleCalendarEventQuery(backend CalendarsBackend) MethodHandler {
 			limit = &l
 		}
 
-		filter, _ = args["filter"].(map[string]any)
-		if tz, ok := args["timeZone"].(string); ok && tz != "" {
-			if filter == nil {
-				filter = make(map[string]any)
-			}
-			filter["timeZone"] = tz
-		}
-
 		expandRecurrences, _ := args["expandRecurrences"].(bool)
 		comparators := parseComparators(args)
+		if errType, errMsg := validateComparators(comparators, calendarEventSortProperties); errType != "" {
+			return "error", MethodErrorArgs(errType, errMsg)
+		}
 
 		var ids []Id
 		var total int
@@ -639,10 +636,18 @@ func handleCalendarCopy(backend CalendarsBackend) MethodHandler {
 		if fromAccountID == "" {
 			fromAccountID = accountID
 		}
+		// Read the source objects from the "from" account, not the destination account.
+		srcCtx := sourceAccountContext(ctx, args)
 		oldState := backend.CalendarState(ctx)
+
+		onSuccessDestroyOriginal, _ := args["onSuccessDestroyOriginal"].(bool)
+		if dfis, ok := args["destroyFromIfInState"].(string); ok && dfis != "" && dfis != backend.CalendarState(srcCtx) {
+			return "error", MethodErrorArgs("stateMismatch", "destroyFromIfInState does not match the source account state")
+		}
 
 		created := make(map[string]*Calendar)
 		notCreated := make(map[string]any)
+		destroyOriginals := make([]Id, 0)
 
 		if createRaw, ok := args["create"].(map[string]any); ok {
 			for creationID, raw := range createRaw {
@@ -652,7 +657,7 @@ func handleCalendarCopy(backend CalendarsBackend) MethodHandler {
 					notCreated[creationID] = SetError{Type: "invalidProperties", Description: "copy create entry must reference a source id"}
 					continue
 				}
-				srcs, notFound, _ := backend.GetCalendars(ctx, []Id{Id(srcID)})
+				srcs, notFound, _ := backend.GetCalendars(srcCtx, []Id{Id(srcID)})
 				if len(srcs) == 0 || len(notFound) > 0 {
 					notCreated[creationID] = SetError{Type: "notFound", Description: "source calendar not found: " + srcID}
 					continue
@@ -669,7 +674,14 @@ func handleCalendarCopy(backend CalendarsBackend) MethodHandler {
 					notCreated[creationID] = SetError{Type: "invalidProperties", Description: err.Error()}
 				} else {
 					created[creationID] = newCal
+					destroyOriginals = append(destroyOriginals, Id(srcID))
 				}
+			}
+		}
+
+		if onSuccessDestroyOriginal {
+			for _, srcID := range destroyOriginals {
+				_, _ = backend.DeleteCalendar(srcCtx, srcID)
 			}
 		}
 
@@ -684,6 +696,16 @@ func handleCalendarCopy(backend CalendarsBackend) MethodHandler {
 	}
 }
 
+// sourceAccountContext returns a context scoped to the copy's fromAccountId so source objects
+// are read from the correct account. An empty or "primary" fromAccountId means the caller's own
+// account, i.e. the context is left unchanged.
+func sourceAccountContext(ctx context.Context, args map[string]any) context.Context {
+	if raw, _ := args["fromAccountId"].(string); raw != "" && raw != "primary" {
+		return ContextWithAccountID(ctx, raw)
+	}
+	return ctx
+}
+
 // handleCalendarEventCopy implements CalendarEvent/copy per RFC 8620 Section 5.4.
 func handleCalendarEventCopy(backend CalendarsBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
@@ -692,10 +714,17 @@ func handleCalendarEventCopy(backend CalendarsBackend) MethodHandler {
 		if fromAccountID == "" {
 			fromAccountID = accountID
 		}
+		srcCtx := sourceAccountContext(ctx, args)
 		oldState := backend.CalendarEventState(ctx)
+
+		onSuccessDestroyOriginal, _ := args["onSuccessDestroyOriginal"].(bool)
+		if dfis, ok := args["destroyFromIfInState"].(string); ok && dfis != "" && dfis != backend.CalendarEventState(srcCtx) {
+			return "error", MethodErrorArgs("stateMismatch", "destroyFromIfInState does not match the source account state")
+		}
 
 		created := make(map[string]*CalendarEvent)
 		notCreated := make(map[string]any)
+		destroyOriginals := make([]Id, 0)
 
 		if createRaw, ok := args["create"].(map[string]any); ok {
 			for creationID, raw := range createRaw {
@@ -705,7 +734,7 @@ func handleCalendarEventCopy(backend CalendarsBackend) MethodHandler {
 					notCreated[creationID] = SetError{Type: "invalidProperties", Description: "copy create entry must reference a source id"}
 					continue
 				}
-				srcs, notFound, _ := backend.GetCalendarEvents(ctx, []Id{Id(srcID)})
+				srcs, notFound, _ := backend.GetCalendarEvents(srcCtx, []Id{Id(srcID)})
 				if len(srcs) == 0 || len(notFound) > 0 {
 					notCreated[creationID] = SetError{Type: "notFound", Description: "source event not found: " + srcID}
 					continue
@@ -722,7 +751,14 @@ func handleCalendarEventCopy(backend CalendarsBackend) MethodHandler {
 					notCreated[creationID] = SetError{Type: "invalidProperties", Description: err.Error()}
 				} else {
 					created[creationID] = newEv
+					destroyOriginals = append(destroyOriginals, Id(srcID))
 				}
+			}
+		}
+
+		if onSuccessDestroyOriginal {
+			for _, srcID := range destroyOriginals {
+				_, _ = backend.DeleteCalendarEvent(srcCtx, srcID)
 			}
 		}
 
@@ -827,57 +863,82 @@ func filterParsedEvent(ev *CalendarEvent, properties []string) map[string]any {
 	return out
 }
 
-func handleCalendarEventSendResponse(backend CalendarsBackend) MethodHandler {
-	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
-		accountID, _ := args["accountId"].(string)
-		eventIDStr, _ := args["id"].(string)
-		attendeeEmail, _ := args["attendeeEmail"].(string)
-		status, _ := args["status"].(string) // "accepted", "declined", "tentative"
+// calendarEventFilterConditions are the CalendarEvent/query FilterCondition properties the
+// server understands (draft-ietf-jmap-calendars Section 5.9). Any other condition property is
+// rejected with unsupportedFilter rather than silently matching everything.
+var calendarEventFilterConditions = map[string]bool{
+	"inCalendar": true, "inCalendars": true, "title": true, "description": true,
+	"location": true, "text": true, "after": true, "before": true, "uid": true,
+	"owner": true, "attendee": true, "updatedBefore": true, "updatedAfter": true,
+}
 
-		eventID := Id(eventIDStr)
-		events, _, err := backend.GetCalendarEvents(ctx, []Id{eventID})
-		if err != nil || len(events) == 0 {
-			return "CalendarEvent/sendResponse", map[string]any{
-				"accountId": accountID,
-				"error":     SetError{Type: "notFound", Description: "calendar event not found"},
+// calendarEventSortProperties are the CalendarEvent/query sort comparators the server supports:
+// start/uid/recurrenceId are MUST, created/updated are SHOULD (draft-ietf-jmap-calendars
+// Section 5.10); title is offered as an additional convenience.
+var calendarEventSortProperties = map[string]bool{
+	"start": true, "uid": true, "recurrenceId": true, "created": true, "updated": true, "title": true,
+}
+
+// validCalendarFilterOperators are the FilterOperator operators (RFC 8620 Section 5.5).
+var validCalendarFilterOperators = map[string]bool{"AND": true, "OR": true, "NOT": true}
+
+// validateCalendarEventFilter walks a CalendarEvent/query filter (a FilterCondition or a
+// FilterOperator tree) and rejects any unknown condition property with unsupportedFilter, per
+// the "No Fallthrough Match Defaults" rule. Returns ("","") when the filter is valid.
+func validateCalendarEventFilter(filter map[string]any) (errType, errMsg string) {
+	if filter == nil {
+		return "", ""
+	}
+	if opVal, ok := filter["operator"]; ok {
+		op, _ := opVal.(string)
+		if !validCalendarFilterOperators[strings.ToUpper(op)] {
+			return "unsupportedFilter", "unknown filter operator: " + op
+		}
+		conds, ok := filter["conditions"].([]any)
+		if !ok || len(conds) == 0 {
+			return "unsupportedFilter", "filter operator requires a non-empty conditions array"
+		}
+		for _, c := range conds {
+			cm, ok := c.(map[string]any)
+			if !ok {
+				return "unsupportedFilter", "filter condition must be an object"
+			}
+			if et, em := validateCalendarEventFilter(cm); et != "" {
+				return et, em
 			}
 		}
-
-		ev := events[0]
-		if ev.Participants == nil {
-			ev.Participants = make(map[string]*JSCalendarParticipant)
-		}
-		if p, ok := ev.Participants[attendeeEmail]; ok && p != nil {
-			p.Status = status
-		} else {
-			ev.Participants[attendeeEmail] = &JSCalendarParticipant{
-				Email:  attendeeEmail,
-				Status: status,
-			}
-		}
-
-		// Update participant status in storage
-		_, _ = backend.UpdateCalendarEvent(ctx, eventID, map[string]any{
-			"status": status,
-		})
-
-		// Build iTIP reply string
-		replyICS, err := BuildITIPReply(ev, attendeeEmail, status)
-		if err != nil {
-			return "CalendarEvent/sendResponse", map[string]any{
-				"accountId": accountID,
-				"error":     SetError{Type: "invalidProperties", Description: err.Error()},
-			}
-		}
-
-		return "CalendarEvent/sendResponse", map[string]any{
-			"accountId":     accountID,
-			"id":            eventID,
-			"attendeeEmail": attendeeEmail,
-			"status":        status,
-			"itipReply":     replyICS,
+		return "", ""
+	}
+	for k := range filter {
+		if !calendarEventFilterConditions[k] {
+			return "unsupportedFilter", "unknown filter condition: " + k
 		}
 	}
+	return "", ""
+}
+
+// validCalendarProperties are the settable/known Calendar properties (draft-ietf-jmap-calendars
+// Section 2). id and myRights are server-set; unknown properties are rejected.
+var validCalendarProperties = map[string]bool{
+	"id": true, "name": true, "description": true, "color": true, "sortOrder": true,
+	"isDefault": true, "isVisible": true, "isSubscribed": true, "includeInAvailability": true,
+	"defaultAlertsWithTime": true, "defaultAlertsWithoutTime": true, "timeZone": true,
+	"shareWith": true, "myRights": true,
+}
+
+// validateCalendarMap rejects unknown Calendar properties (including JSON-pointer patch paths)
+// with invalidProperties, so Calendar/set never silently drops a misspelled property.
+func validateCalendarMap(m map[string]any) error {
+	for k := range m {
+		baseKey := k
+		if strings.Contains(k, "/") {
+			baseKey = strings.Split(k, "/")[0]
+		}
+		if !validCalendarProperties[baseKey] {
+			return SetError{Type: "invalidProperties", Description: "unknown property: " + k, Properties: []string{k}}
+		}
+	}
+	return nil
 }
 
 var validCalendarEventProperties = map[string]bool{
@@ -885,7 +946,7 @@ var validCalendarEventProperties = map[string]bool{
 	"descriptionContentType": true, "showWithoutTime": true, "start": true, "duration": true,
 	"timeZone": true, "locations": true, "location": true, "virtualLocations": true,
 	"links": true, "locale": true, "categories": true, "color": true, "status": true,
-	"freeBusyStatus": true, "privacy": true, "priority": true, "replyTo": true,
+	"freeBusyStatus": true, "privacy": true, "hideAttendees": true, "priority": true, "replyTo": true,
 	"sentBy": true, "requestStatus": true, "useDefaultAlerts": true, "localizations": true,
 	"timeZones": true, "participants": true, "recurrenceRules": true, "recurrenceId": true,
 	"recurrenceIdTimeZone": true, "excludedRecurrenceRules": true, "recurrenceOverrides": true,
@@ -910,9 +971,12 @@ func validateCalendarEventMap(m map[string]any) error {
 		}
 		switch baseKey {
 		case "status":
+			// "status" is an Event property (RFC 8984 Section 4.4.2); its only valid values
+			// are confirmed/tentative/cancelled. JSCalendar Tasks track state via "progress"
+			// (Section 5.2.5), not "status", so the Task states must not be accepted here.
 			if s, ok := v.(string); ok && s != "" {
 				switch s {
-				case "confirmed", "tentative", "cancelled", "needs-action", "completed", "in-progress":
+				case "confirmed", "tentative", "cancelled":
 				default:
 					return SetError{Type: "invalidProperties", Description: "invalid status value: " + s, Properties: []string{"status"}}
 				}
@@ -1077,7 +1141,9 @@ func handleParticipantIdentitySet(backend CalendarsBackend) MethodHandler {
 				if err != nil {
 					notUpdated[string(resolvedID)] = SetError{Type: "notFound", Description: err.Error()}
 				} else {
-					updated[string(resolvedID)] = map[string]any{"updated": true}
+					// RFC 8620 Section 5.3: the value is null unless the server changed
+					// properties beyond those the client sent. A plain update reports null.
+					updated[string(resolvedID)] = nil
 					_ = updatedPI
 				}
 			}

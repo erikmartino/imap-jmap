@@ -194,6 +194,14 @@ func TestRFC8984_ParticipantIdentityLifecycle(t *testing.T) {
 	if notUpdated, _ := updateResp.MethodResponses[0].Args["notUpdated"].(map[string]any); len(notUpdated) != 0 {
 		t.Fatalf("update failed: %+v", updateResp.MethodResponses[0].Args)
 	}
+	// RFC 8620 Section 5.3: a plain update reports the id in "updated" with a null value
+	// (no server-set properties changed beyond what the client sent) — not a fabricated object.
+	updOK, _ := updateResp.MethodResponses[0].Args["updated"].(map[string]any)
+	if v, present := updOK["identity-default"]; !present {
+		t.Fatalf("expected identity-default in updated, got %+v", updateResp.MethodResponses[0].Args)
+	} else if v != nil {
+		t.Errorf("expected null value for a plain update, got %v", v)
+	}
 	get3Req := []any{
 		[]any{"ParticipantIdentity/get", map[string]any{
 			"accountId": "primary",
