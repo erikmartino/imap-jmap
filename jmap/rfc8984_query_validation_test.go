@@ -98,3 +98,26 @@ func TestRFC8984_QueryFilterOperator(t *testing.T) {
 		t.Fatalf("expected exactly 1 match (Alpha), got %d: %+v", len(ids), ids)
 	}
 }
+
+// TestRFC8984_QueryCanCalculateChanges verifies canCalculateChanges is true for a normal query
+// but false when expandRecurrences is set (synthetic occurrence ids are not change-tracked).
+func TestRFC8984_QueryCanCalculateChanges(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	using := []string{jmap.CoreCapabilityURI, jmap.CalendarsCapabilityURI}
+
+	normal := postJMAP(t, ts.URL, using, []any{
+		[]any{"CalendarEvent/query", map[string]any{"accountId": "primary"}, "c1"},
+	})
+	if ccc, _ := normal.MethodResponses[0].Args["canCalculateChanges"].(bool); !ccc {
+		t.Errorf("expected canCalculateChanges=true for a normal query")
+	}
+
+	expanded := postJMAP(t, ts.URL, using, []any{
+		[]any{"CalendarEvent/query", map[string]any{"accountId": "primary", "expandRecurrences": true}, "c2"},
+	})
+	if ccc, _ := expanded.MethodResponses[0].Args["canCalculateChanges"].(bool); ccc {
+		t.Errorf("expected canCalculateChanges=false when expandRecurrences is set")
+	}
+}
