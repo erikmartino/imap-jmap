@@ -13,10 +13,16 @@ export default defineConfig({
   timeout: 60_000,
   expect: { timeout: 15_000 },
   globalSetup: './global-setup.ts',
+  // Keep every test's output artifacts — including traces for succeeded tests —
+  // rather than pruning passing runs (default is 'always'; pinned so it cannot
+  // regress to 'failures-only' in CI).
+  preserveOutput: 'always',
   use: {
     baseURL,
     headless: true,
     ignoreHTTPSErrors: true,
+    // 'on' records and retains a trace for EVERY test, pass or fail (open with
+    // `pnpm exec playwright show-trace test-results/<test>/trace.zip`).
     trace: 'on',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
