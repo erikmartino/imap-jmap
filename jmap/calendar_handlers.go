@@ -530,6 +530,9 @@ func handleCalendarEventQuery(backend CalendarsBackend) MethodHandler {
 		accountID, _ := args["accountId"].(string)
 
 		filter, _ := args["filter"].(map[string]any)
+		if errType, errMsg := validateCalendarEventFilter(filter); errType != "" {
+			return "error", MethodErrorArgs(errType, errMsg)
+		}
 		position, posErr := parseQueryPosition(args)
 		if posErr != "" {
 			return "error", MethodErrorArgs(MethodErrorInvalidArguments, posErr)
@@ -546,16 +549,11 @@ func handleCalendarEventQuery(backend CalendarsBackend) MethodHandler {
 			limit = &l
 		}
 
-		filter, _ = args["filter"].(map[string]any)
-		if tz, ok := args["timeZone"].(string); ok && tz != "" {
-			if filter == nil {
-				filter = make(map[string]any)
-			}
-			filter["timeZone"] = tz
-		}
-
 		expandRecurrences, _ := args["expandRecurrences"].(bool)
 		comparators := parseComparators(args)
+		if errType, errMsg := validateComparators(comparators, calendarEventSortProperties); errType != "" {
+			return "error", MethodErrorArgs(errType, errMsg)
+		}
 
 		var ids []Id
 		var total int
@@ -855,6 +853,60 @@ func filterParsedEvent(ev *CalendarEvent, properties []string) map[string]any {
 		}
 	}
 	return out
+}
+
+// calendarEventFilterConditions are the CalendarEvent/query FilterCondition properties the
+// server understands (draft-ietf-jmap-calendars Section 5.9). Any other condition property is
+// rejected with unsupportedFilter rather than silently matching everything.
+var calendarEventFilterConditions = map[string]bool{
+	"inCalendar": true, "inCalendars": true, "title": true, "description": true,
+	"location": true, "text": true, "after": true, "before": true, "uid": true,
+	"owner": true, "attendee": true, "updatedBefore": true, "updatedAfter": true,
+}
+
+// calendarEventSortProperties are the CalendarEvent/query sort comparators the server supports:
+// start/uid/recurrenceId are MUST, created/updated are SHOULD (draft-ietf-jmap-calendars
+// Section 5.10); title is offered as an additional convenience.
+var calendarEventSortProperties = map[string]bool{
+	"start": true, "uid": true, "recurrenceId": true, "created": true, "updated": true, "title": true,
+}
+
+// validCalendarFilterOperators are the FilterOperator operators (RFC 8620 Section 5.5).
+var validCalendarFilterOperators = map[string]bool{"AND": true, "OR": true, "NOT": true}
+
+// validateCalendarEventFilter walks a CalendarEvent/query filter (a FilterCondition or a
+// FilterOperator tree) and rejects any unknown condition property with unsupportedFilter, per
+// the "No Fallthrough Match Defaults" rule. Returns ("","") when the filter is valid.
+func validateCalendarEventFilter(filter map[string]any) (errType, errMsg string) {
+	if filter == nil {
+		return "", ""
+	}
+	if opVal, ok := filter["operator"]; ok {
+		op, _ := opVal.(string)
+		if !validCalendarFilterOperators[strings.ToUpper(op)] {
+			return "unsupportedFilter", "unknown filter operator: " + op
+		}
+		conds, ok := filter["conditions"].([]any)
+		if !ok || len(conds) == 0 {
+			return "unsupportedFilter", "filter operator requires a non-empty conditions array"
+		}
+		for _, c := range conds {
+			cm, ok := c.(map[string]any)
+			if !ok {
+				return "unsupportedFilter", "filter condition must be an object"
+			}
+			if et, em := validateCalendarEventFilter(cm); et != "" {
+				return et, em
+			}
+		}
+		return "", ""
+	}
+	for k := range filter {
+		if !calendarEventFilterConditions[k] {
+			return "unsupportedFilter", "unknown filter condition: " + k
+		}
+	}
+	return "", ""
 }
 
 var validCalendarEventProperties = map[string]bool{

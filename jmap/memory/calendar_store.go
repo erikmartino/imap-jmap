@@ -854,11 +854,66 @@ func matchEventText(ev *jmap.CalendarEvent, q string) bool {
 // MatchCalendarEvent reports whether an event satisfies a CalendarEvent filter
 // condition per RFC 8984 / draft-ietf-jmap-calendars Section 5.11.
 func MatchCalendarEvent(ev *jmap.CalendarEvent, filter map[string]any) bool {
+	if filter == nil {
+		return true
+	}
+	// FilterOperator (RFC 8620 Section 5.5): AND/OR/NOT over nested conditions.
+	if opVal, ok := filter["operator"]; ok {
+		op, _ := opVal.(string)
+		var conds []map[string]any
+		if raw, ok := filter["conditions"].([]any); ok {
+			for _, c := range raw {
+				if cm, ok := c.(map[string]any); ok {
+					conds = append(conds, cm)
+				}
+			}
+		} else if raw, ok := filter["conditions"].([]map[string]any); ok {
+			conds = raw
+		}
+		switch strings.ToUpper(op) {
+		case "AND":
+			for _, c := range conds {
+				if !MatchCalendarEvent(ev, c) {
+					return false
+				}
+			}
+			return true
+		case "OR":
+			for _, c := range conds {
+				if MatchCalendarEvent(ev, c) {
+					return true
+				}
+			}
+			return false
+		case "NOT":
+			for _, c := range conds {
+				if MatchCalendarEvent(ev, c) {
+					return false
+				}
+			}
+			return true
+		}
+	}
 	for k, v := range filter {
 		switch k {
 		case "inCalendar":
 			calID, ok := v.(string)
 			if !ok || !ev.CalendarIDs[jmap.Id(calID)] {
+				return false
+			}
+		case "inCalendars":
+			raw, ok := v.([]any)
+			if !ok {
+				return false
+			}
+			matched := false
+			for _, item := range raw {
+				if calID, ok := item.(string); ok && ev.CalendarIDs[jmap.Id(calID)] {
+					matched = true
+					break
+				}
+			}
+			if !matched {
 				return false
 			}
 		case "title":
