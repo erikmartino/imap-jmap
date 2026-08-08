@@ -563,6 +563,16 @@ func handleCalendarEventQuery(backend CalendarsBackend) MethodHandler {
 			return "error", MethodErrorArgs(errType, errMsg)
 		}
 
+		// The "timeZone" argument (default Etc/UTC) interprets the before/after
+		// LocalDateTime bounds (draft-ietf-jmap-calendars-27 Section 5.11). Thread it to
+		// the backend matcher via an internal marker (validated client filter is untouched).
+		if tz, ok := args["timeZone"].(string); ok && tz != "" {
+			if filter == nil {
+				filter = map[string]any{}
+			}
+			filter["__timeZone"] = tz
+		}
+
 		var ids []Id
 		var total int
 		var err error

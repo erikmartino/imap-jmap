@@ -3,7 +3,7 @@ import { request } from '@playwright/test';
 
 export default async function globalSetup(config: FullConfig) {
   const baseURL = config.projects[0]?.use?.baseURL ?? process.env.BULWARK_BASE_URL ?? 'http://localhost:3000';
-  const jmapURL = process.env.JMAP_SERVER_URL ?? 'http://localhost:8080';
+  const jmapURL = process.env.JMAP_SERVER_URL ?? 'https://localhost:8443';
 
   const ctx = await request.newContext({ ignoreHTTPSErrors: true });
   try {

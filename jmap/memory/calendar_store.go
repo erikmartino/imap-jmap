@@ -867,6 +867,19 @@ func matchEventText(ev *jmap.CalendarEvent, q string) bool {
 // MatchCalendarEvent reports whether an event satisfies a CalendarEvent filter
 // condition per RFC 8984 / draft-ietf-jmap-calendars Section 5.11.
 func MatchCalendarEvent(ev *jmap.CalendarEvent, filter map[string]any) bool {
+	// The CalendarEvent/query "timeZone" argument (default Etc/UTC) governs how the
+	// before/after LocalDateTime bounds are interpreted (draft-ietf-jmap-calendars-27
+	// Section 5.11). The handler threads it in via the internal "__timeZone" marker.
+	loc := time.UTC
+	if tz, ok := filter["__timeZone"].(string); ok && tz != "" {
+		loc = loadLocation(tz)
+	}
+	return matchCalendarEventInLoc(ev, filter, loc)
+}
+
+// matchCalendarEventInLoc evaluates a CalendarEvent filter, using loc as the time zone
+// for before/after LocalDateTime bounds (draft-ietf-jmap-calendars-27 Section 5.11.1).
+func matchCalendarEventInLoc(ev *jmap.CalendarEvent, filter map[string]any, loc *time.Location) bool {
 	if filter == nil {
 		return true
 	}
@@ -886,21 +899,21 @@ func MatchCalendarEvent(ev *jmap.CalendarEvent, filter map[string]any) bool {
 		switch strings.ToUpper(op) {
 		case "AND":
 			for _, c := range conds {
-				if !MatchCalendarEvent(ev, c) {
+				if !matchCalendarEventInLoc(ev, c, loc) {
 					return false
 				}
 			}
 			return true
 		case "OR":
 			for _, c := range conds {
-				if MatchCalendarEvent(ev, c) {
+				if matchCalendarEventInLoc(ev, c, loc) {
 					return true
 				}
 			}
 			return false
 		case "NOT":
 			for _, c := range conds {
-				if MatchCalendarEvent(ev, c) {
+				if matchCalendarEventInLoc(ev, c, loc) {
 					return false
 				}
 			}
@@ -909,6 +922,9 @@ func MatchCalendarEvent(ev *jmap.CalendarEvent, filter map[string]any) bool {
 	}
 	for k, v := range filter {
 		switch k {
+		case "__timeZone":
+			// Internal marker carrying the query "timeZone" argument, not a
+			// client filter condition; ignore it here.
 		case "inCalendar":
 			calID, ok := v.(string)
 			if !ok || !ev.CalendarIDs[jmap.Id(calID)] {
@@ -958,12 +974,12 @@ func MatchCalendarEvent(ev *jmap.CalendarEvent, filter map[string]any) bool {
 			}
 		case "after":
 			s, _ := v.(string)
-			if !eventEndsAfter(ev, s) {
+			if !eventEndsAfter(ev, s, loc) {
 				return false
 			}
 		case "before":
 			s, _ := v.(string)
-			if !eventStartsBefore(ev, s) {
+			if !eventStartsBefore(ev, s, loc) {
 				return false
 			}
 		case "uid":
@@ -1350,30 +1366,83 @@ func ExpandRecurrenceInstances(ev *jmap.CalendarEvent, horizon time.Time) []Recu
 	return results
 }
 
-// eventEndsAfter matches when the event (or any recurrence) ends after the date.
-func eventEndsAfter(ev *jmap.CalendarEvent, date string) bool {
-	ref, ok := parseRFC3339(date)
+// loadLocation resolves an IANA time-zone id, falling back to UTC (the default for
+// the CalendarEvent/query "timeZone" argument, draft-ietf-jmap-calendars-27 Section 5.11).
+func loadLocation(tz string) *time.Location {
+	if tz == "" {
+		return time.UTC
+	}
+	if loc, err := time.LoadLocation(tz); err == nil {
+		return loc
+	}
+	return time.UTC
+}
+
+// parseLocalDateTimeBound parses a CalendarEvent/query before/after bound, which is a
+// JSCalendar LocalDateTime (RFC 8984 Section 1.4.5): a floating value with no zone.
+// It is interpreted as wall-clock time in loc (the query "timeZone" argument). A value
+// that carries an explicit offset/"Z" is still accepted and honoured as an absolute
+// instant, for robustness against clients that send UTCDate bounds.
+func parseLocalDateTimeBound(s string, loc *time.Location) (time.Time, bool) {
+	if t, ok := parseRFC3339(s); ok {
+		return t, true
+	}
+	for _, layout := range []string{"2006-01-02T15:04:05", "2006-01-02"} {
+		if t, err := time.ParseInLocation(layout, s, loc); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+// eventIsFloating reports whether the event's times are floating (RFC 8984 Section 4.3):
+// no top-level timeZone and a start with no explicit offset. Floating times are compared
+// as wall-clock in the query time zone (draft-ietf-jmap-calendars-27 Section 5.11.1).
+func eventIsFloating(ev *jmap.CalendarEvent) bool {
+	if ev.TimeZone != "" {
+		return false
+	}
+	if _, ok := parseRFC3339(ev.Start); ok {
+		return false
+	}
+	return true
+}
+
+// eventInstantInLoc reinterprets a floating instance's wall-clock time in loc so it is
+// comparable with LocalDateTime bounds. Events carrying a real time zone already have an
+// absolute instant and are returned unchanged.
+func eventInstantInLoc(ev *jmap.CalendarEvent, t time.Time, loc *time.Location) time.Time {
+	if eventIsFloating(ev) {
+		return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), loc)
+	}
+	return t
+}
+
+// eventEndsAfter matches when the event's end (or any recurrence's end), in loc, is after
+// the "after" bound (draft-ietf-jmap-calendars-27 Section 5.11.1). The bound is a floating
+// LocalDateTime interpreted in loc.
+func eventEndsAfter(ev *jmap.CalendarEvent, date string, loc *time.Location) bool {
+	ref, ok := parseLocalDateTimeBound(date, loc)
 	if !ok {
 		return false
 	}
-	instances := ExpandRecurrenceInstances(ev, ref.AddDate(1, 0, 0))
-	for _, inst := range instances {
-		if inst.End.After(ref) {
+	for _, inst := range ExpandRecurrenceInstances(ev, ref.AddDate(1, 0, 0)) {
+		if eventInstantInLoc(ev, inst.End, loc).After(ref) {
 			return true
 		}
 	}
 	return false
 }
 
-// eventStartsBefore matches when the event (or any recurrence) starts before the date.
-func eventStartsBefore(ev *jmap.CalendarEvent, date string) bool {
-	ref, ok := parseRFC3339(date)
+// eventStartsBefore matches when the event's start (or any recurrence's start), in loc, is
+// before the "before" bound (draft-ietf-jmap-calendars-27 Section 5.11.1).
+func eventStartsBefore(ev *jmap.CalendarEvent, date string, loc *time.Location) bool {
+	ref, ok := parseLocalDateTimeBound(date, loc)
 	if !ok {
 		return false
 	}
-	instances := ExpandRecurrenceInstances(ev, ref)
-	for _, inst := range instances {
-		if inst.Start.Before(ref) {
+	for _, inst := range ExpandRecurrenceInstances(ev, ref) {
+		if eventInstantInLoc(ev, inst.Start, loc).Before(ref) {
 			return true
 		}
 	}

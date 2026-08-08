@@ -1,7 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
 const baseURL = process.env.BULWARK_BASE_URL ?? 'http://localhost:3000';
-const jmapURL = process.env.JMAP_SERVER_URL ?? 'http://localhost:8080';
+const jmapURL = process.env.JMAP_SERVER_URL ?? 'https://localhost:8443';
 
 export default defineConfig({
   testDir: './tests',
