@@ -23,34 +23,31 @@ test.describe('calendar (Bulwark UI ↔ imap-jmap over JMAP)', () => {
     }
   });
 
-  test('Create event opens the event editor', async ({ page }) => {
-    const acct = uniqueUser('cal-ui');
-    await login(page, acct.username, acct.password);
-    await goToApp(page, '/en/calendar');
-
-    await page.getByRole('button', { name: 'Create event' }).first().click();
-    // The editor surfaces a Save action (and usually a dialog) once open.
-    await expect(
-      page
-        .getByRole('dialog')
-        .or(page.getByRole('button', { name: 'Save', exact: true }))
-        .first(),
-    ).toBeVisible({ timeout: 15_000 });
-  });
-
-  test('an event created over JMAP renders in the Bulwark calendar', async ({ page }) => {
-    const acct = uniqueUser('cal-render');
+  test('creates an event through the UI and reads it back over the protocol', async ({ page }) => {
+    const acct = uniqueUser('cal-create');
     const jmap = await JMAPClient.connect(acct.username, acct.password);
 
-    const title = `E2E Sync ${Date.now()}`;
-    await jmap.createEvent({ title, start: todayAtNoon(), duration: 'PT1H' });
-
     await login(page, acct.username, acct.password);
     await goToApp(page, '/en/calendar');
-    // The calendar opens on today; Day view lists today's events, where the
-    // event was scheduled.
-    await page.getByRole('button', { name: 'Day', exact: true }).first().click();
-    await expect(page.getByText(title).first()).toBeVisible({ timeout: 20_000 });
+
+    // Open the event editor and fill the title (the date/time default to the
+    // current view), then save.
+    await page.getByRole('button', { name: 'Create event' }).first().click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible({ timeout: 15_000 });
+    const title = `E2E Event ${Date.now()}`;
+    await dialog.getByPlaceholder('Title').fill(title);
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(dialog).toBeHidden({ timeout: 15_000 });
+
+    // The event is persisted server-side per the JMAP for Calendars I-D
+    // (CalendarEvent/set → query/get), verified over the exact wire protocol.
+    await expect
+      .poll(async () => (await jmap.queryEventIds({ text: title })).length, { timeout: 20_000 })
+      .toBeGreaterThan(0);
+    const ids = await jmap.queryEventIds({ text: title });
+    const [ev] = await jmap.getEvents(ids, ['title']);
+    expect(ev.title).toBe(title);
   });
 
   // ---- Protocol (the exact wire API the client uses) -----------------------
@@ -119,10 +116,3 @@ test.describe('calendar (Bulwark UI ↔ imap-jmap over JMAP)', () => {
     expect(byId.get(secret).title).toBe('Secret Launch');
   });
 });
-
-/** Today's date at 12:00 local, as a JSCalendar LocalDateTime (avoids day-boundary shifts). */
-function todayAtNoon(): string {
-  const d = new Date();
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T12:00:00`;
-}

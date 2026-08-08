@@ -8,12 +8,17 @@ services:
     container_name: imap-jmap-server
     ports:
       - "8080:8080"
+      - "8443:8443"
       - "1025:1025"
     environment:
       - PORT=8080
+      - HTTPS_PORT=8443
       - HOST=0.0.0.0
       - SMTP_PORT=1025
       - SMTP_HOST=0.0.0.0
+      # Browser clients (Bulwark) enforce a `connect-src ... https:` CSP, so the
+      # webmail can only talk to the JMAP server over HTTPS. imap-jmap serves TLS
+      # (self-signed) on 8443; that is the endpoint the e2e suite points at.
       - PUBLIC_URL=http://imap-jmap:8080
     restart: unless-stopped
 

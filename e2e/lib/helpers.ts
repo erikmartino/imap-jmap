@@ -46,17 +46,29 @@ export async function login(page: Page, username: string, password: string): Pro
   await page.fill('input[type="text"]', username);
   await page.fill('input[type="password"]', password);
   await page.click('button[type="submit"]');
-  await expect(page).toHaveURL(/\/en(\/|$)/, { timeout: 60_000 });
+  // After login the app lands on the mail view; the exact route varies by Bulwark
+  // version (e.g. /mail/folder/inbox), so wait for the authenticated shell — the
+  // account switcher is present on every logged-in page — rather than a fixed URL.
+  await expect(page.locator('[data-testid="account-switcher"]').first()).toBeVisible({ timeout: 60_000 });
   await dismissOnboarding(page);
   await expect(page.locator('[data-testid="email-list-item"]').or(page.getByText('No emails yet')).first()).toBeVisible({
     timeout: 30_000,
   });
 }
 
-/** Navigates to another app section through the SPA sidebar (keeps the session). */
+/**
+ * Navigates to another app section through the SPA sidebar (keeps the session).
+ * The sidebar links are locale-prefixed (`/en/calendar`) but redirect to the
+ * real section route (`/calendar/...`), so we wait for the section keyword.
+ */
 export async function goToApp(page: Page, path: string): Promise<void> {
   await page.locator(`a[href="${path}"]`).first().click();
-  await page.waitForURL(`**${path}`, { timeout: 30_000 });
+  const section = path.split('/').filter(Boolean).pop() ?? '';
+  if (section && section !== 'en') {
+    await page.waitForURL(new RegExp(`/${section}`), { timeout: 30_000 });
+  } else {
+    await page.waitForURL(/\/mail\//, { timeout: 30_000 });
+  }
 }
 
 /** Opens the composer with the `c` shortcut and waits until it is ready. */
