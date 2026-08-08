@@ -56,6 +56,11 @@ type MailBackend interface {
 	UpdateIdentity(ctx context.Context, id Id, patch map[string]any) (*Identity, error)
 	DeleteIdentity(ctx context.Context, id Id) (bool, error)
 
+	// VacationResponse is a per-account singleton (id "singleton") per RFC 8621 Section 8.
+	VacationResponseState(ctx context.Context) string
+	GetVacationResponse(ctx context.Context) (*VacationResponse, error)
+	UpdateVacationResponse(ctx context.Context, patch map[string]any) (*VacationResponse, error)
+
 	// Submissions (RFC 8621 Section 7)
 	SubmissionState(ctx context.Context) string
 	SubmissionChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)

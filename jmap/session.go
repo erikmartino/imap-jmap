@@ -26,6 +26,9 @@ const QuotaCapabilityURI = "urn:ietf:params:jmap:quota"
 // MdnCapabilityURI is the standard JMAP MDN capability URI defined in RFC 9007 Section 2.
 const MdnCapabilityURI = "urn:ietf:params:jmap:mdn"
 
+// VacationResponseCapabilityURI is the JMAP vacation-response capability URI (RFC 8621 Section 8).
+const VacationResponseCapabilityURI = "urn:ietf:params:jmap:vacationresponse"
+
 // WebPushVapidCapabilityURI is the JMAP capability URI for VAPID Web Push per RFC 9749 Section 3.
 const WebPushVapidCapabilityURI = "urn:ietf:params:jmap:webpush-vapid"
 
@@ -246,6 +249,8 @@ func sessionFor(baseURL, username, accountID string) *Session {
 				MaxQuotaResources: 10,
 			},
 			MdnCapabilityURI: MdnCapability{},
+			// RFC 8621 Section 8: vacation-response auto-reply capability (empty object).
+			VacationResponseCapabilityURI: struct{}{},
 			// RFC 9749: Advertise VAPID public key for Web Push authentication.
 			// The placeholder key is a no-op base64url-encoded NIST P-256 uncompressed public key point.
 			WebPushVapidCapabilityURI: WebPushVapidCapability{
@@ -305,15 +310,16 @@ func sessionFor(baseURL, username, accountID string) *Session {
 						SupportedTypeNames:        []string{"Mailbox", "Thread", "Email", "Calendar", "CalendarEvent", "AddressBook", "ContactCard", "Card", "FileNode", "SieveScript"},
 						SupportedDigestAlgorithms: []string{"sha-256"},
 					},
-					QuotaCapabilityURI:          struct{}{},
-					MdnCapabilityURI:            struct{}{},
-					WebPushVapidCapabilityURI:   struct{}{},
-					ContactsCapabilityURI:       struct{}{},
-					CalendarsCapabilityURI:      struct{}{},
-					CalendarsParseCapabilityURI: struct{}{},
-					SieveCapabilityURI:          struct{}{},
-					ImapAccessCapabilityURI:     struct{}{},
-					FileNodeCapabilityURI:       struct{}{},
+					QuotaCapabilityURI:            struct{}{},
+					MdnCapabilityURI:              struct{}{},
+					VacationResponseCapabilityURI: struct{}{},
+					WebPushVapidCapabilityURI:     struct{}{},
+					ContactsCapabilityURI:         struct{}{},
+					CalendarsCapabilityURI:        struct{}{},
+					CalendarsParseCapabilityURI:   struct{}{},
+					SieveCapabilityURI:            struct{}{},
+					ImapAccessCapabilityURI:       struct{}{},
+					FileNodeCapabilityURI:         struct{}{},
 					PrincipalsCapabilityURI: PrincipalCapability{
 						MaxAvailabilityDuration: "P30D",
 					},
@@ -322,21 +328,22 @@ func sessionFor(baseURL, username, accountID string) *Session {
 			},
 		},
 		PrimaryAccounts: map[string]string{
-			CoreCapabilityURI:           accountID,
-			MailCapabilityURI:           accountID,
-			SmimeCapabilityURI:          accountID,
-			BlobCapabilityURI:           accountID,
-			QuotaCapabilityURI:          accountID,
-			MdnCapabilityURI:            accountID,
-			WebPushVapidCapabilityURI:   accountID,
-			ContactsCapabilityURI:       accountID,
-			CalendarsCapabilityURI:      accountID,
-			CalendarsParseCapabilityURI: accountID,
-			SieveCapabilityURI:          accountID,
-			ImapAccessCapabilityURI:     accountID,
-			FileNodeCapabilityURI:       accountID,
-			PrincipalsCapabilityURI:     accountID,
-			AvailabilityCapabilityURI:   accountID,
+			CoreCapabilityURI:             accountID,
+			MailCapabilityURI:             accountID,
+			SmimeCapabilityURI:            accountID,
+			BlobCapabilityURI:             accountID,
+			QuotaCapabilityURI:            accountID,
+			MdnCapabilityURI:              accountID,
+			VacationResponseCapabilityURI: accountID,
+			WebPushVapidCapabilityURI:     accountID,
+			ContactsCapabilityURI:         accountID,
+			CalendarsCapabilityURI:        accountID,
+			CalendarsParseCapabilityURI:   accountID,
+			SieveCapabilityURI:            accountID,
+			ImapAccessCapabilityURI:       accountID,
+			FileNodeCapabilityURI:         accountID,
+			PrincipalsCapabilityURI:       accountID,
+			AvailabilityCapabilityURI:     accountID,
 		},
 		Username:       username,
 		APIURL:         baseURL + "/jmap",

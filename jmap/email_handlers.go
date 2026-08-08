@@ -893,3 +893,93 @@ func handleIdentitySet(backend MailBackend) MethodHandler {
 		}
 	}
 }
+
+// VacationResponse handlers (RFC 8621 Section 8). VacationResponse is a per-account
+// singleton whose id is always "singleton"; it has only /get and /set (no /changes).
+
+func handleVacationResponseGet(backend MailBackend) MethodHandler {
+	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
+		accountID, _ := args["accountId"].(string)
+		vr, _ := backend.GetVacationResponse(ctx)
+
+		list := make([]*VacationResponse, 0, 1)
+		notFound := []Id{}
+		if idsRaw, ok := args["ids"].([]any); ok {
+			// Explicit ids: only "singleton" resolves; anything else is notFound.
+			for _, item := range idsRaw {
+				s, _ := item.(string)
+				if s == "singleton" && vr != nil {
+					list = append(list, vr)
+				} else {
+					notFound = append(notFound, Id(s))
+				}
+			}
+		} else if vr != nil {
+			// ids null/absent means "all", which is just the singleton.
+			list = append(list, vr)
+		}
+
+		return "VacationResponse/get", map[string]any{
+			"accountId": accountID,
+			"state":     backend.VacationResponseState(ctx),
+			"list":      list,
+			"notFound":  notFound,
+		}
+	}
+}
+
+func handleVacationResponseSet(backend MailBackend) MethodHandler {
+	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
+		accountID, _ := args["accountId"].(string)
+		oldState := backend.VacationResponseState(ctx)
+
+		if ifInState, ok := args["ifInState"].(string); ok && ifInState != "" && ifInState != oldState {
+			return "error", MethodErrorArgs("stateMismatch", "state mismatch")
+		}
+
+		updated := make(map[string]any)
+		notCreated := make(map[string]any)
+		notUpdated := make(map[string]any)
+		notDestroyed := make(map[string]any)
+
+		// A singleton cannot be created or destroyed (RFC 8621 Section 8.2).
+		if createRaw, ok := args["create"].(map[string]any); ok {
+			for creationID := range createRaw {
+				notCreated[creationID] = SetError{Type: "singleton", Description: "VacationResponse is a singleton and cannot be created"}
+			}
+		}
+		if destroyRaw, ok := args["destroy"].([]any); ok {
+			for _, item := range destroyRaw {
+				if s, ok := item.(string); ok {
+					notDestroyed[s] = SetError{Type: "singleton", Description: "VacationResponse is a singleton and cannot be destroyed"}
+				}
+			}
+		}
+		if updateRaw, ok := args["update"].(map[string]any); ok {
+			for idStr, patchRaw := range updateRaw {
+				if idStr != "singleton" {
+					notUpdated[idStr] = SetError{Type: "notFound", Description: `the only VacationResponse id is "singleton"`}
+					continue
+				}
+				patch, _ := patchRaw.(map[string]any)
+				if _, err := backend.UpdateVacationResponse(ctx, patch); err != nil {
+					notUpdated[idStr] = SetError{Type: "invalidProperties", Description: err.Error()}
+				} else {
+					updated[idStr] = nil
+				}
+			}
+		}
+
+		return "VacationResponse/set", map[string]any{
+			"accountId":    accountID,
+			"oldState":     oldState,
+			"newState":     backend.VacationResponseState(ctx),
+			"created":      map[string]any{},
+			"updated":      updated,
+			"destroyed":    []Id{},
+			"notCreated":   notCreated,
+			"notUpdated":   notUpdated,
+			"notDestroyed": notDestroyed,
+		}
+	}
+}
