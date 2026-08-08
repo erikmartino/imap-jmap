@@ -1,0 +1,236 @@
+[
+  {
+    "spec": "RFC8620",
+    "section": "5.3",
+    "level": "MUST",
+    "text": "A */set update response value is null unless the server changed properties beyond those the client sent.",
+    "tests": ["TestRFC8984_ParticipantIdentityLifecycle"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8620",
+    "section": "5.4",
+    "level": "MUST",
+    "text": "Foo/copy reads sources from fromAccountId and supports onSuccessDestroyOriginal / destroyFromIfInState.",
+    "tests": ["TestRFC8984_CalendarEventCopyDestroyOriginal", "TestRFC8984_CalendarEventCopyRoundTrip"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8620",
+    "section": "5.5",
+    "level": "MUST",
+    "text": "FilterOperator AND/OR/NOT is evaluated over nested conditions.",
+    "tests": ["TestRFC8984_QueryFilterOperator"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8984",
+    "section": "1.4.5",
+    "level": "MUST",
+    "text": "LocalDateTime (floating, no time zone) is accepted for date-time values.",
+    "tests": ["TestRFC8984_QueryFloatingLocalDateTimeBounds"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8984",
+    "section": "4.1.2",
+    "level": "MUST",
+    "text": "uid is required and stable; the server auto-generates one when absent.",
+    "tests": ["TestRFC8984_UIDAutoGenerateAndPersistence"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8984",
+    "section": "4.3.3",
+    "level": "MUST",
+    "text": "recurrenceRules expand honouring byDay.",
+    "tests": ["TestRFC8984_RecurrenceByDay"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8984",
+    "section": "4.3.3.1",
+    "level": "MUST",
+    "text": "bySetPosition is applied during recurrence expansion.",
+    "tests": ["TestRFC8984_RecurrenceBySetPosition"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8984",
+    "section": "4.3.4",
+    "level": "MUST",
+    "text": "excludedRecurrenceRules subtract instances from the expansion.",
+    "tests": ["TestRFC8984_ExcludedRecurrenceRules"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8984",
+    "section": "4.3.5",
+    "level": "MUST",
+    "text": "recurrenceOverrides apply to instances; excluded:true removes an instance.",
+    "tests": ["TestRFC8984_RecurrenceOverrideExcluded"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8984",
+    "section": "4.4.2",
+    "level": "MUST",
+    "text": "Event status is limited to confirmed/tentative/cancelled.",
+    "tests": ["TestRFC8984_EventStatusEnum"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8984",
+    "section": "5.2.5",
+    "level": "MUST",
+    "text": "Task progress is limited to needs-action/in-process/completed/failed/pending/cancelled.",
+    "tests": ["TestRFC8984_TaskProgressEnum"],
+    "status": "covered"
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
+    "section": "3.3",
+    "level": "MUST",
+    "text": "ParticipantIdentity isDefault is server-set; changed only via onSuccessSetIsDefault.",
+    "tests": ["TestRFC8984_ParticipantIdentityLifecycle"],
+    "status": "covered"
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
+    "section": "4.2.10",
+    "level": "MUST",
+    "text": "privacy=private: only non-owner sharees get the reduced property set; the owner sees full data.",
+    "tests": ["TestRFC8984_PrivacyOwnerSeesFullData"],
+    "status": "covered"
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
+    "section": "4.2.10",
+    "level": "MUST",
+    "text": "privacy=secret: the server behaves as though the event does not exist for users other than the owner; the owner still sees it.",
+    "tests": ["TestRFC8984_PrivacyOwnerSeesFullData"],
+    "status": "covered"
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
+    "section": "4.4",
+    "level": "MUST",
+    "text": "utcStart/utcEnd computed read-only CalendarEvent properties are returned when requested.",
+    "tests": [],
+    "status": "gap",
+    "note": "Bulwark requests utcStart/utcEnd in CalendarEvent/get; the model has no such fields, so they are silently omitted. Confirm exact subsection when closing."
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
+    "section": "4.4.5",
+    "level": "MAY",
+    "text": "hideAttendees limits participant visibility to owners; it round-trips through set/get.",
+    "tests": ["TestRFC8984_HideAttendeesRoundTrip"],
+    "status": "covered"
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
+    "section": "5.11",
+    "level": "MAY",
+    "text": "expandRecurrences returns per-occurrence ids.",
+    "tests": ["TestRFC8984_ExpandRecurrencesQueryArg", "TestRFC8984_RecurrenceExpansionQuery"],
+    "status": "covered"
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
+    "section": "5.11",
+    "level": "MUST",
+    "text": "The timeZone argument (default Etc/UTC) is used to interpret before/after bounds.",
+    "tests": ["TestRFC8984_QueryFloatingLocalDateTimeBounds"],
+    "status": "covered"
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
+    "section": "5.11",
+    "level": "SHOULD",
+    "text": "canCalculateChanges is false when expandRecurrences is set (synthetic occurrence ids are not change-tracked).",
+    "tests": ["TestRFC8984_QueryCanCalculateChanges"],
+    "status": "covered"
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
+    "section": "5.11",
+    "level": "SHOULD",
+    "text": "minDateTime/maxDateTime/maxExpandedQueryDuration capability limits are enforced on queries.",
+    "tests": [],
+    "status": "gap",
+    "note": "Advertised in the session capability but not referenced by CalendarEvent/query or /set logic."
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
+    "section": "5.11.1",
+    "level": "MAY",
+    "text": "inCalendars matches events in any listed calendar.",
+    "tests": ["TestRFC8984_InCalendarsFilter"],
+    "status": "covered"
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
+    "section": "5.11.1",
+    "level": "MUST",
+    "text": "before/after are LocalDateTime, matched against the event's start/end in the timeZone argument.",
+    "tests": ["TestRFC8984_QueryFloatingLocalDateTimeBounds"],
+    "status": "covered"
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
+    "section": "5.11.1",
+    "level": "MUST",
+    "text": "before/after accept date-only (LocalDate) values.",
+    "tests": [],
+    "status": "gap"
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
+    "section": "5.11.1",
+    "level": "MUST",
+    "text": "unknown filter conditions are rejected with unsupportedFilter (no fallthrough match).",
+    "tests": ["TestRFC8984_QueryRejectsUnknownFilter"],
+    "status": "covered"
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
+    "section": "5.11.1",
+    "level": "SHOULD",
+    "text": "before/after are DST-correct in a non-UTC timeZone.",
+    "tests": [],
+    "status": "gap"
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
+    "section": "5.11.2",
+    "level": "MUST",
+    "text": "sort comparators are limited to supported properties; unknown -> unsupportedSort.",
+    "tests": ["TestRFC8984_QueryRejectsUnknownSort"],
+    "status": "covered"
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
+    "section": "5.11.2",
+    "level": "MUST",
+    "text": "sort supports start, uid, and recurrenceId.",
+    "tests": ["TestRFC8984_CalendarEventQuerySorting"],
+    "status": "covered"
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
+    "section": "5.12",
+    "level": "MAY",
+    "text": "CalendarEvent/parse converts iCalendar blobs to JSCalendar events.",
+    "tests": ["TestRFC8984_CalendarEventParse"],
+    "status": "covered"
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
+    "section": "7.2",
+    "level": "MUST",
+    "text": "CalendarEventNotification objects are server-created and can be fetched, queried, and destroyed.",
+    "tests": ["TestRFC8984_CalendarEventNotificationLifecycle"],
+    "status": "covered"
+  }
+]

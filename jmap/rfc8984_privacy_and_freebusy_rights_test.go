@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
+	"imap-jmap/jmap/spectest"
 )
 
 // TestRFC8984_PrivacyOwnerSeesFullData verifies that the Principal that owns the calendar sees
@@ -14,6 +15,11 @@ import (
 // not exist — for users OTHER THAN the owner. CalendarEvent/get runs against the caller's own
 // account, i.e. the owner, so it must never censor.
 func TestRFC8984_PrivacyOwnerSeesFullData(t *testing.T) {
+	spectest.Require(t, "draft-ietf-jmap-calendars-27", "4.2.10", spectest.MUST,
+		"privacy=secret: the server behaves as though the event does not exist for users other than the owner; the owner still sees it.")
+	spectest.Require(t, "draft-ietf-jmap-calendars-27", "4.2.10", spectest.MUST,
+		"privacy=private: only non-owner sharees get the reduced property set; the owner sees full data.")
+
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()

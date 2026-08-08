@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
+	"imap-jmap/jmap/spectest"
 )
 
 // TestRFC8984_QueryFloatingLocalDateTimeBounds covers CalendarEvent/query "after"/"before"
@@ -19,6 +20,11 @@ import (
 // appeared in the calendar view. Earlier tests only exercised "Z"-suffixed (UTCDate) bounds,
 // so the spec's LocalDateTime type went uncovered.
 func TestRFC8984_QueryFloatingLocalDateTimeBounds(t *testing.T) {
+	spectest.Require(t, "draft-ietf-jmap-calendars-27", "5.11.1", spectest.MUST,
+		"before/after are LocalDateTime, matched against the event's start/end in the timeZone argument.")
+	spectest.Require(t, "RFC8984", "1.4.5", spectest.MUST,
+		"LocalDateTime (floating, no time zone) is accepted for date-time values.")
+
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
