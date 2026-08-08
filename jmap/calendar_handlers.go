@@ -23,7 +23,6 @@ func RegisterCalendarHandlers(r *MethodRegistry, backend CalendarsBackend, mailB
 	r.Register("CalendarEvent/queryChanges", handleCalendarEventQueryChanges(backend))
 	r.Register("CalendarEvent/copy", handleCalendarEventCopy(backend))
 	r.Register("CalendarEvent/parse", handleCalendarEventParse(backend, blobBackend))
-	r.Register("CalendarEvent/sendResponse", handleCalendarEventSendResponse(backend))
 
 	// ParticipantIdentity (draft-ietf-jmap-calendars Section 3)
 	r.Register("ParticipantIdentity/get", handleParticipantIdentityGet(backend))
@@ -817,59 +816,6 @@ func filterParsedEvent(ev *CalendarEvent, properties []string) map[string]any {
 		}
 	}
 	return out
-}
-
-func handleCalendarEventSendResponse(backend CalendarsBackend) MethodHandler {
-	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
-		accountID, _ := args["accountId"].(string)
-		eventIDStr, _ := args["id"].(string)
-		attendeeEmail, _ := args["attendeeEmail"].(string)
-		status, _ := args["status"].(string) // "accepted", "declined", "tentative"
-
-		eventID := Id(eventIDStr)
-		events, _, err := backend.GetCalendarEvents(ctx, []Id{eventID})
-		if err != nil || len(events) == 0 {
-			return "CalendarEvent/sendResponse", map[string]any{
-				"accountId": accountID,
-				"error":     SetError{Type: "notFound", Description: "calendar event not found"},
-			}
-		}
-
-		ev := events[0]
-		if ev.Participants == nil {
-			ev.Participants = make(map[string]*JSCalendarParticipant)
-		}
-		if p, ok := ev.Participants[attendeeEmail]; ok && p != nil {
-			p.Status = status
-		} else {
-			ev.Participants[attendeeEmail] = &JSCalendarParticipant{
-				Email:  attendeeEmail,
-				Status: status,
-			}
-		}
-
-		// Update participant status in storage
-		_, _ = backend.UpdateCalendarEvent(ctx, eventID, map[string]any{
-			"status": status,
-		})
-
-		// Build iTIP reply string
-		replyICS, err := BuildITIPReply(ev, attendeeEmail, status)
-		if err != nil {
-			return "CalendarEvent/sendResponse", map[string]any{
-				"accountId": accountID,
-				"error":     SetError{Type: "invalidProperties", Description: err.Error()},
-			}
-		}
-
-		return "CalendarEvent/sendResponse", map[string]any{
-			"accountId":     accountID,
-			"id":            eventID,
-			"attendeeEmail": attendeeEmail,
-			"status":        status,
-			"itipReply":     replyICS,
-		}
-	}
 }
 
 var validCalendarEventProperties = map[string]bool{

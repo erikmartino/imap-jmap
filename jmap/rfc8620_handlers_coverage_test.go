@@ -20,10 +20,6 @@ func TestRFC8620_Section3_1_HandlersCoverage_ChangesAndGetMethods(t *testing.T) 
 		Subject:    "Coverage Email",
 	})
 	cal, _ := srv.CalendarsBackend.CreateCalendar(context.Background(), &jmap.Calendar{Name: "Main Cal"})
-	ev, _ := srv.CalendarsBackend.CreateCalendarEvent(context.Background(), &jmap.CalendarEvent{
-		CalendarIDs: map[jmap.Id]bool{cal.ID: true},
-		Title:       "Sync Meeting",
-	})
 
 	usingMail := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.SubmissionCapabilityURI, jmap.QuotaCapabilityURI}
 	usingCal := []string{jmap.CoreCapabilityURI, jmap.CalendarsCapabilityURI}
@@ -56,16 +52,44 @@ func TestRFC8620_Section3_1_HandlersCoverage_ChangesAndGetMethods(t *testing.T) 
 		t.Fatalf("Expected 2 calendar changes responses, got %d", len(r3.MethodResponses))
 	}
 
-	// 3. CalendarEvent/sendResponse (RSVP)
+	// 3. RSVP via CalendarEvent/set (draft-ietf-jmap-calendars): patch the participant's
+	// participationStatus. There is no CalendarEvent/sendResponse method.
+	rsvpEv, _ := srv.CalendarsBackend.CreateCalendarEvent(context.Background(), &jmap.CalendarEvent{
+		CalendarIDs: map[jmap.Id]bool{cal.ID: true},
+		Title:       "RSVP Meeting",
+		Status:      "confirmed",
+		Participants: map[string]*jmap.JSCalendarParticipant{
+			"me": {Email: "me@example.com", ParticipationStatus: "needs-action"},
+		},
+	})
 	r4 := postJMAP(t, ts.URL, usingCal, []any{
-		[]any{"CalendarEvent/sendResponse", map[string]any{
+		[]any{"CalendarEvent/set", map[string]any{
 			"accountId": "primary",
-			"id":        string(ev.ID),
-			"status":    "accepted",
+			"update": map[string]any{
+				string(rsvpEv.ID): map[string]any{
+					"participants/me/participationStatus": "accepted",
+				},
+			},
 		}, "c1"},
 	})
-	if len(r4.MethodResponses) != 1 || r4.MethodResponses[0].Name != "CalendarEvent/sendResponse" {
-		t.Fatalf("Expected CalendarEvent/sendResponse response, got %v", r4.MethodResponses)
+	if len(r4.MethodResponses) != 1 || r4.MethodResponses[0].Name != "CalendarEvent/set" {
+		t.Fatalf("Expected CalendarEvent/set response, got %v", r4.MethodResponses)
+	}
+	if updated, _ := r4.MethodResponses[0].Args["updated"].(map[string]any); updated == nil {
+		t.Fatalf("RSVP update not applied: %+v", r4.MethodResponses[0].Args)
+	} else if _, ok := updated[string(rsvpEv.ID)]; !ok {
+		t.Fatalf("RSVP update missing event id: %+v", updated)
+	}
+	// The participant status MUST persist and the event-level status MUST be untouched.
+	after, _, _ := srv.CalendarsBackend.GetCalendarEvents(context.Background(), []jmap.Id{rsvpEv.ID})
+	if len(after) != 1 {
+		t.Fatalf("could not re-fetch RSVP event")
+	}
+	if got := after[0].Participants["me"].ParticipationStatus; got != "accepted" {
+		t.Errorf("expected participationStatus=accepted, got %q", got)
+	}
+	if after[0].Status != "confirmed" {
+		t.Errorf("event-level status must be untouched by RSVP, got %q", after[0].Status)
 	}
 
 	// 4. ContactCard/* aliases (RFC 9610 Section 3.1)
