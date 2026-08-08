@@ -66,6 +66,11 @@ When implementing updates, patches, or merges of any stored object (mails, mailb
 - **JMAP Keywords & Attributes**: [RFC 9979](https://www.rfc-editor.org/rfc/rfc9979.html) — *IMAP/JMAP Keywords and Mailbox Name Attributes*
 - **Sieve Language**: [RFC 5228](https://www.rfc-editor.org/rfc/rfc5228.html) — *Sieve: An Email Filtering Language*
 
+#### JMAP Internet-Drafts (work in progress — verified current 2026-08-08)
+These JMAP extensions have **not** been published as RFCs yet; cite the latest draft revision.
+- **JMAP for Calendars**: [draft-ietf-jmap-calendars-27](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27) — *JSON Meta Application Protocol (JMAP) for Calendars* (defines the `Calendar`, `CalendarEvent`, `CalendarEventNotification`, and `ParticipantIdentity` types and methods, plus the `urn:ietf:params:jmap:calendars` / `:calendars:parse` capabilities). Per repo convention its method tests are filed under `rfc8984_*_test.go`.
+- **JMAP for Principals & Availability**: [draft-ietf-jmap-principals](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-principals) — *JMAP for Principals* (`urn:ietf:params:jmap:principals`, `:principals:availability`, `:principals:owner`).
+
 #### Data Representation Specifications
 - **JSContact (Card Specification)**: [RFC 9553](https://www.rfc-editor.org/rfc/rfc9553.html) — *JSContact: A JSON Representation of Contact Data*
 - **JSCalendar (Calendar Specification)**: [RFC 8984](https://www.rfc-editor.org/rfc/rfc8984.html) — *JSCalendar: A JSON Representation of Calendar Data*
