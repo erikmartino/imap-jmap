@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"imap-jmap/jmap"
 )
@@ -184,27 +185,50 @@ func (b *MemoryPrincipalsBackend) GetAvailability(ctx context.Context, principal
 	b.mu.RUnlock()
 
 	windows := make([]*jmap.AvailabilityWindow, 0)
-	if cb != nil {
-		events, err := cb.GetAllCalendarEvents(ctx)
-		if err == nil {
-			for _, ev := range events {
-				// Include events that overlap with query window
-				if ev.Start != "" && (utcEnd == "" || ev.Start <= utcEnd) {
-					status := ev.FreeBusyStatus
-					if status == "" {
-						status = "busy"
-					}
-					end := ev.Start
-					if ev.Duration != "" {
-						end = ev.Start // Simplified end time
-					}
-					windows = append(windows, &jmap.AvailabilityWindow{
-						UTCStart:       ev.Start,
-						UTCEnd:         end,
-						FreeBusyStatus: status,
-					})
-				}
+	if cb == nil {
+		return windows, nil
+	}
+
+	// Parse the query window; an absent bound is treated as open on that side.
+	winStart, hasStart := parseRFC3339(utcStart)
+	winEnd, hasEnd := parseRFC3339(utcEnd)
+
+	events, err := cb.GetAllCalendarEvents(ctx)
+	if err != nil {
+		return windows, nil
+	}
+	for _, ev := range events {
+		if ev == nil || ev.Start == "" {
+			continue
+		}
+		// Secret events must behave as though they do not exist to other principals, so
+		// they never contribute to shared free-busy. Cancelled events and events explicitly
+		// marked "free" are not busy time either (draft-ietf-jmap-calendars availability).
+		if ev.Privacy == "secret" || ev.Status == "cancelled" {
+			continue
+		}
+		fb := ev.FreeBusyStatus
+		if fb == "" {
+			fb = "busy"
+		}
+		if fb == "free" {
+			continue
+		}
+		// Expand recurrences and emit one busy window per instance that overlaps the query
+		// window. End is start+duration (previously collapsed to start, yielding zero-length
+		// windows), and recurring events now contribute every occurrence in range.
+		for _, inst := range ExpandRecurrenceInstances(ev, winEnd) {
+			if hasEnd && !inst.Start.Before(winEnd) {
+				continue // occurrence starts at/after the window end
 			}
+			if hasStart && !inst.End.After(winStart) {
+				continue // occurrence ends at/before the window start
+			}
+			windows = append(windows, &jmap.AvailabilityWindow{
+				UTCStart:       inst.Start.UTC().Format(time.RFC3339),
+				UTCEnd:         inst.End.UTC().Format(time.RFC3339),
+				FreeBusyStatus: fb,
+			})
 		}
 	}
 
