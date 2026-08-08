@@ -129,6 +129,14 @@
   },
   {
     "spec": "RFC8621",
+    "section": "6.1",
+    "level": "MUST",
+    "text": "The default Identity email is the account's real address (used as From), not the opaque account id.",
+    "tests": ["TestRFC8621_IdentityEmailIsRealAddress"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC8621",
     "section": "6.3",
     "level": "MUST",
     "text": "Identity/get and Identity/set (incl. notUpdated notFound for a missing id).",

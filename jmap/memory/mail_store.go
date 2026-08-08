@@ -265,14 +265,19 @@ func newMemoryUserStore(accountID string) *userMailStore {
 	us.mailboxes[junk.ID] = junk
 	us.mailboxes[archive.ID] = archive
 
-	// Default identity
+	// Default identity. The account ID is the base64url encoding of the user's
+	// subject (email address), so recover the real address for the From identity
+	// rather than surfacing the opaque account ID. Fall back only if it cannot be
+	// decoded to a real address.
 	emailAddr := accountID
-	if !strings.Contains(emailAddr, "@") {
+	if subject, ok := jmap.SubjectForAccountID(accountID); ok && strings.Contains(subject, "@") {
+		emailAddr = subject
+	} else if !strings.Contains(emailAddr, "@") {
 		emailAddr = accountID + "@example.com"
 	}
 	defaultIdentity := &jmap.Identity{
 		ID:    "id-primary",
-		Name:  accountID,
+		Name:  emailAddr,
 		Email: emailAddr,
 	}
 	us.identities[defaultIdentity.ID] = defaultIdentity
