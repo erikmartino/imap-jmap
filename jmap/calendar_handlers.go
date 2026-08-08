@@ -1054,7 +1054,9 @@ func handleParticipantIdentitySet(backend CalendarsBackend) MethodHandler {
 				if err != nil {
 					notUpdated[string(resolvedID)] = SetError{Type: "notFound", Description: err.Error()}
 				} else {
-					updated[string(resolvedID)] = map[string]any{"updated": true}
+					// RFC 8620 Section 5.3: the value is null unless the server changed
+					// properties beyond those the client sent. A plain update reports null.
+					updated[string(resolvedID)] = nil
 					_ = updatedPI
 				}
 			}
