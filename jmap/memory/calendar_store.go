@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/teambition/rrule-go"
+
 	"imap-jmap/jmap"
 )
 
@@ -951,6 +953,17 @@ func parseRFC3339(s string) (time.Time, bool) {
 	return t, true
 }
 
+// parseFloatingDateTime parses a JSCalendar LocalDateTime ("2026-08-01T10:00:00", RFC 8984
+// Section 1.4.5) or date-only value, treated as UTC for expansion purposes.
+func parseFloatingDateTime(s string) (time.Time, bool) {
+	for _, layout := range []string{"2006-01-02T15:04:05", "2006-01-02"} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
 // eventEndTime returns the event end time computed as start + duration,
 // or start when no duration is present per RFC 8984.
 func eventEndTime(ev *jmap.CalendarEvent) (time.Time, bool) {
@@ -975,11 +988,170 @@ type RecurrenceInstance struct {
 	End          time.Time
 }
 
-// ExpandRecurrenceInstances expands recurrenceRules, applying excluded rules and overrides per RFC 8984 §4.3.
+// jsWeekdayToRRule maps a JSCalendar NDay day code ("mo".."su") to an rrule.Weekday,
+// applying the optional nth-occurrence qualifier (RFC 8984 Section 4.3.3).
+func jsWeekdayToRRule(nd *jmap.NDay) (rrule.Weekday, bool) {
+	if nd == nil {
+		return rrule.Weekday{}, false
+	}
+	var wd rrule.Weekday
+	switch strings.ToLower(nd.Day) {
+	case "mo":
+		wd = rrule.MO
+	case "tu":
+		wd = rrule.TU
+	case "we":
+		wd = rrule.WE
+	case "th":
+		wd = rrule.TH
+	case "fr":
+		wd = rrule.FR
+	case "sa":
+		wd = rrule.SA
+	case "su":
+		wd = rrule.SU
+	default:
+		return rrule.Weekday{}, false
+	}
+	if nd.Nth != 0 {
+		wd = wd.Nth(nd.Nth)
+	}
+	return wd, true
+}
+
+// jsFrequencyToRRule maps a JSCalendar frequency to an rrule.Frequency.
+func jsFrequencyToRRule(freq string) (rrule.Frequency, bool) {
+	switch strings.ToLower(freq) {
+	case "yearly":
+		return rrule.YEARLY, true
+	case "monthly":
+		return rrule.MONTHLY, true
+	case "weekly":
+		return rrule.WEEKLY, true
+	case "daily":
+		return rrule.DAILY, true
+	case "hourly":
+		return rrule.HOURLY, true
+	case "minutely":
+		return rrule.MINUTELY, true
+	case "secondly":
+		return rrule.SECONDLY, true
+	}
+	return 0, false
+}
+
+// jsMonthToRRule converts a JSCalendar "byMonth" token (e.g. "1", "5", or leap-month
+// forms like "5L") to a 1-based month number. The leap-month suffix is ignored for
+// Gregorian expansion.
+func jsMonthToRRule(m string) (int, bool) {
+	m = strings.TrimSuffix(strings.ToUpper(strings.TrimSpace(m)), "L")
+	if m == "" {
+		return 0, false
+	}
+	n := 0
+	for _, c := range m {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		n = n*10 + int(c-'0')
+	}
+	if n < 1 || n > 12 {
+		return 0, false
+	}
+	return n, true
+}
+
+// buildRRuleOption converts one JSCalendar RecurrenceRule to an rrule.ROption anchored at
+// dtstart. Every RFC 8984 Section 4.3.3 "byX" part, plus interval/count/until/firstDayOfWeek/
+// bySetPosition, is mapped through. Returns ok=false when the frequency is invalid.
+func buildRRuleOption(rule *jmap.JSCalendarRecurrenceRule, dtstart time.Time) (rrule.ROption, bool) {
+	if rule == nil {
+		return rrule.ROption{}, false
+	}
+	freq, ok := jsFrequencyToRRule(rule.Frequency)
+	if !ok {
+		return rrule.ROption{}, false
+	}
+	opt := rrule.ROption{Freq: freq, Dtstart: dtstart}
+
+	opt.Interval = int(rule.Interval)
+	if opt.Interval == 0 {
+		opt.Interval = 1
+	}
+	if rule.Count > 0 {
+		opt.Count = int(rule.Count)
+	}
+	if rule.Until != "" {
+		if u, ok := parseRFC3339(rule.Until); ok {
+			opt.Until = u
+		} else if u, ok := parseFloatingDateTime(rule.Until); ok {
+			opt.Until = u
+		}
+	}
+	if rule.FirstDayOfWeek != "" {
+		if wd, ok := jsWeekdayToRRule(&jmap.NDay{Day: rule.FirstDayOfWeek}); ok {
+			opt.Wkst = wd
+		}
+	}
+	for _, nd := range rule.ByDay {
+		if wd, ok := jsWeekdayToRRule(nd); ok {
+			opt.Byweekday = append(opt.Byweekday, wd)
+		}
+	}
+	opt.Bymonthday = append(opt.Bymonthday, rule.ByMonthDay...)
+	opt.Byyearday = append(opt.Byyearday, rule.ByYearDay...)
+	opt.Byweekno = append(opt.Byweekno, rule.ByWeekNo...)
+	opt.Bysetpos = append(opt.Bysetpos, rule.BySetPosition...)
+	for _, m := range rule.ByMonth {
+		if n, ok := jsMonthToRRule(m); ok {
+			opt.Bymonth = append(opt.Bymonth, n)
+		}
+	}
+	for _, h := range rule.ByHour {
+		opt.Byhour = append(opt.Byhour, int(h))
+	}
+	for _, mn := range rule.ByMinute {
+		opt.Byminute = append(opt.Byminute, int(mn))
+	}
+	for _, s := range rule.BySecond {
+		opt.Bysecond = append(opt.Bysecond, int(s))
+	}
+	return opt, true
+}
+
+// overrideStart returns the effective start time carried by a recurrenceOverrides patch,
+// which may relocate the instance via a "start" property.
+func overrideStart(recID string, patch map[string]any) (time.Time, bool) {
+	if patch != nil {
+		if s, ok := patch["start"].(string); ok && s != "" {
+			if t, ok := parseRFC3339(s); ok {
+				return t, true
+			}
+			if t, ok := parseFloatingDateTime(s); ok {
+				return t, true
+			}
+		}
+	}
+	if t, ok := parseRFC3339(recID); ok {
+		return t, true
+	}
+	if t, ok := parseFloatingDateTime(recID); ok {
+		return t, true
+	}
+	return time.Time{}, false
+}
+
+// ExpandRecurrenceInstances expands an event's recurrenceRules over [start, horizon],
+// honouring every RFC 8984 Section 4.3 mechanism: byX parts, bySetPosition, interval,
+// count/until, excludedRecurrenceRules (as EXRULEs), the legacy per-instance "excluded"
+// map, and recurrenceOverrides (relocated instances via "start", and instances removed
+// with "excluded":true). Instances are de-duplicated and returned in chronological order.
 func ExpandRecurrenceInstances(ev *jmap.CalendarEvent, horizon time.Time) []RecurrenceInstance {
 	start, ok := parseRFC3339(ev.Start)
 	if !ok {
-		return nil
+		if start, ok = parseFloatingDateTime(ev.Start); !ok {
+			return nil
+		}
 	}
 
 	duration := time.Duration(0)
@@ -995,80 +1167,118 @@ func ExpandRecurrenceInstances(ev *jmap.CalendarEvent, horizon time.Time) []Recu
 		End:          start.Add(duration),
 	}
 
-	if len(ev.RecurrenceRules) == 0 {
+	hasRules := false
+	for _, r := range ev.RecurrenceRules {
+		if r != nil {
+			hasRules = true
+			break
+		}
+	}
+	if !hasRules && len(ev.RecurrenceOverrides) == 0 {
 		return []RecurrenceInstance{masterInst}
 	}
 
-	var results []RecurrenceInstance
+	// Bound the expansion window so unbounded rules terminate.
+	if horizon.IsZero() {
+		horizon = start.AddDate(5, 0, 0)
+	}
 
-	for _, rule := range ev.RecurrenceRules {
-		if rule == nil {
+	// starts collects the recurrence-id start times of generated instances, keyed by the
+	// canonical RFC3339 recurrence id so overrides and exclusions can be matched.
+	starts := make(map[string]time.Time)
+
+	if hasRules {
+		set := &rrule.Set{}
+		set.DTStart(start)
+		for _, rule := range ev.RecurrenceRules {
+			opt, ok := buildRRuleOption(rule, start)
+			if !ok {
+				continue
+			}
+			rr, err := rrule.NewRRule(opt)
+			if err != nil {
+				continue
+			}
+			set.RRule(rr)
+		}
+		// This rrule-go version has no EXRULE; materialize excludedRecurrenceRules
+		// (RFC 8984 Section 4.3.4) into EXDATEs over the expansion window.
+		for _, rule := range ev.ExcludedRecurrenceRules {
+			opt, ok := buildRRuleOption(rule, start)
+			if !ok {
+				continue
+			}
+			rr, err := rrule.NewRRule(opt)
+			if err != nil {
+				continue
+			}
+			for i, t := range rr.Between(start.Add(-time.Second), horizon, true) {
+				if i >= 5000 {
+					break
+				}
+				set.ExDate(t)
+			}
+		}
+		// Between is inclusive; cap at a large occurrence count as a safety valve.
+		occ := set.Between(start.Add(-time.Second), horizon, true)
+		for i, t := range occ {
+			if i >= 5000 {
+				break
+			}
+			starts[t.UTC().Format(time.RFC3339)] = t
+		}
+	} else {
+		starts[start.UTC().Format(time.RFC3339)] = start
+	}
+
+	// recurrenceOverrides may add instances that the rule would not generate.
+	for recID := range ev.RecurrenceOverrides {
+		if _, present := starts[recID]; present {
 			continue
 		}
-		freq := strings.ToLower(rule.Frequency)
-		interval := rule.Interval
-		if interval == 0 {
-			interval = 1
-		}
-
-		maxCount := rule.Count
-		var untilTime time.Time
-		if rule.Until != "" {
-			if u, ok := parseRFC3339(rule.Until); ok {
-				untilTime = u
-			}
-		}
-
-		cur := start
-		count := uint64(0)
-		for {
-			if maxCount > 0 && count >= maxCount {
-				break
-			}
-			if !untilTime.IsZero() && cur.After(untilTime) {
-				break
-			}
-			if !horizon.IsZero() && cur.After(horizon) {
-				break
-			}
-
-			recID := cur.UTC().Format(time.RFC3339)
-
-			if ev.Excluded != nil && ev.Excluded[recID] {
-				// Instance canceled/excluded
-			} else {
-				instEnd := cur.Add(duration)
-				results = append(results, RecurrenceInstance{
-					RecurrenceID: recID,
-					Start:        cur,
-					End:          instEnd,
-				})
-			}
-			count++
-
-			switch freq {
-			case "daily":
-				cur = cur.AddDate(0, 0, int(interval))
-			case "weekly":
-				cur = cur.AddDate(0, 0, int(7*interval))
-			case "monthly":
-				cur = cur.AddDate(0, int(interval), 0)
-			case "yearly":
-				cur = cur.AddDate(int(interval), 0, 0)
-			default:
-				cur = cur.AddDate(0, 0, int(7*interval))
-			}
-
-			if count >= 500 {
-				break
-			}
+		if t, ok := overrideStart(recID, ev.RecurrenceOverrides[recID]); ok {
+			starts[t.UTC().Format(time.RFC3339)] = t
 		}
 	}
+
+	results := make([]RecurrenceInstance, 0, len(starts))
+	for recID, t := range starts {
+		// Legacy per-instance exclusion map (RFC 8984 Section 4.3.6).
+		if ev.Excluded != nil && ev.Excluded[recID] {
+			continue
+		}
+		instStart := t
+		instDur := duration
+		if ov, ok := ev.RecurrenceOverrides[recID]; ok {
+			if excluded, _ := ov["excluded"].(bool); excluded {
+				continue
+			}
+			if s, ok := overrideStart(recID, ov); ok {
+				instStart = s
+			}
+			if ds, ok := ov["duration"].(string); ok && ds != "" {
+				if d, ok := parseISODuration(ds); ok {
+					instDur = d
+				}
+			}
+		}
+		results = append(results, RecurrenceInstance{
+			RecurrenceID: recID,
+			Start:        instStart,
+			End:          instStart.Add(instDur),
+		})
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		if !results[i].Start.Equal(results[j].Start) {
+			return results[i].Start.Before(results[j].Start)
+		}
+		return results[i].RecurrenceID < results[j].RecurrenceID
+	})
 
 	if len(results) == 0 {
-		results = []RecurrenceInstance{masterInst}
+		return []RecurrenceInstance{masterInst}
 	}
-
 	return results
 }
 
