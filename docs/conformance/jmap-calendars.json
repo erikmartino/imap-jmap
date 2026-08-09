@@ -1,5 +1,21 @@
 [
   {
+    "spec": "RFC5545",
+    "section": "3.3.11",
+    "level": "MUST",
+    "text": "TEXT values escape backslash, comma, semicolon and newline on write and unescape on read.",
+    "tests": ["TestRFC5545_TextEscapingRoundTrip"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC5545",
+    "section": "3.6.1",
+    "level": "MUST",
+    "text": "VEVENT properties (recurrence, participants, alarms, location, timezone, duration) round-trip losslessly to and from JSCalendar.",
+    "tests": ["TestRFC5546_ITIPRoundTripFullFidelity"],
+    "status": "covered"
+  },
+  {
     "spec": "RFC5546",
     "section": "2.1.5",
     "level": "MUST",
@@ -12,7 +28,7 @@
     "section": "3.2.2",
     "level": "MUST",
     "text": "A REQUEST invitation carries the event's UID, SEQUENCE, ORGANIZER, and ATTENDEE lines.",
-    "tests": ["TestRFC5546_BuildRequestAndCancel", "TestRFC5546_ITIPUsesEventUIDAndSequence", "TestRFC8984_SchedulingRequestExcludesOwner"],
+    "tests": ["TestRFC5546_BuildRequestAndCancel", "TestRFC5546_ITIPRoundTripFullFidelity", "TestRFC5546_ITIPUsesEventUIDAndSequence", "TestRFC8984_SchedulingRequestExcludesOwner"],
     "status": "covered"
   },
   {
@@ -202,6 +218,14 @@
   },
   {
     "spec": "draft-ietf-jmap-calendars-27",
+    "section": "5.9.2.1",
+    "level": "MUST",
+    "text": "A REQUEST to a local participant delivers the event into that participant's own calendar with participation still pending.",
+    "tests": ["TestRFC8984_SameServerInviteAcceptRoundTrip"],
+    "status": "covered"
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
     "section": "5.9.2.2",
     "level": "MUST",
     "text": "On destroy the origin sends a CANCEL to every participant except the calendar owner.",
@@ -214,6 +238,14 @@
     "level": "MUST",
     "text": "When not the origin, a REPLY is sent to the organizer when a user participant's participationStatus changes to a value other than needs-action.",
     "tests": ["TestRFC8984_SchedulingReplyOnRSVP"],
+    "status": "covered"
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
+    "section": "5.9.2.3",
+    "level": "MUST",
+    "text": "A REPLY from a local participant is reflected into the organizer's own copy of the event.",
+    "tests": ["TestRFC8984_SameServerInviteAcceptRoundTrip"],
     "status": "covered"
   },
   {

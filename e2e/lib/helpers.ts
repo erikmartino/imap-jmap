@@ -288,6 +288,53 @@ export class JMAPClient {
     return created.id;
   }
 
+  /**
+   * Creates an event that invites participants, asking the server to send iTIP
+   * scheduling messages (draft-ietf-jmap-calendars-27 Section 5.9). Returns the new
+   * event's id and uid. `participants` is a JSCalendar participants map.
+   */
+  async inviteEvent(
+    props: Record<string, unknown>,
+    participants: Record<string, unknown>,
+  ): Promise<{ id: string; uid: string }> {
+    let event: Record<string, unknown> = { ...props, participants };
+    if (!('calendarIds' in event)) {
+      const calId = await this.defaultCalendarId();
+      if (calId) event = { ...event, calendarIds: { [calId]: true } };
+    }
+    const res = await this.callCalendar('CalendarEvent/set', {
+      sendSchedulingMessages: true,
+      create: { e0: event },
+    });
+    const created = res.created?.e0;
+    if (!created) {
+      throw new Error(`invite create failed: ${JSON.stringify(res.notCreated)}`);
+    }
+    return { id: created.id, uid: created.uid };
+  }
+
+  /**
+   * RSVPs to an event as the given participant, asking the server to send the iTIP
+   * REPLY to the organizer (draft-ietf-jmap-calendars-27 Section 5.9.2.3).
+   */
+  async rsvp(eventId: string, participantEmail: string, status: string): Promise<void> {
+    const res = await this.callCalendar('CalendarEvent/set', {
+      sendSchedulingMessages: true,
+      update: { [eventId]: { [`participants/${participantEmail}/participationStatus`]: status } },
+    });
+    if (res.notUpdated?.[eventId]) {
+      throw new Error(`rsvp failed: ${JSON.stringify(res.notUpdated[eventId])}`);
+    }
+  }
+
+  /** Finds an event (with participants) by title in the account's calendars, or undefined. */
+  async eventByTitle(title: string): Promise<any | undefined> {
+    const ids = await this.queryEventIds({ text: title });
+    if (ids.length === 0) return undefined;
+    const [ev] = await this.getEvents(ids, ['id', 'uid', 'title', 'start', 'participants']);
+    return ev;
+  }
+
   /** Applies a partial patch to an event (CalendarEvent/set update). */
   async updateEvent(id: string, patch: Record<string, unknown>): Promise<void> {
     const res = await this.callCalendar('CalendarEvent/set', { update: { [id]: patch } });

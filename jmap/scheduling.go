@@ -2,6 +2,7 @@ package jmap
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 )
 
@@ -149,48 +150,184 @@ func sendSchedulingEmail(ctx context.Context, mailBackend MailBackend, subject, 
 	}
 }
 
-// dispatchITIPRequests sends a METHOD:REQUEST iMIP invitation to every scheduling
-// recipient of the event (draft-ietf-jmap-calendars-27 Section 5.9.2.1). The
-// calendar owner/organizer is never a recipient, and hideAttendees is honoured.
-func dispatchITIPRequests(ctx context.Context, mailBackend MailBackend, ev *CalendarEvent, subjectPrefix, organizerEmail string) {
-	if mailBackend == nil || ev == nil {
+// cloneEventForDelivery deep-copies an event for delivery into another account's
+// calendar: the stable uid is preserved (the cross-account correlation key), but the
+// origin's server-assigned id, calendar membership, and timestamps are cleared so the
+// recipient's backend assigns its own and the copy lands in the recipient's default
+// calendar.
+func cloneEventForDelivery(ev *CalendarEvent) *CalendarEvent {
+	data, err := json.Marshal(ev)
+	if err != nil {
+		return nil
+	}
+	var clone CalendarEvent
+	if err := json.Unmarshal(data, &clone); err != nil {
+		return nil
+	}
+	clone.ID = ""
+	clone.CalendarIDs = nil
+	clone.Created = ""
+	clone.Updated = ""
+	return &clone
+}
+
+// findEventByUIDIn returns the event in the given (account) context whose iCalendar
+// uid matches (RFC 5546 Section 2.1.5), or nil.
+func findEventByUIDIn(ctx context.Context, calBackend CalendarsBackend, uid string) *CalendarEvent {
+	if calBackend == nil || uid == "" {
+		return nil
+	}
+	all, err := calBackend.GetAllCalendarEvents(ctx)
+	if err != nil {
+		return nil
+	}
+	for _, ev := range all {
+		if ev != nil && ev.UID == uid {
+			return ev
+		}
+	}
+	return nil
+}
+
+// localAccountCtx resolves an address to a local account context, or (nil,false) when
+// the address is external or unresolvable. This is how the server acts as the calendar
+// agent for a participant that lives on this same server (same-server iTIP delivery).
+func localAccountCtx(resolver AccountResolver, addr string) (context.Context, bool) {
+	if resolver == nil || addr == "" {
+		return nil, false
+	}
+	acctID, local := resolver.ResolveAccountID(context.Background(), addr)
+	if !local || acctID == "" {
+		return nil, false
+	}
+	return ContextWithAccountID(context.Background(), acctID), true
+}
+
+// deliverRequestLocal delivers a REQUEST into a local recipient's calendar: it creates
+// the event (with the recipient's participation still pending) the first time, and
+// re-syncs the mutable details on a subsequent REQUEST. A CalendarEventNotification
+// records the change as made by the organizer (draft-ietf-jmap-calendars-27 Section 7).
+func deliverRequestLocal(calBackend CalendarsBackend, resolver AccountResolver, ev *CalendarEvent, recipientKey, recipientAddr string) {
+	rcptCtx, ok := localAccountCtx(resolver, recipientAddr)
+	if !ok || calBackend == nil {
+		return
+	}
+	view := eventForRecipient(ev, recipientKey)
+	if existing := findEventByUIDIn(rcptCtx, calBackend, ev.UID); existing != nil {
+		// A subsequent REQUEST re-syncs the mutable core details on the recipient's copy.
+		patch := map[string]any{"title": view.Title, "start": view.Start}
+		if view.Duration != "" {
+			patch["duration"] = view.Duration
+		}
+		_, _ = calBackend.UpdateCalendarEvent(rcptCtx, existing.ID, patch)
+		return
+	}
+	copyEv := cloneEventForDelivery(view)
+	if copyEv == nil {
+		return
+	}
+	created, err := calBackend.CreateCalendarEvent(rcptCtx, copyEv)
+	if err != nil || created == nil {
+		return
+	}
+	_, _ = calBackend.CreateCalendarEventNotification(rcptCtx, &CalendarEventNotification{
+		Type:            "created",
+		CalendarEventID: created.ID,
+		ChangedBy:       notificationChangedBy(ev),
+		Event:           created,
+	})
+}
+
+// deliverReplyLocal applies an attendee's REPLY into a local organizer's copy of the
+// event (matched by uid), updating that participant's participationStatus and recording
+// a CalendarEventNotification (draft-ietf-jmap-calendars-27 Section 5.9.2.3 / Section 7).
+func deliverReplyLocal(calBackend CalendarsBackend, resolver AccountResolver, ev *CalendarEvent, attendeeAddr, status string) {
+	orgCtx, ok := localAccountCtx(resolver, organizerAddress(ev))
+	if !ok || calBackend == nil {
+		return
+	}
+	orgEvent := findEventByUIDIn(orgCtx, calBackend, ev.UID)
+	if orgEvent == nil {
+		return
+	}
+	patch := map[string]any{"participants/" + attendeeAddr + "/participationStatus": status}
+	if _, err := calBackend.UpdateCalendarEvent(orgCtx, orgEvent.ID, patch); err != nil {
+		return
+	}
+	replyEmail := attendeeAddr
+	_, _ = calBackend.CreateCalendarEventNotification(orgCtx, &CalendarEventNotification{
+		Type:            "updated",
+		CalendarEventID: orgEvent.ID,
+		ChangedBy:       CalendarEventNotificationPerson{Email: &replyEmail, CalendarAddress: &replyEmail},
+		Event:           orgEvent,
+		EventPatch:      patch,
+	})
+}
+
+// deliverCancelLocal marks a local recipient's copy of the event cancelled when the
+// organizer destroys it (draft-ietf-jmap-calendars-27 Section 5.9.2.2).
+func deliverCancelLocal(calBackend CalendarsBackend, resolver AccountResolver, ev *CalendarEvent, recipientAddr string) {
+	rcptCtx, ok := localAccountCtx(resolver, recipientAddr)
+	if !ok || calBackend == nil {
+		return
+	}
+	existing := findEventByUIDIn(rcptCtx, calBackend, ev.UID)
+	if existing == nil {
+		return
+	}
+	_, _ = calBackend.UpdateCalendarEvent(rcptCtx, existing.ID, map[string]any{"status": "cancelled"})
+}
+
+// dispatchITIPRequests sends a METHOD:REQUEST to every scheduling recipient of the event
+// (draft-ietf-jmap-calendars-27 Section 5.9.2.1): the calendar owner/organizer is never a
+// recipient, and hideAttendees is honoured. Recipients local to this server also receive
+// the event directly in their calendar (same-server iTIP delivery); external recipients
+// get an iMIP email.
+func dispatchITIPRequests(ctx context.Context, mailBackend MailBackend, calBackend CalendarsBackend, resolver AccountResolver, ev *CalendarEvent, subjectPrefix, organizerEmail string) {
+	if ev == nil {
 		return
 	}
 	for key, addr := range schedulingRecipients(ev) {
-		reqICS, err := BuildITIPRequest(eventForRecipient(ev, key), organizerEmail)
-		if err != nil {
-			continue
+		deliverRequestLocal(calBackend, resolver, ev, key, addr)
+		if mailBackend != nil {
+			if reqICS, err := BuildITIPRequest(eventForRecipient(ev, key), organizerEmail); err == nil {
+				sendSchedulingEmail(ctx, mailBackend, subjectPrefix+ev.Title, addr, reqICS, "REQUEST")
+			}
 		}
-		sendSchedulingEmail(ctx, mailBackend, subjectPrefix+ev.Title, addr, reqICS, "REQUEST")
 	}
 }
 
-// dispatchITIPCancels sends a METHOD:CANCEL iMIP notice to every scheduling
-// recipient of the event (draft-ietf-jmap-calendars-27 Section 5.9.2.2).
-func dispatchITIPCancels(ctx context.Context, mailBackend MailBackend, ev *CalendarEvent, organizerEmail string) {
-	if mailBackend == nil || ev == nil {
+// dispatchITIPCancels sends a METHOD:CANCEL to every scheduling recipient of the event
+// (draft-ietf-jmap-calendars-27 Section 5.9.2.2), cancelling local recipients' copies and
+// emailing external recipients.
+func dispatchITIPCancels(ctx context.Context, mailBackend MailBackend, calBackend CalendarsBackend, resolver AccountResolver, ev *CalendarEvent, organizerEmail string) {
+	if ev == nil {
 		return
 	}
-	cancelICS, err := BuildITIPCancel(ev, organizerEmail)
-	if err != nil {
-		return
-	}
+	cancelICS, icsErr := BuildITIPCancel(ev, organizerEmail)
 	for _, addr := range schedulingRecipients(ev) {
-		sendSchedulingEmail(ctx, mailBackend, "Cancelled: "+ev.Title, addr, cancelICS, "CANCEL")
+		deliverCancelLocal(calBackend, resolver, ev, addr)
+		if mailBackend != nil && icsErr == nil {
+			sendSchedulingEmail(ctx, mailBackend, "Cancelled: "+ev.Title, addr, cancelICS, "CANCEL")
+		}
 	}
 }
 
 // dispatchITIPRepliesForPatch implements the RSVP flow (draft-ietf-jmap-calendars-27
 // Section 5.9.2.3): when the update patch changes a participant's participationStatus
 // to a value other than "needs-action", the server (not being the origin) sends a
-// METHOD:REPLY to the organizer on that participant's behalf. It returns true when at
-// least one REPLY was sent, so the caller can skip the origin REQUEST path — a bare
+// METHOD:REPLY to the organizer on that participant's behalf — reflected directly into a
+// local organizer's copy, or emailed to an external organizer. It returns true when at
+// least one REPLY was produced, so the caller can skip the origin REQUEST path — a bare
 // RSVP is a reply, not a re-invitation.
-func dispatchITIPRepliesForPatch(ctx context.Context, mailBackend MailBackend, ev *CalendarEvent, patch map[string]any) bool {
-	if mailBackend == nil || ev == nil || len(patch) == 0 {
+func dispatchITIPRepliesForPatch(ctx context.Context, mailBackend MailBackend, calBackend CalendarsBackend, resolver AccountResolver, ev *CalendarEvent, patch map[string]any) bool {
+	if ev == nil || len(patch) == 0 {
 		return false
 	}
 	organizer := organizerAddress(ev)
+	if organizer == "" {
+		return false
+	}
 	sentAny := false
 	for path, val := range patch {
 		if !strings.HasPrefix(path, "participants/") {
@@ -217,14 +354,15 @@ func dispatchITIPRepliesForPatch(ctx context.Context, mailBackend MailBackend, e
 		}
 		// A participant cannot reply to itself: skip when this participant is the
 		// organizer (the owner changing their own status is not a REPLY).
-		if organizer == "" || attendee == organizer {
+		if attendee == organizer {
 			continue
 		}
-		replyICS, err := BuildITIPReply(ev, attendee, status)
-		if err != nil {
-			continue
+		deliverReplyLocal(calBackend, resolver, ev, attendee, status)
+		if mailBackend != nil {
+			if replyICS, err := BuildITIPReply(ev, attendee, status); err == nil {
+				sendSchedulingEmail(ctx, mailBackend, "Re: "+ev.Title, organizer, replyICS, "REPLY")
+			}
 		}
-		sendSchedulingEmail(ctx, mailBackend, "Re: "+ev.Title, organizer, replyICS, "REPLY")
 		sentAny = true
 	}
 	return sentAny

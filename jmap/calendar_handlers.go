@@ -7,7 +7,7 @@ import (
 )
 
 // RegisterCalendarHandlers registers JMAP for Calendars & JSCalendar method handlers into MethodRegistry.
-func RegisterCalendarHandlers(r *MethodRegistry, backend CalendarsBackend, mailBackend MailBackend, blobBackend BlobBackend) {
+func RegisterCalendarHandlers(r *MethodRegistry, backend CalendarsBackend, mailBackend MailBackend, blobBackend BlobBackend, resolver AccountResolver) {
 	if backend == nil {
 		return
 	}
@@ -18,7 +18,7 @@ func RegisterCalendarHandlers(r *MethodRegistry, backend CalendarsBackend, mailB
 
 	r.Register("CalendarEvent/get", handleCalendarEventGet(backend))
 	r.Register("CalendarEvent/changes", handleCalendarEventChanges(backend))
-	r.Register("CalendarEvent/set", handleCalendarEventSet(backend, mailBackend))
+	r.Register("CalendarEvent/set", handleCalendarEventSet(backend, mailBackend, resolver))
 	r.Register("CalendarEvent/query", handleCalendarEventQuery(backend))
 	r.Register("CalendarEvent/queryChanges", handleCalendarEventQueryChanges(backend))
 	r.Register("CalendarEvent/copy", handleCalendarEventCopy(backend))
@@ -299,7 +299,7 @@ func handleCalendarEventChanges(backend CalendarsBackend) MethodHandler {
 	}
 }
 
-func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend) MethodHandler {
+func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, resolver AccountResolver) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		oldState := backend.CalendarEventState(ctx)
@@ -341,7 +341,7 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend) M
 				// REQUEST to every participant except the calendar owner
 				// (draft-ietf-jmap-calendars-27 Section 5.9.2.1).
 				if sendSchedulingMessages && mailBackend != nil {
-					dispatchITIPRequests(ctx, mailBackend, createdEv, "Invitation: ", accountID)
+					dispatchITIPRequests(ctx, mailBackend, backend, resolver, createdEv, "Invitation: ", accountID)
 				}
 				// A scheduling change (iTIP dispatch) is recorded as a CalendarEventNotification
 				// (Section 7): the event data after creation.
@@ -407,8 +407,8 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend) M
 					// REPLY to the organizer (Section 5.9.2.3); any other change is a
 					// re-invitation REQUEST to the attendees (Section 5.9.2.1).
 					if sendSchedulingMessages && mailBackend != nil && updatedEv != nil {
-						if !dispatchITIPRepliesForPatch(ctx, mailBackend, updatedEv, patch) {
-							dispatchITIPRequests(ctx, mailBackend, updatedEv, "Updated Invitation: ", accountID)
+						if !dispatchITIPRepliesForPatch(ctx, mailBackend, backend, resolver, updatedEv, patch) {
+							dispatchITIPRequests(ctx, mailBackend, backend, resolver, updatedEv, "Updated Invitation: ", accountID)
 						}
 					}
 				}
@@ -441,7 +441,7 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend) M
 						// CANCEL to every participant except the calendar owner when the
 						// event is destroyed (draft-ietf-jmap-calendars-27 Section 5.9.2.2).
 						if mailBackend != nil && len(events) > 0 && events[0] != nil {
-							dispatchITIPCancels(ctx, mailBackend, events[0], accountID)
+							dispatchITIPCancels(ctx, mailBackend, backend, resolver, events[0], accountID)
 						}
 					}
 				}
