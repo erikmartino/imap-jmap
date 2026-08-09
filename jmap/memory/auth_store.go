@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -112,25 +113,53 @@ func (a *MemoryAuthBackend) ValidateCredentials(ctx context.Context, username, p
 }
 
 // ValidateToken looks up the token and returns the associated accountID.
-// Expired or revoked tokens are rejected and removed from the store.
+// Expired or revoked tokens are rejected. Bearer tokens containing a valid subject email
+// or issued by Authenticate are accepted.
 func (a *MemoryAuthBackend) ValidateToken(ctx context.Context, token string) (string, error) {
+	if token == "" {
+		return "", fmt.Errorf("invalid or expired token")
+	}
 	a.mu.Lock()
-	defer a.mu.Unlock()
 
 	if a.revoked[token] {
 		delete(a.tokens, token)
+		a.mu.Unlock()
 		return "", fmt.Errorf("invalid or expired token")
 	}
 
 	rec, ok := a.tokens[token]
-	if !ok {
-		return "", fmt.Errorf("invalid or expired token")
+	if ok {
+		if !rec.expiresAt.IsZero() && time.Now().After(rec.expiresAt) {
+			delete(a.tokens, token)
+			a.mu.Unlock()
+			return "", fmt.Errorf("invalid or expired token")
+		}
+		a.mu.Unlock()
+		return rec.accountID, nil
 	}
-	if !rec.expiresAt.IsZero() && time.Now().After(rec.expiresAt) {
-		delete(a.tokens, token)
-		return "", fmt.Errorf("invalid or expired token")
+
+	// For memory auth backend: if Bearer token is an email address (e.g. a@profundo.dk), accept it
+	if strings.Contains(token, "@") {
+		accountID, err := a.ValidateCredentials(ctx, token, token)
+		if err == nil {
+			if a.seededAccounts == nil {
+				a.seededAccounts = make(map[string]bool)
+			}
+			alreadySeeded := a.seededAccounts[accountID]
+			a.seededAccounts[accountID] = true
+			mb, cb, contactsB, fnB := a.mailBackend, a.calendarsBackend, a.contactsBackend, a.fileNodeBackend
+			a.mu.Unlock()
+
+			if !alreadySeeded && (mb != nil || cb != nil || contactsB != nil || fnB != nil) {
+				SeedAccountSampleData(ctx, accountID, mb, cb, contactsB, fnB)
+			}
+
+			return accountID, nil
+		}
 	}
-	return rec.accountID, nil
+
+	a.mu.Unlock()
+	return "", fmt.Errorf("invalid or expired token")
 }
 
 // generateToken creates a cryptographically random 32-byte hex token.
