@@ -1,8 +1,11 @@
 package jmap
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"log"
+	"net"
 	"net/http"
 	"strings"
 )
@@ -195,7 +198,39 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/jmap/login", s.handleLogin)
 	mux.HandleFunc("/", s.handleNotFound)
 
-	return s.corsMiddleware(s.authMiddleware(mux))
+	return s.corsMiddleware(loggingMiddleware(s.authMiddleware(mux)))
+}
+
+type statusLoggingResponseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (w *statusLoggingResponseWriter) WriteHeader(code int) {
+	w.statusCode = code
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *statusLoggingResponseWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (w *statusLoggingResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hj, ok := w.ResponseWriter.(http.Hijacker); ok {
+		return hj.Hijack()
+	}
+	return nil, nil, fmt.Errorf("http.Hijacker not supported")
+}
+
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sw := &statusLoggingResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+		next.ServeHTTP(sw, r)
+		hasAuth := r.Header.Get("Authorization") != ""
+		log.Printf("HTTP %s %s -> %d | Origin: %q | HasAuth: %t", r.Method, r.URL.Path, sw.statusCode, r.Header.Get("Origin"), hasAuth)
+	})
 }
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
