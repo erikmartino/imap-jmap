@@ -89,6 +89,29 @@ the parsing discipline these build on.
 
 ---
 
+## Open — real authentication (OIDC / Keycloak)
+
+Production (`jmap.profundo.dk`, see the deployment in `github.com/erikmartino/flux-clusters`)
+runs the **development in-memory auth backend** (`memory.NewMemoryAuthBackend`), which accepts
+a login only when `password == username` (the email address). This is a severe hole: anyone who
+knows an address can authenticate as that user by supplying the address as the password. Keycloak
+is already deployed in the cluster (`apps/profundo/keycloak`) but is **not** wired to imap-jmap.
+
+- **AUTH-1 — OIDC bearer validation.** Add an `AuthBackend` that validates OAuth 2.0 / OIDC
+  access tokens against the Keycloak realm (JWKS signature check, `iss`/`aud`/`exp` validation,
+  RFC 9068 JWT access tokens), mapping the verified `sub`/`email` claim to the account. This is
+  the RFC 8620 §8.2 path (JMAP defers auth to OAuth 2.0).
+- **AUTH-2 — Retire password==email.** Once OIDC is in place, remove the insecure in-memory
+  credential path from any non-test build (keep it behind a dev-only flag), so real deployments
+  never accept `password == username`.
+- **AUTH-3 — Basic-auth bridge (optional).** For clients that only speak HTTP Basic (e.g. some
+  IMAP/JMAP clients), validate the supplied password against Keycloak via the resource-owner
+  password grant, or issue app-specific passwords — never the accept-anything shim.
+
+See [[deployment-profundo]] for the current deployment facts.
+
+---
+
 ## Not a goal
 - **RFC 9670 JMAP Sharing** — explicitly out of scope in AGENTS.md.
 - Process-restart persistence (in-memory backend data loss across restarts is expected).
