@@ -118,6 +118,7 @@ func main() {
 		jmap.WithAuthBackend(authBackend),
 		jmap.WithAccountResolver(accountResolver),
 		jmap.WithAllowedRecipients(allowedSlice),
+		jmap.WithPublicBaseURL(publicURL),
 	)
 	memBackend.SetBroadcaster(server.Broadcaster)
 	memCalBackend.SetBroadcaster(server.Broadcaster)
