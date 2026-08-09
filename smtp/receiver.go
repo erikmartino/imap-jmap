@@ -1,13 +1,16 @@
 package smtp
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"strings"
 	"time"
 
+	gomail "github.com/emersion/go-message/mail"
 	"github.com/emersion/go-smtp"
 
 	"imap-jmap/jmap"
@@ -138,10 +141,15 @@ func (s *Session) Data(r io.Reader) error {
 			}
 		}
 
-		// 3. Auto-process iMIP invitation responses and incoming invitations (RFC 6047 / RFC 5546)
-		dataStr := string(data)
-		if s.backend.CalendarsBackend != nil && (strings.Contains(dataStr, "BEGIN:VCALENDAR") || strings.Contains(dataStr, "text/calendar")) {
-			msg, err := jmap.ParseITIPMessage(dataStr)
+		// 3. Auto-process iMIP invitation responses and incoming invitations (RFC 6047 /
+		//    RFC 5546). The text/calendar part is extracted with a real MIME parser (which
+		//    also decodes any Content-Transfer-Encoding) rather than scanning the raw bytes.
+		if s.backend.CalendarsBackend != nil {
+			icsBody := extractCalendarBody(data)
+			if icsBody == "" {
+				continue
+			}
+			msg, err := jmap.ParseITIPMessage(icsBody)
 			if err == nil && msg != nil && msg.UID != "" {
 				if strings.EqualFold(msg.Method, "REPLY") {
 					// An inbound REPLY (RFC 5546 Section 3.2.3 / RFC 6047) updates the
@@ -179,28 +187,28 @@ func (s *Session) Data(r io.Reader) error {
 						}
 					}
 				} else if strings.EqualFold(msg.Method, "REQUEST") {
-					title := msg.Summary
-					if title == "" {
-						title = "External Meeting Invitation"
-					}
-					// Preserve the iTIP UID so a later REPLY correlates to this event
-					// (RFC 5546 Section 2.1.5); let the backend assign the JMAP id.
-					newEvent := &jmap.CalendarEvent{
-						UID:         msg.UID,
-						Title:       title,
-						Start:       msg.Start,
-						Status:      "tentative",
-						CalendarIDs: map[jmap.Id]bool{"cal-default": true},
-						Participants: map[string]*jmap.JSCalendarParticipant{
-							s.from: {
-								Email: s.from,
-								Role:  "owner",
-							},
-						},
-					}
-					createdEv, err := s.backend.CalendarsBackend.CreateCalendarEvent(rcptCtx, newEvent)
-					if err == nil && createdEv != nil {
-						log.Printf("SMTP receiver: auto-imported incoming external invitation into calendar event %s (%s)", createdEv.ID, createdEv.Title)
+					// Full-fidelity import: parse the entire VEVENT (participants,
+					// duration, recurrence, location, alerts) rather than a title+start
+					// stub, so the invitee's calendar copy matches the organizer's.
+					imported := parseImportedEvent(icsBody, msg)
+					if existing := s.findEventByUID(rcptCtx, imported.UID); existing != nil {
+						// Re-REQUEST: re-sync the mutable core details onto the copy.
+						patch := map[string]any{"title": imported.Title, "start": imported.Start}
+						if imported.Duration != "" {
+							patch["duration"] = imported.Duration
+						}
+						_, _ = s.backend.CalendarsBackend.UpdateCalendarEvent(rcptCtx, existing.ID, patch)
+					} else {
+						imported.ID = ""
+						imported.CalendarIDs = map[jmap.Id]bool{"cal-default": true}
+						if imported.Status == "" {
+							imported.Status = "tentative"
+						}
+						ensureOwnerParticipant(imported, s.from)
+						createdEv, err := s.backend.CalendarsBackend.CreateCalendarEvent(rcptCtx, imported)
+						if err == nil && createdEv != nil {
+							log.Printf("SMTP receiver: auto-imported incoming invitation into calendar event %s (%s)", createdEv.ID, createdEv.Title)
+						}
 					}
 				}
 			}
@@ -208,6 +216,75 @@ func (s *Session) Data(r io.Reader) error {
 	}
 
 	return nil
+}
+
+// extractCalendarBody returns the decoded body of the message's text/calendar MIME part
+// (RFC 6047 Section 2.4), using a real MIME reader that also decodes any
+// Content-Transfer-Encoding (base64 / quoted-printable). Only a genuine text/calendar
+// part is honoured, so scheduling logic can never be driven by iCalendar-looking text
+// smuggled into an unrelated part. Returns "" when the message carries no calendar part.
+func extractCalendarBody(raw []byte) string {
+	mr, err := gomail.CreateReader(bytes.NewReader(raw))
+	if err != nil {
+		return ""
+	}
+	for {
+		p, err := mr.NextPart()
+		if err != nil {
+			break
+		}
+		mediaType, _, _ := mime.ParseMediaType(p.Header.Get("Content-Type"))
+		if strings.EqualFold(mediaType, "text/calendar") {
+			body, err := io.ReadAll(p.Body)
+			if err != nil {
+				return ""
+			}
+			return string(body)
+		}
+	}
+	return ""
+}
+
+// parseImportedEvent parses the (already MIME-extracted) text/calendar body into a full
+// CalendarEvent (RFC 5545 → RFC 8984), preferring the VEVENT whose UID matches the iTIP
+// message and falling back to a title+start event from the scanned iTIP fields.
+func parseImportedEvent(ics string, msg *jmap.ITIPMessage) *jmap.CalendarEvent {
+	if events, err := jmap.ParseICalendar([]byte(ics)); err == nil {
+		for _, e := range events {
+			if e != nil && e.UID == msg.UID {
+				return e
+			}
+		}
+		if len(events) > 0 && events[0] != nil {
+			return events[0]
+		}
+	}
+	title := msg.Summary
+	if title == "" {
+		title = "External Meeting Invitation"
+	}
+	return &jmap.CalendarEvent{UID: msg.UID, Title: title, Start: msg.Start}
+}
+
+// ensureOwnerParticipant guarantees the imported event has an owner participant (the
+// organizer), adding the SMTP envelope sender as owner when the ICS carried none.
+func ensureOwnerParticipant(ev *jmap.CalendarEvent, from string) {
+	for _, p := range ev.Participants {
+		if p != nil && ((p.Roles != nil && p.Roles["owner"]) || p.Role == "owner") {
+			return
+		}
+	}
+	if from == "" {
+		return
+	}
+	if ev.Participants == nil {
+		ev.Participants = make(map[string]*jmap.JSCalendarParticipant)
+	}
+	ev.Participants[from] = &jmap.JSCalendarParticipant{
+		Email: from,
+		Role:  "owner",
+		Roles: map[string]bool{"owner": true},
+	}
 }
 
 // findEventByUID locates the calendar event whose iCalendar UID (RFC 5546 Section

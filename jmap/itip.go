@@ -82,50 +82,10 @@ func BuildITIPRequest(event *CalendarEvent, organizerEmail string) (string, erro
 		return "", fmt.Errorf("event cannot be nil")
 	}
 
-	uid := eventUID(event)
-	nowStr := time.Now().UTC().Format("20060102T150405Z")
-
-	var sb strings.Builder
-	sb.WriteString("BEGIN:VCALENDAR\r\n")
-	sb.WriteString("VERSION:2.0\r\n")
-	sb.WriteString("PRODID:-//IMAP-JMAP Server//NONSGML v1.0//EN\r\n")
-	sb.WriteString("METHOD:REQUEST\r\n")
-	sb.WriteString("BEGIN:VEVENT\r\n")
-	fmt.Fprintf(&sb, "UID:%s\r\n", uid)
-	fmt.Fprintf(&sb, "DTSTAMP:%s\r\n", nowStr)
-	fmt.Fprintf(&sb, "SEQUENCE:%d\r\n", event.Sequence)
-	if event.Title != "" {
-		fmt.Fprintf(&sb, "SUMMARY:%s\r\n", event.Title)
-	}
-	if event.Description != "" {
-		fmt.Fprintf(&sb, "DESCRIPTION:%s\r\n", event.Description)
-	}
-	if event.Start != "" {
-		startClean := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(event.Start, "-", ""), ":", ""), ".000", "")
-		fmt.Fprintf(&sb, "DTSTART:%s\r\n", startClean)
-	}
-	if organizerEmail != "" {
-		fmt.Fprintf(&sb, "ORGANIZER:mailto:%s\r\n", organizerEmail)
-	}
-	for email, p := range event.Participants {
-		partEmail := email
-		if p != nil && p.Email != "" {
-			partEmail = p.Email
-		}
-		partStat := "NEEDS-ACTION"
-		name := ""
-		if p != nil {
-			if p.Status != "" {
-				partStat = strings.ToUpper(p.Status)
-			}
-			name = p.Name
-		}
-		fmt.Fprintf(&sb, "ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=%s;CN=%s:mailto:%s\r\n", partStat, name, partEmail)
-	}
-	sb.WriteString("END:VEVENT\r\n")
-	sb.WriteString("END:VCALENDAR\r\n")
-
-	return sb.String(), nil
+	// The full JSCalendar→iCalendar serializer emits the complete VEVENT (recurrence,
+	// alarms, locations, full participant metadata, all-day/timezone handling) so the
+	// invitation is lossless for real clients.
+	return encodeICalendar(event, "REQUEST", organizerEmail, "", ""), nil
 }
 
 // BuildITIPCancel generates an iCalendar RFC 5545 / RFC 5546 string for a METHOD:CANCEL notice.
@@ -134,30 +94,9 @@ func BuildITIPCancel(event *CalendarEvent, organizerEmail string) (string, error
 		return "", fmt.Errorf("event cannot be nil")
 	}
 
-	uid := eventUID(event)
-	nowStr := time.Now().UTC().Format("20060102T150405Z")
-
-	var sb strings.Builder
-	sb.WriteString("BEGIN:VCALENDAR\r\n")
-	sb.WriteString("VERSION:2.0\r\n")
-	sb.WriteString("PRODID:-//IMAP-JMAP Server//NONSGML v1.0//EN\r\n")
-	sb.WriteString("METHOD:CANCEL\r\n")
-	sb.WriteString("BEGIN:VEVENT\r\n")
-	fmt.Fprintf(&sb, "UID:%s\r\n", uid)
-	fmt.Fprintf(&sb, "DTSTAMP:%s\r\n", nowStr)
-	// A CANCEL obsoletes prior revisions; carry the SEQUENCE (RFC 5546 Section 2.1.5).
-	fmt.Fprintf(&sb, "SEQUENCE:%d\r\n", event.Sequence)
-	if event.Title != "" {
-		fmt.Fprintf(&sb, "SUMMARY:Cancelled: %s\r\n", event.Title)
-	}
-	sb.WriteString("STATUS:CANCELLED\r\n")
-	if organizerEmail != "" {
-		fmt.Fprintf(&sb, "ORGANIZER:mailto:%s\r\n", organizerEmail)
-	}
-	sb.WriteString("END:VEVENT\r\n")
-	sb.WriteString("END:VCALENDAR\r\n")
-
-	return sb.String(), nil
+	// A CANCEL obsoletes prior revisions: the full VEVENT is emitted with STATUS:CANCELLED
+	// and the carried SEQUENCE (RFC 5546 Sections 2.1.5 / 3.2.5).
+	return encodeICalendar(event, "CANCEL", organizerEmail, "", "CANCELLED"), nil
 }
 
 // BuildITIPAdd generates an iCalendar RFC 5546 string for a METHOD:ADD request.

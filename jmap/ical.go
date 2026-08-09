@@ -304,13 +304,26 @@ func icalParticipantKey(addr string) string {
 	return addr
 }
 
-// parseICalAttendee converts an ATTENDEE property line into a JSCalendar participant.
+// parseICalAttendee converts an ATTENDEE property line into a JSCalendar participant,
+// mapping ROLE, PARTSTAT, CUTYPE, RSVP, and DELEGATED-TO/FROM / MEMBER parameters
+// (RFC 5545 Section 3.8.4.1) back to their JSCalendar equivalents (RFC 8984 Section 4.4.6).
 func parseICalAttendee(prop icalProperty, role string) *JSCalendarParticipant {
 	p := &JSCalendarParticipant{
 		Type:  "Participant",
 		Email: icalParticipantKey(prop.value),
-		Roles: map[string]bool{role: true},
 	}
+	// ROLE parameter overrides the caller's default role.
+	switch strings.ToUpper(icalParamValue(prop.params, "ROLE")) {
+	case "CHAIR":
+		role = "chair"
+	case "OPT-PARTICIPANT":
+		role = "optional"
+	case "NON-PARTICIPANT":
+		role = "informational"
+	case "REQ-PARTICIPANT":
+		role = "attendee"
+	}
+	p.Roles = map[string]bool{role: true}
 	if cn := icalParamValue(prop.params, "CN"); cn != "" {
 		p.Name = cn
 	}
@@ -321,7 +334,9 @@ func parseICalAttendee(prop icalProperty, role string) *JSCalendarParticipant {
 		p.ParticipationStatus = "declined"
 	case "TENTATIVE":
 		p.ParticipationStatus = "tentative"
-	case "COMPLETED", "DELEGATED", "NEEDS-ACTION":
+	case "DELEGATED":
+		p.ParticipationStatus = "delegated"
+	case "COMPLETED", "NEEDS-ACTION":
 		p.ParticipationStatus = "needs-action"
 	}
 	switch cutype := strings.ToUpper(icalParamValue(prop.params, "CUTYPE")); cutype {
@@ -331,6 +346,18 @@ func parseICalAttendee(prop icalProperty, role string) *JSCalendarParticipant {
 		p.Kind = "resource"
 	case "ROOM":
 		p.Kind = "location"
+	}
+	if strings.EqualFold(icalParamValue(prop.params, "RSVP"), "TRUE") {
+		p.ExpectReply = true
+	}
+	if to := icalParamValue(prop.params, "DELEGATED-TO"); to != "" {
+		p.DelegatedTo = map[string]bool{icalParticipantKey(to): true}
+	}
+	if from := icalParamValue(prop.params, "DELEGATED-FROM"); from != "" {
+		p.DelegatedFrom = map[string]bool{icalParticipantKey(from): true}
+	}
+	if member := icalParamValue(prop.params, "MEMBER"); member != "" {
+		p.MemberOf = map[string]bool{icalParticipantKey(member): true}
 	}
 	p.Role = role
 	p.Status = p.ParticipationStatus
@@ -415,9 +442,9 @@ func icalEventToCalendarEvent(comp *icalComponent, method, prodID string) *Calen
 		case "UID":
 			ev.UID = strings.TrimSpace(p.value)
 		case "SUMMARY":
-			ev.Title = p.value
+			ev.Title = unescapeICalText(p.value)
 		case "DESCRIPTION":
-			ev.Description = p.value
+			ev.Description = unescapeICalText(p.value)
 		case "DTSTART":
 			start = icalTimeToRFC3339(p.value, false)
 			startDateOnly = strings.EqualFold(icalParamValue(p.params, "VALUE"), "DATE")
@@ -462,11 +489,12 @@ func icalEventToCalendarEvent(comp *icalComponent, method, prodID string) *Calen
 				if ev.Locations == nil {
 					ev.Locations = make(map[string]*JSCalendarLocation)
 				}
-				hash := sha256.Sum256([]byte(p.value))
+				name := unescapeICalText(p.value)
+				hash := sha256.Sum256([]byte(name))
 				key := hex.EncodeToString(hash[:])[:40]
 				ev.Locations[key] = &JSCalendarLocation{
 					Type: "Location",
-					Name: p.value,
+					Name: name,
 				}
 			}
 		case "GEO":
@@ -509,6 +537,25 @@ func icalEventToCalendarEvent(comp *icalComponent, method, prodID string) *Calen
 			if rule := parseRecurrenceRule(p.value); rule != nil && rule.Frequency != "" {
 				ev.RecurrenceRules = append(ev.RecurrenceRules, rule)
 			}
+		case "EXRULE":
+			if rule := parseRecurrenceRule(p.value); rule != nil && rule.Frequency != "" {
+				ev.ExcludedRecurrenceRules = append(ev.ExcludedRecurrenceRules, rule)
+			}
+		case "PRIORITY":
+			if n, err := strconv.ParseUint(strings.TrimSpace(p.value), 10, 32); err == nil {
+				ev.Priority = uint32(n)
+			}
+		case "COLOR":
+			ev.Color = strings.TrimSpace(p.value)
+		case "ATTACH":
+			if p.value != "" {
+				if ev.Links == nil {
+					ev.Links = make(map[string]*JSCalendarLink)
+				}
+				hash := sha256.Sum256([]byte(p.value))
+				key := hex.EncodeToString(hash[:])[:40]
+				ev.Links[key] = &JSCalendarLink{Type: "Link", Href: p.value}
+			}
 		case "EXDATE":
 			for _, ex := range strings.Split(p.value, ",") {
 				if ex = strings.TrimSpace(ex); ex == "" {
@@ -528,7 +575,7 @@ func icalEventToCalendarEvent(comp *icalComponent, method, prodID string) *Calen
 				ev.Categories = make(map[string]bool)
 			}
 			for _, cat := range strings.Split(p.value, ",") {
-				if cat = strings.TrimSpace(cat); cat != "" {
+				if cat = strings.TrimSpace(unescapeICalText(cat)); cat != "" {
 					ev.Categories[cat] = true
 				}
 			}
@@ -547,6 +594,20 @@ func icalEventToCalendarEvent(comp *icalComponent, method, prodID string) *Calen
 		}
 	}
 
+	// VALARM sub-components become JSCalendar alerts (RFC 5545 Section 3.6.6 →
+	// RFC 8984 Section 4.5.2).
+	for i, child := range comp.children {
+		if child.name != "VALARM" {
+			continue
+		}
+		if alert := parseVAlarm(child); alert != nil {
+			if ev.Alerts == nil {
+				ev.Alerts = make(map[string]*JSCalendarAlert)
+			}
+			ev.Alerts[fmt.Sprintf("alert-%d", i+1)] = alert
+		}
+	}
+
 	if ev.UID == "" {
 		ev.UID = string(ev.ID)
 	}
@@ -557,6 +618,39 @@ func icalEventToCalendarEvent(comp *icalComponent, method, prodID string) *Calen
 		ev.Updated = ev.Created
 	}
 	return ev
+}
+
+// parseVAlarm converts a VALARM component into a JSCalendar Alert (RFC 8984 Section 4.5.2),
+// mapping ACTION, TRIGGER (relative offset or absolute DATE-TIME, with RELATED=END), and
+// DESCRIPTION.
+func parseVAlarm(comp *icalComponent) *JSCalendarAlert {
+	alert := &JSCalendarAlert{Type: "Alert", Action: "display"}
+	for _, p := range comp.properties {
+		switch p.name {
+		case "ACTION":
+			if strings.EqualFold(p.value, "EMAIL") {
+				alert.Action = "email"
+			} else {
+				alert.Action = "display"
+			}
+		case "TRIGGER":
+			if strings.EqualFold(icalParamValue(p.params, "VALUE"), "DATE-TIME") {
+				alert.Trigger = map[string]any{
+					"@type": "AbsoluteTrigger",
+					"when":  icalTimeToRFC3339(p.value, false),
+				}
+			} else {
+				trigger := map[string]any{"@type": "OffsetTrigger", "offset": strings.TrimSpace(p.value)}
+				if strings.EqualFold(icalParamValue(p.params, "RELATED"), "END") {
+					trigger["relativeTo"] = "end"
+				}
+				alert.Trigger = trigger
+			}
+		case "DESCRIPTION":
+			alert.Description = unescapeICalText(p.value)
+		}
+	}
+	return alert
 }
 
 func ensureLocations(m map[string]*JSCalendarLocation) map[string]*JSCalendarLocation {

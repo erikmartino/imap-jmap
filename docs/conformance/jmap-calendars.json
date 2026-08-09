@@ -1,5 +1,21 @@
 [
   {
+    "spec": "RFC5545",
+    "section": "3.3.11",
+    "level": "MUST",
+    "text": "TEXT values escape backslash, comma, semicolon and newline on write and unescape on read.",
+    "tests": ["TestRFC5545_TextEscapingRoundTrip"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC5545",
+    "section": "3.6.1",
+    "level": "MUST",
+    "text": "VEVENT properties (recurrence, participants, alarms, location, timezone, duration) round-trip losslessly to and from JSCalendar.",
+    "tests": ["TestRFC5546_ITIPRoundTripFullFidelity"],
+    "status": "covered"
+  },
+  {
     "spec": "RFC5546",
     "section": "2.1.5",
     "level": "MUST",
@@ -12,7 +28,7 @@
     "section": "3.2.2",
     "level": "MUST",
     "text": "A REQUEST invitation carries the event's UID, SEQUENCE, ORGANIZER, and ATTENDEE lines.",
-    "tests": ["TestRFC5546_BuildRequestAndCancel", "TestRFC5546_ITIPUsesEventUIDAndSequence", "TestRFC8984_SchedulingRequestExcludesOwner"],
+    "tests": ["TestRFC5546_BuildRequestAndCancel", "TestRFC5546_ITIPRoundTripFullFidelity", "TestRFC5546_ITIPUsesEventUIDAndSequence", "TestRFC8984_SchedulingRequestExcludesOwner"],
     "status": "covered"
   },
   {
