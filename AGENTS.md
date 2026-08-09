@@ -54,6 +54,39 @@ JMAP push is defined in **RFC 8620 Section 7** (`StateChange` object and the `Ev
 ## Data-Loss Prevention on Update & Merge
 When implementing updates, patches, or merges of any stored object (mails, mailboxes, contacts/cards, calendars/events, sieve scripts, blobs, submissions), treat user data as sacrosanct: a partial or malformed patch MUST fail the whole operation (or only that record) rather than silently dropping, overwriting, or zeroing fields that were not explicitly addressed. Never replace an entire object with a server- or client-supplied default, never fabricate values for data that was not provided, and never ignore or truncate existing properties during a merge. Destructive mutations (deletes, moves, role/default changes, privilege changes, token invalidation) MUST be rejected with an error when the target does not exist or cannot be safely located, and MUST never be silently no-oped while pretending success. Preserve server-set fields (created/updated timestamps, IDs) and, where the RFC mandates it, record and return oldState/newState plus notCreated/notUpdated/notDestroyed information so clients can reconcile. When in doubt, choose the operation that preserves data over the one that discards it, and add a regression test proving the previously-missing field survives an update.
 
+## Standard Parsers & Encoders Only — Never Ad-Hoc Parsing
+Wire formats and structured, potentially-untrusted input (MIME messages, MIME parts and their
+`Content-Transfer-Encoding`, iCalendar/vCard, JSON, JMAP request envelopes, email addresses and
+headers, dates/times, URIs, base64/quoted-printable, etc.) MUST be handled with a proper,
+standards-conformant parser/encoder — the format's real grammar — **never** with ad-hoc
+`strings.Index` / `strings.Split` / substring / regex scanning chosen "because it is easier."
+
+1. **This is a security requirement, not a style preference.** Ad-hoc scanning is a primary source
+   of vulnerabilities: **parser differentials** (the security check and the consuming/display
+   parser disagree about where a part begins/ends, enabling spoofing and smuggling — e.g. splicing
+   across MIME boundaries with `strings.Index("BEGIN:VCALENDAR")` / `LastIndex("END:VCALENDAR")`),
+   **transfer-encoding bypass** (missing base64/quoted-printable decoding so malicious content is
+   seen differently by different readers), header/CRLF injection, and denial-of-service on
+   malformed or deeply-nested input. Treat all such input as hostile.
+2. **Use the standard library or the already-vendored parser.** Prefer Go's `net/mail`, `mime`,
+   `mime/multipart`, `mime/quotedprintable`, `encoding/base64`, `net/url`, `time`, `encoding/json`,
+   and the repository's existing `github.com/emersion/go-message` / `go-ical` dependencies. Do not
+   add a second, hand-rolled path for a format a real parser already covers, and do not let the
+   security-relevant view of the bytes diverge from the view a client would take.
+3. **Extract, then interpret.** Locate a sub-document with the format's own structure (walk MIME
+   parts to the `text/calendar` part and decode its CTE) and only then hand the *decoded, isolated*
+   bytes to the format parser. Never run a format parser over a whole raw message and hope it finds
+   the right span.
+4. **Fail closed.** When input cannot be parsed by the real parser, reject or ignore it — do not
+   fall back to a lenient ad-hoc scan that accepts what the strict parser refused, and never mutate
+   stored state from input a standards parser could not validate. Every parser added or touched
+   MUST have tests covering malformed, encoded (base64/quoted-printable), multipart, and adversarial
+   inputs, not just the happy path.
+
+"It was easier / faster to write" is never a justification for hand-rolling a parser for a
+standardized format. If a suitable parser is genuinely missing, add the dependency or write a real
+one with a grammar and tests — do not scan.
+
 ### Official Specification References:
 
 #### Requirement Level Specifications
