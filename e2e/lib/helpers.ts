@@ -1,7 +1,59 @@
+import { createConnection } from 'net';
 import { expect, request, type APIRequestContext, type Page } from '@playwright/test';
 
 export const BASE_URL = process.env.BULWARK_BASE_URL ?? 'http://localhost:3000';
 export const JMAP_URL = process.env.JMAP_SERVER_URL ?? 'https://localhost:8443';
+export const SMTP_HOST = process.env.SMTP_HOST ?? 'localhost';
+export const SMTP_PORT = Number(process.env.SMTP_PORT ?? 1025);
+
+/**
+ * Delivers a raw message to the imap-jmap SMTP receiver over a real TCP socket, exactly
+ * as an external mail server would — no Bulwark, no JMAP. Used to inject an iMIP
+ * (RFC 6047) scheduling message so its effect on the calendar can be observed. Speaks
+ * just enough SMTP (EHLO/MAIL/RCPT/DATA/QUIT) and normalises the body to CRLF.
+ */
+export async function sendSmtp(from: string, to: string, message: string): Promise<void> {
+  const socket = createConnection({ host: SMTP_HOST, port: SMTP_PORT });
+  socket.setEncoding('utf8');
+
+  // Resolve with the final line of the next SMTP reply (skips 'NNN-' continuation lines).
+  const readReply = (): Promise<string> =>
+    new Promise((resolve, reject) => {
+      let buf = '';
+      const onData = (chunk: string) => {
+        buf += chunk;
+        for (const line of buf.split('\r\n')) {
+          if (line.length >= 4 && line[3] === ' ') {
+            const code = Number(line.slice(0, 3));
+            socket.removeListener('data', onData);
+            if (code >= 400) reject(new Error(`SMTP error: ${line}`));
+            else resolve(line);
+            return;
+          }
+        }
+      };
+      socket.on('data', onData);
+      socket.once('error', reject);
+    });
+
+  socket.setTimeout(15_000, () => socket.destroy(new Error('SMTP timeout')));
+  try {
+    await readReply(); // 220 greeting
+    const cmd = async (line: string) => {
+      socket.write(line + '\r\n');
+      return readReply();
+    };
+    await cmd('EHLO e2e-smtp-client');
+    await cmd(`MAIL FROM:<${from}>`);
+    await cmd(`RCPT TO:<${to}>`);
+    await cmd('DATA'); // 354
+    socket.write(message.replace(/\r?\n/g, '\r\n') + '\r\n.\r\n');
+    await readReply(); // 250 accepted
+    socket.write('QUIT\r\n');
+  } finally {
+    socket.end();
+  }
+}
 
 const MAIL_CAPABILITY = 'urn:ietf:params:jmap:mail';
 const CONTACTS_CAPABILITY = 'urn:ietf:params:jmap:contacts';
