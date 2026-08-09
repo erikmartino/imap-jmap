@@ -24,6 +24,12 @@ type Server struct {
 	AllowedRecipients map[string]bool
 	MethodRegistry    *MethodRegistry
 	Broadcaster       *Broadcaster
+	// PublicBaseURL, when set (e.g. from PUBLIC_URL), is the canonical externally-reachable
+	// base (scheme+host) used to build the session's apiUrl/downloadUrl/uploadUrl/
+	// eventSourceUrl. It takes precedence over request-derived URLs so a TLS-terminating
+	// proxy that does not forward X-Forwarded-Proto cannot cause a cleartext http:// apiUrl
+	// (which Android clients such as Ltt.rs refuse to use).
+	PublicBaseURL string
 }
 
 // Option defines a functional configuration option for Server.
@@ -33,6 +39,16 @@ type Option func(*Server)
 func WithBroadcaster(b *Broadcaster) Option {
 	return func(s *Server) {
 		s.Broadcaster = b
+	}
+}
+
+// WithPublicBaseURL sets the canonical externally-reachable base URL (scheme+host, e.g.
+// "https://jmap.example.com") used for the session's apiUrl/downloadUrl/uploadUrl/
+// eventSourceUrl, overriding request-derived URLs. Set this to PUBLIC_URL when behind a
+// TLS-terminating proxy so the session never advertises a cleartext http:// endpoint.
+func WithPublicBaseURL(u string) Option {
+	return func(s *Server) {
+		s.PublicBaseURL = strings.TrimRight(u, "/")
 	}
 }
 
@@ -216,6 +232,11 @@ func requestBaseURL(r *http.Request) string {
 
 func (s *Server) sessionForRequest(r *http.Request) *Session {
 	baseURL := requestBaseURL(r)
+	// A configured public base URL is authoritative: it prevents a TLS-terminating proxy
+	// that drops X-Forwarded-Proto from producing a cleartext http:// apiUrl.
+	if s.PublicBaseURL != "" {
+		baseURL = s.PublicBaseURL
+	}
 	accountID, authed := AccountIDFromContext(r.Context())
 	subject := accountID
 	if !authed || subject == "" {
