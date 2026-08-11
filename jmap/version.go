@@ -7,7 +7,7 @@ import (
 )
 
 // Version is the application version string. Build tooling or ldflags (-ldflags "-X imap-jmap/jmap.Version=...") can set this.
-var Version = "dev"
+var Version = "1.136.0"
 
 // Commit is the git commit hash string. Build tooling or ldflags can set this.
 var Commit = ""
@@ -30,15 +30,18 @@ func GetVersionInfo() VersionInfo {
 		BuildTime: BuildTime,
 	}
 
-	if (v.Commit == "" || v.BuildTime == "") && infoAvailable() {
-		if info, ok := debug.ReadBuildInfo(); ok {
-			for _, setting := range info.Settings {
-				if v.Commit == "" && setting.Key == "vcs.revision" {
-					v.Commit = setting.Value
-				}
-				if v.BuildTime == "" && setting.Key == "vcs.time" {
-					v.BuildTime = setting.Value
-				}
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, setting := range info.Settings {
+			if v.Commit == "" && setting.Key == "vcs.revision" {
+				v.Commit = setting.Value
+			}
+			if v.BuildTime == "" && setting.Key == "vcs.time" {
+				v.BuildTime = setting.Value
+			}
+		}
+		if v.Version == "" || v.Version == "dev" {
+			if info.Main.Version != "" && info.Main.Version != "(devel)" {
+				v.Version = info.Main.Version
 			}
 		}
 	}
