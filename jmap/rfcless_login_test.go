@@ -38,8 +38,9 @@ func TestLogin_Success(t *testing.T) {
 	if result["token"] == "" {
 		t.Error("Expected a token in the response")
 	}
-	if result["accountId"] != "alice" {
-		t.Errorf("Expected accountId 'alice', got %q", result["accountId"])
+	expectedAccountID := "YWxpY2U"
+	if result["accountId"] != expectedAccountID {
+		t.Errorf("Expected accountId %q, got %q", expectedAccountID, result["accountId"])
 	}
 }
 

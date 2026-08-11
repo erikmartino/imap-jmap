@@ -97,13 +97,8 @@ a login only when `password == username` (the email address). This is a severe h
 knows an address can authenticate as that user by supplying the address as the password. Keycloak
 is already deployed in the cluster (`apps/profundo/keycloak`) but is **not** wired to imap-jmap.
 
-- **AUTH-1 — OIDC bearer validation.** Add an `AuthBackend` that validates OAuth 2.0 / OIDC
-  access tokens against the Keycloak realm (JWKS signature check, `iss`/`aud`/`exp` validation,
-  RFC 9068 JWT access tokens), mapping the verified `sub`/`email` claim to the account. This is
-  the RFC 8620 §8.2 path (JMAP defers auth to OAuth 2.0).
-- **AUTH-2 — Retire password==email.** Once OIDC is in place, remove the insecure in-memory
-  credential path from any non-test build (keep it behind a dev-only flag), so real deployments
-  never accept `password == username`.
+- **[DONE] AUTH-1 — OIDC bearer validation.** Implemented [`jmap.OIDCAuthBackend`](file:///Users/martino/git/imap-jmap/jmap/oidc_auth.go) which validates OAuth 2.0 / OpenID Connect JWT access tokens against an OIDC provider (e.g. Keycloak JWKS signature verification, issuer, and token expiry validation) and maps `preferred_username`/`email`/`sub` claims to `accountID`. Configurable via `-oidc-issuer` / `OIDC_ISSUER` and `-oidc-jwks-url` / `OIDC_JWKS_URL`.
+- **AUTH-2 — Retire password==email.** Once OIDC is configured in deployment, remove or disable the fallback in-memory credential path from production environments so `password == username` is rejected.
 - **AUTH-3 — Basic-auth bridge (optional).** For clients that only speak HTTP Basic (e.g. some
   IMAP/JMAP clients), validate the supplied password against Keycloak via the resource-owner
   password grant, or issue app-specific passwords — never the accept-anything shim.

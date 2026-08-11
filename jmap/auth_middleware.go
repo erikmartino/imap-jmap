@@ -19,8 +19,8 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Login endpoint handled separately (no token required).
-		if r.URL.Path == "/jmap/login" {
+		// Unauthenticated endpoints.
+		if r.URL.Path == "/jmap/login" || r.URL.Path == "/version" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -90,10 +90,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	accountID, _ := s.AuthBackend.ValidateCredentials(r.Context(), creds.Username, creds.Password)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]string{
 		"token":     token,
-		"accountId": creds.Username,
+		"accountId": accountID,
 	})
 }

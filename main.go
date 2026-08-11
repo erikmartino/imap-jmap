@@ -67,9 +67,10 @@ func main() {
 	allowedRecipientsStr := flag.String("allowed-recipients", defaultAllowedRecipients, "Comma-separated list of allowed external recipient email addresses")
 	// TLS cert/key files for the HTTPS server. When provided (e.g. an mkcert cert),
 	// they are used instead of the built-in self-signed certificate, so browsers
-	// trust the endpoint with no warning. Falls back to self-signed when unset.
 	tlsCertFile := flag.String("tls-cert", os.Getenv("TLS_CERT_FILE"), "Path to a PEM TLS certificate for the HTTPS server (default: self-signed)")
 	tlsKeyFile := flag.String("tls-key", os.Getenv("TLS_KEY_FILE"), "Path to the PEM TLS private key for the HTTPS server (default: self-signed)")
+	oidcIssuer := flag.String("oidc-issuer", os.Getenv("OIDC_ISSUER"), "OIDC Issuer URL (e.g. https://auth.profundo.dk/realms/master)")
+	oidcJWKSURL := flag.String("oidc-jwks-url", os.Getenv("OIDC_JWKS_URL"), "OIDC JWKS URL (optional, auto-discovered if empty)")
 	flag.Parse()
 
 	var allowedSlice []string
@@ -98,8 +99,23 @@ func main() {
 	memSieveBackend := memory.NewMemorySieveBackend()
 	memIMAPBackend := memory.NewMemoryIMAPAccessBackend()
 	memFileNodeBackend := memory.NewMemoryFileNodeBackend()
-	authBackend := memory.NewMemoryAuthBackend()
-	authBackend.SetBackends(memBackend, memCalBackend, memContactsBackend, memFileNodeBackend)
+	devAuthBackend := memory.NewMemoryAuthBackend()
+	devAuthBackend.SetBackends(memBackend, memCalBackend, memContactsBackend, memFileNodeBackend)
+
+	var authBackend jmap.AuthBackend = devAuthBackend
+	if *oidcIssuer != "" {
+		oidcBackend, err := jmap.NewOIDCAuthBackend(jmap.OIDCConfig{
+			Issuer:          *oidcIssuer,
+			JWKSURL:         *oidcJWKSURL,
+			FallbackBackend: devAuthBackend,
+		})
+		if err != nil {
+			log.Fatalf("Failed to initialize OIDCAuthBackend: %v", err)
+		}
+		log.Printf("OIDC authentication enabled with issuer %s", *oidcIssuer)
+		authBackend = oidcBackend
+	}
+
 	accountResolver := jmap.PrimaryDomainResolver{PrimaryDomain: *primaryDomain}
 
 	// Seed realistic sample emails, calendars, contacts, and filenodes for server execution

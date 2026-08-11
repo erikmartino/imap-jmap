@@ -196,6 +196,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/download/", s.HandleDownload)
 	mux.HandleFunc("/eventsource", s.HandleEventSource)
 	mux.HandleFunc("/jmap/login", s.handleLogin)
+	mux.HandleFunc("/version", s.handleVersion)
 	mux.HandleFunc("/", s.handleNotFound)
 
 	return s.corsMiddleware(loggingMiddleware(s.authMiddleware(mux)))
