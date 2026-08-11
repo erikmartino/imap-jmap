@@ -12,8 +12,8 @@ import (
 
 // TestRFC9698_CapabilityDiscovery tests RFC 9698 capability advertising in session.
 func TestRFC9698_CapabilityDiscovery(t *testing.T) {
-	session := jmap.DefaultSession("http://localhost:8080", "user@example.com")
-	srv := jmap.NewServer(session)
+	imapBackend := memory.NewMemoryIMAPAccessBackend()
+	srv := jmap.NewServer(nil, jmap.WithIMAPAccessBackend(imapBackend))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 

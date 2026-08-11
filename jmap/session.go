@@ -282,8 +282,6 @@ func sessionFor(baseURL, username, accountID string) *Session {
 				MaxScriptSize:   1048576, // 1MB max script size
 				SieveExtensions: []string{"fileinto", "reject", "vacation", "envelope", "subaddress", "encoded-character"},
 			},
-			// RFC 9698: JMAPACCESS Extension for IMAP.
-			ImapAccessCapabilityURI: ImapAccessCapability{},
 			// FileNode file storage extension capability.
 			FileNodeCapabilityURI: FileNodeCapability{
 				MaxFileSize: 50000000,
@@ -318,7 +316,6 @@ func sessionFor(baseURL, username, accountID string) *Session {
 					CalendarsCapabilityURI:        struct{}{},
 					CalendarsParseCapabilityURI:   struct{}{},
 					SieveCapabilityURI:            struct{}{},
-					ImapAccessCapabilityURI:       struct{}{},
 					FileNodeCapabilityURI:         struct{}{},
 					PrincipalsCapabilityURI: PrincipalCapability{
 						MaxAvailabilityDuration: "P30D",
@@ -340,16 +337,15 @@ func sessionFor(baseURL, username, accountID string) *Session {
 			CalendarsCapabilityURI:        accountID,
 			CalendarsParseCapabilityURI:   accountID,
 			SieveCapabilityURI:            accountID,
-			ImapAccessCapabilityURI:       accountID,
 			FileNodeCapabilityURI:         accountID,
 			PrincipalsCapabilityURI:       accountID,
 			AvailabilityCapabilityURI:     accountID,
 		},
 		Username:       username,
-		APIURL:         baseURL + "/jmap",
-		DownloadURL:    baseURL + "/download/{accountId}/{blobId}/{name}?type={type}",
-		UploadURL:      baseURL + "/upload/{accountId}/",
-		EventSourceURL: baseURL + "/eventsource?types={types}&closeafter={closeafter}&ping={ping}",
+		APIURL:         "/jmap",
+		DownloadURL:    "/download/{accountId}/{blobId}/{name}?accept={type}",
+		UploadURL:      "/upload/{accountId}/",
+		EventSourceURL: "/eventsource?types={types}&closeafter={closeafter}&ping={ping}",
 		State:          "0",
 	}
 }

@@ -178,7 +178,9 @@ func NewServer(session *Session, opts ...Option) *Server {
 	RegisterContactsHandlers(s.MethodRegistry, s.ContactsBackend)
 	RegisterCalendarHandlers(s.MethodRegistry, s.CalendarsBackend, s.MailBackend, s.BlobBackend, s.AccountResolver)
 	RegisterSieveHandlers(s.MethodRegistry, s.SieveBackend)
-	RegisterIMAPAccessHandlers(s.MethodRegistry, s.IMAPAccessBackend)
+	if s.IMAPAccessBackend != nil {
+		RegisterIMAPAccessHandlers(s.MethodRegistry, s.IMAPAccessBackend)
+	}
 	RegisterFileNodeHandlers(s.MethodRegistry, s.FileNodeBackend)
 	RegisterPrincipalsHandlers(s.MethodRegistry, s.PrincipalsBackend)
 
@@ -308,12 +310,15 @@ func (s *Server) sessionForRequest(r *http.Request) *Session {
 			caps[k] = v
 		}
 	}
+	if s.IMAPAccessBackend != nil {
+		caps[ImapAccessCapabilityURI] = ImapAccessCapability{}
+	}
 	sess.Capabilities = caps
 
-	sess.APIURL = baseURL + "/jmap"
-	sess.DownloadURL = baseURL + "/download/{accountId}/{blobId}/{name}?type={type}"
-	sess.UploadURL = baseURL + "/upload/{accountId}/"
-	sess.EventSourceURL = baseURL + "/eventsource?types={types}&closeafter={closeafter}&ping={ping}"
+	sess.APIURL = "/jmap"
+	sess.DownloadURL = "/download/{accountId}/{blobId}/{name}?accept={type}"
+	sess.UploadURL = "/upload/{accountId}/"
+	sess.EventSourceURL = "/eventsource?types={types}&closeafter={closeafter}&ping={ping}"
 
 	return &sess
 }
@@ -343,6 +348,9 @@ func (s *Server) handleWellKnownJMAP(w http.ResponseWriter, r *http.Request) {
 // is implied by an advertised capability, such as "urn:ietf:params:jmap:principals:owner"
 // which is implied by "urn:ietf:params:jmap:principals" (RFC 9670 Section 1.5.2).
 func (s *Server) capabilitySupported(capURI string) bool {
+	if capURI == ImapAccessCapabilityURI {
+		return s.IMAPAccessBackend != nil
+	}
 	if capURI == PrincipalsOwnerCapabilityURI {
 		if _, ok := s.Session.Capabilities[PrincipalsCapabilityURI]; ok {
 			return true
