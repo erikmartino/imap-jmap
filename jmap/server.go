@@ -190,6 +190,7 @@ func NewServer(session *Session, opts ...Option) *Server {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/jmap", s.handleWellKnownJMAP)
+	mux.HandleFunc("/jmap/session", s.handleWellKnownJMAP)
 	mux.HandleFunc("/jmap", s.handleAPI)
 	mux.HandleFunc("/jmap/ws", s.HandleWebSocket)
 	mux.HandleFunc("/upload/", s.HandleUpload)
@@ -318,7 +319,7 @@ func (s *Server) sessionForRequest(r *http.Request) *Session {
 }
 
 func (s *Server) handleWellKnownJMAP(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/.well-known/jmap" {
+	if r.URL.Path != "/.well-known/jmap" && r.URL.Path != "/jmap/session" {
 		http.NotFound(w, r)
 		return
 	}
