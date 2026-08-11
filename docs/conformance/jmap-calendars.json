@@ -172,9 +172,8 @@
     "section": "4.4",
     "level": "MUST",
     "text": "utcStart/utcEnd computed read-only CalendarEvent properties are returned when requested.",
-    "tests": [],
-    "status": "gap",
-    "note": "Bulwark requests utcStart/utcEnd in CalendarEvent/get; the model has no such fields, so they are silently omitted. Confirm exact subsection when closing."
+    "tests": ["TestRFC8984_UTCStartAndUTCEndComputedProperties"],
+    "status": "covered"
   },
   {
     "spec": "draft-ietf-jmap-calendars-27",
@@ -302,8 +301,8 @@
     "section": "5.11.1",
     "level": "MUST",
     "text": "before/after accept date-only (LocalDate) values.",
-    "tests": [],
-    "status": "gap"
+    "tests": ["TestRFC8984_QueryLocalDateBounds"],
+    "status": "covered"
   },
   {
     "spec": "draft-ietf-jmap-calendars-27",

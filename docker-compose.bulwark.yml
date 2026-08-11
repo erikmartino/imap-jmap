@@ -52,3 +52,11 @@ services:
     depends_on:
       - imap-jmap
     restart: unless-stopped
+
+  stalwart:
+    image: stalwartlabs/stalwart:latest
+    container_name: stalwart-mail
+    ports:
+      - "8085:8080"
+    restart: unless-stopped
+

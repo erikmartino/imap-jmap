@@ -293,6 +293,8 @@ type CalendarEvent struct {
 	DescriptionContentType  string                                `json:"descriptionContentType,omitempty"`
 	ShowWithoutTime         bool                                  `json:"showWithoutTime"`
 	Start                   string                                `json:"start"`
+	UTCStart                string                                `json:"utcStart,omitempty"`
+	UTCEnd                  string                                `json:"utcEnd,omitempty"`
 	Duration                string                                `json:"duration,omitempty"`
 	TimeZone                string                                `json:"timeZone,omitempty"`
 	Locations               map[string]*JSCalendarLocation        `json:"locations,omitempty"`

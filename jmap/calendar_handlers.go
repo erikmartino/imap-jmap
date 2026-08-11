@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"time"
 )
 
 // RegisterCalendarHandlers registers JMAP for Calendars & JSCalendar method handlers into MethodRegistry.
@@ -261,7 +262,21 @@ func handleCalendarEventGet(backend CalendarsBackend) MethodHandler {
 			if ev == nil {
 				continue
 			}
-			filteredList = append(filteredList, ev)
+			clone := *ev
+			if clone.Start != "" {
+				loc := loadLocation(clone.TimeZone)
+				if t, ok := parseLocalDateTimeBound(clone.Start, loc); ok {
+					clone.UTCStart = t.UTC().Format("2006-01-02T15:04:05Z")
+					dur := 1 * time.Hour
+					if clone.Duration != "" {
+						if d, ok := parseISODuration(clone.Duration); ok {
+							dur = d
+						}
+					}
+					clone.UTCEnd = t.Add(dur).UTC().Format("2006-01-02T15:04:05Z")
+				}
+			}
+			filteredList = append(filteredList, &clone)
 		}
 
 		return "CalendarEvent/get", map[string]any{
