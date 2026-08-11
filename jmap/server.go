@@ -561,5 +561,33 @@ func (s *Server) writeRequestError(w http.ResponseWriter, status int, errType st
 }
 
 func (s *Server) handleNotFound(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+		info := GetVersionInfo()
+		meta := map[string]any{
+			"name":        "imap-jmap",
+			"description": "JMAP, CalDAV, CardDAV and SMTP Server",
+			"version":     info.Version,
+			"endpoints": map[string]string{
+				"session":     "/.well-known/jmap",
+				"api":         "/jmap",
+				"version":     "/version",
+				"auth_login":  "/jmap/login",
+				"caldav":      "/caldav/",
+				"carddav":     "/carddav/",
+			},
+		}
+		if info.Commit != "" {
+			meta["commit"] = info.Commit
+		}
+		if info.BuildTime != "" {
+			meta["buildTime"] = info.BuildTime
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode(meta)
+		}
+		return
+	}
 	http.NotFound(w, r)
 }

@@ -148,7 +148,7 @@ func TestRFC8620_OtherRoutes_NotFound(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	paths := []string{"/", "/api", "/.well-known", "/.well-known/jmap/extra", "/unknown"}
+	paths := []string{"/api", "/.well-known", "/.well-known/jmap/extra", "/unknown"}
 	for _, path := range paths {
 		resp, err := authedGet(ts.URL + path)
 		if err != nil {
