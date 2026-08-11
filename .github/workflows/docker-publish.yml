@@ -38,6 +38,12 @@ jobs:
             type=raw,value=1.${{ github.run_number }}.${{ github.run_attempt }}
             type=sha,format=short
 
+      - name: Set Build Variables
+        id: vars
+        run: |
+          echo "version=1.${{ github.run_number }}.${{ github.run_attempt }}" >> $GITHUB_OUTPUT
+          echo "build_time=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+
       - name: Build and Push Docker Image
         uses: docker/build-push-action@v6
         with:
@@ -45,3 +51,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.vars.outputs.version }}
+            COMMIT=${{ github.sha }}
+            BUILD_TIME=${{ steps.vars.outputs.build_time }}
