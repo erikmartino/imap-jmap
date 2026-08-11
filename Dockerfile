@@ -2,6 +2,8 @@ FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
+COPY . .
+
 ARG VERSION=dev
 ARG COMMIT=""
 ARG BUILD_TIME=""
