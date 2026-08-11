@@ -7,7 +7,7 @@ import (
 )
 
 // Version is the application version string. Build tooling or ldflags (-ldflags "-X imap-jmap/jmap.Version=...") can set this.
-var Version = "1.136.0"
+var Version = "dev"
 
 // Commit is the git commit hash string. Build tooling or ldflags can set this.
 var Commit = ""
