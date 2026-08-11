@@ -565,15 +565,13 @@ func (s *Server) handleNotFound(w http.ResponseWriter, r *http.Request) {
 		info := GetVersionInfo()
 		meta := map[string]any{
 			"name":        "imap-jmap",
-			"description": "JMAP, CalDAV, CardDAV and SMTP Server",
+			"description": "JMAP Mail, Calendars, Contacts, and SMTP Server",
 			"version":     info.Version,
 			"endpoints": map[string]string{
-				"session":     "/.well-known/jmap",
-				"api":         "/jmap",
-				"version":     "/version",
-				"auth_login":  "/jmap/login",
-				"caldav":      "/caldav/",
-				"carddav":     "/carddav/",
+				"session":    "/.well-known/jmap",
+				"api":        "/jmap",
+				"version":    "/version",
+				"auth_login": "/jmap/login",
 			},
 		}
 		if info.Commit != "" {
