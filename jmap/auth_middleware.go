@@ -2,6 +2,9 @@ package jmap
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"log"
 	"net/http"
 	"strings"
 )
@@ -37,17 +40,25 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			if ok {
 				accountID, authErr = s.AuthBackend.ValidateCredentials(r.Context(), username, password)
 				authed = authErr == nil
+			} else {
+				authErr = errors.New("malformed Basic authorization header")
 			}
 		} else if strings.HasPrefix(auth, "Bearer ") {
-			accountID, authErr = s.AuthBackend.ValidateToken(r.Context(), strings.TrimPrefix(auth, "Bearer "))
+			token := strings.TrimPrefix(auth, "Bearer ")
+			accountID, authErr = s.AuthBackend.ValidateToken(r.Context(), token)
 			authed = authErr == nil
 		} else if queryToken != "" {
 			// RFC 6750 Section 2.3: token in URI query (required for browser SSE and WebSocket).
 			accountID, authErr = s.AuthBackend.ValidateToken(r.Context(), queryToken)
 			authed = authErr == nil
+		} else if auth != "" {
+			authErr = fmt.Errorf("unsupported authorization scheme: %q", auth)
+		} else {
+			authErr = errors.New("missing authorization header or access_token query param")
 		}
 
 		if !authed {
+			log.Printf("AUTH FAILURE: path=%s remote=%s auth_header_present=%t err=%v", r.URL.Path, r.RemoteAddr, auth != "", authErr)
 			w.Header().Set("WWW-Authenticate", `Basic realm="jmap", Bearer realm="jmap"`)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
