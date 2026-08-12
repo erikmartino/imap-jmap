@@ -107,6 +107,18 @@ See [[deployment-profundo]] for the current deployment facts.
 
 ---
 
+## Open — DNS Auto-Discovery Records & Configuration
+
+- **DNS-1 — JMAP SRV & TXT discovery records.** Configure domain DNS for `profundo.dk`:
+  - `_jmap._tcp.profundo.dk. 300 IN SRV 0 1 443 jmap.profundo.dk.` (Existing)
+  - `_jmaps._tcp.profundo.dk. 300 IN SRV 0 1 443 jmap.profundo.dk.` (Missing SRV)
+  - `_jmap._tcp.profundo.dk. 300 IN TXT "v=jmap1 path=/.well-known/jmap"` (Missing TXT)
+- **DNS-2 — Legacy AutoConfig / AutoDiscover XML endpoints.** Provide endpoints for non-native JMAP clients:
+  - `https://autoconfig.profundo.dk/mail/config-v1.1.xml` (Thunderbird)
+  - `https://autodiscover.profundo.dk/autodiscover/autodiscover.xml` (Outlook)
+
+---
+
 ## Not a goal
 - **RFC 9670 JMAP Sharing** — explicitly out of scope in AGENTS.md.
 - Process-restart persistence (in-memory backend data loss across restarts is expected).
