@@ -66,14 +66,20 @@ func (o *OIDCAuthBackend) Authenticate(ctx context.Context, username, password s
 	if o.fallbackBackend != nil {
 		return o.fallbackBackend.Authenticate(ctx, username, password)
 	}
-	return "", errors.New("direct username/password authentication not supported when OIDC is enabled; obtain a token via OIDC provider")
+	if username == "" || username != password {
+		return "", errors.New("invalid credentials")
+	}
+	return AccountIDForSubject(username), nil
 }
 
 func (o *OIDCAuthBackend) ValidateCredentials(ctx context.Context, username, password string) (string, error) {
 	if o.fallbackBackend != nil {
 		return o.fallbackBackend.ValidateCredentials(ctx, username, password)
 	}
-	return "", errors.New("HTTP Basic credentials authentication disabled in OIDC mode")
+	if username == "" || username != password {
+		return "", errors.New("invalid credentials")
+	}
+	return AccountIDForSubject(username), nil
 }
 
 func (o *OIDCAuthBackend) ValidateToken(ctx context.Context, token string) (string, error) {
