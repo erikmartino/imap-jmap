@@ -30,6 +30,7 @@ type MemoryAuthBackend struct {
 	revoked          map[string]bool
 	tokenTTL         time.Duration
 	mailBackend      jmap.MailBackend
+	blobBackend      jmap.BlobBackend
 	calendarsBackend jmap.CalendarsBackend
 	contactsBackend  jmap.ContactsBackend
 	fileNodeBackend  jmap.FileNodeBackend
@@ -48,10 +49,11 @@ func NewMemoryAuthBackend() *MemoryAuthBackend {
 }
 
 // SetBackends links memory backends for lazy per-account sample data seeding on first authentication.
-func (a *MemoryAuthBackend) SetBackends(mb jmap.MailBackend, cb jmap.CalendarsBackend, contactsB jmap.ContactsBackend, fnB jmap.FileNodeBackend) {
+func (a *MemoryAuthBackend) SetBackends(mb jmap.MailBackend, bb jmap.BlobBackend, cb jmap.CalendarsBackend, contactsB jmap.ContactsBackend, fnB jmap.FileNodeBackend) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.mailBackend = mb
+	a.blobBackend = bb
 	a.calendarsBackend = cb
 	a.contactsBackend = contactsB
 	a.fileNodeBackend = fnB
@@ -93,11 +95,11 @@ func (a *MemoryAuthBackend) Authenticate(ctx context.Context, username, password
 	}
 	alreadySeeded := a.seededAccounts[accountID]
 	a.seededAccounts[accountID] = true
-	mb, cb, contactsB, fnB := a.mailBackend, a.calendarsBackend, a.contactsBackend, a.fileNodeBackend
+	mb, bb, cb, contactsB, fnB := a.mailBackend, a.blobBackend, a.calendarsBackend, a.contactsBackend, a.fileNodeBackend
 	a.mu.Unlock()
 
-	if !alreadySeeded && (mb != nil || cb != nil || contactsB != nil || fnB != nil) {
-		SeedAccountSampleData(ctx, accountID, mb, cb, contactsB, fnB)
+	if !alreadySeeded && (mb != nil || bb != nil || cb != nil || contactsB != nil || fnB != nil) {
+		SeedAccountSampleData(ctx, accountID, mb, bb, cb, contactsB, fnB)
 	}
 
 	return token, nil
@@ -109,7 +111,22 @@ func (a *MemoryAuthBackend) ValidateCredentials(ctx context.Context, username, p
 	if username == "" || username != password {
 		return "", fmt.Errorf("invalid credentials")
 	}
-	return jmap.AccountIDForSubject(username), nil
+	accountID := jmap.AccountIDForSubject(username)
+
+	a.mu.Lock()
+	if a.seededAccounts == nil {
+		a.seededAccounts = make(map[string]bool)
+	}
+	alreadySeeded := a.seededAccounts[accountID]
+	a.seededAccounts[accountID] = true
+	mb, bb, cb, contactsB, fnB := a.mailBackend, a.blobBackend, a.calendarsBackend, a.contactsBackend, a.fileNodeBackend
+	a.mu.Unlock()
+
+	if !alreadySeeded && (mb != nil || bb != nil || cb != nil || contactsB != nil || fnB != nil) {
+		SeedAccountSampleData(ctx, accountID, mb, bb, cb, contactsB, fnB)
+	}
+
+	return accountID, nil
 }
 
 // ValidateToken looks up the token and returns the associated accountID.
@@ -147,11 +164,11 @@ func (a *MemoryAuthBackend) ValidateToken(ctx context.Context, token string) (st
 			}
 			alreadySeeded := a.seededAccounts[accountID]
 			a.seededAccounts[accountID] = true
-			mb, cb, contactsB, fnB := a.mailBackend, a.calendarsBackend, a.contactsBackend, a.fileNodeBackend
+			mb, bb, cb, contactsB, fnB := a.mailBackend, a.blobBackend, a.calendarsBackend, a.contactsBackend, a.fileNodeBackend
 			a.mu.Unlock()
 
-			if !alreadySeeded && (mb != nil || cb != nil || contactsB != nil || fnB != nil) {
-				SeedAccountSampleData(ctx, accountID, mb, cb, contactsB, fnB)
+			if !alreadySeeded && (mb != nil || bb != nil || cb != nil || contactsB != nil || fnB != nil) {
+				SeedAccountSampleData(ctx, accountID, mb, bb, cb, contactsB, fnB)
 			}
 
 			return accountID, nil

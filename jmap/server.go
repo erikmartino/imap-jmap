@@ -278,10 +278,16 @@ func (s *Server) sessionForRequest(r *http.Request) *Session {
 		baseURL = s.PublicBaseURL
 	}
 	accountID, authed := AccountIDFromContext(r.Context())
-	subject := accountID
-	if !authed || subject == "" {
+	subject, _ := SubjectFromContext(r.Context())
+	if !authed || accountID == "" {
 		subject = "user@example.com"
 		accountID = AccountIDForSubject(subject)
+	} else if subject == "" {
+		if subj, ok := SubjectForAccountID(accountID); ok && subj != "" {
+			subject = subj
+		} else {
+			subject = accountID
+		}
 	}
 	if subj, ok := SubjectFromContext(r.Context()); ok {
 		subject = subj

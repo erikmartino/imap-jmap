@@ -200,7 +200,9 @@ func localAccountCtx(resolver AccountResolver, addr string) (context.Context, bo
 	if !local || acctID == "" {
 		return nil, false
 	}
-	return ContextWithAccountID(context.Background(), acctID), true
+	ctx := ContextWithAccountID(context.Background(), acctID)
+	ctx = ContextWithSubject(ctx, addr)
+	return ctx, true
 }
 
 // deliverRequestLocal delivers a REQUEST into a local recipient's calendar: it creates

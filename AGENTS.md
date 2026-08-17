@@ -3,6 +3,9 @@
 ## Guiding Principle: Indistinguishable From a Real Server
 The overriding goal of this project is that **a client MUST NOT be able to determine that there is not a real, full-featured server behind the protocol.** Every endpoint, method, capability, error, and event MUST behave exactly as a production-grade server would. This principle governs and takes precedence over every other rule below: when a choice must be made, choose the behavior a real server would exhibit. Concretely, this means: no hardcoded/empty responses standing in for real logic, correct state and change tracking, correct error objects for invalid input, persistence that survives across requests, resolution of references and creation ids, and emission of the same push/notification events a real server sends. If a client cannot tell the difference, the feature is done; if it can, it is not.
 
+## No Hardcoded or Default Usernames in Application Code Rule
+Application and backend code MUST NOT contain hardcoded or default usernames (such as `user@example.com` or `"default"` account fallbacks). Account context, user subjects, and account IDs MUST ALWAYS be extracted dynamically from the request context or authentication headers. Standard fixed test accounts or sample seed users are permitted ONLY within test suites (`*_test.go`, Playwright e2e test files) or explicit server seed functions.
+
 ## RFC Validation & RFC 2119 Requirement Implementation Rule
 All features, data model projections, protocol mappers, payload transformations, and server/client behaviors MUST be strictly validated against official IETF RFC standards.
 

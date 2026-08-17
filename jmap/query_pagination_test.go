@@ -86,8 +86,11 @@ func TestQueryNegativePositionFromEnd(t *testing.T) {
 			}
 			total := len(ids)
 			posOf := func(res map[string]any) int {
-				if pos, _ := res["position"].(float64); pos != 0 {
+				if pos, ok := res["position"].(float64); ok {
 					return int(pos)
+				}
+				if pos, ok := res["position"].(int); ok {
+					return pos
 				}
 				return 0
 			}

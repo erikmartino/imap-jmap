@@ -103,7 +103,14 @@ export async function login(page: Page, username: string, password: string): Pro
   // account switcher is present on every logged-in page — rather than a fixed URL.
   await expect(page.locator('[data-testid="account-switcher"]').first()).toBeVisible({ timeout: 60_000 });
   await dismissOnboarding(page);
-  await expect(page.locator('[data-testid="email-list-item"]').or(page.getByText('No emails yet')).first()).toBeVisible({
+  await expect(
+    page
+      .locator('[data-testid="email-list-item"]')
+      .or(page.getByText('No emails yet'))
+      .or(page.getByText('No messages found'))
+      .or(page.getByText('This mailbox is empty'))
+      .first(),
+  ).toBeVisible({
     timeout: 30_000,
   });
 }

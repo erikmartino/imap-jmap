@@ -210,7 +210,11 @@ func SessionForAccountID(baseURL, username, accountID string) *Session {
 		accountID = AccountIDForSubject("user@example.com")
 	}
 	if username == "" {
-		username = accountID
+		if subj, ok := SubjectForAccountID(accountID); ok && subj != "" {
+			username = subj
+		} else {
+			username = accountID
+		}
 	}
 	return sessionFor(baseURL, username, accountID)
 }

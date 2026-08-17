@@ -100,7 +100,7 @@ func main() {
 	memIMAPBackend := memory.NewMemoryIMAPAccessBackend()
 	memFileNodeBackend := memory.NewMemoryFileNodeBackend()
 	devAuthBackend := memory.NewMemoryAuthBackend()
-	devAuthBackend.SetBackends(memBackend, memCalBackend, memContactsBackend, memFileNodeBackend)
+	devAuthBackend.SetBackends(memBackend, memBlobBackend, memCalBackend, memContactsBackend, memFileNodeBackend)
 
 	var authBackend jmap.AuthBackend = devAuthBackend
 	if *oidcIssuer != "" {
@@ -119,8 +119,9 @@ func main() {
 	accountResolver := jmap.PrimaryDomainResolver{PrimaryDomain: *primaryDomain}
 
 	// Seed realistic sample emails, calendars, contacts, and filenodes for server execution
+	userAccountID := jmap.AccountIDForSubject("user@example.com")
 	memory.SeedSampleData(memBackend, memCalBackend)
-	memory.SeedAccountSampleData(context.Background(), "primary", memBackend, memCalBackend, memContactsBackend, memFileNodeBackend)
+	memory.SeedAccountSampleData(context.Background(), userAccountID, memBackend, memBlobBackend, memCalBackend, memContactsBackend, memFileNodeBackend)
 
 	server := jmap.NewServer(
 		session,

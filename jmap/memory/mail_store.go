@@ -40,10 +40,7 @@ type MemoryBackend struct {
 }
 
 func (mb *MemoryBackend) getStoreLocked(ctx context.Context) *userMailStore {
-	accountID := jmap.AccountIDForSubject("user@example.com")
-	if ctxID, ok := jmap.AccountIDFromContext(ctx); ok && ctxID != "" {
-		accountID = ctxID
-	}
+	accountID, _ := jmap.AccountIDFromContext(ctx)
 
 	us, ok := mb.users[accountID]
 	if !ok {
@@ -370,10 +367,7 @@ func (mb *MemoryBackend) recordChange(ctx context.Context, tracker *changeTracke
 	us := mb.getStoreLocked(ctx)
 	us.state = newState
 	if mb.broadcaster != nil {
-		accountID := jmap.AccountIDForSubject("user@example.com")
-		if ctxID, ok := jmap.AccountIDFromContext(ctx); ok && ctxID != "" {
-			accountID = ctxID
-		}
+		accountID, _ := jmap.AccountIDFromContext(ctx)
 		mb.broadcaster.PublishStateChange(accountID, typeName, newState)
 	}
 	return newState

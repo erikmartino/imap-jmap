@@ -81,7 +81,7 @@ func newTestServer(opts ...jmap.Option) *jmap.Server {
 
 	srv := jmap.NewServer(nil, allOpts...)
 	if memAuth, ok := srv.AuthBackend.(*memory.MemoryAuthBackend); ok {
-		memAuth.SetBackends(mb, cal, contacts, fb)
+		memAuth.SetBackends(mb, srv.BlobBackend, cal, contacts, fb)
 	}
 	mb.SetBroadcaster(srv.Broadcaster)
 	cal.SetBroadcaster(srv.Broadcaster)

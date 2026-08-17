@@ -34,14 +34,11 @@ type MemoryCalendarsBackend struct {
 }
 
 func (b *MemoryCalendarsBackend) getStoreLocked(ctx context.Context) *userCalendarStore {
-	accountID := jmap.AccountIDForSubject("user@example.com")
-	if ctxID, ok := jmap.AccountIDFromContext(ctx); ok && ctxID != "" {
-		accountID = ctxID
-	}
+	accountID, _ := jmap.AccountIDFromContext(ctx)
 
 	us, ok := b.users[accountID]
 	if !ok {
-		us = newMemoryUserCalendarStore()
+		us = newMemoryUserCalendarStore(accountID)
 		b.users[accountID] = us
 	}
 	return us
@@ -58,7 +55,7 @@ func (b *MemoryCalendarsBackend) SetBroadcaster(bc *jmap.Broadcaster) {
 	b.broadcaster = bc
 }
 
-func newMemoryUserCalendarStore() *userCalendarStore {
+func newMemoryUserCalendarStore(accountID string) *userCalendarStore {
 	us := &userCalendarStore{
 		calendars:         make(map[jmap.Id]*jmap.Calendar),
 		events:            make(map[jmap.Id]*jmap.CalendarEvent),
@@ -142,10 +139,7 @@ func (b *MemoryCalendarsBackend) CalendarEventChanges(ctx context.Context, since
 func (b *MemoryCalendarsBackend) recordChange(ctx context.Context, tracker *changeTracker, id jmap.Id, action string, typeName string) string {
 	newState := tracker.record(id, action)
 	if b.broadcaster != nil {
-		accountID := jmap.AccountIDForSubject("user@example.com")
-		if ctxID, ok := jmap.AccountIDFromContext(ctx); ok && ctxID != "" {
-			accountID = ctxID
-		}
+		accountID, _ := jmap.AccountIDFromContext(ctx)
 		b.broadcaster.PublishStateChange(accountID, typeName, newState)
 	}
 	return newState
@@ -1030,11 +1024,15 @@ func matchCalendarEventInLoc(ev *jmap.CalendarEvent, filter map[string]any, loc 
 
 // parseRFC3339 parses an RFC 3339 string used for Date-type comparisons.
 func parseRFC3339(s string) (time.Time, bool) {
-	t, err := time.Parse(time.RFC3339, s)
-	if err != nil {
-		return time.Time{}, false
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t, true
 	}
-	return t, true
+	for _, layout := range []string{"2006-01-02T15:04:05", "2006-01-02"} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
 }
 
 // parseFloatingDateTime parses a JSCalendar LocalDateTime ("2026-08-01T10:00:00", RFC 8984

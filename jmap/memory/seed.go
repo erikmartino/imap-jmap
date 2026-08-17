@@ -210,7 +210,7 @@ func SeedSampleData(mb *MemoryBackend, cb *MemoryCalendarsBackend) {
 }
 
 // SeedAccountSampleData populates sample emails, calendars, contacts, and filenodes for an account on first use.
-func SeedAccountSampleData(ctx context.Context, accountID string, mb jmap.MailBackend, cb jmap.CalendarsBackend, contactsB jmap.ContactsBackend, fnB jmap.FileNodeBackend) {
+func SeedAccountSampleData(ctx context.Context, accountID string, mb jmap.MailBackend, blobB jmap.BlobBackend, cb jmap.CalendarsBackend, contactsB jmap.ContactsBackend, fnB jmap.FileNodeBackend) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -219,6 +219,9 @@ func SeedAccountSampleData(ctx context.Context, accountID string, mb jmap.MailBa
 	if mb != nil {
 		emails, _ := mb.GetAllEmails(accountCtx)
 		if len(emails) == 0 {
+			if blobB != nil {
+				_, _ = blobB.PutBlob(accountCtx, accountID, "text/plain", []byte("Welcome to your new JMAP mail server."))
+			}
 			stub1 := &jmap.Email{
 				ID:            "email-seed-1",
 				ThreadID:      "thread-seed-1",
@@ -236,6 +239,24 @@ func SeedAccountSampleData(ctx context.Context, accountID string, mb jmap.MailBa
 				BodyValues:    map[string]jmap.EmailBodyValue{"1": {Value: "Welcome to your new JMAP mail server."}},
 			}
 			_, _ = mb.CreateEmail(accountCtx, stub1)
+
+			stub2 := &jmap.Email{
+				ID:            "email-seed-2",
+				ThreadID:      "thread-seed-2",
+				Subject:       "JMAP Core and Mail Specifications",
+				From:          []jmap.EmailAddress{{Name: "IETF JMAP Working Group", Email: "jmap-wg@ietf.example.org"}},
+				To:            []jmap.EmailAddress{{Name: accountID, Email: accountID + "@example.com"}},
+				MailboxIDs:    map[jmap.Id]bool{"mb-inbox": true},
+				Keywords:      map[string]bool{"$seen": true, "$flagged": true},
+				Size:          4096,
+				ReceivedAt:    "2026-08-02T10:30:00Z",
+				SentAt:        "2026-08-02T10:29:00Z",
+				Preview:       "This email verifies that your server supports RFC 8620 (JMAP Core) and RFC 8621 (JMAP Mail).",
+				BlobID:        "blob-stub-2",
+				BodyStructure: jmap.EmailBodyPart{PartID: "1", Type: "text/plain", Size: 88},
+				BodyValues:    map[string]jmap.EmailBodyValue{"1": {Value: "This email verifies that your server supports RFC 8620 (JMAP Core) and RFC 8621 (JMAP Mail)."}},
+			}
+			_, _ = mb.CreateEmail(accountCtx, stub2)
 
 			stubSent := &jmap.Email{
 				ID:            "email-seed-sent",
