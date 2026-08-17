@@ -51,9 +51,17 @@ else
 fi
 
 echo "==> Bringing up the stack (fresh)"
+# An optional docker-compose.local.yml next to the main file is included when
+# present (e.g. host-networking override for environments without rootless
+# bridge networking); it never replaces the canonical compose file.
+COMPOSE_FILES=(-f "$COMPOSE_FILE")
+if [ -f "$E2E_DIR/../docker-compose.local.yml" ]; then
+  COMPOSE_FILES+=(-f "$E2E_DIR/../docker-compose.local.yml")
+  echo "==> Using local override docker-compose.local.yml"
+fi
 # --force-recreate guarantees a clean environment (and that a freshly generated cert
 # is loaded, since it is a runtime mount rather than baked into the image).
-"${COMPOSE[@]}" -f "$COMPOSE_FILE" up -d --build --force-recreate
+"${COMPOSE[@]}" "${COMPOSE_FILES[@]}" up -d --build --force-recreate
 
 # 3. Wait for both services to answer.
 wait_for() {

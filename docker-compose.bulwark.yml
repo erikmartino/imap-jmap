@@ -17,8 +17,9 @@ services:
       - SMTP_PORT=1025
       - SMTP_HOST=0.0.0.0
       # Browser clients (Bulwark) enforce a `connect-src ... https:` CSP, so the
-      # webmail can only talk to the JMAP server over HTTPS on 8443.
-      - PUBLIC_URL=http://imap-jmap:8080
+      # webmail can only talk to the JMAP server over HTTPS on 8443. The session
+      # advertises this as its absolute apiUrl/downloadUrl/uploadUrl/eventSourceUrl.
+      - PUBLIC_URL=https://localhost:8443
       # Use a browser-trusted TLS cert if present under ./certs (e.g. mkcert output),
       # so there is no certificate warning. Generate with:
       #   mkcert -install

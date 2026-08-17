@@ -346,10 +346,10 @@ func sessionFor(baseURL, username, accountID string) *Session {
 			AvailabilityCapabilityURI:     accountID,
 		},
 		Username:       username,
-		APIURL:         "/jmap",
-		DownloadURL:    "/download/{accountId}/{blobId}/{name}?accept={type}",
-		UploadURL:      "/upload/{accountId}/",
-		EventSourceURL: "/eventsource?types={types}&closeafter={closeafter}&ping={ping}",
+		APIURL:         baseURL + "/jmap",
+		DownloadURL:    baseURL + "/download/{accountId}/{blobId}/{name}?accept={type}",
+		UploadURL:      baseURL + "/upload/{accountId}/",
+		EventSourceURL: baseURL + "/eventsource?types={types}&closeafter={closeafter}&ping={ping}",
 		State:          "0",
 	}
 }

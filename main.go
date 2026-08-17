@@ -86,9 +86,6 @@ func main() {
 	httpsAddr := fmt.Sprintf("%s:%s", *host, *httpsPort)
 	smtpAddr := fmt.Sprintf("%s:%s", *smtpHost, *smtpPort)
 	publicURL := os.Getenv("PUBLIC_URL")
-	if publicURL == "" {
-		publicURL = fmt.Sprintf("http://%s", addr)
-	}
 
 	session := jmap.DefaultSession(publicURL, "user@example.com")
 	memBackend := memory.NewMemoryBackend()

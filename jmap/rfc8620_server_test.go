@@ -74,17 +74,18 @@ func TestRFC8620_WellKnownJMAP_RequestBasedURLs(t *testing.T) {
 		t.Fatalf("Failed to decode session JSON: %v", err)
 	}
 
-	if session.APIURL != "/jmap" {
-		t.Errorf("Expected APIURL %q, got %q", "/jmap", session.APIURL)
+	expectedPrefix := "https://jmap.example.com:8443"
+	if session.APIURL != expectedPrefix+"/jmap" {
+		t.Errorf("Expected APIURL %q, got %q", expectedPrefix+"/jmap", session.APIURL)
 	}
-	if session.UploadURL != "/upload/{accountId}/" {
-		t.Errorf("Expected UploadURL %q, got %q", "/upload/{accountId}/", session.UploadURL)
+	if session.UploadURL != expectedPrefix+"/upload/{accountId}/" {
+		t.Errorf("Expected UploadURL %q, got %q", expectedPrefix+"/upload/{accountId}/", session.UploadURL)
 	}
-	if session.DownloadURL != "/download/{accountId}/{blobId}/{name}?accept={type}" {
-		t.Errorf("Expected DownloadURL %q, got %q", "/download/{accountId}/{blobId}/{name}?accept={type}", session.DownloadURL)
+	if session.DownloadURL != expectedPrefix+"/download/{accountId}/{blobId}/{name}?accept={type}" {
+		t.Errorf("Expected DownloadURL %q, got %q", expectedPrefix+"/download/{accountId}/{blobId}/{name}?accept={type}", session.DownloadURL)
 	}
-	if session.EventSourceURL != "/eventsource?types={types}&closeafter={closeafter}&ping={ping}" {
-		t.Errorf("Expected EventSourceURL %q, got %q", "/eventsource?types={types}&closeafter={closeafter}&ping={ping}", session.EventSourceURL)
+	if session.EventSourceURL != expectedPrefix+"/eventsource?types={types}&closeafter={closeafter}&ping={ping}" {
+		t.Errorf("Expected EventSourceURL %q, got %q", expectedPrefix+"/eventsource?types={types}&closeafter={closeafter}&ping={ping}", session.EventSourceURL)
 	}
 
 	wsCapRaw, ok := session.Capabilities[jmap.WebSocketCapabilityURI]

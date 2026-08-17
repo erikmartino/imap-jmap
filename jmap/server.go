@@ -337,10 +337,15 @@ func (s *Server) sessionForRequest(r *http.Request) *Session {
 	}
 	sess.Capabilities = caps
 
-	sess.APIURL = "/jmap"
-	sess.DownloadURL = "/download/{accountId}/{blobId}/{name}?accept={type}"
-	sess.UploadURL = "/upload/{accountId}/"
-	sess.EventSourceURL = "/eventsource?types={types}&closeafter={closeafter}&ping={ping}"
+	// Advertise absolute service URLs built from the request's externally-reachable
+	// base (RFC 8620 Section 2 example uses absolute URLs; real servers such as
+	// Fastmail/Cyrus do the same). A relative apiUrl is resolved by browsers against
+	// the *page* origin, not the session resource URL, so a cross-origin web client
+	// (e.g. Bulwark webmail) would POST to the wrong host.
+	sess.APIURL = baseURL + "/jmap"
+	sess.DownloadURL = baseURL + "/download/{accountId}/{blobId}/{name}?accept={type}"
+	sess.UploadURL = baseURL + "/upload/{accountId}/"
+	sess.EventSourceURL = baseURL + "/eventsource?types={types}&closeafter={closeafter}&ping={ping}"
 
 	return &sess
 }

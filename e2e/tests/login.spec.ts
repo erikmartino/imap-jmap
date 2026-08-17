@@ -5,7 +5,11 @@ test.describe('login', () => {
   test('signs in a valid account and lands on the mailbox', async ({ page }) => {
     const user = uniqueUser('login-user');
     await login(page, user.username, user.password);
-    await expect(page).toHaveURL(/\/mail\//);
+    // The exact post-login route varies by Bulwark version (older builds land on
+    // /mail/folder/inbox, newer ones on the locale home /en), so assert the mailbox
+    // UI itself: the Inbox folder row with the seeded unread count is present on
+    // every logged-in mail view.
+    await expect(page.getByRole('button', { name: /^Inbox/ }).first()).toBeVisible({ timeout: 15_000 });
   });
 
   test('rejects invalid credentials with an inline error', async ({ page }) => {
