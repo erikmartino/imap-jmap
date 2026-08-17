@@ -74,11 +74,31 @@ func (s *Session) AuthPlain(username, password string) error {
 // Mail handles MAIL FROM command per RFC 5321.
 func (s *Session) Mail(from string, opts *smtp.MailOptions) error {
 	s.from = from
+	log.Printf("SMTP receiver: MAIL FROM <%s> from %s (helo=%q)", from, s.remoteAddr, s.helo)
 	return nil
 }
 
 // Rcpt handles RCPT TO command per RFC 5321.
 func (s *Session) Rcpt(to string, opts *smtp.RcptOptions) error {
+	log.Printf("SMTP receiver: RCPT TO <%s>", to)
+
+	// A server that cannot deliver to an address MUST reject it rather than accept
+	// the message and silently drop or misdeliver it. When an AccountResolver is
+	// configured, recipients it does not resolve to a local account are refused with
+	// 550 5.7.1 (RFC 3463: "Delivery not authorized, message refused" — the code real
+	// MTAs use for relaying-denied). Without a resolver the server acts as a
+	// catch-all receiver and accepts every recipient (legacy single-account mode).
+	if s.backend.AccountResolver != nil {
+		if _, local := s.backend.AccountResolver.ResolveAccountID(context.Background(), to); !local {
+			log.Printf("SMTP receiver: rejecting RCPT TO <%s>: address is not local and no relay is configured", to)
+			return &smtp.SMTPError{
+				Code:         550,
+				EnhancedCode: smtp.EnhancedCode{5, 7, 1},
+				Message:      fmt.Sprintf("<%s>: Relaying denied. Address is not a local user of this server", to),
+			}
+		}
+	}
+
 	s.to = append(s.to, to)
 	return nil
 }
@@ -89,6 +109,8 @@ func (s *Session) Data(r io.Reader) error {
 	if err != nil {
 		return err
 	}
+	log.Printf("SMTP receiver: DATA from %s (helo=%q, envelope from=%q, recipients=%v, size=%d bytes)",
+		s.remoteAddr, s.helo, s.from, s.to, len(data))
 
 	// Prepend an RFC 5321 Section 4.4 trace ("Received:") header. A receiving SMTP
 	// server MUST insert this at the top of the message so delivery is auditable in
@@ -102,42 +124,84 @@ func (s *Session) Data(r io.Reader) error {
 			accountID, local := s.backend.AccountResolver.ResolveAccountID(context.Background(), rcpt)
 			if local && accountID != "" {
 				targetAccountIDs[accountID] = true
+				log.Printf("SMTP receiver: recipient %q resolved to local account %s", rcpt, accountID)
+			} else {
+				log.Printf("SMTP receiver: recipient %q is NOT local (no account resolved)", rcpt)
 			}
 		}
+	} else {
+		log.Printf("SMTP receiver: no AccountResolver configured; skipping per-recipient resolution")
 	}
 	if len(targetAccountIDs) == 0 {
 		if s.backend.AccountID != "" {
 			targetAccountIDs[s.backend.AccountID] = true
+			log.Printf("SMTP receiver: no local recipient; delivering to fallback account %s", s.backend.AccountID)
 		} else if len(s.to) > 0 {
 			targetAccountIDs[jmap.AccountIDForSubject(s.to[0])] = true
+			log.Printf("SMTP receiver: no local recipient; delivering to account derived from first recipient %q", s.to[0])
+		} else {
+			log.Printf("SMTP receiver: message has no recipients and no fallback account; dropping message")
+			return nil
 		}
 	}
 
 	// 2. Deliver message copy for each target accountID
+	deliveredAny := false
+	var firstFailure error
 	for targetAccountID := range targetAccountIDs {
 		rcptCtx := jmap.ContextWithAccountID(context.Background(), targetAccountID)
+		log.Printf("SMTP receiver: delivering message to account %s", targetAccountID)
 
 		var blobID jmap.Id = "blob-unknown"
-		if s.backend.BlobBackend != nil {
+		blobStored := false
+		if s.backend.BlobBackend == nil {
+			log.Printf("SMTP receiver: warning: no BlobBackend configured; blob not stored for account %s", targetAccountID)
+			if firstFailure == nil {
+				firstFailure = fmt.Errorf("no BlobBackend configured for account %s", targetAccountID)
+			}
+		} else {
 			blob, err := s.backend.BlobBackend.PutBlob(rcptCtx, targetAccountID, "message/rfc822", data)
 			if err != nil {
-				log.Printf("SMTP receiver warning: failed to store blob: %v", err)
+				log.Printf("SMTP receiver warning: failed to store blob for account %s: %v", targetAccountID, err)
+				if firstFailure == nil {
+					firstFailure = err
+				}
 			} else {
 				blobID = jmap.Id(blob.ID)
+				blobStored = true
 			}
 		}
 
 		email, err := ParseMessageToEmail(data, blobID)
 		if err != nil {
-			log.Printf("SMTP receiver warning: parsing email error: %v", err)
+			log.Printf("SMTP receiver warning: parsing email error for account %s: %v", targetAccountID, err)
+			if firstFailure == nil {
+				firstFailure = err
+			}
+		} else if email == nil {
+			log.Printf("SMTP receiver warning: parser returned no email for account %s", targetAccountID)
+			if firstFailure == nil {
+				firstFailure = fmt.Errorf("message could not be parsed for account %s", targetAccountID)
+			}
 		}
 
-		if s.backend.MailBackend != nil && email != nil {
+		if s.backend.MailBackend != nil && email != nil && blobStored {
 			created, err := s.backend.MailBackend.CreateEmail(rcptCtx, email)
 			if err != nil {
-				log.Printf("SMTP receiver error: failed to create email in backend: %v", err)
+				log.Printf("SMTP receiver error: failed to create email in backend for account %s: %v", targetAccountID, err)
+				if firstFailure == nil {
+					firstFailure = err
+				}
 			} else {
 				log.Printf("SMTP receiver: stored email %s (account %s, blob %s, size %d bytes)", created.ID, targetAccountID, created.BlobID, created.Size)
+				deliveredAny = true
+			}
+		} else if email != nil && !blobStored {
+			log.Printf("SMTP receiver: warning: skipping email creation for account %s because its blob could not be stored", targetAccountID)
+		} else if email != nil {
+			log.Printf("SMTP receiver: warning: no MailBackend configured; email not stored for account %s", targetAccountID)
+			if firstFailure == nil {
+				firstFailure = fmt.Errorf("no MailBackend configured for account %s", targetAccountID)
 			}
 		}
 
@@ -212,6 +276,23 @@ func (s *Session) Data(r io.Reader) error {
 					}
 				}
 			}
+		}
+	}
+
+	// A message the server could not store for any recipient MUST NOT be acknowledged
+	// with a success reply: the client would believe it was accepted ("does not show
+	// up" with 250 OK). Reply with a transient system error (RFC 3463 4.3.0) so the
+	// client retries later.
+	if !deliveredAny {
+		reason := "message could not be stored for any recipient"
+		if firstFailure != nil {
+			reason = firstFailure.Error()
+		}
+		log.Printf("SMTP receiver error: rejecting DATA for recipients %v: %s", s.to, reason)
+		return &smtp.SMTPError{
+			Code:         451,
+			EnhancedCode: smtp.EnhancedCode{4, 3, 0},
+			Message:      "temporary local delivery failure: " + reason,
 		}
 	}
 

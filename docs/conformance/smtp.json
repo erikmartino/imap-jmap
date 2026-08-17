@@ -1,6 +1,22 @@
 [
   {
     "spec": "RFC5321",
+    "section": "3.4",
+    "level": "MUST",
+    "text": "A receiving SMTP server rejects recipients it cannot deliver to (relaying denied) rather than accepting the message.",
+    "tests": ["TestRFC5321_RejectExternalRecipient"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC5321",
+    "section": "3.7",
+    "level": "MUST",
+    "text": "A receiving SMTP server must not reply 250 to DATA when the message could not be stored for any recipient; it must return a failure reply.",
+    "tests": ["TestRFC5321_DataStorageFailureReturns451"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC5321",
     "section": "4.4",
     "level": "MUST",
     "text": "A receiving SMTP server prepends a Received: trace header to the accepted message content.",
