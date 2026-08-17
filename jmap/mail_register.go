@@ -1,8 +1,10 @@
 package jmap
 
 // RegisterMailHandlers registers all RFC 8621 JMAP Mail and RFC 9219 S/MIME methods into MethodRegistry.
-// blobBackend is used by Email/import and Email/parse to read raw RFC 5322 message blobs.
-func RegisterMailHandlers(r *MethodRegistry, backend MailBackend, blobBackend BlobBackend, resolver AccountResolver, allowedRecipients map[string]bool) {
+// blobBackend is used by Email/import and Email/parse to read raw RFC 5322 message blobs, and by
+// EmailSubmission/set to fetch the raw message bytes for outbound relay. outbound delivers
+// submissions to external (allow-listed) recipients via their domain's MX servers.
+func RegisterMailHandlers(r *MethodRegistry, backend MailBackend, blobBackend BlobBackend, resolver AccountResolver, allowedRecipients map[string]bool, outbound OutboundMailSender) {
 	// Mailbox (Section 2)
 	r.Register("Mailbox/get", handleMailboxGet(backend))
 	r.Register("Mailbox/changes", handleMailboxChanges(backend))
@@ -43,7 +45,7 @@ func RegisterMailHandlers(r *MethodRegistry, backend MailBackend, blobBackend Bl
 	// EmailSubmission (Section 7)
 	r.Register("EmailSubmission/get", handleEmailSubmissionGet(backend))
 	r.Register("EmailSubmission/changes", handleEmailSubmissionChanges(backend))
-	r.Register("EmailSubmission/set", handleEmailSubmissionSet(backend, resolver, allowedRecipients))
+	r.Register("EmailSubmission/set", handleEmailSubmissionSet(backend, blobBackend, resolver, allowedRecipients, outbound))
 	r.Register("EmailSubmission/query", handleEmailSubmissionQuery(backend))
 	r.Register("EmailSubmission/queryChanges", handleEmailSubmissionQueryChanges(backend))
 

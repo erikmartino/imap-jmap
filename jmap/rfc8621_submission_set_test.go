@@ -1,9 +1,15 @@
 package jmap_test
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
+	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/memory"
@@ -469,3 +475,501 @@ func TestEmailSubmission_OnSuccessUpdateEmailIgnoredForFailedCreation(t *testing
 		t.Errorf("onSuccessUpdateEmail must NOT be applied when the submission failed, got %v", emails[0].MailboxIDs)
 	}
 }
+
+// TestEmailSubmission_UndoStatusCancelPending verifies that a pending submission (sendAt in future)
+// can be canceled by patching undoStatus to "canceled" per RFC 8621 Section 7.5.
+func TestEmailSubmission_UndoStatusCancelPending(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	em, err := srv.MailBackend.CreateEmail(seedCtx(), &jmap.Email{
+		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
+		Subject:    "Pending Cancel Test",
+		To:         []jmap.EmailAddress{{Email: "localuser@example.com"}},
+	})
+	if err != nil {
+		t.Fatalf("Failed to create email: %v", err)
+	}
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.SubmissionCapabilityURI}
+
+	// 1. Create with future sendAt
+	futureDate := "2035-01-01T00:00:00Z"
+	res1 := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sub1": map[string]any{
+					"emailId":    string(em.ID),
+					"identityId": "id-primary",
+					"sendAt":     futureDate,
+				},
+			},
+		}, "c1"},
+	})
+	created, _ := res1.MethodResponses[0].Args["created"].(map[string]any)
+	subObj, ok := created["sub1"].(map[string]any)
+	if !ok {
+		t.Fatalf("Failed to create pending submission: %v", res1.MethodResponses[0].Args)
+	}
+	subID, _ := subObj["id"].(string)
+	if subObj["undoStatus"] != "pending" {
+		t.Errorf("Expected undoStatus='pending' for future sendAt, got %v", subObj["undoStatus"])
+	}
+
+	// 2. Patch undoStatus to "canceled"
+	res2 := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"update": map[string]any{
+				subID: map[string]any{
+					"undoStatus": "canceled",
+				},
+			},
+		}, "c2"},
+	})
+	updated, _ := res2.MethodResponses[0].Args["updated"].(map[string]any)
+	upObj, ok := updated[subID].(map[string]any)
+	if !ok {
+		t.Fatalf("Expected subID in updated, got: %v", res2.MethodResponses[0].Args)
+	}
+	if upObj["undoStatus"] != "canceled" {
+		t.Errorf("Expected undoStatus='canceled', got %v", upObj["undoStatus"])
+	}
+
+	// 3. Patching already canceled submission returns alreadyCanceled
+	res3 := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"update": map[string]any{
+				subID: map[string]any{
+					"undoStatus": "canceled",
+				},
+			},
+		}, "c3"},
+	})
+	notUpdated, _ := res3.MethodResponses[0].Args["notUpdated"].(map[string]any)
+	errObj, ok := notUpdated[subID].(map[string]any)
+	if !ok || errObj["type"] != "alreadyCanceled" {
+		t.Errorf("Expected notUpdated type 'alreadyCanceled', got %v", notUpdated)
+	}
+}
+
+// TestEmailSubmission_UndoStatusCancelFinalCannotCancel verifies that attempting to cancel
+// a finalized submission returns a cannotCancel SetError per RFC 8621 Section 7.5.
+func TestEmailSubmission_UndoStatusCancelFinalCannotCancel(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	em, _ := srv.MailBackend.CreateEmail(seedCtx(), &jmap.Email{
+		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
+		Subject:    "Final Cancel Test",
+		To:         []jmap.EmailAddress{{Email: "localuser@example.com"}},
+	})
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.SubmissionCapabilityURI}
+
+	// Create immediate submission (undoStatus: final)
+	res1 := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sub1": map[string]any{
+					"emailId":    string(em.ID),
+					"identityId": "id-primary",
+				},
+			},
+		}, "c1"},
+	})
+	created, _ := res1.MethodResponses[0].Args["created"].(map[string]any)
+	subObj := created["sub1"].(map[string]any)
+	subID := subObj["id"].(string)
+	if subObj["undoStatus"] != "final" {
+		t.Errorf("Expected undoStatus='final', got %v", subObj["undoStatus"])
+	}
+
+	// Attempt to cancel
+	res2 := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"update": map[string]any{
+				subID: map[string]any{
+					"undoStatus": "canceled",
+				},
+			},
+		}, "c2"},
+	})
+	notUpdated, _ := res2.MethodResponses[0].Args["notUpdated"].(map[string]any)
+	errObj, ok := notUpdated[subID].(map[string]any)
+	if !ok || errObj["type"] != "cannotCancel" {
+		t.Errorf("Expected notUpdated type 'cannotCancel', got %v", notUpdated)
+	}
+}
+
+// TestEmailSubmission_ImmutablePropertiesNotUpdated verifies that properties other than
+// undoStatus cannot be updated on an EmailSubmission (RFC 8621 Section 7.5).
+func TestEmailSubmission_ImmutablePropertiesNotUpdated(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	em, _ := srv.MailBackend.CreateEmail(seedCtx(), &jmap.Email{
+		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
+		Subject:    "Immutable Properties Test",
+		To:         []jmap.EmailAddress{{Email: "localuser@example.com"}},
+	})
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.SubmissionCapabilityURI}
+	res1 := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sub1": map[string]any{
+					"emailId":    string(em.ID),
+					"identityId": "id-primary",
+				},
+			},
+		}, "c1"},
+	})
+	created, _ := res1.MethodResponses[0].Args["created"].(map[string]any)
+	subID := created["sub1"].(map[string]any)["id"].(string)
+
+	// Attempt to patch immutable properties (emailId, sendAt)
+	res2 := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"update": map[string]any{
+				subID: map[string]any{
+					"emailId": "email-2",
+					"sendAt":  "2030-01-01T00:00:00Z",
+				},
+			},
+		}, "c2"},
+	})
+	notUpdated, _ := res2.MethodResponses[0].Args["notUpdated"].(map[string]any)
+	errObj, ok := notUpdated[subID].(map[string]any)
+	if !ok || errObj["type"] != "invalidProperties" {
+		t.Errorf("Expected notUpdated type 'invalidProperties' for modifying immutable submission fields, got %v", notUpdated)
+	}
+}
+
+// TestEmailSubmission_IfInStateMismatch verifies stateMismatch error when ifInState is invalid.
+func TestEmailSubmission_IfInStateMismatch(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.SubmissionCapabilityURI}
+	res := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"ifInState": "bad-state-token",
+			"create": map[string]any{
+				"sub1": map[string]any{
+					"emailId":    "email-1",
+					"identityId": "id-primary",
+				},
+			},
+		}, "c1"},
+	})
+	if res.MethodResponses[0].Name != "error" {
+		t.Fatalf("Expected method error, got %q", res.MethodResponses[0].Name)
+	}
+	errType, _ := res.MethodResponses[0].Args["type"].(string)
+	if errType != "stateMismatch" {
+		t.Errorf("Expected error type 'stateMismatch', got %q", errType)
+	}
+}
+
+// TestEmailSubmission_ValidationErrors verifies input validation on EmailSubmission/set create.
+func TestEmailSubmission_ValidationErrors(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	em, _ := srv.MailBackend.CreateEmail(seedCtx(), &jmap.Email{
+		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
+		Subject:    "Validation Test",
+		To:         []jmap.EmailAddress{{Email: "localuser@example.com"}},
+	})
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.SubmissionCapabilityURI}
+
+	// 1. Missing identityId
+	res1 := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sub1": map[string]any{
+					"emailId": string(em.ID),
+				},
+			},
+		}, "c1"},
+	})
+	notCreated1, _ := res1.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if notCreated1["sub1"] == nil {
+		t.Errorf("Expected notCreated for missing identityId")
+	}
+
+	// 2. Non-existent identityId
+	res2 := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sub2": map[string]any{
+					"identityId": "non-existent-identity",
+					"emailId":    string(em.ID),
+				},
+			},
+		}, "c2"},
+	})
+	notCreated2, _ := res2.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if notCreated2["sub2"] == nil {
+		t.Errorf("Expected notCreated for non-existent identityId")
+	}
+
+	// 3. Non-existent emailId
+	res3 := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sub3": map[string]any{
+					"identityId": "id-primary",
+					"emailId":    "non-existent-email",
+				},
+			},
+		}, "c3"},
+	})
+	notCreated3, _ := res3.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if notCreated3["sub3"] == nil {
+		t.Errorf("Expected notCreated for non-existent emailId")
+	}
+
+	// 4. Invalid sendAt format
+	res4 := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sub4": map[string]any{
+					"identityId": "id-primary",
+					"emailId":    string(em.ID),
+					"sendAt":     "not-a-date",
+				},
+			},
+		}, "c4"},
+	})
+	notCreated4, _ := res4.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if notCreated4["sub4"] == nil {
+		t.Errorf("Expected notCreated for invalid sendAt date")
+	}
+}
+
+// TestEmailSubmission_CreationReferences verifies creation references (#creationId)
+// linking an Email created in the same request to an EmailSubmission.
+func TestEmailSubmission_CreationReferences(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.SubmissionCapabilityURI}
+	res := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"draft1": map[string]any{
+					"mailboxIds": map[string]any{"mb-drafts": true},
+					"subject":    "Composite Creation Draft",
+					"to":         []any{map[string]any{"email": "localuser@example.com"}},
+				},
+			},
+		}, "c1"},
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sub1": map[string]any{
+					"identityId": "id-primary",
+					"emailId":    "#draft1",
+				},
+			},
+		}, "c2"},
+	})
+
+	if len(res.MethodResponses) != 2 {
+		t.Fatalf("Expected 2 method responses, got %d", len(res.MethodResponses))
+	}
+	emailCreated, _ := res.MethodResponses[0].Args["created"].(map[string]any)
+	draftObj := emailCreated["draft1"].(map[string]any)
+	realEmailID := draftObj["id"].(string)
+
+	subCreated, _ := res.MethodResponses[1].Args["created"].(map[string]any)
+	subObj, ok := subCreated["sub1"].(map[string]any)
+	if !ok {
+		t.Fatalf("Failed to create submission with creation ref: %v", res.MethodResponses[1].Args)
+	}
+	if subObj["emailId"] != realEmailID {
+		t.Errorf("Expected submission emailId=%q, got %q", realEmailID, subObj["emailId"])
+	}
+}
+
+type mockOutboundSender struct {
+	called     bool
+	from       string
+	recipients []string
+	rawBytes   []byte
+}
+
+func (m *mockOutboundSender) SendMail(ctx context.Context, from string, recipients []string, rawMessage []byte) map[string]jmap.OutboundDeliveryResult {
+	m.called = true
+	m.from = from
+	m.recipients = recipients
+	m.rawBytes = rawMessage
+	results := make(map[string]jmap.OutboundDeliveryResult)
+	for _, rcpt := range recipients {
+		results[rcpt] = jmap.OutboundDeliveryResult{
+			Delivered: true,
+			SmtpReply: "250 2.0.0 OK delivered via mock relay",
+		}
+	}
+	return results
+}
+
+// TestEmailSubmission_OutboundSenderRelay verifies that when OutboundMailSender is configured,
+// external allow-listed submissions are routed through it with full MIME payload.
+func TestEmailSubmission_OutboundSenderRelay(t *testing.T) {
+	mockSender := &mockOutboundSender{}
+	memBackend := memory.NewMemoryBackend()
+	memBlobBackend := memory.NewMemoryBlobBackend()
+	srv := jmap.NewServer(
+		nil,
+		jmap.WithMailBackend(memBackend),
+		jmap.WithBlobBackend(memBlobBackend),
+		jmap.WithAllowedRecipients([]string{"external@allowed.org"}),
+		jmap.WithOutboundSender(mockSender),
+	)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	em, _ := srv.MailBackend.CreateEmail(seedCtx(), &jmap.Email{
+		MailboxIDs: map[jmap.Id]bool{"mb-drafts": true},
+		Subject:    "Outbound Relay Test",
+		From:       []jmap.EmailAddress{{Email: "sender@example.com"}},
+		To:         []jmap.EmailAddress{{Email: "external@allowed.org"}},
+		BodyValues: map[string]jmap.EmailBodyValue{"1": {Value: "Hello external recipient"}},
+	})
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.SubmissionCapabilityURI}
+	res := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sub1": map[string]any{
+					"identityId": "id-primary",
+					"emailId":    string(em.ID),
+				},
+			},
+		}, "c1"},
+	})
+
+	created, _ := res.MethodResponses[0].Args["created"].(map[string]any)
+	subObj, ok := created["sub1"].(map[string]any)
+	if !ok {
+		t.Fatalf("Submission create failed: %v", res.MethodResponses[0].Args)
+	}
+
+	ds, _ := subObj["deliveryStatus"].(map[string]any)
+	status, _ := ds["external@allowed.org"].(map[string]any)
+	if status["delivered"] != "yes" {
+		t.Errorf("Expected delivered=yes via outbound relay, got %v", status)
+	}
+	if !mockSender.called {
+		t.Errorf("Expected mock OutboundMailSender to be called")
+	}
+	if len(mockSender.recipients) != 1 || mockSender.recipients[0] != "external@allowed.org" {
+		t.Errorf("Expected recipients=[external@allowed.org], got %v", mockSender.recipients)
+	}
+	if len(mockSender.rawBytes) == 0 {
+		t.Errorf("Expected non-empty raw MIME message payload passed to OutboundMailSender")
+	}
+}
+
+// TestEmailSubmission_PushStateChange verifies that creating an EmailSubmission emits
+// a StateChange SSE event containing EmailSubmission for the account (RFC 8620 Section 7.1).
+func TestEmailSubmission_PushStateChange(t *testing.T) {
+	memBackend := memory.NewMemoryBackend()
+	memBlobBackend := memory.NewMemoryBlobBackend()
+	srv := jmap.NewServer(
+		nil,
+		jmap.WithMailBackend(memBackend),
+		jmap.WithBlobBackend(memBlobBackend),
+	)
+	memBackend.SetBroadcaster(srv.Broadcaster)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	em, _ := srv.MailBackend.CreateEmail(seedCtx(), &jmap.Email{
+		MailboxIDs: map[jmap.Id]bool{"mb-drafts": true},
+		Subject:    "SSE StateChange Test",
+		To:         []jmap.EmailAddress{{Email: "localuser@example.com"}},
+	})
+
+	sseURL := ts.URL + "/eventsource?types=EmailSubmission&closeafter=state"
+	req := authedRequest(t, "GET", sseURL, nil)
+
+	sseResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /eventsource failed: %v", err)
+	}
+	defer sseResp.Body.Close()
+
+	if sseResp.StatusCode != http.StatusOK {
+		t.Fatalf("Expected SSE HTTP status 200, got %d", sseResp.StatusCode)
+	}
+
+	// In background, create submission via authedPost
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.SubmissionCapabilityURI}
+		payload := map[string]any{
+			"using": using,
+			"methodCalls": []any{
+				[]any{"EmailSubmission/set", map[string]any{
+					"accountId": "primary",
+					"create": map[string]any{
+						"sub1": map[string]any{
+							"identityId": "id-primary",
+							"emailId":    string(em.ID),
+						},
+					},
+				}, "c1"},
+			},
+		}
+		body, _ := json.Marshal(payload)
+		resp, postErr := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+		if postErr == nil {
+			_ = resp.Body.Close()
+		}
+	}()
+
+	scanner := bufio.NewScanner(sseResp.Body)
+	var eventLine, dataLine string
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "event:") {
+			eventLine = line
+		} else if strings.HasPrefix(line, "data:") {
+			dataLine = line
+			break
+		}
+	}
+
+	if eventLine != "event: state" {
+		t.Fatalf("Expected SSE event 'event: state', got %q", eventLine)
+	}
+	if !strings.Contains(dataLine, "EmailSubmission") {
+		t.Errorf("Expected StateChange event payload containing 'EmailSubmission', got %q", dataLine)
+	}
+}
+
+

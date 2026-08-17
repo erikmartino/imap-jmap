@@ -65,6 +65,7 @@ type MailBackend interface {
 	SubmissionState(ctx context.Context) string
 	SubmissionChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
 	CreateSubmission(ctx context.Context, sub *EmailSubmission) (*EmailSubmission, error)
+	UpdateSubmission(ctx context.Context, id Id, patch map[string]any) (*EmailSubmission, error)
 	DeleteSubmission(ctx context.Context, id Id) (bool, error)
 	GetSubmissions(ctx context.Context, ids []Id) (list []*EmailSubmission, notFound []Id, err error)
 	GetAllSubmissions(ctx context.Context) ([]*EmailSubmission, error)
@@ -94,6 +95,23 @@ type BlobBackend interface {
 // per RFC 9404 Section 4.3. Implemented by the data store that holds the referencing types.
 type BlobReferenceBackend interface {
 	LookupBlobReferences(ctx context.Context, typeNames []string, blobID Id) (map[string][]Id, error)
+}
+
+// OutboundDeliveryResult is the outcome of delivering a raw message to one external
+// recipient via the outbound relay: whether the message was accepted, and the SMTP
+// reply (e.g. "250 2.0.0 OK ..." or "550 5.1.1 <address>: User unknown") the remote
+// server returned, which the EmailSubmission deliveryStatus reports verbatim.
+type OutboundDeliveryResult struct {
+	Delivered bool
+	SmtpReply string
+}
+
+// OutboundMailSender delivers a raw RFC 5322 message to external recipients by
+// relaying it to the recipient domain's SMTP servers (RFC 5321 Section 5.1).
+// Implemented by smtp.MXOutboundSender; injectable so handlers can be tested
+// without touching the network.
+type OutboundMailSender interface {
+	SendMail(ctx context.Context, from string, recipients []string, rawMessage []byte) map[string]OutboundDeliveryResult
 }
 
 // ContactsBackend defines the storage interface for JMAP Contacts resources per RFC 9610.

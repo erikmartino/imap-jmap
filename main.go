@@ -128,6 +128,7 @@ func main() {
 		jmap.WithAuthBackend(authBackend),
 		jmap.WithAccountResolver(accountResolver),
 		jmap.WithAllowedRecipients(allowedSlice),
+		jmap.WithOutboundSender(smtp.NewMXOutboundSender()),
 		jmap.WithPublicBaseURL(publicURL),
 	)
 	memBackend.SetBroadcaster(server.Broadcaster)

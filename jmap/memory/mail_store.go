@@ -1137,17 +1137,62 @@ func (mb *MemoryBackend) CreateSubmission(ctx context.Context, sub *jmap.EmailSu
 			sub.ThreadID = em.ThreadID
 		}
 	}
-	sub.UndoStatus = "final"
-	if sub.DeliveryStatus == nil {
-		sub.DeliveryStatus = map[string]jmap.DeliveryStatus{
-			"user@example.com": {
-				Delivered: "yes",
-			},
+	if sub.UndoStatus == "" {
+		if t, err := time.Parse(time.RFC3339, sub.SendAt); err == nil && t.After(time.Now().UTC().Add(1*time.Second)) {
+			sub.UndoStatus = "pending"
+		} else {
+			sub.UndoStatus = "final"
 		}
+	}
+	if sub.DeliveryStatus == nil {
+		sub.DeliveryStatus = make(map[string]jmap.DeliveryStatus)
 	}
 
 	us.submissions[sub.ID] = sub
 	mb.recordChange(ctx, us.submissionState, sub.ID, "create", "EmailSubmission")
+	return sub, nil
+}
+
+// UpdateSubmission applies a patch to an EmailSubmission per RFC 8621 Section 7.5.
+// EmailSubmission objects are immutable except for updating undoStatus to "canceled" when pending.
+func (mb *MemoryBackend) UpdateSubmission(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.EmailSubmission, error) {
+	mb.mu.Lock()
+	us := mb.getStoreLocked(ctx)
+	defer mb.mu.Unlock()
+
+	sub, ok := us.submissions[id]
+	if !ok {
+		return nil, fmt.Errorf("notFound: submission not found")
+	}
+
+	for k, v := range patch {
+		cleanK := strings.TrimPrefix(k, "/")
+		switch cleanK {
+		case "undoStatus":
+			newStatus, _ := v.(string)
+			if newStatus != "canceled" {
+				return nil, fmt.Errorf("invalidProperties: undoStatus can only be updated to canceled")
+			}
+			if sub.UndoStatus == "final" {
+				return nil, fmt.Errorf("cannotCancel: submission is already final")
+			}
+			if sub.UndoStatus == "canceled" {
+				return nil, fmt.Errorf("alreadyCanceled: submission is already canceled")
+			}
+			sub.UndoStatus = "canceled"
+			for rcpt, ds := range sub.DeliveryStatus {
+				if ds.Delivered == "queued" || ds.Delivered == "pending" {
+					ds.Delivered = "no"
+					ds.SmtpReply = "canceled by user"
+					sub.DeliveryStatus[rcpt] = ds
+				}
+			}
+		default:
+			return nil, fmt.Errorf("invalidProperties: EmailSubmission property %q cannot be updated", k)
+		}
+	}
+
+	mb.recordChange(ctx, us.submissionState, sub.ID, "update", "EmailSubmission")
 	return sub, nil
 }
 
@@ -1239,14 +1284,49 @@ func emailReferencesBlob(em *jmap.Email, blobID jmap.Id) bool {
 	return false
 }
 
-// QuerySubmissions filters, sorts, and pages EmailSubmissions per RFC 8621 Section 7.2.
-// Supported filter conditions: identityIds, emailIds, threadIds, undoStatus, before, after.
-// Sorting supports the RFC 8621 Section 7.2 properties emailId, threadId and sendAt
-// ("sentAt" is accepted as an alias for sendAt); the default sort is sendAt descending.
-func (mb *MemoryBackend) QuerySubmissions(ctx context.Context, filter map[string]any, comparators []jmap.Comparator, position int, limit *uint64) ([]jmap.Id, int, error) {
-	mb.mu.RLock()
-	us := mb.getStoreLocked(ctx)
-	defer mb.mu.RUnlock()
+// MatchSubmissionFilter checks if an EmailSubmission matches a FilterCondition or FilterOperator.
+func MatchSubmissionFilter(sub *jmap.EmailSubmission, filter map[string]any) bool {
+	if len(filter) == 0 {
+		return true
+	}
+
+	// FilterOperator: operator (AND/OR/NOT) + conditions
+	if opRaw, ok := filter["operator"].(string); ok {
+		condsRaw, ok := filter["conditions"].([]any)
+		if !ok {
+			return true
+		}
+		op := strings.ToUpper(opRaw)
+		switch op {
+		case "AND":
+			for _, condRaw := range condsRaw {
+				if condMap, ok := condRaw.(map[string]any); ok {
+					if !MatchSubmissionFilter(sub, condMap) {
+						return false
+					}
+				}
+			}
+			return true
+		case "OR":
+			for _, condRaw := range condsRaw {
+				if condMap, ok := condRaw.(map[string]any); ok {
+					if MatchSubmissionFilter(sub, condMap) {
+						return true
+					}
+				}
+			}
+			return len(condsRaw) == 0
+		case "NOT":
+			for _, condRaw := range condsRaw {
+				if condMap, ok := condRaw.(map[string]any); ok {
+					if MatchSubmissionFilter(sub, condMap) {
+						return false
+					}
+				}
+			}
+			return true
+		}
+	}
 
 	identityFilter := submissionIDFilter(filter, "identityIds")
 	emailFilter := submissionIDFilter(filter, "emailIds")
@@ -1255,27 +1335,41 @@ func (mb *MemoryBackend) QuerySubmissions(ctx context.Context, filter map[string
 	before, _ := filter["before"].(string)
 	after, _ := filter["after"].(string)
 
+	if len(identityFilter) > 0 && !identityFilter[sub.IdentityID] {
+		return false
+	}
+	if len(emailFilter) > 0 && !emailFilter[sub.EmailID] {
+		return false
+	}
+	if len(threadFilter) > 0 && !threadFilter[sub.ThreadID] {
+		return false
+	}
+	if undoStatus != "" && sub.UndoStatus != undoStatus {
+		return false
+	}
+	if before != "" && sub.SendAt >= before {
+		return false
+	}
+	if after != "" && sub.SendAt < after {
+		return false
+	}
+	return true
+}
+
+// QuerySubmissions filters, sorts, and pages EmailSubmissions per RFC 8621 Section 7.2.
+// Supported filter conditions: identityIds, emailIds, threadIds, undoStatus, before, after.
+// Sorting supports the RFC 8621 Section 7.2 properties emailId, threadId, sendAt, undoStatus
+// ("sentAt" is accepted as an alias for sendAt); the default sort is sendAt descending.
+func (mb *MemoryBackend) QuerySubmissions(ctx context.Context, filter map[string]any, comparators []jmap.Comparator, position int, limit *uint64) ([]jmap.Id, int, error) {
+	mb.mu.RLock()
+	us := mb.getStoreLocked(ctx)
+	defer mb.mu.RUnlock()
+
 	var matched []*jmap.EmailSubmission
 	for _, sub := range us.submissions {
-		if len(identityFilter) > 0 && !identityFilter[sub.IdentityID] {
-			continue
+		if MatchSubmissionFilter(sub, filter) {
+			matched = append(matched, sub)
 		}
-		if len(emailFilter) > 0 && !emailFilter[sub.EmailID] {
-			continue
-		}
-		if len(threadFilter) > 0 && !threadFilter[sub.ThreadID] {
-			continue
-		}
-		if undoStatus != "" && sub.UndoStatus != undoStatus {
-			continue
-		}
-		if before != "" && sub.SendAt >= before {
-			continue
-		}
-		if after != "" && sub.SendAt < after {
-			continue
-		}
-		matched = append(matched, sub)
 	}
 
 	SortSubmissions(matched, comparators)
@@ -1302,7 +1396,7 @@ func (mb *MemoryBackend) QuerySubmissions(ctx context.Context, filter map[string
 }
 
 // SortSubmissions sorts EmailSubmissions in-place per RFC 8621 Section 7.2 comparators.
-// Supported properties: emailId, threadId, sendAt (and "sentAt" as an alias per the RFC
+// Supported properties: emailId, threadId, sendAt, undoStatus (and "sentAt" as an alias per the RFC
 // 8621 sort list). The default sort is sendAt descending.
 func SortSubmissions(subs []*jmap.EmailSubmission, comparators []jmap.Comparator) {
 	if len(comparators) == 0 {
@@ -1322,6 +1416,8 @@ func SortSubmissions(subs []*jmap.EmailSubmission, comparators []jmap.Comparator
 				cmp = strings.Compare(string(a.ThreadID), string(b.ThreadID))
 			case "sendAt", "sentAt":
 				cmp = strings.Compare(a.SendAt, b.SendAt)
+			case "undoStatus":
+				cmp = strings.Compare(a.UndoStatus, b.UndoStatus)
 			}
 			if cmp != 0 {
 				if !comp.IsAscending {

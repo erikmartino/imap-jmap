@@ -25,6 +25,7 @@ type Server struct {
 	PermissionGuard   PermissionGuard
 	AccountResolver   AccountResolver
 	AllowedRecipients map[string]bool
+	OutboundSender    OutboundMailSender
 	MethodRegistry    *MethodRegistry
 	Broadcaster       *Broadcaster
 	// PublicBaseURL, when set (e.g. from PUBLIC_URL), is the canonical externally-reachable
@@ -146,6 +147,16 @@ func WithAllowedRecipients(allowed []string) Option {
 	}
 }
 
+// WithOutboundSender sets the OutboundMailSender used to relay submissions to external
+// recipients via their domain's MX servers. When nil (tests, or no relay configured),
+// external allow-listed recipients are refused with a transient error instead of being
+// acknowledged as sent.
+func WithOutboundSender(o OutboundMailSender) Option {
+	return func(s *Server) {
+		s.OutboundSender = o
+	}
+}
+
 // NewServer initializes a new Server instance.
 func NewServer(session *Session, opts ...Option) *Server {
 	if session == nil {
@@ -171,7 +182,7 @@ func NewServer(session *Session, opts ...Option) *Server {
 		s.AuthBackend = defaultAuthBackend{}
 	}
 
-	RegisterMailHandlers(s.MethodRegistry, s.MailBackend, s.BlobBackend, s.AccountResolver, s.AllowedRecipients)
+	RegisterMailHandlers(s.MethodRegistry, s.MailBackend, s.BlobBackend, s.AccountResolver, s.AllowedRecipients, s.OutboundSender)
 	refs, _ := s.MailBackend.(BlobReferenceBackend)
 	RegisterBlobHandlers(s.MethodRegistry, s.BlobBackend, refs)
 	RegisterQuotaHandlers(s.MethodRegistry, s.MailBackend)

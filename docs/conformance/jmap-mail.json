@@ -156,7 +156,7 @@
     "section": "7.1",
     "level": "MUST",
     "text": "EmailSubmission/get and /query with envelope and delivery status.",
-    "tests": ["TestEmailSubmission_Envelope_RoundTrip", "TestRFC8621_Section7_1_EmailSubmissionGet", "TestRFC8621_Section7_2_EmailSubmissionQuery"],
+    "tests": ["TestEmailSubmission_Envelope_RoundTrip", "TestRFC8621_Section7_1_EmailSubmissionGet", "TestRFC8621_Section7_2_EmailSubmissionQuery", "TestRFC8621_SubmissionQueryAnchor", "TestRFC8621_SubmissionQueryChanges", "TestRFC8621_SubmissionQueryFilters", "TestRFC8621_SubmissionQueryPagination", "TestRFC8621_SubmissionQuery_FilterOperator", "TestRFC8621_SubmissionQuery_SortUndoStatus"],
     "status": "covered"
   },
   {
@@ -164,7 +164,7 @@
     "section": "7.5",
     "level": "MUST",
     "text": "EmailSubmission/set sends, and applies onSuccessUpdateEmail / onSuccessDestroyEmail.",
-    "tests": ["TestEmailSubmission_LocalDelivery", "TestEmailSubmission_OnSuccessDestroyEmail", "TestEmailSubmission_OnSuccessUpdateEmail", "TestRFC8621_Section7_3_EmailSubmissionSet"],
+    "tests": ["TestEmailSubmissionSetDestroyTests", "TestEmailSubmission_CreationReferences", "TestEmailSubmission_IfInStateMismatch", "TestEmailSubmission_ImmutablePropertiesNotUpdated", "TestEmailSubmission_LocalDelivery", "TestEmailSubmission_OnSuccessDestroyEmail", "TestEmailSubmission_OnSuccessUpdateEmail", "TestEmailSubmission_OutboundSenderRelay", "TestEmailSubmission_PushStateChange", "TestEmailSubmission_UndoStatusCancelFinalCannotCancel", "TestEmailSubmission_UndoStatusCancelPending", "TestEmailSubmission_ValidationErrors", "TestRFC8621_Section7_3_EmailSubmissionSet"],
     "status": "covered"
   },
   {

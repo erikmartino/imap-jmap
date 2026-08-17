@@ -447,3 +447,172 @@ func TestRFC8621_SubmissionQueryUndoStatusBackend(t *testing.T) {
 		t.Errorf("undoStatus final must exclude the pending submission, got %v (total %d): %v", ids, total, err)
 	}
 }
+
+// TestRFC8621_SubmissionQuery_FilterOperator tests nested FilterOperator (AND, OR, NOT)
+// conditions on EmailSubmission/query.
+func TestRFC8621_SubmissionQuery_FilterOperator(t *testing.T) {
+	c := newSubmissionQueryClient(t)
+	s1ID, s2ID, s3ID, eAID, _, _, _, _ := c.seed(t)
+
+	query := func(filter map[string]any) []string {
+		t.Helper()
+		r := c.post(t, []any{
+			[]any{"EmailSubmission/query", map[string]any{"accountId": "primary", "filter": filter}, "c1"},
+		})
+		ids := []string{}
+		raw := r.MethodResponses[0].Args["ids"].([]any)
+		for _, item := range raw {
+			ids = append(ids, item.(string))
+		}
+		return ids
+	}
+	has := func(ids []string, want string) bool {
+		for _, id := range ids {
+			if id == want {
+				return true
+			}
+		}
+		return false
+	}
+
+	// OR operator: match s1 (sendAt 2026-03-01) OR s2 (sendAt 2026-01-15)
+	got := query(map[string]any{
+		"operator": "OR",
+		"conditions": []any{
+			map[string]any{"before": "2026-01-20T00:00:00Z"},
+			map[string]any{"after": "2026-02-15T00:00:00Z"},
+		},
+	})
+	if len(got) != 2 || !has(got, s1ID) || !has(got, s2ID) || has(got, s3ID) {
+		t.Errorf("FilterOperator OR must match s1 and s2, got %v", got)
+	}
+
+	// AND operator: emailIds [eA] AND before 2026-02-15
+	got = query(map[string]any{
+		"operator": "AND",
+		"conditions": []any{
+			map[string]any{"emailIds": []any{eAID}},
+			map[string]any{"before": "2026-02-15T00:00:00Z"},
+		},
+	})
+	if len(got) != 1 || !has(got, s3ID) {
+		t.Errorf("FilterOperator AND must match only s3, got %v", got)
+	}
+
+	// NOT operator: NOT (emailIds [eA]) -> s2 only
+	got = query(map[string]any{
+		"operator": "NOT",
+		"conditions": []any{
+			map[string]any{"emailIds": []any{eAID}},
+		},
+	})
+	if len(got) != 1 || !has(got, s2ID) {
+		t.Errorf("FilterOperator NOT must match only s2, got %v", got)
+	}
+}
+
+// TestRFC8621_SubmissionQuery_SortUndoStatus tests sorting by undoStatus in EmailSubmission/query.
+func TestRFC8621_SubmissionQuery_SortUndoStatus(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Seed one pending submission and one final submission
+	em, _ := srv.MailBackend.CreateEmail(seedCtx(), &jmap.Email{
+		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
+		Subject:    "Sort Test",
+		To:         []jmap.EmailAddress{{Email: "localuser@example.com"}},
+	})
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.SubmissionCapabilityURI}
+	res := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"subFinal": map[string]any{
+					"emailId":    string(em.ID),
+					"identityId": "id-primary",
+				},
+				"subPending": map[string]any{
+					"emailId":    string(em.ID),
+					"identityId": "id-primary",
+					"sendAt":     "2035-01-01T00:00:00Z",
+				},
+			},
+		}, "c1"},
+		[]any{"EmailSubmission/query", map[string]any{
+			"accountId": "primary",
+			"sort": []any{
+				map[string]any{"property": "undoStatus", "isAscending": true},
+			},
+		}, "c2"},
+	})
+
+	created, _ := res.MethodResponses[0].Args["created"].(map[string]any)
+	finalID := created["subFinal"].(map[string]any)["id"].(string)
+	pendingID := created["subPending"].(map[string]any)["id"].(string)
+
+	queryRes := res.MethodResponses[1].Args
+	ids, _ := queryRes["ids"].([]any)
+	if len(ids) != 2 {
+		t.Fatalf("Expected 2 submission IDs, got %v", ids)
+	}
+	// "final" < "pending" alphabetically in ascending order
+	if ids[0] != finalID || ids[1] != pendingID {
+		t.Errorf("Expected [finalID, pendingID], got %v", ids)
+	}
+}
+
+// TestRFC8621_SubmissionQueryChanges verifies EmailSubmission/queryChanges tracking additions and removals.
+func TestRFC8621_SubmissionQueryChanges(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.SubmissionCapabilityURI}
+
+	// 1. Initial query to capture queryState
+	res1 := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/query", map[string]any{"accountId": "primary"}, "c1"},
+	})
+	queryState1 := res1.MethodResponses[0].Args["queryState"].(string)
+
+	// 2. Create an email and submission
+	em, _ := srv.MailBackend.CreateEmail(seedCtx(), &jmap.Email{
+		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
+		Subject:    "QueryChanges Test",
+		To:         []jmap.EmailAddress{{Email: "localuser@example.com"}},
+	})
+
+	res2 := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sub1": map[string]any{
+					"emailId":    string(em.ID),
+					"identityId": "id-primary",
+				},
+			},
+		}, "c2"},
+	})
+	created, _ := res2.MethodResponses[0].Args["created"].(map[string]any)
+	subID := created["sub1"].(map[string]any)["id"].(string)
+
+	// 3. Query changes since queryState1
+	res3 := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/queryChanges", map[string]any{
+			"accountId":       "primary",
+			"sinceQueryState": queryState1,
+		}, "c3"},
+	})
+	args3 := res3.MethodResponses[0].Args
+	added, _ := args3["added"].([]any)
+	if len(added) != 1 {
+		t.Fatalf("Expected 1 added submission in queryChanges, got %v", added)
+	}
+	item := added[0].(map[string]any)
+	if item["id"] != subID {
+		t.Errorf("Expected added id %q, got %q", subID, item["id"])
+	}
+}
+

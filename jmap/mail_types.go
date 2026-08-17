@@ -141,6 +141,19 @@ type DeliveryStatus struct {
 	Displayed string `json:"displayed,omitempty"`
 }
 
+// DSNParameters represents Delivery Status Notification parameters per RFC 8621 Section 7.1.
+type DSNParameters struct {
+	Ret   string `json:"ret,omitempty"`
+	Envid string `json:"envid,omitempty"`
+}
+
+// MDNParameters represents Message Disposition Notification parameters per RFC 8621 Section 7.1.
+type MDNParameters struct {
+	Disposition       string `json:"disposition,omitempty"`
+	FinalRecipient    string `json:"finalRecipient,omitempty"`
+	OriginalMessageID string `json:"originalMessageId,omitempty"`
+}
+
 // EmailSubmission represents a JMAP EmailSubmission object per RFC 8621 Section 7.
 type EmailSubmission struct {
 	ID             Id                        `json:"id"`
@@ -151,6 +164,8 @@ type EmailSubmission struct {
 	SendAt         string                    `json:"sendAt"`
 	UndoStatus     string                    `json:"undoStatus"`
 	DeliveryStatus map[string]DeliveryStatus `json:"deliveryStatus,omitempty"`
+	DSN            *DSNParameters            `json:"dsn,omitempty"`
+	MDN            *MDNParameters            `json:"mdn,omitempty"`
 }
 
 // SearchSnippet represents a JMAP SearchSnippet object per RFC 8621 Section 5.
