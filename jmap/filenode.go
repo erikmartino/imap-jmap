@@ -116,6 +116,7 @@ func handleFileNodeQuery(backend FileNodeBackend) MethodHandler {
 			ids = []Id{}
 			total = 0
 		}
+		position = NormalizePosition(position, total)
 
 		return "FileNode/query", map[string]any{
 			"accountId":           accountID,

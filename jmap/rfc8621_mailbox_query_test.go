@@ -1,7 +1,6 @@
 package jmap_test
 
 import (
-	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -16,7 +15,7 @@ func TestMailboxQuery_HasAnyRole_IsSubscribed(t *testing.T) {
 	defer ts.Close()
 
 	// Seed a custom mailbox without a role and not subscribed
-	mbCustom, _ := srv.MailBackend.CreateMailbox(context.Background(), &jmap.Mailbox{
+	mbCustom, _ := srv.MailBackend.CreateMailbox(seedCtx(), &jmap.Mailbox{
 		Name:         "CustomUnsubscribedNoRole",
 		Role:         nil,
 		IsSubscribed: false,

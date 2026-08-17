@@ -1,7 +1,6 @@
 package jmap_test
 
 import (
-	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -14,7 +13,7 @@ func TestRFC8621_Section2_4_MailboxFilterPropertiesPosNeg(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	ctx := context.Background()
+	ctx := seedCtx()
 
 	parent, _ := srv.MailBackend.CreateMailbox(ctx, &jmap.Mailbox{Name: "ProjectsParent"})
 	child, _ := srv.MailBackend.CreateMailbox(ctx, &jmap.Mailbox{

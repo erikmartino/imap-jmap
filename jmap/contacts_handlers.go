@@ -401,6 +401,7 @@ func handleCardQuery(backend ContactsBackend) MethodHandler {
 		if ids == nil {
 			ids = []Id{}
 		}
+		position = NormalizePosition(position, total)
 
 		state := backend.CardState(ctx)
 		return "Card/query", map[string]any{

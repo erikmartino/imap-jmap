@@ -14,9 +14,13 @@ func TestRFC8984_CalendarEventCopyRoundTrip(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
+	// The memory backend scopes storage per account (derived from the context), so seed
+	// into the default test user's store just like the authenticated requests below.
+	seedCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject(testUsername))
+
 	// Seed calendar & event
-	cal, _ := srv.CalendarsBackend.CreateCalendar(context.Background(), &jmap.Calendar{Name: "Cal 1"})
-	ev, err := srv.CalendarsBackend.CreateCalendarEvent(context.Background(), &jmap.CalendarEvent{
+	cal, _ := srv.CalendarsBackend.CreateCalendar(seedCtx, &jmap.Calendar{Name: "Cal 1"})
+	ev, err := srv.CalendarsBackend.CreateCalendarEvent(seedCtx, &jmap.CalendarEvent{
 		CalendarIDs: map[jmap.Id]bool{cal.ID: true},
 		Title:       "Original Event",
 	})
@@ -87,8 +91,10 @@ func TestRFC8984_CalendarEventCopyDestroyOriginal(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	cal, _ := srv.CalendarsBackend.CreateCalendar(context.Background(), &jmap.Calendar{Name: "Cal Src"})
-	ev, err := srv.CalendarsBackend.CreateCalendarEvent(context.Background(), &jmap.CalendarEvent{
+	seedCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject(testUsername))
+
+	cal, _ := srv.CalendarsBackend.CreateCalendar(seedCtx, &jmap.Calendar{Name: "Cal Src"})
+	ev, err := srv.CalendarsBackend.CreateCalendarEvent(seedCtx, &jmap.CalendarEvent{
 		CalendarIDs: map[jmap.Id]bool{cal.ID: true},
 		Title:       "Move Me",
 	})
@@ -113,7 +119,7 @@ func TestRFC8984_CalendarEventCopyDestroyOriginal(t *testing.T) {
 	if res0.MethodResponses[0].Name != "error" {
 		t.Fatalf("expected stateMismatch error for wrong destroyFromIfInState, got %+v", res0.MethodResponses[0])
 	}
-	if still, _, _ := srv.CalendarsBackend.GetCalendarEvents(context.Background(), []jmap.Id{ev.ID}); len(still) != 1 {
+	if still, _, _ := srv.CalendarsBackend.GetCalendarEvents(seedCtx, []jmap.Id{ev.ID}); len(still) != 1 {
 		t.Fatalf("source event must survive a failed copy")
 	}
 
@@ -132,7 +138,7 @@ func TestRFC8984_CalendarEventCopyDestroyOriginal(t *testing.T) {
 	if created["c"] == nil {
 		t.Fatalf("copy failed: %+v", res.MethodResponses[0].Args)
 	}
-	if still, _, _ := srv.CalendarsBackend.GetCalendarEvents(context.Background(), []jmap.Id{ev.ID}); len(still) != 0 {
+	if still, _, _ := srv.CalendarsBackend.GetCalendarEvents(seedCtx, []jmap.Id{ev.ID}); len(still) != 0 {
 		t.Errorf("expected original event destroyed after onSuccessDestroyOriginal, still present")
 	}
 }

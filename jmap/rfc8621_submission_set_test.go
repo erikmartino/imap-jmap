@@ -16,7 +16,7 @@ func TestEmailSubmissionSetDestroyTests(t *testing.T) {
 	defer ts.Close()
 
 	// 1. Seed an email
-	em, err := srv.MailBackend.CreateEmail(context.Background(), &jmap.Email{
+	em, err := srv.MailBackend.CreateEmail(seedCtx(), &jmap.Email{
 		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
 		Subject:    "Submission Destroy Test",
 	})
@@ -88,7 +88,7 @@ func TestEmailSubmission_Envelope_RoundTrip(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	em, err := srv.MailBackend.CreateEmail(context.Background(), &jmap.Email{
+	em, err := srv.MailBackend.CreateEmail(seedCtx(), &jmap.Email{
 		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
 		Subject:    "Envelope Test",
 		To:         []jmap.EmailAddress{{Email: "to@example.com"}},
@@ -156,7 +156,7 @@ func TestEmailSubmission_LocalDelivery(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	senderCtx := context.Background()
+	senderCtx := seedCtx()
 	em, err := srv.MailBackend.CreateEmail(senderCtx, &jmap.Email{
 		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
 		Subject:    "Local Delivery Test",
@@ -223,7 +223,7 @@ func TestEmailSubmission_ExternalAllowList(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	em, _ := srv.MailBackend.CreateEmail(context.Background(), &jmap.Email{
+	em, _ := srv.MailBackend.CreateEmail(seedCtx(), &jmap.Email{
 		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
 		Subject:    "External Test",
 		To:         []jmap.EmailAddress{{Email: "allowed@external.com"}},
@@ -249,7 +249,7 @@ func TestEmailSubmission_ExternalAllowList(t *testing.T) {
 	}
 
 	// 2. Submit to unlisted external recipient -> forbidden SetError
-	em2, _ := srv.MailBackend.CreateEmail(context.Background(), &jmap.Email{
+	em2, _ := srv.MailBackend.CreateEmail(seedCtx(), &jmap.Email{
 		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
 		Subject:    "Unlisted Test",
 		To:         []jmap.EmailAddress{{Email: "unlisted@external.com"}},
@@ -285,7 +285,7 @@ func TestEmailSubmission_OnSuccessUpdateEmail(t *testing.T) {
 	defer ts.Close()
 
 	// Seed a draft email in the drafts mailbox with the $draft keyword.
-	em, err := srv.MailBackend.CreateEmail(context.Background(), &jmap.Email{
+	em, err := srv.MailBackend.CreateEmail(seedCtx(), &jmap.Email{
 		MailboxIDs: map[jmap.Id]bool{"mb-drafts": true},
 		Keywords:   map[string]bool{"$draft": true},
 		Subject:    "OnSuccessUpdateEmail Test",
@@ -342,7 +342,7 @@ func TestEmailSubmission_OnSuccessUpdateEmail(t *testing.T) {
 	}
 
 	// Verify the patch was applied: moved to Sent, out of Drafts, $draft removed.
-	emails, _, err := srv.MailBackend.GetEmails(context.Background(), []jmap.Id{em.ID})
+	emails, _, err := srv.MailBackend.GetEmails(seedCtx(), []jmap.Id{em.ID})
 	if err != nil || len(emails) == 0 {
 		t.Fatalf("Failed to re-fetch email: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestEmailSubmission_OnSuccessDestroyEmail(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	em, err := srv.MailBackend.CreateEmail(context.Background(), &jmap.Email{
+	em, err := srv.MailBackend.CreateEmail(seedCtx(), &jmap.Email{
 		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
 		Subject:    "OnSuccessDestroyEmail Test",
 		To:         []jmap.EmailAddress{{Email: "localuser@example.com"}},
@@ -401,7 +401,7 @@ func TestEmailSubmission_OnSuccessDestroyEmail(t *testing.T) {
 		t.Errorf("Implicit Email/set must list destroyed email, got %v", second.Args)
 	}
 
-	emails, _, _ := srv.MailBackend.GetEmails(context.Background(), []jmap.Id{em.ID})
+	emails, _, _ := srv.MailBackend.GetEmails(seedCtx(), []jmap.Id{em.ID})
 	if len(emails) != 0 {
 		t.Errorf("Expected email destroyed after onSuccessDestroyEmail, still present: %v", emails)
 	}
@@ -424,7 +424,7 @@ func TestEmailSubmission_OnSuccessUpdateEmailIgnoredForFailedCreation(t *testing
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	em2, err := memBackend.CreateEmail(context.Background(), &jmap.Email{
+	em2, err := memBackend.CreateEmail(seedCtx(), &jmap.Email{
 		MailboxIDs: map[jmap.Id]bool{"mb-drafts": true},
 		Keywords:   map[string]bool{"$draft": true},
 		Subject:    "Failed Submission Test",
@@ -461,7 +461,7 @@ func TestEmailSubmission_OnSuccessUpdateEmailIgnoredForFailedCreation(t *testing
 		t.Fatalf("Expected submission in notCreated, got %v", res.MethodResponses[0].Args)
 	}
 
-	emails, _, _ := memBackend.GetEmails(context.Background(), []jmap.Id{em2.ID})
+	emails, _, _ := memBackend.GetEmails(seedCtx(), []jmap.Id{em2.ID})
 	if len(emails) == 0 {
 		t.Fatalf("Email must survive a failed submission")
 	}

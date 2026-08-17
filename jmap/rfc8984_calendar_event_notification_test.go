@@ -285,7 +285,8 @@ func TestRFC8984_CalendarEventNotificationStateChangeEvent(t *testing.T) {
 
 	go func() {
 		time.Sleep(100 * time.Millisecond)
-		_, _ = srv.CalendarsBackend.CreateCalendarEventNotification(context.Background(), &jmap.CalendarEventNotification{
+		seedCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject(testUsername))
+		_, _ = srv.CalendarsBackend.CreateCalendarEventNotification(seedCtx, &jmap.CalendarEventNotification{
 			Type:            "created",
 			CalendarEventID: "evt-notify-1",
 			Event:           &jmap.CalendarEvent{ID: "evt-notify-1", Title: "State Change"},

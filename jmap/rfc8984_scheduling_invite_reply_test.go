@@ -2,7 +2,6 @@ package jmap_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http/httptest"
 	"strings"
@@ -30,7 +29,7 @@ func schedulingTestServer(t *testing.T) (*httptest.Server, *memory.MemoryBackend
 // client likewise recognises a scheduling message by its text/calendar content type.
 func schedulingEmails(t *testing.T, mb *memory.MemoryBackend) []*jmap.Email {
 	t.Helper()
-	emails, err := mb.GetAllEmails(context.Background())
+	emails, err := mb.GetAllEmails(seedCtx())
 	if err != nil {
 		t.Fatalf("GetAllEmails: %v", err)
 	}

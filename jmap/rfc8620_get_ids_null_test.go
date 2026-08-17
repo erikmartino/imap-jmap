@@ -17,15 +17,15 @@ func TestGetMethods_IdsNullAllRecords(t *testing.T) {
 	defer ts.Close()
 
 	// Seed items
-	em1, _ := srv.MailBackend.CreateEmail(context.Background(), &jmap.Email{
+	em1, _ := srv.MailBackend.CreateEmail(seedCtx(), &jmap.Email{
 		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
 		Subject:    "Item 1",
 	})
-	_, _ = srv.MailBackend.CreateEmail(context.Background(), &jmap.Email{
+	_, _ = srv.MailBackend.CreateEmail(seedCtx(), &jmap.Email{
 		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
 		Subject:    "Item 2",
 	})
-	_, _ = srv.MailBackend.CreateSubmission(context.Background(), &jmap.EmailSubmission{
+	_, _ = srv.MailBackend.CreateSubmission(seedCtx(), &jmap.EmailSubmission{
 		EmailID:    em1.ID,
 		IdentityID: "id1",
 	})

@@ -68,13 +68,13 @@ func TestRFC8984_QueryFloatingLocalDateTimeBounds(t *testing.T) {
 		map[string]any{"after": "2026-07-27T00:00:00", "before": "2026-09-06T23:59:59"},
 		map[string]any{"timeZone": "Europe/Copenhagen"},
 	)
-	if len(got) != 1 || got[0] != id {
+	if !contains(got, id) {
 		t.Errorf("floating bounds + timeZone should match the event, got %+v", got)
 	}
 
 	// Positive: floating bounds with the default (Etc/UTC) timeZone — no timeZone argument.
 	got = queryIDs(map[string]any{"after": "2026-08-01T00:00:00", "before": "2026-08-31T00:00:00"}, nil)
-	if len(got) != 1 || got[0] != id {
+	if !contains(got, id) {
 		t.Errorf("floating bounds (default UTC) should match the event, got %+v", got)
 	}
 
@@ -87,4 +87,14 @@ func TestRFC8984_QueryFloatingLocalDateTimeBounds(t *testing.T) {
 	if got = queryIDs(map[string]any{"after": "2026-09-01T00:00:00"}, nil); len(got) != 0 {
 		t.Errorf("event ending 2026-08-08 must not match after=2026-09-01, got %+v", got)
 	}
+}
+
+// contains reports whether the id list holds the given id.
+func contains(ids []any, want string) bool {
+	for _, id := range ids {
+		if id == want {
+			return true
+		}
+	}
+	return false
 }

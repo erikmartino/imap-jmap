@@ -1,7 +1,6 @@
 package jmap_test
 
 import (
-	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -14,7 +13,7 @@ func TestRFC8621_Section4_5_EmailFilterPropertiesPosNeg(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	ctx := context.Background()
+	ctx := seedCtx()
 
 	// Seed email with CC and BCC
 	e1, _ := srv.MailBackend.CreateEmail(ctx, &jmap.Email{

@@ -1,7 +1,6 @@
 package jmap_test
 
 import (
-	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -15,11 +14,11 @@ func TestRFC8620_Section3_1_HandlersCoverage_ChangesAndGetMethods(t *testing.T) 
 	defer ts.Close()
 
 	// Seed items
-	em, _ := srv.MailBackend.CreateEmail(context.Background(), &jmap.Email{
+	em, _ := srv.MailBackend.CreateEmail(seedCtx(), &jmap.Email{
 		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
 		Subject:    "Coverage Email",
 	})
-	cal, _ := srv.CalendarsBackend.CreateCalendar(context.Background(), &jmap.Calendar{Name: "Main Cal"})
+	cal, _ := srv.CalendarsBackend.CreateCalendar(seedCtx(), &jmap.Calendar{Name: "Main Cal"})
 
 	usingMail := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.SubmissionCapabilityURI, jmap.QuotaCapabilityURI}
 	usingCal := []string{jmap.CoreCapabilityURI, jmap.CalendarsCapabilityURI}
@@ -54,7 +53,7 @@ func TestRFC8620_Section3_1_HandlersCoverage_ChangesAndGetMethods(t *testing.T) 
 
 	// 3. RSVP via CalendarEvent/set (draft-ietf-jmap-calendars): patch the participant's
 	// participationStatus. There is no CalendarEvent/sendResponse method.
-	rsvpEv, _ := srv.CalendarsBackend.CreateCalendarEvent(context.Background(), &jmap.CalendarEvent{
+	rsvpEv, _ := srv.CalendarsBackend.CreateCalendarEvent(seedCtx(), &jmap.CalendarEvent{
 		CalendarIDs: map[jmap.Id]bool{cal.ID: true},
 		Title:       "RSVP Meeting",
 		Status:      "confirmed",
@@ -81,7 +80,7 @@ func TestRFC8620_Section3_1_HandlersCoverage_ChangesAndGetMethods(t *testing.T) 
 		t.Fatalf("RSVP update missing event id: %+v", updated)
 	}
 	// The participant status MUST persist and the event-level status MUST be untouched.
-	after, _, _ := srv.CalendarsBackend.GetCalendarEvents(context.Background(), []jmap.Id{rsvpEv.ID})
+	after, _, _ := srv.CalendarsBackend.GetCalendarEvents(seedCtx(), []jmap.Id{rsvpEv.ID})
 	if len(after) != 1 {
 		t.Fatalf("could not re-fetch RSVP event")
 	}

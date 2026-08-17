@@ -1,6 +1,7 @@
 package jmap_test
 
 import (
+	"context"
 	"encoding/base64"
 	"io"
 	"net/http"
@@ -14,6 +15,13 @@ import (
 // auth backend accepts any credentials where username == password, so tests authenticate
 // with username and password both set to testUsername.
 const testUsername = "user@example.com"
+
+// seedCtx returns a context scoped to the default test user's account so direct backend
+// seeding lands in the same per-account store that authenticated HTTP requests use
+// (the memory backends key all state by the accountID in the context).
+func seedCtx() context.Context {
+	return jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject(testUsername))
+}
 
 // basicAuthHeader returns an Authorization header with Basic credentials for the default
 // test user, for transports that only accept headers (e.g. WebSocket dialing).

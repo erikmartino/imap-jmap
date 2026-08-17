@@ -1,7 +1,6 @@
 package jmap_test
 
 import (
-	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -14,7 +13,7 @@ func TestRFC9661_SieveScriptFilterPropertiesPosNeg(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	ctx := context.Background()
+	ctx := seedCtx()
 
 	s1, _ := srv.SieveBackend.CreateSieveScript(ctx, &jmap.SieveScript{
 		Name:    "VacationFilter",

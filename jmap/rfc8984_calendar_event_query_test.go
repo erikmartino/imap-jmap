@@ -1,7 +1,6 @@
 package jmap_test
 
 import (
-	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -19,8 +18,8 @@ func TestCalendarEventQuery_FilterProperties(t *testing.T) {
 
 	// Seed a calendar, then an event referencing it (calendarIds must reference an existing
 	// calendar).
-	cal, _ := srv.CalendarsBackend.CreateCalendar(context.Background(), &jmap.Calendar{Name: "Cal 1"})
-	ev, err := srv.CalendarsBackend.CreateCalendarEvent(context.Background(), &jmap.CalendarEvent{
+	cal, _ := srv.CalendarsBackend.CreateCalendar(seedCtx(), &jmap.Calendar{Name: "Cal 1"})
+	ev, err := srv.CalendarsBackend.CreateCalendarEvent(seedCtx(), &jmap.CalendarEvent{
 		CalendarIDs: map[jmap.Id]bool{cal.ID: true},
 		Title:       "Meeting",
 		UID:         "unique-uid-123",

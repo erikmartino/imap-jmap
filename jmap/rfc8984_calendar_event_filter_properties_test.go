@@ -14,7 +14,7 @@ func TestRFC8984_CalendarEventFilterPropertiesPosNeg(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	ctx := context.Background()
+	ctx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject(testUsername))
 
 	cal1, _ := srv.CalendarsBackend.CreateCalendar(ctx, &jmap.Calendar{Name: "Work"})
 	cal2, _ := srv.CalendarsBackend.CreateCalendar(ctx, &jmap.Calendar{Name: "Personal"})

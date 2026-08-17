@@ -1,7 +1,6 @@
 package jmap_test
 
 import (
-	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -19,7 +18,7 @@ func TestRFC8621_Section4_4_EmailSetPartialUpdateDataLossPrevention(t *testing.T
 	origFrom := []jmap.EmailAddress{{Name: "Sender", Email: "sender@example.com"}}
 	origTo := []jmap.EmailAddress{{Name: "Recipient", Email: "recipient@example.com"}}
 
-	em, err := srv.MailBackend.CreateEmail(context.Background(), &jmap.Email{
+	em, err := srv.MailBackend.CreateEmail(seedCtx(), &jmap.Email{
 		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
 		Subject:    origSubj,
 		From:       origFrom,

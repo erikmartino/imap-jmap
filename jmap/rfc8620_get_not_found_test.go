@@ -1,7 +1,6 @@
 package jmap_test
 
 import (
-	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -15,11 +14,11 @@ func TestRFC8620_Section5_1_GetNotFoundWithMixedIDs(t *testing.T) {
 	defer ts.Close()
 
 	// Seed items
-	em, _ := srv.MailBackend.CreateEmail(context.Background(), &jmap.Email{
+	em, _ := srv.MailBackend.CreateEmail(seedCtx(), &jmap.Email{
 		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
 		Subject:    "Valid Email",
 	})
-	cal, _ := srv.CalendarsBackend.CreateCalendar(context.Background(), &jmap.Calendar{Name: "Cal 1"})
+	cal, _ := srv.CalendarsBackend.CreateCalendar(seedCtx(), &jmap.Calendar{Name: "Cal 1"})
 
 	missingID := "non-existent-id-99999"
 

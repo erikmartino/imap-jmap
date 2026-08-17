@@ -1,7 +1,6 @@
 package jmap_test
 
 import (
-	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -16,14 +15,14 @@ func TestRFC8984_InCalendarsFilter(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	calA, _ := srv.CalendarsBackend.CreateCalendar(context.Background(), &jmap.Calendar{Name: "A"})
-	calB, _ := srv.CalendarsBackend.CreateCalendar(context.Background(), &jmap.Calendar{Name: "B"})
-	calC, _ := srv.CalendarsBackend.CreateCalendar(context.Background(), &jmap.Calendar{Name: "C"})
+	calA, _ := srv.CalendarsBackend.CreateCalendar(seedCtx(), &jmap.Calendar{Name: "A"})
+	calB, _ := srv.CalendarsBackend.CreateCalendar(seedCtx(), &jmap.Calendar{Name: "B"})
+	calC, _ := srv.CalendarsBackend.CreateCalendar(seedCtx(), &jmap.Calendar{Name: "C"})
 
-	evA, _ := srv.CalendarsBackend.CreateCalendarEvent(context.Background(), &jmap.CalendarEvent{
+	evA, _ := srv.CalendarsBackend.CreateCalendarEvent(seedCtx(), &jmap.CalendarEvent{
 		CalendarIDs: map[jmap.Id]bool{calA.ID: true}, Title: "In A", Start: "2026-08-01T10:00:00Z",
 	})
-	evC, _ := srv.CalendarsBackend.CreateCalendarEvent(context.Background(), &jmap.CalendarEvent{
+	evC, _ := srv.CalendarsBackend.CreateCalendarEvent(seedCtx(), &jmap.CalendarEvent{
 		CalendarIDs: map[jmap.Id]bool{calC.ID: true}, Title: "In C", Start: "2026-08-02T10:00:00Z",
 	})
 

@@ -24,6 +24,7 @@ test.describe('calendar & contacts', () => {
     await login(page, acct.username, acct.password);
     await goToApp(page, '/en/contacts');
 
+    await page.locator('button:has(svg.lucide-plus.w-4)').first().click();
     await page.getByRole('button', { name: 'New Contact' }).first().click();
     await expect(page.getByPlaceholder('First name')).toBeVisible({ timeout: 15_000 });
     await page.getByPlaceholder('First name').fill(firstName);

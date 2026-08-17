@@ -2,7 +2,6 @@ package jmap_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http/httptest"
 	"testing"
@@ -24,24 +23,24 @@ func TestRFC8984_AvailabilityBusyWindows(t *testing.T) {
 	defer ts.Close()
 
 	// Busy 2h meeting; a free event; a secret event — all in the query window.
-	if _, err := cb.CreateCalendarEvent(context.Background(), &jmap.CalendarEvent{
+	if _, err := cb.CreateCalendarEvent(seedCtx(), &jmap.CalendarEvent{
 		Title: "Busy Meeting", Start: "2026-08-10T09:00:00Z", Duration: "PT2H",
 	}); err != nil {
 		t.Fatalf("seed busy: %v", err)
 	}
-	if _, err := cb.CreateCalendarEvent(context.Background(), &jmap.CalendarEvent{
+	if _, err := cb.CreateCalendarEvent(seedCtx(), &jmap.CalendarEvent{
 		Title: "Free Block", Start: "2026-08-11T09:00:00Z", Duration: "PT1H", FreeBusyStatus: "free",
 	}); err != nil {
 		t.Fatalf("seed free: %v", err)
 	}
-	if _, err := cb.CreateCalendarEvent(context.Background(), &jmap.CalendarEvent{
+	if _, err := cb.CreateCalendarEvent(seedCtx(), &jmap.CalendarEvent{
 		Title: "Secret", Start: "2026-08-12T09:00:00Z", Duration: "PT1H", Privacy: "secret",
 	}); err != nil {
 		t.Fatalf("seed secret: %v", err)
 	}
 
 	payload := map[string]any{
-		"using":       []string{jmap.CoreCapabilityURI, jmap.PrincipalsCapabilityURI, jmap.AvailabilityCapabilityURI, jmap.CalendarsCapabilityURI},
+		"using": []string{jmap.CoreCapabilityURI, jmap.PrincipalsCapabilityURI, jmap.AvailabilityCapabilityURI, jmap.CalendarsCapabilityURI},
 		"methodCalls": []any{[]any{"Principal/getAvailability", map[string]any{
 			"accountId":   "primary",
 			"principalId": "p-primary",

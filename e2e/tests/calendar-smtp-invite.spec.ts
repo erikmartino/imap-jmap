@@ -21,7 +21,13 @@ test('an iMIP invitation sent over SMTP appears in the calendar', async ({ page 
 
   await login(page, invitee.username, invitee.password);
   await goToApp(page, '/en/calendar');
-  await expect(page).toHaveURL(/\/calendar\/month\//);
+  const monthLabel = new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+  await expect(page.getByRole('grid', { name: monthLabel })).toBeVisible({ timeout: 15_000 });
 
   // A floating (no-Z) start on the 15th of the current month renders in the default
   // month grid and matches Bulwark's floating LocalDateTime range query.

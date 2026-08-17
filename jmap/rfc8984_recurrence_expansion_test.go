@@ -73,10 +73,23 @@ func TestRFC8984_RecurrenceExpansionQuery(t *testing.T) {
 }
 
 // expandCount creates an event and returns the number of expanded occurrence ids from
-// CalendarEvent/query with expandRecurrences:true.
+// CalendarEvent/query with expandRecurrences:true. The count is measured as a delta over a
+// pre-create baseline query so account sample data (e.g. the seeded welcome event) does not
+// skew the occurrence counts.
 func expandCount(t *testing.T, tsURL string, create map[string]any) int {
 	t.Helper()
 	using := []string{jmap.CoreCapabilityURI, jmap.CalendarsCapabilityURI}
+	queryCount := func() int {
+		q := postJMAP(t, tsURL, using, []any{
+			[]any{"CalendarEvent/query", map[string]any{
+				"accountId":         "primary",
+				"expandRecurrences": true,
+			}, "q"},
+		})
+		ids, _ := q.MethodResponses[0].Args["ids"].([]any)
+		return len(ids)
+	}
+	base := queryCount()
 	resp := postJMAP(t, tsURL, using, []any{
 		[]any{"CalendarEvent/set", map[string]any{
 			"accountId": "primary",
@@ -87,14 +100,7 @@ func expandCount(t *testing.T, tsURL string, create map[string]any) int {
 	if !ok || created["c1"] == nil {
 		t.Fatalf("create failed: %+v", resp.MethodResponses[0].Args)
 	}
-	q := postJMAP(t, tsURL, using, []any{
-		[]any{"CalendarEvent/query", map[string]any{
-			"accountId":         "primary",
-			"expandRecurrences": true,
-		}, "q"},
-	})
-	ids, _ := q.MethodResponses[0].Args["ids"].([]any)
-	return len(ids)
+	return queryCount() - base
 }
 
 // TestRFC8984_RecurrenceByDay verifies weekly byDay expansion (RFC 8984 Section 4.3.3).

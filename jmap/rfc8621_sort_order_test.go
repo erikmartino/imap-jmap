@@ -1,7 +1,6 @@
 package jmap_test
 
 import (
-	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -14,7 +13,7 @@ func TestRFC8621_Section4_4_SortOrderAndMultiComparatorTieBreak(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	ctx := context.Background()
+	ctx := seedCtx()
 
 	// Seed 3 emails with different receivedAt and subjects
 	e1, _ := srv.MailBackend.CreateEmail(ctx, &jmap.Email{

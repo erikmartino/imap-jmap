@@ -155,12 +155,6 @@ func (a *MemoryAuthBackend) ValidateToken(ctx context.Context, token string) (st
 	}
 	a.mu.Unlock()
 
-	// For memory auth backend: if Bearer token is valid credentials (e.g. a@profundo.dk), accept it
-	accountID, err := a.ValidateCredentials(ctx, token, token)
-	if err == nil {
-		return accountID, token, nil
-	}
-
 	return "", "", fmt.Errorf("invalid or expired token")
 }
 

@@ -1,7 +1,6 @@
 package jmap_test
 
 import (
-	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -14,7 +13,7 @@ func TestRFC9219_VerifySmimePayloadStructure(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	ctx := context.Background()
+	ctx := seedCtx()
 
 	em, err := srv.MailBackend.CreateEmail(ctx, &jmap.Email{
 		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},

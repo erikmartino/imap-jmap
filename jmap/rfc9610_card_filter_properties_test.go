@@ -1,7 +1,6 @@
 package jmap_test
 
 import (
-	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -14,7 +13,7 @@ func TestRFC9610_Section3_3_CardFilterPropertiesPosNeg(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	ctx := context.Background()
+	ctx := seedCtx()
 
 	ab, _ := srv.ContactsBackend.CreateAddressBook(ctx, &jmap.AddressBook{Name: "Main AddressBook"})
 	card1, _ := srv.ContactsBackend.CreateCard(ctx, &jmap.Card{

@@ -1,7 +1,6 @@
 package jmap_test
 
 import (
-	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -15,7 +14,7 @@ func TestRFC8621_Section4_6_EmailCopyRoundTrip(t *testing.T) {
 	defer ts.Close()
 
 	// Seed source email
-	srcEM, err := srv.MailBackend.CreateEmail(context.Background(), &jmap.Email{
+	srcEM, err := srv.MailBackend.CreateEmail(seedCtx(), &jmap.Email{
 		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
 		Subject:    "Original Email for Copy",
 		Keywords:   map[string]bool{"$seen": true},

@@ -59,7 +59,13 @@ test.describe('calendar (Bulwark UI ↔ imap-jmap over JMAP)', () => {
     const acct = uniqueUser('cal-month');
     await login(page, acct.username, acct.password);
     await goToApp(page, '/en/calendar');
-    await expect(page).toHaveURL(/\/calendar\/month\//);
+    const monthLabel = new Date().toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    });
+    await expect(page.getByRole('grid', { name: monthLabel })).toBeVisible({ timeout: 15_000 });
 
     await page.getByRole('button', { name: 'Create event' }).first().click();
     const dialog = page.getByRole('dialog');

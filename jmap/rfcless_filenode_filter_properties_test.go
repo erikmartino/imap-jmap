@@ -1,7 +1,6 @@
 package jmap_test
 
 import (
-	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -15,7 +14,7 @@ func TestFileNode_FilterPropertiesPosNeg(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	ctx := context.Background()
+	ctx := seedCtx()
 
 	f1, _ := srv.FileNodeBackend.CreateFileNode(ctx, &jmap.FileNode{
 		Name:     "document.pdf",
