@@ -457,6 +457,9 @@ func handleEmailCopy(backend MailBackend) MethodHandler {
 func handleEmailQuery(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
+		if accountID != "" {
+			ctx = ContextWithAccountID(ctx, accountID)
+		}
 		filter, _ := args["filter"].(map[string]any)
 
 		comparators := parseComparators(args)

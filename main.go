@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -118,9 +117,7 @@ func main() {
 
 	accountResolver := jmap.PrimaryDomainResolver{PrimaryDomain: *primaryDomain}
 
-	// Seed realistic sample emails, calendars, contacts, and filenodes for server execution
-	userAccountID := jmap.AccountIDForSubject("user@example.com")
-	memory.SeedAccountSampleData(context.Background(), userAccountID, memBackend, memBlobBackend, memCalBackend, memContactsBackend, memFileNodeBackend)
+	// Sample data is dynamically auto-seeded per account upon first login in MemoryAuthBackend.
 
 	server := jmap.NewServer(
 		session,

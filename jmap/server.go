@@ -462,7 +462,8 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		respName, respArgs := handler(reqCtx, resolvedArgs, call.ClientCallID)
+		methodCallCtx := ContextWithAccountID(reqCtx, targetAccountID)
+		respName, respArgs := handler(methodCallCtx, resolvedArgs, call.ClientCallID)
 		normalizeSetResult(respName, respArgs)
 		respInv := Invocation{
 			Name:         respName,
