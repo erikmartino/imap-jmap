@@ -215,6 +215,10 @@ func SeedAccountSampleData(ctx context.Context, accountID string, mb jmap.MailBa
 		ctx = context.Background()
 	}
 	accountCtx := jmap.ContextWithAccountID(ctx, accountID)
+	userEmail, _ := jmap.SubjectForAccountID(accountID)
+	if userEmail == "" {
+		userEmail = accountID
+	}
 
 	if mb != nil {
 		emails, _ := mb.GetAllEmails(accountCtx)
@@ -227,7 +231,7 @@ func SeedAccountSampleData(ctx context.Context, accountID string, mb jmap.MailBa
 				ThreadID:      "thread-seed-1",
 				Subject:       "Welcome to JMAP Server",
 				From:          []jmap.EmailAddress{{Name: "JMAP Admin", Email: "admin@example.com"}},
-				To:            []jmap.EmailAddress{{Name: accountID, Email: accountID + "@example.com"}},
+				To:            []jmap.EmailAddress{{Name: userEmail, Email: userEmail}},
 				MailboxIDs:    map[jmap.Id]bool{"mb-inbox": true},
 				Keywords:      map[string]bool{"$seen": false},
 				Size:          1024,
@@ -245,7 +249,7 @@ func SeedAccountSampleData(ctx context.Context, accountID string, mb jmap.MailBa
 				ThreadID:      "thread-seed-2",
 				Subject:       "JMAP Core and Mail Specifications",
 				From:          []jmap.EmailAddress{{Name: "IETF JMAP Working Group", Email: "jmap-wg@ietf.example.org"}},
-				To:            []jmap.EmailAddress{{Name: accountID, Email: accountID + "@example.com"}},
+				To:            []jmap.EmailAddress{{Name: userEmail, Email: userEmail}},
 				MailboxIDs:    map[jmap.Id]bool{"mb-inbox": true},
 				Keywords:      map[string]bool{"$seen": true, "$flagged": true},
 				Size:          4096,
@@ -262,7 +266,7 @@ func SeedAccountSampleData(ctx context.Context, accountID string, mb jmap.MailBa
 				ID:            "email-seed-sent",
 				ThreadID:      "thread-seed-sent",
 				Subject:       "Re: Welcome to JMAP Server",
-				From:          []jmap.EmailAddress{{Name: accountID, Email: accountID + "@example.com"}},
+				From:          []jmap.EmailAddress{{Name: userEmail, Email: userEmail}},
 				To:            []jmap.EmailAddress{{Name: "JMAP Admin", Email: "admin@example.com"}},
 				MailboxIDs:    map[jmap.Id]bool{"mb-sent": true},
 				Keywords:      map[string]bool{"$seen": true},

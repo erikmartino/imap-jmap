@@ -29,6 +29,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		}
 
 		var accountID string
+		var subject string
 		var authErr error
 		authed := false
 
@@ -39,17 +40,18 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			username, password, ok := r.BasicAuth()
 			if ok {
 				accountID, authErr = s.AuthBackend.ValidateCredentials(r.Context(), username, password)
+				subject = username
 				authed = authErr == nil
 			} else {
 				authErr = errors.New("malformed Basic authorization header")
 			}
 		} else if strings.HasPrefix(auth, "Bearer ") {
 			token := strings.TrimPrefix(auth, "Bearer ")
-			accountID, authErr = s.AuthBackend.ValidateToken(r.Context(), token)
+			accountID, subject, authErr = s.AuthBackend.ValidateToken(r.Context(), token)
 			authed = authErr == nil
 		} else if queryToken != "" {
 			// RFC 6750 Section 2.3: token in URI query (required for browser SSE and WebSocket).
-			accountID, authErr = s.AuthBackend.ValidateToken(r.Context(), queryToken)
+			accountID, subject, authErr = s.AuthBackend.ValidateToken(r.Context(), queryToken)
 			authed = authErr == nil
 		} else if auth != "" {
 			authErr = fmt.Errorf("unsupported authorization scheme: %q", auth)
@@ -64,12 +66,10 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Inject authenticated accountID into request context for downstream handlers.
+		// Inject authenticated accountID and subject email into request context for downstream handlers.
 		ctx := ContextWithAccountID(r.Context(), accountID)
-		if strings.HasPrefix(auth, "Basic ") {
-			if username, _, ok := r.BasicAuth(); ok {
-				ctx = ContextWithSubject(ctx, username)
-			}
+		if subject != "" {
+			ctx = ContextWithSubject(ctx, subject)
 		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

@@ -339,7 +339,7 @@ func TestRFC8620_Auth_DerivedAccountID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Authenticate failed: %v", err)
 	}
-	validatedID, err := auth.ValidateToken(ctx, token)
+	validatedID, _, err := auth.ValidateToken(ctx, token)
 	if err != nil {
 		t.Fatalf("ValidateToken failed: %v", err)
 	}

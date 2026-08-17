@@ -82,21 +82,21 @@ func (o *OIDCAuthBackend) ValidateCredentials(ctx context.Context, username, pas
 	return AccountIDForSubject(username), nil
 }
 
-func (o *OIDCAuthBackend) ValidateToken(ctx context.Context, token string) (string, error) {
+func (o *OIDCAuthBackend) ValidateToken(ctx context.Context, token string) (string, string, error) {
 	// First try OIDC JWT validation
-	accountID, err := o.validateJWT(ctx, token)
+	accountID, subject, err := o.validateJWT(ctx, token)
 	if err == nil {
-		return accountID, nil
+		return accountID, subject, nil
 	}
 
 	// Fall back if fallbackBackend is set (e.g. for development tokens or Basic auth tokens)
 	if o.fallbackBackend != nil {
-		if fbAccountID, fbErr := o.fallbackBackend.ValidateToken(ctx, token); fbErr == nil {
-			return fbAccountID, nil
+		if fbAccountID, fbSubject, fbErr := o.fallbackBackend.ValidateToken(ctx, token); fbErr == nil {
+			return fbAccountID, fbSubject, nil
 		}
 	}
 
-	return "", fmt.Errorf("invalid OIDC token: %w", err)
+	return "", "", fmt.Errorf("invalid OIDC token: %w", err)
 }
 
 type jwtHeader struct {
@@ -115,42 +115,42 @@ type jwtClaims struct {
 	Nbf               int64  `json:"nbf"`
 }
 
-func (o *OIDCAuthBackend) validateJWT(ctx context.Context, tokenStr string) (string, error) {
+func (o *OIDCAuthBackend) validateJWT(ctx context.Context, tokenStr string) (string, string, error) {
 	parts := strings.Split(tokenStr, ".")
 	if len(parts) != 3 {
-		return "", errors.New("malformed JWT: expected 3 parts")
+		return "", "", errors.New("malformed JWT: expected 3 parts")
 	}
 
 	headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
-		return "", fmt.Errorf("invalid JWT header encoding: %w", err)
+		return "", "", fmt.Errorf("invalid JWT header encoding: %w", err)
 	}
 	var header jwtHeader
 	if err := json.Unmarshal(headerBytes, &header); err != nil {
-		return "", fmt.Errorf("invalid JWT header JSON: %w", err)
+		return "", "", fmt.Errorf("invalid JWT header JSON: %w", err)
 	}
 
 	claimsBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return "", fmt.Errorf("invalid JWT payload encoding: %w", err)
+		return "", "", fmt.Errorf("invalid JWT payload encoding: %w", err)
 	}
 	var claims jwtClaims
 	if err := json.Unmarshal(claimsBytes, &claims); err != nil {
-		return "", fmt.Errorf("invalid JWT payload JSON: %w", err)
+		return "", "", fmt.Errorf("invalid JWT payload JSON: %w", err)
 	}
 
 	// Validate Expiry
 	now := time.Now().Unix()
 	if claims.Exp > 0 && now >= claims.Exp {
-		return "", errors.New("token is expired")
+		return "", "", errors.New("token is expired")
 	}
 	if claims.Nbf > 0 && now < claims.Nbf {
-		return "", errors.New("token not valid yet")
+		return "", "", errors.New("token not valid yet")
 	}
 
-	// Validate Issuer
-	if claims.Iss != "" && strings.TrimRight(claims.Iss, "/") != o.issuer {
-		return "", fmt.Errorf("issuer mismatch: expected %s, got %s", o.issuer, claims.Iss)
+	// Validate Issuer if configured
+	if o.issuer != "" && claims.Iss != o.issuer {
+		return "", "", fmt.Errorf("issuer mismatch: expected %s, got %s", o.issuer, claims.Iss)
 	}
 
 	// Retrieve Subject / Identity
@@ -162,20 +162,20 @@ func (o *OIDCAuthBackend) validateJWT(ctx context.Context, tokenStr string) (str
 		subject = claims.Sub
 	}
 	if subject == "" {
-		return "", errors.New("token missing subject identity (sub, preferred_username, or email)")
+		return "", "", errors.New("token missing subject identity (sub, preferred_username, or email)")
 	}
 
 	// Verify Signature using JWKS
 	pubKey, err := o.getKey(ctx, header.Kid)
 	if err != nil {
-		return "", fmt.Errorf("unable to resolve public key for kid %q: %w", header.Kid, err)
+		return "", "", fmt.Errorf("unable to resolve public key for kid %q: %w", header.Kid, err)
 	}
 
 	if err := verifyRSASignature(header.Alg, pubKey, parts[0]+"."+parts[1], parts[2]); err != nil {
-		return "", fmt.Errorf("signature verification failed: %w", err)
+		return "", "", fmt.Errorf("signature verification failed: %w", err)
 	}
 
-	return AccountIDForSubject(subject), nil
+	return AccountIDForSubject(subject), subject, nil
 }
 
 func (o *OIDCAuthBackend) getKey(ctx context.Context, kid string) (*rsa.PublicKey, error) {

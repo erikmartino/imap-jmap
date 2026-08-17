@@ -120,7 +120,6 @@ func main() {
 
 	// Seed realistic sample emails, calendars, contacts, and filenodes for server execution
 	userAccountID := jmap.AccountIDForSubject("user@example.com")
-	memory.SeedSampleData(memBackend, memCalBackend)
 	memory.SeedAccountSampleData(context.Background(), userAccountID, memBackend, memBlobBackend, memCalBackend, memContactsBackend, memFileNodeBackend)
 
 	server := jmap.NewServer(

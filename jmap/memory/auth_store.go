@@ -132,16 +132,16 @@ func (a *MemoryAuthBackend) ValidateCredentials(ctx context.Context, username, p
 // ValidateToken looks up the token and returns the associated accountID.
 // Expired or revoked tokens are rejected. Bearer tokens containing a valid subject email
 // or issued by Authenticate are accepted.
-func (a *MemoryAuthBackend) ValidateToken(ctx context.Context, token string) (string, error) {
+func (a *MemoryAuthBackend) ValidateToken(ctx context.Context, token string) (string, string, error) {
 	if token == "" {
-		return "", fmt.Errorf("invalid or expired token")
+		return "", "", fmt.Errorf("invalid or expired token")
 	}
 	a.mu.Lock()
 
 	if a.revoked[token] {
 		delete(a.tokens, token)
 		a.mu.Unlock()
-		return "", fmt.Errorf("invalid or expired token")
+		return "", "", fmt.Errorf("invalid or expired token")
 	}
 
 	rec, ok := a.tokens[token]
@@ -149,10 +149,10 @@ func (a *MemoryAuthBackend) ValidateToken(ctx context.Context, token string) (st
 		if !rec.expiresAt.IsZero() && time.Now().After(rec.expiresAt) {
 			delete(a.tokens, token)
 			a.mu.Unlock()
-			return "", fmt.Errorf("invalid or expired token")
+			return "", "", fmt.Errorf("invalid or expired token")
 		}
 		a.mu.Unlock()
-		return rec.accountID, nil
+		return rec.accountID, rec.subject, nil
 	}
 
 	// For memory auth backend: if Bearer token is an email address (e.g. a@profundo.dk), accept it
@@ -171,12 +171,12 @@ func (a *MemoryAuthBackend) ValidateToken(ctx context.Context, token string) (st
 				SeedAccountSampleData(ctx, accountID, mb, bb, cb, contactsB, fnB)
 			}
 
-			return accountID, nil
+			return accountID, token, nil
 		}
 	}
 
 	a.mu.Unlock()
-	return "", fmt.Errorf("invalid or expired token")
+	return "", "", fmt.Errorf("invalid or expired token")
 }
 
 // generateToken creates a cryptographically random 32-byte hex token.

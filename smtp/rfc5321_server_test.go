@@ -75,7 +75,8 @@ func TestRFC5321_SMTPServerReceive(t *testing.T) {
 	// Give server time to listen
 	time.Sleep(100 * time.Millisecond)
 
-	initialEmails, err := memBackend.GetAllEmails(context.Background())
+	accountCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject("user@example.com"))
+	initialEmails, err := memBackend.GetAllEmails(accountCtx)
 	if err != nil {
 		t.Fatalf("GetAllEmails failed: %v", err)
 	}
@@ -96,8 +97,11 @@ func TestRFC5321_SMTPServerReceive(t *testing.T) {
 		t.Fatalf("smtp.SendMail failed: %v", err)
 	}
 
-	// Verify email stored in JMAP MailBackend
-	emails, err := memBackend.GetAllEmails(context.Background())
+	// Give processing a moment
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify email reached JMAP MailBackend
+	emails, err := memBackend.GetAllEmails(accountCtx)
 	if err != nil {
 		t.Fatalf("GetAllEmails failed after delivery: %v", err)
 	}
@@ -156,8 +160,10 @@ func TestRFC6047_SMTPServerReceiveIMIPReply(t *testing.T) {
 	memBlobBackend := memory.NewMemoryBlobBackend()
 	memCalBackend := memory.NewMemoryCalendarsBackend()
 
+	accountCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject("user@example.com"))
+
 	// 1. Create a calendar event with external participant
-	ev, err := memCalBackend.CreateCalendarEvent(context.Background(), &jmap.CalendarEvent{
+	ev, err := memCalBackend.CreateCalendarEvent(accountCtx, &jmap.CalendarEvent{
 		ID:    "evt-imip-100",
 		Title: "Project Review",
 		Start: "2026-09-10T14:00:00Z",
@@ -215,7 +221,7 @@ func TestRFC6047_SMTPServerReceiveIMIPReply(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// 4. Verify participant status in memCalBackend was auto-updated to "accepted"
-	events, _, err := memCalBackend.GetCalendarEvents(context.Background(), []jmap.Id{ev.ID})
+	events, _, err := memCalBackend.GetCalendarEvents(accountCtx, []jmap.Id{ev.ID})
 	if err != nil || len(events) == 0 {
 		t.Fatalf("GetCalendarEvents failed: %v", err)
 	}

@@ -56,8 +56,8 @@ type AuthBackend interface {
 	// ValidateCredentials verifies username/password credentials and returns the authenticated
 	// accountID without issuing a Bearer token (used for HTTP Basic authentication).
 	ValidateCredentials(ctx context.Context, username, password string) (accountID string, err error)
-	// ValidateToken checks a Bearer token and returns the authenticated accountID.
-	ValidateToken(ctx context.Context, token string) (accountID string, err error)
+	// ValidateToken checks a Bearer token and returns the authenticated accountID and subject email.
+	ValidateToken(ctx context.Context, token string) (accountID string, subject string, err error)
 }
 
 // AccountIDFromContext retrieves the authenticated accountID injected by the auth middleware.
@@ -87,9 +87,9 @@ func (defaultAuthBackend) ValidateCredentials(ctx context.Context, username, pas
 	return AccountIDForSubject(username), nil
 }
 
-func (defaultAuthBackend) ValidateToken(ctx context.Context, token string) (string, error) {
+func (defaultAuthBackend) ValidateToken(ctx context.Context, token string) (string, string, error) {
 	if token == "" {
-		return "", errors.New("invalid token")
+		return "", "", errors.New("invalid token")
 	}
-	return AccountIDForSubject(token), nil
+	return AccountIDForSubject(token), token, nil
 }

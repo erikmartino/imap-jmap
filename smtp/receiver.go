@@ -106,11 +106,11 @@ func (s *Session) Data(r io.Reader) error {
 		}
 	}
 	if len(targetAccountIDs) == 0 {
-		fallbackID := s.backend.AccountID
-		if fallbackID == "" {
-			fallbackID = jmap.AccountIDForSubject("user@example.com")
+		if s.backend.AccountID != "" {
+			targetAccountIDs[s.backend.AccountID] = true
+		} else if len(s.to) > 0 {
+			targetAccountIDs[jmap.AccountIDForSubject(s.to[0])] = true
 		}
-		targetAccountIDs[fallbackID] = true
 	}
 
 	// 2. Deliver message copy for each target accountID

@@ -80,7 +80,7 @@ func TestOIDCAuthBackend_ValidateToken(t *testing.T) {
 	validToken := signedInput + "." + sigB64
 
 	// Test ValidateToken
-	accountID, err := oidcBackend.ValidateToken(context.Background(), validToken)
+	accountID, _, err := oidcBackend.ValidateToken(context.Background(), validToken)
 	if err != nil {
 		t.Fatalf("ValidateToken failed: %v", err)
 	}

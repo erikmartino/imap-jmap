@@ -324,12 +324,12 @@ func TestRFC8620_AuthTokenExpiryAndRevocation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
-	if _, err := a.ValidateToken(ctx, token); err != nil {
+	if _, _, err := a.ValidateToken(ctx, token); err != nil {
 		t.Fatalf("fresh token rejected: %v", err)
 	}
 
 	a.RevokeToken(token)
-	if acct, err := a.ValidateToken(ctx, token); err == nil || acct != "" {
+	if acct, _, err := a.ValidateToken(ctx, token); err == nil || acct != "" {
 		t.Errorf("revoked token still accepted: %q", acct)
 	}
 
@@ -339,7 +339,7 @@ func TestRFC8620_AuthTokenExpiryAndRevocation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
-	if acct, err := a.ValidateToken(ctx, token2); err == nil || acct != "" {
+	if acct, _, err := a.ValidateToken(ctx, token2); err == nil || acct != "" {
 		t.Errorf("expired token still accepted: %q", acct)
 	}
 }
