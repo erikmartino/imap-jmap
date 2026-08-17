@@ -3,14 +3,16 @@ import { login, uniqueUser, JMAPClient, openComposer } from '../lib/helpers';
 
 test.describe('mail', () => {
   test('renders the seeded inbox with sample messages', async ({ page }) => {
-    await login(page, 'user@example.com', 'user@example.com');
+    const user = uniqueUser('inbox-user');
+    await login(page, user.username, user.password);
     await expect(page.getByText('Welcome to JMAP Server').first()).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('JMAP Core and Mail Specifications').first()).toBeVisible();
     await expect(page.locator('[data-testid="email-list-item"]').first()).toBeVisible();
   });
 
   test('opens a message in the reading view', async ({ page }) => {
-    await login(page, 'user@example.com', 'user@example.com');
+    const user = uniqueUser('reader-user');
+    await login(page, user.username, user.password);
     await page
       .locator('[data-testid="email-list-item"]', { hasText: 'JMAP Core and Mail Specifications' })
       .first()

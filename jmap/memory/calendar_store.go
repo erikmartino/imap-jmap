@@ -78,13 +78,18 @@ func newMemoryUserCalendarStore(accountID string) *userCalendarStore {
 	}
 	us.calendars[defaultCal.ID] = defaultCal
 
+	userEmail, _ := jmap.SubjectForAccountID(accountID)
+	if userEmail == "" {
+		userEmail = accountID
+	}
+
 	// Every fresh account gets exactly one default ParticipantIdentity (SHOULD per
 	// draft-ietf-jmap-calendars Section 3), representing the account owner.
 	defaultIdentity := &jmap.ParticipantIdentity{
 		ID:              "identity-default",
-		Name:            "Primary User",
-		CalendarAddress: "mailto:user@example.com",
-		SendTo:          map[string]string{"imip": "mailto:user@example.com"},
+		Name:            userEmail,
+		CalendarAddress: "mailto:" + userEmail,
+		SendTo:          map[string]string{"imip": "mailto:" + userEmail},
 		IsDefault:       true,
 	}
 	us.identities[defaultIdentity.ID] = defaultIdentity

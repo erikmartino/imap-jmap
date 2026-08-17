@@ -184,7 +184,11 @@ export class JMAPClient {
         Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`,
       },
     });
-    const session = await (await ctx.get('/.well-known/jmap')).json();
+    let sessionRes = await ctx.get('/.well-known/jmap');
+    if (!sessionRes.ok()) {
+      sessionRes = await ctx.get('/jmap/session');
+    }
+    const session = await sessionRes.json();
     const primary = session.primaryAccounts?.[MAIL_CAPABILITY];
     if (!primary) {
       throw new Error('JMAP session exposes no mail account for ' + username);

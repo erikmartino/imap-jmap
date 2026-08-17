@@ -191,16 +191,32 @@ func NewServer(session *Session, opts ...Option) *Server {
 // All endpoints except OPTIONS and /jmap/login are protected by authentication per RFC 8620.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/.well-known/jmap", s.handleWellKnownJMAP)
-	mux.HandleFunc("/jmap/session", s.handleWellKnownJMAP)
-	mux.HandleFunc("/jmap", s.handleAPI)
-	mux.HandleFunc("/jmap/ws", s.HandleWebSocket)
-	mux.HandleFunc("/upload/", s.HandleUpload)
-	mux.HandleFunc("/download/", s.HandleDownload)
-	mux.HandleFunc("/eventsource", s.HandleEventSource)
-	mux.HandleFunc("/jmap/login", s.handleLogin)
-	mux.HandleFunc("/version", s.handleVersion)
-	mux.HandleFunc("/", s.handleNotFound)
+
+	handleFlexRoute := func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		switch {
+		case strings.HasSuffix(path, "/.well-known/jmap") || strings.HasSuffix(path, "/jmap/session"):
+			s.handleWellKnownJMAP(w, r)
+		case strings.HasSuffix(path, "/jmap/ws"):
+			s.HandleWebSocket(w, r)
+		case strings.HasSuffix(path, "/jmap/login"):
+			s.handleLogin(w, r)
+		case strings.HasSuffix(path, "/jmap"):
+			s.handleAPI(w, r)
+		case strings.Contains(path, "/upload/"):
+			s.HandleUpload(w, r)
+		case strings.Contains(path, "/download/"):
+			s.HandleDownload(w, r)
+		case strings.HasSuffix(path, "/eventsource") || strings.Contains(path, "/eventsource"):
+			s.HandleEventSource(w, r)
+		case strings.HasSuffix(path, "/version"):
+			s.handleVersion(w, r)
+		default:
+			s.handleNotFound(w, r)
+		}
+	}
+
+	mux.HandleFunc("/", handleFlexRoute)
 
 	return s.corsMiddleware(loggingMiddleware(s.authMiddleware(mux)))
 }
@@ -330,7 +346,7 @@ func (s *Server) sessionForRequest(r *http.Request) *Session {
 }
 
 func (s *Server) handleWellKnownJMAP(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/.well-known/jmap" && r.URL.Path != "/jmap/session" {
+	if !strings.HasSuffix(r.URL.Path, "/.well-known/jmap") && !strings.HasSuffix(r.URL.Path, "/jmap/session") {
 		http.NotFound(w, r)
 		return
 	}
@@ -367,7 +383,7 @@ func (s *Server) capabilitySupported(capURI string) bool {
 }
 
 func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/jmap" {
+	if !strings.HasSuffix(r.URL.Path, "/jmap") {
 		http.NotFound(w, r)
 		return
 	}

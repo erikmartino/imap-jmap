@@ -3,7 +3,8 @@ import { login, uniqueUser, JMAPClient, goToApp } from '../lib/helpers';
 
 test.describe('calendar & contacts', () => {
   test('calendar app shows the seeded personal calendar', async ({ page }) => {
-    await login(page, 'user@example.com', 'user@example.com');
+    const user = uniqueUser('pim-cal-user');
+    await login(page, user.username, user.password);
     await goToApp(page, '/en/calendar');
 
     await expect(page.getByText('Personal Calendar').first()).toBeVisible({ timeout: 15_000 });

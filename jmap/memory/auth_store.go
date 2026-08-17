@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -155,24 +154,22 @@ func (a *MemoryAuthBackend) ValidateToken(ctx context.Context, token string) (st
 		return rec.accountID, rec.subject, nil
 	}
 
-	// For memory auth backend: if Bearer token is an email address (e.g. a@profundo.dk), accept it
-	if strings.Contains(token, "@") {
-		accountID, err := a.ValidateCredentials(ctx, token, token)
-		if err == nil {
-			if a.seededAccounts == nil {
-				a.seededAccounts = make(map[string]bool)
-			}
-			alreadySeeded := a.seededAccounts[accountID]
-			a.seededAccounts[accountID] = true
-			mb, bb, cb, contactsB, fnB := a.mailBackend, a.blobBackend, a.calendarsBackend, a.contactsBackend, a.fileNodeBackend
-			a.mu.Unlock()
-
-			if !alreadySeeded && (mb != nil || bb != nil || cb != nil || contactsB != nil || fnB != nil) {
-				SeedAccountSampleData(ctx, accountID, mb, bb, cb, contactsB, fnB)
-			}
-
-			return accountID, token, nil
+	// For memory auth backend: if Bearer token is valid credentials (e.g. a@profundo.dk), accept it
+	accountID, err := a.ValidateCredentials(ctx, token, token)
+	if err == nil {
+		if a.seededAccounts == nil {
+			a.seededAccounts = make(map[string]bool)
 		}
+		alreadySeeded := a.seededAccounts[accountID]
+		a.seededAccounts[accountID] = true
+		mb, bb, cb, contactsB, fnB := a.mailBackend, a.blobBackend, a.calendarsBackend, a.contactsBackend, a.fileNodeBackend
+		a.mu.Unlock()
+
+		if !alreadySeeded && (mb != nil || bb != nil || cb != nil || contactsB != nil || fnB != nil) {
+			SeedAccountSampleData(ctx, accountID, mb, bb, cb, contactsB, fnB)
+		}
+
+		return accountID, token, nil
 	}
 
 	a.mu.Unlock()

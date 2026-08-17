@@ -13,7 +13,8 @@ test.describe('calendar (Bulwark UI ↔ imap-jmap over JMAP)', () => {
   // ---- UI ------------------------------------------------------------------
 
   test('calendar app loads with the seeded Personal Calendar and view controls', async ({ page }) => {
-    await login(page, 'user@example.com', 'user@example.com');
+    const user = uniqueUser('cal-user');
+    await login(page, user.username, user.password);
     await goToApp(page, '/en/calendar');
 
     await expect(page.getByText('Personal Calendar').first()).toBeVisible({ timeout: 15_000 });
