@@ -157,3 +157,49 @@ These JMAP extensions have **not** been published as RFCs yet; cite the latest d
 
 ### Non-Goals & Out-of-Scope Specifications
 - **JMAP Sharing**: [RFC 9670](https://www.rfc-editor.org/rfc/rfc9670.html) — *JMAP Sharing* (Explicitly set as a Non-Goal for this server implementation).
+
+---
+
+## Running External Conformance Test Suites (JMAP-TestSuite)
+
+In addition to the internal Go unit tests and Playwright E2E suites, the server can be verified against the official Fastmail Perl test suite located in `~/git/fastmail/JMAP-TestSuite`.
+
+### 1. Start the JMAP Server
+Ensure the Go server is running locally (e.g., on port `8181`):
+```bash
+cd ~/git/imap-jmap
+go run . -port 8181 -https-port 8444 -smtp-port 1026
+```
+
+### 2. Configure the Server Adapter
+In `~/git/fastmail/JMAP-TestSuite`, the `ImapJmap` server adapter (`lib/JMAP/TestSuite/ServerAdapter/ImapJmap.pm`) connects to the running server using `imap-jmap.json`:
+```json
+{
+  "adapter": "ImapJmap",
+  "base_uri": "http://localhost:8181",
+  "credentials": [{
+    "username": "user@example.com",
+    "password": "user@example.com"
+  }]
+}
+```
+
+### 3. Run the Tests
+From `~/git/fastmail/JMAP-TestSuite`:
+```bash
+cd ~/git/fastmail/JMAP-TestSuite
+
+# Run a single test file (verbose)
+JMAP_SERVER_ADAPTER_FILE=imap-jmap.json prove -lv t/basic.t
+
+# Run a specific test subsystem
+JMAP_SERVER_ADAPTER_FILE=imap-jmap.json prove -lr t/Mailbox/
+JMAP_SERVER_ADAPTER_FILE=imap-jmap.json prove -lr t/Email/
+
+# Run with full JMAP request/response telemetry logged to STDERR
+JMTS_TELEMETRY=1 JMAP_SERVER_ADAPTER_FILE=imap-jmap.json prove -lv t/basic.t
+
+# Run over WebSockets transport (RFC 8887)
+JMTS_USE_WEBSOCKETS=1 JMAP_SERVER_ADAPTER_FILE=imap-jmap.json prove -lv t/basic.t
+```
+

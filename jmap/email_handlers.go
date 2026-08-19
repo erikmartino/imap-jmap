@@ -553,7 +553,10 @@ func handleEmailQueryChanges(backend MailBackend) MethodHandler {
 func handleEmailImport(backend MailBackend, blobBackend BlobBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
-		createMap, _ := args["create"].(map[string]any)
+		createMap, _ := args["emails"].(map[string]any)
+		if createMap == nil {
+			createMap, _ = args["create"].(map[string]any)
+		}
 		created := make(map[string]*Email)
 		notCreated := make(map[string]any)
 		oldState := backend.State(ctx)
