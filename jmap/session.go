@@ -92,17 +92,14 @@ type CoreCapability struct {
 	CollationAlgorithms   []string `json:"collationAlgorithms"`
 }
 
-// MailCapability defines the capability object for "urn:ietf:params:jmap:mail" per RFC 8621 Section 2.
+// MailCapability defines the account capability object for "urn:ietf:params:jmap:mail" per RFC 8621 Section 2.
 type MailCapability struct {
-	MaxMailboxesPerEmail     *uint64  `json:"maxMailboxesPerEmail"`
-	MaxMailboxDepth          *uint64  `json:"maxMailboxDepth"`
-	MaxSizeMailboxName       uint64   `json:"maxSizeMailboxName"`
-	MaxSizeEmailHeaders      uint64   `json:"maxSizeEmailHeaders"`
-	MaxObjectsInGet          uint64   `json:"maxObjectsInGet"`
-	MaxObjectsInSet          uint64   `json:"maxObjectsInSet"`
-	CollationAlgorithms      []string `json:"collationAlgorithms"`
-	EmailQuerySortOptions    []string `json:"emailQuerySortOptions"`
-	MayCreateTopLevelMailbox bool     `json:"mayCreateTopLevelMailbox"`
+	MaxMailboxesPerEmail       *uint64  `json:"maxMailboxesPerEmail"`
+	MaxMailboxDepth            *uint64  `json:"maxMailboxDepth"`
+	MaxSizeMailboxName         uint64   `json:"maxSizeMailboxName"`
+	MaxSizeAttachmentsPerEmail uint64   `json:"maxSizeAttachmentsPerEmail"`
+	EmailQuerySortOptions      []string `json:"emailQuerySortOptions"`
+	MayCreateTopLevelMailbox   bool     `json:"mayCreateTopLevelMailbox"`
 }
 
 // SmimeCapability defines the capability object for "urn:ietf:params:jmap:smime" per RFC 9219 Section 2.
@@ -233,17 +230,7 @@ func sessionFor(baseURL, username, accountID string) *Session {
 				MaxObjectsInSet:       500,
 				CollationAlgorithms:   []string{"i;ascii-casemap", "i;octet"},
 			},
-			MailCapabilityURI: MailCapability{
-				MaxMailboxesPerEmail:     nil,
-				MaxMailboxDepth:          nil,
-				MaxSizeMailboxName:       255,
-				MaxSizeEmailHeaders:      100000,
-				MaxObjectsInGet:          500,
-				MaxObjectsInSet:          500,
-				CollationAlgorithms:      []string{"i;ascii-casemap", "i;octet"},
-				EmailQuerySortOptions:    []string{"receivedAt", "sentAt", "size", "subject", "from", "to", "hasKeyword", "allInThreadHaveKeyword", "someInThreadHaveKeyword"},
-				MayCreateTopLevelMailbox: true,
-			},
+			MailCapabilityURI: struct{}{},
 			SubmissionCapabilityURI: SubmissionCapability{},
 			SmimeCapabilityURI: SmimeCapability{
 				SmimeVerificationSupported: true,
@@ -302,7 +289,14 @@ func sessionFor(baseURL, username, accountID string) *Session {
 				IsReadOnly: false,
 				AccountCapabilities: map[string]any{
 					CoreCapabilityURI: struct{}{},
-					MailCapabilityURI: struct{}{},
+					MailCapabilityURI: MailCapability{
+						MaxMailboxesPerEmail:       nil,
+						MaxMailboxDepth:            nil,
+						MaxSizeMailboxName:         255,
+						MaxSizeAttachmentsPerEmail: 50000000,
+						EmailQuerySortOptions:      []string{"receivedAt", "sentAt", "size", "subject", "from", "to", "hasKeyword", "allInThreadHaveKeyword", "someInThreadHaveKeyword"},
+						MayCreateTopLevelMailbox:   true,
+					},
 					SmimeCapabilityURI: SmimeCapability{
 						SmimeVerificationSupported: true,
 					},

@@ -375,9 +375,14 @@ func TestRFC8620_Section5_5_QuerySortValidation(t *testing.T) {
 	if err := json.NewDecoder(sessResp.Body).Decode(&sess); err != nil {
 		t.Fatalf("Failed to decode session: %v", err)
 	}
-	capRaw, ok := sess.Capabilities[jmap.MailCapabilityURI].(map[string]any)
+	primaryID := sess.PrimaryAccounts[jmap.MailCapabilityURI]
+	acc, ok := sess.Accounts[primaryID]
 	if !ok {
-		t.Fatalf("Mail capability missing in session capabilities")
+		t.Fatalf("Account %q missing in session accounts", primaryID)
+	}
+	capRaw, ok := acc.AccountCapabilities[jmap.MailCapabilityURI].(map[string]any)
+	if !ok {
+		t.Fatalf("Mail capability missing in account capabilities")
 	}
 	rawOpts, _ := capRaw["emailQuerySortOptions"].([]any)
 	advertised := map[string]bool{}

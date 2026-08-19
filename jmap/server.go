@@ -213,7 +213,11 @@ func (s *Server) Handler() http.Handler {
 		case strings.HasSuffix(path, "/jmap/login"):
 			s.handleLogin(w, r)
 		case strings.HasSuffix(path, "/jmap"):
-			s.handleAPI(w, r)
+			if r.Method == http.MethodGet || r.Method == http.MethodHead {
+				s.handleWellKnownJMAP(w, r)
+			} else {
+				s.handleAPI(w, r)
+			}
 		case strings.Contains(path, "/upload/"):
 			s.HandleUpload(w, r)
 		case strings.Contains(path, "/download/"):
@@ -362,7 +366,7 @@ func (s *Server) sessionForRequest(r *http.Request) *Session {
 }
 
 func (s *Server) handleWellKnownJMAP(w http.ResponseWriter, r *http.Request) {
-	if !strings.HasSuffix(r.URL.Path, "/.well-known/jmap") && !strings.HasSuffix(r.URL.Path, "/jmap/session") {
+	if !strings.HasSuffix(r.URL.Path, "/.well-known/jmap") && !strings.HasSuffix(r.URL.Path, "/jmap/session") && !strings.HasSuffix(r.URL.Path, "/jmap") {
 		http.NotFound(w, r)
 		return
 	}
