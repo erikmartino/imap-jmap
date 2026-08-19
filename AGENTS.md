@@ -186,6 +186,8 @@ In `~/git/fastmail/JMAP-TestSuite`, the `ImapJmap` server adapter (`lib/JMAP/Tes
 
 ### 3. Run the Tests
 From `~/git/fastmail/JMAP-TestSuite`:
+> **Note on Prerequisites**: Only run `cpanm --installdeps .` (or `cpanm -l ~/perl5 --installdeps .`) if dependencies are missing or required. If dependencies are already installed, skip this step as dependency installation takes a long time.
+
 ```bash
 cd ~/git/fastmail/JMAP-TestSuite
 
