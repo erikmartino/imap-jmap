@@ -60,7 +60,16 @@ func handleEmailSubmissionChanges(backend MailBackend) MethodHandler {
 		accountID, _ := args["accountId"].(string)
 		sinceState, _ := args["sinceState"].(string)
 
-		created, updated, destroyed, newState, hasMore := backend.SubmissionChanges(ctx, sinceState)
+		var maxChanges *uint64
+		if mc, ok := args["maxChanges"].(float64); ok {
+			if mc < 0 {
+				return "error", MethodErrorArgs(MethodErrorInvalidArguments, "maxChanges must be non-negative")
+			}
+			m := uint64(mc)
+			maxChanges = &m
+		}
+
+		created, updated, destroyed, newState, hasMore := backend.SubmissionChanges(ctx, sinceState, maxChanges)
 		if created == nil {
 			created = []Id{}
 		}
@@ -606,7 +615,7 @@ func handleEmailSubmissionQueryChanges(backend MailBackend) MethodHandler {
 		sinceState, _ := args["sinceQueryState"].(string)
 		filter, _ := args["filter"].(map[string]any)
 
-		createdIDs, updatedIDs, destroyedIDs, newState, hasMore := backend.SubmissionChanges(ctx, sinceState)
+		createdIDs, updatedIDs, destroyedIDs, newState, hasMore := backend.SubmissionChanges(ctx, sinceState, nil)
 		if hasMore {
 			return "error", MethodErrorArgs("cannotCalculateChanges", "sinceQueryState is too old")
 		}

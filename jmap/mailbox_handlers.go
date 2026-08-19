@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // Mailbox Handlers (RFC 8621 Section 2)
@@ -52,7 +53,16 @@ func handleMailboxChanges(backend MailBackend) MethodHandler {
 		accountID, _ := args["accountId"].(string)
 		sinceState, _ := args["sinceState"].(string)
 
-		created, updated, destroyed, newState, hasMore := backend.MailboxChanges(ctx, sinceState)
+		var maxChanges *uint64
+		if mc, ok := args["maxChanges"].(float64); ok {
+			if mc < 0 {
+				return "error", MethodErrorArgs(MethodErrorInvalidArguments, "maxChanges must be non-negative")
+			}
+			m := uint64(mc)
+			maxChanges = &m
+		}
+
+		created, updated, destroyed, newState, hasMore := backend.MailboxChanges(ctx, sinceState, maxChanges)
 		if created == nil {
 			created = []Id{}
 		}
@@ -97,6 +107,39 @@ func handleMailboxSet(backend MailBackend) MethodHandler {
 
 		if createMap, ok := args["create"].(map[string]any); ok {
 			notCreated = runCreateLoop(createMap, creationRefs, func(clientKey string, m map[string]any) (string, error) {
+				var invalidProps []string
+				if _, has := m["id"]; has {
+					invalidProps = append(invalidProps, "id")
+				}
+				if _, has := m["totalEmails"]; has {
+					invalidProps = append(invalidProps, "totalEmails")
+				}
+				if _, has := m["unreadEmails"]; has {
+					invalidProps = append(invalidProps, "unreadEmails")
+				}
+				if _, has := m["totalThreads"]; has {
+					invalidProps = append(invalidProps, "totalThreads")
+				}
+				if _, has := m["unreadThreads"]; has {
+					invalidProps = append(invalidProps, "unreadThreads")
+				}
+				if mr, has := m["myRights"]; has {
+					if mrMap, ok := mr.(map[string]any); ok {
+						for k := range mrMap {
+							invalidProps = append(invalidProps, "myRights/"+k)
+						}
+					} else {
+						invalidProps = append(invalidProps, "myRights")
+					}
+				}
+				if len(invalidProps) > 0 {
+					return "", SetError{
+						Type:        "invalidProperties",
+						Description: "cannot set immutable properties on create",
+						Properties:  invalidProps,
+					}
+				}
+
 				name, _ := m["name"].(string)
 				if name == "" {
 					return "", fmt.Errorf("name is required")
@@ -134,6 +177,8 @@ func handleMailboxSet(backend MailBackend) MethodHandler {
 				if err != nil {
 					if errors.Is(err, ErrNotFound) {
 						notUpdated[string(resolvedID)] = SetError{Type: "notFound", Description: err.Error()}
+					} else if setErr, ok := err.(SetError); ok {
+						notUpdated[string(resolvedID)] = setErr
 					} else {
 						notUpdated[string(resolvedID)] = SetError{Type: "invalidProperties", Description: err.Error()}
 					}
@@ -143,13 +188,18 @@ func handleMailboxSet(backend MailBackend) MethodHandler {
 			}
 		}
 
+		onDestroyRemoveMessages, _ := args["onDestroyRemoveMessages"].(bool)
 		if destroyList, ok := args["destroy"].([]any); ok {
 			for _, rawID := range destroyList {
 				if idStr, ok := rawID.(string); ok {
 					resolvedID := resolveCreationID(idStr, creationRefs)
-					okDel, err := backend.DeleteMailbox(ctx, Id(resolvedID))
+					okDel, err := backend.DeleteMailbox(ctx, Id(resolvedID), onDestroyRemoveMessages)
 					if err != nil {
-						notDestroyed[string(resolvedID)] = SetError{Type: "serverFail", Description: err.Error()}
+						if setErr, ok := err.(SetError); ok {
+							notDestroyed[string(resolvedID)] = setErr
+						} else {
+							notDestroyed[string(resolvedID)] = SetError{Type: "serverFail", Description: err.Error()}
+						}
 					} else if !okDel {
 						notDestroyed[string(resolvedID)] = SetError{Type: "notFound", Description: "mailbox not found"}
 					} else {
@@ -173,40 +223,89 @@ func handleMailboxSet(backend MailBackend) MethodHandler {
 	}
 }
 
-// filterMailboxes applies a Mailbox/query FilterCondition (RFC 8621 Section 2.4) to the
+// matchesMailboxFilter checks whether a mailbox satisfies the given filter map (FilterCondition or FilterOperator).
+func matchesMailboxFilter(mb *Mailbox, filter map[string]any) bool {
+	if len(filter) == 0 {
+		return true
+	}
+	if opRaw, ok := filter["operator"].(string); ok {
+		condsRaw, ok := filter["conditions"].([]any)
+		if !ok {
+			return true
+		}
+		op := strings.ToUpper(opRaw)
+		switch op {
+		case "AND":
+			for _, c := range condsRaw {
+				if condMap, ok := c.(map[string]any); ok {
+					if !matchesMailboxFilter(mb, condMap) {
+						return false
+					}
+				}
+			}
+			return true
+		case "OR":
+			for _, c := range condsRaw {
+				if condMap, ok := c.(map[string]any); ok {
+					if matchesMailboxFilter(mb, condMap) {
+						return true
+					}
+				}
+			}
+			return len(condsRaw) == 0
+		case "NOT":
+			for _, c := range condsRaw {
+				if condMap, ok := c.(map[string]any); ok {
+					if matchesMailboxFilter(mb, condMap) {
+						return false
+					}
+				}
+			}
+			return true
+		}
+	}
+
+	if parentVal, exists := filter["parentId"]; exists {
+		if parentVal == nil {
+			if mb.ParentID != nil {
+				return false
+			}
+		} else if parentIDStr, ok := parentVal.(string); ok {
+			if mb.ParentID == nil || string(*mb.ParentID) != parentIDStr {
+				return false
+			}
+		}
+	}
+	if nameReq, ok := filter["name"].(string); ok {
+		if mb.Name != nameReq {
+			return false
+		}
+	}
+	if roleReq, ok := filter["role"].(string); ok {
+		if mb.Role == nil || *mb.Role != roleReq {
+			return false
+		}
+	}
+	if hasAnyRole, ok := filter["hasAnyRole"].(bool); ok {
+		hasRole := mb.Role != nil && *mb.Role != ""
+		if hasRole != hasAnyRole {
+			return false
+		}
+	}
+	if isSubscribed, ok := filter["isSubscribed"].(bool); ok {
+		if mb.IsSubscribed != isSubscribed {
+			return false
+		}
+	}
+	return true
+}
+
+// filterMailboxes applies a Mailbox/query FilterCondition or FilterOperator (RFC 8621 Section 2.4) to the
 // given mailboxes, keeping those matching every provided condition.
 func filterMailboxes(all []*Mailbox, filter map[string]any) []*Mailbox {
 	var filtered []*Mailbox
 	for _, mb := range all {
-		match := true
-		if filter != nil {
-			if roleReq, ok := filter["role"].(string); ok {
-				if mb.Role == nil || *mb.Role != roleReq {
-					match = false
-				}
-			}
-			if parentReq, ok := filter["parentId"].(string); ok {
-				if mb.ParentID == nil || string(*mb.ParentID) != parentReq {
-					match = false
-				}
-			}
-			if nameReq, ok := filter["name"].(string); ok {
-				if mb.Name != nameReq {
-					match = false
-				}
-			}
-			if hasAnyRole, ok := filter["hasAnyRole"].(bool); ok {
-				if hasAnyRole != (mb.Role != nil && *mb.Role != "") {
-					match = false
-				}
-			}
-			if isSubscribed, ok := filter["isSubscribed"].(bool); ok {
-				if mb.IsSubscribed != isSubscribed {
-					match = false
-				}
-			}
-		}
-		if match {
+		if matchesMailboxFilter(mb, filter) {
 			filtered = append(filtered, mb)
 		}
 	}
@@ -281,6 +380,12 @@ func handleMailboxQuery(backend MailBackend) MethodHandler {
 			return "error", MethodErrorArgs(MethodErrorInvalidArguments, anchorErr)
 		}
 
+		if limVal, ok := args["limit"].(float64); ok {
+			if limVal < 0 {
+				return "error", MethodErrorArgs(MethodErrorInvalidArguments, "limit must be non-negative")
+			}
+		}
+
 		total := len(filtered)
 		position = NormalizePosition(position, total)
 		var pagedIDs []Id
@@ -316,6 +421,9 @@ func handleMailboxQuery(backend MailBackend) MethodHandler {
 		if pagedIDs == nil {
 			pagedIDs = []Id{}
 		}
+		if len(pagedIDs) == 0 {
+			position = 0
+		}
 
 		res := map[string]any{
 			"accountId":           accountID,
@@ -343,7 +451,7 @@ func handleMailboxQueryChanges(backend MailBackend) MethodHandler {
 			return "error", MethodErrorArgs(errType, errMsg)
 		}
 
-		createdIDs, updatedIDs, destroyedIDs, newState, hasMore := backend.MailboxChanges(ctx, sinceState)
+		createdIDs, updatedIDs, destroyedIDs, newState, hasMore := backend.MailboxChanges(ctx, sinceState, nil)
 		if hasMore {
 			return "error", MethodErrorArgs("cannotCalculateChanges", "sinceQueryState is too old")
 		}
@@ -408,7 +516,7 @@ func handleMailboxCopy(backend MailBackend) MethodHandler {
 						if err == nil {
 							created[clientKey] = createdMB
 							if onDestroy {
-								_, _ = backend.DeleteMailbox(ctx, Id(idStr))
+								_, _ = backend.DeleteMailbox(ctx, Id(idStr), false)
 							}
 						} else {
 							notCreated[clientKey] = SetError{Type: "serverFail", Description: err.Error()}

@@ -10,6 +10,14 @@ func SeedSampleData(mb *MemoryBackend, cb *MemoryCalendarsBackend) {
 	ctx := context.Background()
 
 	if mb != nil {
+		p1 := "1"
+		p2 := "2"
+		s3 := "2026-08-02T09:14:30Z"
+		s4 := "2026-08-02T18:44:00Z"
+		sDraft := "2026-08-03T07:00:00Z"
+		sSent := "2026-08-02T10:05:00Z"
+		nInvoice := "Invoice-2026-8891.pdf"
+
 		// Populate realistic emails
 		stub3 := &jmap.Email{
 			Subject:    "Q3 Product Architecture & Roadmap Review",
@@ -20,11 +28,11 @@ func SeedSampleData(mb *MemoryBackend, cb *MemoryCalendarsBackend) {
 			Keywords:   map[string]bool{"$seen": true, "Work": true},
 			Size:       3580,
 			ReceivedAt: "2026-08-02T09:15:00Z",
-			SentAt:     "2026-08-02T09:14:30Z",
+			SentAt:     &s3,
 			Preview:    "Hi Team, please find attached the proposal for the Q3 architecture review meeting scheduled for Wednesday.",
 			BlobID:     "blob-stub-3",
 			BodyStructure: jmap.EmailBodyPart{
-				PartID: "1",
+				PartID: &p1,
 				Type:   "text/plain",
 				Size:   180,
 			},
@@ -43,14 +51,14 @@ func SeedSampleData(mb *MemoryBackend, cb *MemoryCalendarsBackend) {
 			HasAttachment: true,
 			Size:          12450,
 			ReceivedAt:    "2026-08-02T18:45:00Z",
-			SentAt:        "2026-08-02T18:44:00Z",
+			SentAt:        &s4,
 			Preview:       "Your cloud hosting invoice for July 2026 is attached ($149.00 USD). Due date: August 15, 2026.",
 			BlobID:        "blob-stub-4",
 			Attachments: []jmap.EmailBodyPart{
-				{PartID: "2", Type: "application/pdf", Name: "Invoice-2026-8891.pdf", Size: 10240},
+				{PartID: &p2, Type: "application/pdf", Name: &nInvoice, Size: 10240},
 			},
 			BodyStructure: jmap.EmailBodyPart{
-				PartID: "1",
+				PartID: &p1,
 				Type:   "text/plain",
 				Size:   120,
 			},
@@ -68,11 +76,11 @@ func SeedSampleData(mb *MemoryBackend, cb *MemoryCalendarsBackend) {
 			Keywords:   map[string]bool{"$draft": true},
 			Size:       1500,
 			ReceivedAt: "2026-08-03T07:00:00Z",
-			SentAt:     "2026-08-03T07:00:00Z",
+			SentAt:     &sDraft,
 			Preview:    "Outline for deploying the multi-region Kubernetes cluster with failover routing.",
 			BlobID:     "blob-stub-draft",
 			BodyStructure: jmap.EmailBodyPart{
-				PartID: "1",
+				PartID: &p1,
 				Type:   "text/plain",
 				Size:   110,
 			},
@@ -90,11 +98,11 @@ func SeedSampleData(mb *MemoryBackend, cb *MemoryCalendarsBackend) {
 			Keywords:   map[string]bool{"$seen": true},
 			Size:       1800,
 			ReceivedAt: "2026-08-02T10:05:00Z",
-			SentAt:     "2026-08-02T10:05:00Z",
+			SentAt:     &sSent,
 			Preview:    "Thanks Alex, I reviewed the proposal and accepted the calendar invitation.",
 			BlobID:     "blob-stub-sent",
 			BodyStructure: jmap.EmailBodyPart{
-				PartID: "1",
+				PartID: &p1,
 				Type:   "text/plain",
 				Size:   100,
 			},
@@ -223,6 +231,12 @@ func SeedAccountSampleData(ctx context.Context, accountID string, mb jmap.MailBa
 	if mb != nil {
 		emails, _ := mb.GetAllEmails(accountCtx)
 		if len(emails) == 0 {
+			p1 := "1"
+			s1 := "2026-08-01T11:59:00Z"
+			s2 := "2026-08-02T10:29:00Z"
+			sSent := "2026-08-01T12:05:00Z"
+			sDraft := "2026-08-03T07:00:00Z"
+			sArch := "2026-08-01T10:00:00Z"
 			if blobB != nil {
 				_, _ = blobB.PutBlob(accountCtx, accountID, "text/plain", []byte("Welcome to your new JMAP mail server."))
 			}
@@ -234,10 +248,10 @@ func SeedAccountSampleData(ctx context.Context, accountID string, mb jmap.MailBa
 				Keywords:      map[string]bool{"$seen": false},
 				Size:          1024,
 				ReceivedAt:    "2026-08-01T12:00:00Z",
-				SentAt:        "2026-08-01T11:59:00Z",
+				SentAt:        &s1,
 				Preview:       "Welcome to your new JMAP mail server.",
 				BlobID:        "blob-stub-1",
-				BodyStructure: jmap.EmailBodyPart{PartID: "1", Type: "text/plain", Size: 40},
+				BodyStructure: jmap.EmailBodyPart{PartID: &p1, Type: "text/plain", Size: 40},
 				BodyValues:    map[string]jmap.EmailBodyValue{"1": {Value: "Welcome to your new JMAP mail server."}},
 			}
 			_, _ = mb.CreateEmail(accountCtx, stub1)
@@ -250,10 +264,10 @@ func SeedAccountSampleData(ctx context.Context, accountID string, mb jmap.MailBa
 				Keywords:      map[string]bool{"$seen": true, "$flagged": true},
 				Size:          4096,
 				ReceivedAt:    "2026-08-02T10:30:00Z",
-				SentAt:        "2026-08-02T10:29:00Z",
+				SentAt:        &s2,
 				Preview:       "This email verifies that your server supports RFC 8620 (JMAP Core) and RFC 8621 (JMAP Mail).",
 				BlobID:        "blob-stub-2",
-				BodyStructure: jmap.EmailBodyPart{PartID: "1", Type: "text/plain", Size: 88},
+				BodyStructure: jmap.EmailBodyPart{PartID: &p1, Type: "text/plain", Size: 88},
 				BodyValues:    map[string]jmap.EmailBodyValue{"1": {Value: "This email verifies that your server supports RFC 8620 (JMAP Core) and RFC 8621 (JMAP Mail)."}},
 			}
 			_, _ = mb.CreateEmail(accountCtx, stub2)
@@ -266,10 +280,10 @@ func SeedAccountSampleData(ctx context.Context, accountID string, mb jmap.MailBa
 				Keywords:      map[string]bool{"$seen": true},
 				Size:          512,
 				ReceivedAt:    "2026-08-01T12:05:00Z",
-				SentAt:        "2026-08-01T12:05:00Z",
+				SentAt:        &sSent,
 				Preview:       "Thank you! Glad to be using JMAP.",
 				BlobID:        "blob-stub-sent",
-				BodyStructure: jmap.EmailBodyPart{PartID: "1", Type: "text/plain", Size: 34},
+				BodyStructure: jmap.EmailBodyPart{PartID: &p1, Type: "text/plain", Size: 34},
 				BodyValues:    map[string]jmap.EmailBodyValue{"1": {Value: "Thank you! Glad to be using JMAP."}},
 			}
 			_, _ = mb.CreateEmail(accountCtx, stubSent)
@@ -282,10 +296,10 @@ func SeedAccountSampleData(ctx context.Context, accountID string, mb jmap.MailBa
 				Keywords:      map[string]bool{"$draft": true},
 				Size:          1500,
 				ReceivedAt:    "2026-08-03T07:00:00Z",
-				SentAt:        "2026-08-03T07:00:00Z",
+				SentAt:        &sDraft,
 				Preview:       "Initial draft outline for HA cluster deployment...",
 				BlobID:        "blob-stub-draft",
-				BodyStructure: jmap.EmailBodyPart{PartID: "1", Type: "text/plain", Size: 48},
+				BodyStructure: jmap.EmailBodyPart{PartID: &p1, Type: "text/plain", Size: 48},
 				BodyValues:    map[string]jmap.EmailBodyValue{"1": {Value: "Initial draft outline for HA cluster deployment..."}},
 			}
 			_, _ = mb.CreateEmail(accountCtx, stubDraft)
@@ -298,10 +312,10 @@ func SeedAccountSampleData(ctx context.Context, accountID string, mb jmap.MailBa
 				Keywords:      map[string]bool{"$seen": true},
 				Size:          384,
 				ReceivedAt:    "2026-08-01T10:00:00Z",
-				SentAt:        "2026-08-01T10:00:00Z",
+				SentAt:        &sArch,
 				Preview:       "Account setup completed successfully.",
 				BlobID:        "blob-stub-archive",
-				BodyStructure: jmap.EmailBodyPart{PartID: "1", Type: "text/plain", Size: 37},
+				BodyStructure: jmap.EmailBodyPart{PartID: &p1, Type: "text/plain", Size: 37},
 				BodyValues:    map[string]jmap.EmailBodyValue{"1": {Value: "Account setup completed successfully."}},
 			}
 			_, _ = mb.CreateEmail(accountCtx, stubArchive)

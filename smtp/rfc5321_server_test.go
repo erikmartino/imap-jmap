@@ -144,7 +144,8 @@ func TestRFC5321_SMTPServerReceive(t *testing.T) {
 	}
 
 	// Verify Mailbox stats updated
-	mailboxes, _, err := memBackend.GetMailboxes(context.Background(), []jmap.Id{"mb-inbox"})
+	var mailboxes []*jmap.Mailbox
+	mailboxes, _, err = memBackend.GetMailboxes(accountCtx, []jmap.Id{"mb-inbox"})
 	if err != nil || len(mailboxes) == 0 {
 		t.Fatalf("failed to retrieve Inbox mailbox")
 	}

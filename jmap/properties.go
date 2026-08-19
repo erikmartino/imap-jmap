@@ -3,9 +3,15 @@ package jmap
 import "encoding/json"
 
 // parseProperties extracts the optional "properties" argument per RFC 8620 Section 5.1.
+// If absent or nil, it returns nil (meaning "all properties").
+// If present as an array (even if empty), it returns a non-nil slice.
 func parseProperties(args map[string]any) []string {
-	raw, _ := args["properties"].([]any)
-	if len(raw) == 0 {
+	rawVal, ok := args["properties"]
+	if !ok || rawVal == nil {
+		return nil
+	}
+	raw, ok := rawVal.([]any)
+	if !ok {
 		return nil
 	}
 	props := make([]string, 0, len(raw))
@@ -19,9 +25,9 @@ func parseProperties(args map[string]any) []string {
 
 // filterProperties reduces a marshaled object to the requested property names. The "id"
 // property is always included per RFC 8620 Section 5.1, even when not requested. The
-// original object is returned unchanged when no properties are requested.
+// original object is returned unchanged when properties is nil.
 func filterProperties(obj any, properties []string) any {
-	if len(properties) == 0 {
+	if properties == nil {
 		return obj
 	}
 	data, err := json.Marshal(obj)
@@ -46,7 +52,7 @@ func filterProperties(obj any, properties []string) any {
 
 // filterList applies filterProperties to every element of a typed list, preserving nil.
 func filterList[T any](list []*T, properties []string) []any {
-	if len(properties) == 0 {
+	if properties == nil {
 		out := make([]any, 0, len(list))
 		for _, item := range list {
 			out = append(out, item)

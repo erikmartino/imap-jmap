@@ -115,7 +115,7 @@ func TestMailBackend_ChangeTracking(t *testing.T) {
 		t.Fatalf("CreateEmail failed: %v", err)
 	}
 
-	created, updated, destroyed, s1, hasMore := mb.EmailChanges(ctx, s0)
+	created, updated, destroyed, s1, hasMore := mb.EmailChanges(ctx, s0, nil)
 	if hasMore {
 		t.Errorf("unexpected hasMore=true")
 	}
@@ -132,7 +132,7 @@ func TestMailBackend_ChangeTracking(t *testing.T) {
 		t.Fatalf("UpdateEmail failed: %v", err)
 	}
 
-	created, updated, destroyed, s2, _ := mb.EmailChanges(ctx, s1)
+	created, updated, destroyed, s2, _ := mb.EmailChanges(ctx, s1, nil)
 	if len(updated) != 1 || updated[0] != createdEM.ID {
 		t.Errorf("expected updated=[%s], got %v", createdEM.ID, updated)
 	}
@@ -143,13 +143,13 @@ func TestMailBackend_ChangeTracking(t *testing.T) {
 		t.Fatalf("DeleteEmail failed: ok=%v, err=%v", ok, err)
 	}
 
-	created, updated, destroyed, _, _ = mb.EmailChanges(ctx, s2)
+	created, updated, destroyed, _, _ = mb.EmailChanges(ctx, s2, nil)
 	if len(destroyed) != 1 || destroyed[0] != createdEM.ID {
 		t.Errorf("expected destroyed=[%s], got %v", createdEM.ID, destroyed)
 	}
 
 	// Full window from s0 to s3: created then destroyed -> no changes
-	cAll, uAll, dAll, _, _ := mb.EmailChanges(ctx, s0)
+	cAll, uAll, dAll, _, _ := mb.EmailChanges(ctx, s0, nil)
 	if len(cAll)+len(uAll)+len(dAll) != 0 {
 		t.Errorf("expected net zero changes for created+destroyed email, got c=%v u=%v d=%v", cAll, uAll, dAll)
 	}
@@ -160,7 +160,7 @@ func TestMailBackend_ChangeTracking(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateMailbox failed: %v", err)
 	}
-	cMb, _, _, _, _ := mb.MailboxChanges(ctx, mbState0)
+	cMb, _, _, _, _ := mb.MailboxChanges(ctx, mbState0, nil)
 	if len(cMb) != 1 || cMb[0] != box.ID {
 		t.Errorf("expected created mailbox %s, got %v", box.ID, cMb)
 	}
@@ -171,7 +171,7 @@ func TestMailBackend_ChangeTracking(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateIdentity failed: %v", err)
 	}
-	cId, _, _, _, _ := mb.IdentityChanges(ctx, idState0)
+	cId, _, _, _, _ := mb.IdentityChanges(ctx, idState0, nil)
 	if len(cId) != 1 || cId[0] != ident.ID {
 		t.Errorf("expected created identity %s, got %v", ident.ID, cId)
 	}
@@ -182,7 +182,7 @@ func TestMailBackend_ChangeTracking(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSubmission failed: %v", err)
 	}
-	cSub, _, _, _, _ := mb.SubmissionChanges(ctx, subState0)
+	cSub, _, _, _, _ := mb.SubmissionChanges(ctx, subState0, nil)
 	if len(cSub) != 1 || cSub[0] != sub.ID {
 		t.Errorf("expected created submission %s, got %v", sub.ID, cSub)
 	}

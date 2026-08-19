@@ -16,22 +16,22 @@ type MailBackend interface {
 
 	// Mailboxes (RFC 8621 Section 2)
 	MailboxState(ctx context.Context) string
-	MailboxChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
+	MailboxChanges(ctx context.Context, sinceState string, maxChanges *uint64) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
 	GetMailboxes(ctx context.Context, ids []Id) (list []*Mailbox, notFound []Id, err error)
 	GetAllMailboxes(ctx context.Context) ([]*Mailbox, error)
 	CreateMailbox(ctx context.Context, mb *Mailbox) (*Mailbox, error)
 	UpdateMailbox(ctx context.Context, id Id, patch map[string]any) (*Mailbox, error)
-	DeleteMailbox(ctx context.Context, id Id) (bool, error)
+	DeleteMailbox(ctx context.Context, id Id, onDestroyRemoveMessages bool) (bool, error)
 
 	// Threads (RFC 8621 Section 3)
 	ThreadState(ctx context.Context) string
-	ThreadChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
+	ThreadChanges(ctx context.Context, sinceState string, maxChanges *uint64) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
 	GetThreads(ctx context.Context, ids []Id) (list []*Thread, notFound []Id, err error)
 	GetAllThreads(ctx context.Context) ([]*Thread, error)
 
 	// Emails (RFC 8621 Section 4)
 	EmailState(ctx context.Context) string
-	EmailChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
+	EmailChanges(ctx context.Context, sinceState string, maxChanges *uint64) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
 	GetEmails(ctx context.Context, ids []Id) (list []*Email, notFound []Id, err error)
 	GetAllEmails(ctx context.Context) ([]*Email, error)
 	CreateEmail(ctx context.Context, em *Email) (*Email, error)
@@ -44,13 +44,13 @@ type MailBackend interface {
 
 	// Quotas (RFC 9425 Section 4)
 	QuotaState(ctx context.Context) string
-	QuotaChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
+	QuotaChanges(ctx context.Context, sinceState string, maxChanges *uint64) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
 	GetQuotas(ctx context.Context, ids []Id) (list []*Quota, notFound []Id, err error)
 	GetAllQuotas(ctx context.Context) ([]*Quota, error)
 
 	// Identities (RFC 8621 Section 6)
 	IdentityState(ctx context.Context) string
-	IdentityChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
+	IdentityChanges(ctx context.Context, sinceState string, maxChanges *uint64) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
 	GetIdentities(ctx context.Context) ([]*Identity, error)
 	CreateIdentity(ctx context.Context, identity *Identity) (*Identity, error)
 	UpdateIdentity(ctx context.Context, id Id, patch map[string]any) (*Identity, error)
@@ -63,7 +63,7 @@ type MailBackend interface {
 
 	// Submissions (RFC 8621 Section 7)
 	SubmissionState(ctx context.Context) string
-	SubmissionChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
+	SubmissionChanges(ctx context.Context, sinceState string, maxChanges *uint64) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
 	CreateSubmission(ctx context.Context, sub *EmailSubmission) (*EmailSubmission, error)
 	UpdateSubmission(ctx context.Context, id Id, patch map[string]any) (*EmailSubmission, error)
 	DeleteSubmission(ctx context.Context, id Id) (bool, error)

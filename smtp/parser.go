@@ -61,7 +61,8 @@ func ParseMessageToEmail(raw []byte, blobID jmap.Id) (*jmap.Email, error) {
 		email.References = splitHeaderIDs(refs)
 	}
 	if date, err := header.Date(); err == nil {
-		email.SentAt = date.UTC().Format(time.RFC3339)
+		s := date.UTC().Format(time.RFC3339)
+		email.SentAt = &s
 	}
 
 	email.BodyValues = make(map[string]jmap.EmailBodyValue)
@@ -96,16 +97,23 @@ func ParseMessageToEmail(raw []byte, blobID jmap.Id) (*jmap.Email, error) {
 			subType = typeParts[1]
 		}
 
+		var namePtr *string
+		if name := mediaParams["name"]; name != "" {
+			namePtr = &name
+		} else if fn := dispParams["filename"]; fn != "" {
+			namePtr = &fn
+		}
+		var dispPtr *string
+		if disp != "" {
+			dispPtr = &disp
+		}
+
 		part := jmap.EmailBodyPart{
-			PartID:      partID,
+			PartID:      &partID,
 			Size:        uint64(len(bodyBytes)),
 			Type:        mediaType,
-			Subtype:     subType,
-			Name:        mediaParams["name"],
-			Disposition: disp,
-		}
-		if part.Name == "" && dispParams["filename"] != "" {
-			part.Name = dispParams["filename"]
+			Name:        namePtr,
+			Disposition: dispPtr,
 		}
 
 		if isAttachment {
@@ -137,8 +145,9 @@ func ParseMessageToEmail(raw []byte, blobID jmap.Id) (*jmap.Email, error) {
 	}
 
 	if email.BodyStructure.Type == "" {
+		p1 := "1"
 		email.BodyStructure = jmap.EmailBodyPart{
-			PartID: "1",
+			PartID: &p1,
 			Type:   "multipart/mixed",
 		}
 	}
@@ -147,13 +156,14 @@ func ParseMessageToEmail(raw []byte, blobID jmap.Id) (*jmap.Email, error) {
 }
 
 func parseFallback(raw []byte, email *jmap.Email) (*jmap.Email, error) {
+	p1 := "1"
 	msg, err := mail.ReadMessage(bytes.NewReader(raw))
 	if err != nil {
 		email.Subject = "(No Subject)"
 		email.BodyValues = map[string]jmap.EmailBodyValue{
 			"1": {Value: string(raw)},
 		}
-		email.TextBody = []jmap.EmailBodyPart{{PartID: "1", Type: "text/plain", Size: uint64(len(raw))}}
+		email.TextBody = []jmap.EmailBodyPart{{PartID: &p1, Type: "text/plain", Size: uint64(len(raw))}}
 		return email, nil
 	}
 
@@ -176,7 +186,7 @@ func parseFallback(raw []byte, email *jmap.Email) (*jmap.Email, error) {
 	email.BodyValues = map[string]jmap.EmailBodyValue{
 		"1": {Value: string(bodyBytes)},
 	}
-	email.TextBody = []jmap.EmailBodyPart{{PartID: "1", Type: "text/plain", Size: uint64(len(bodyBytes))}}
+	email.TextBody = []jmap.EmailBodyPart{{PartID: &p1, Type: "text/plain", Size: uint64(len(bodyBytes))}}
 	email.Preview = makePreview(string(bodyBytes))
 	return email, nil
 }

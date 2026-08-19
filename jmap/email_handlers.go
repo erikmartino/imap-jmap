@@ -42,7 +42,7 @@ func handleThreadGet(backend MailBackend) MethodHandler {
 
 		return "Thread/get", map[string]any{
 			"accountId": accountID,
-			"state":     backend.State(ctx),
+			"state":     backend.ThreadState(ctx),
 			"list":      filterList(list, props),
 			"notFound":  notFound,
 		}
@@ -54,7 +54,16 @@ func handleThreadChanges(backend MailBackend) MethodHandler {
 		accountID, _ := args["accountId"].(string)
 		sinceState, _ := args["sinceState"].(string)
 
-		created, updated, destroyed, newState, hasMore := backend.ThreadChanges(ctx, sinceState)
+		var maxChanges *uint64
+		if mc, ok := args["maxChanges"].(float64); ok {
+			if mc < 0 {
+				return "error", MethodErrorArgs(MethodErrorInvalidArguments, "maxChanges must be non-negative")
+			}
+			m := uint64(mc)
+			maxChanges = &m
+		}
+
+		created, updated, destroyed, newState, hasMore := backend.ThreadChanges(ctx, sinceState, maxChanges)
 		if created == nil {
 			created = []Id{}
 		}
@@ -85,6 +94,29 @@ func handleEmailGet(backend MailBackend) MethodHandler {
 		idsRaw, hasIDs := args["ids"].([]any)
 		props := parseProperties(args)
 
+		// Validate any header properties in props
+		var parsedHeaderProps []*ParsedHeaderProperty
+		if props != nil {
+			for _, p := range props {
+				if strings.HasPrefix(p, "header:") {
+					hp, err := ParseHeaderProperty(p)
+					if err != nil {
+						return "error", MethodErrorArgs(MethodErrorInvalidArguments, err.Error())
+					}
+					parsedHeaderProps = append(parsedHeaderProps, hp)
+				}
+			}
+		}
+
+		bodyProps := parsePropertiesBody(args)
+		fetchTextBodyValues, _ := args["fetchTextBodyValues"].(bool)
+		fetchHTMLBodyValues, _ := args["fetchHTMLBodyValues"].(bool)
+		fetchAllBodyValues, _ := args["fetchAllBodyValues"].(bool)
+		var maxBodyValueBytes uint64
+		if mbv, ok := args["maxBodyValueBytes"].(float64); ok && mbv > 0 {
+			maxBodyValueBytes = uint64(mbv)
+		}
+
 		var list []*Email
 		var notFound []Id
 		var err error
@@ -108,12 +140,236 @@ func handleEmailGet(backend MailBackend) MethodHandler {
 			notFound = []Id{}
 		}
 
+		// Filter and format each email
+		formattedList := make([]any, 0, len(list))
+		for _, em := range list {
+			formattedList = append(formattedList, formatEmailGet(em, props, parsedHeaderProps, bodyProps, fetchTextBodyValues, fetchHTMLBodyValues, fetchAllBodyValues, maxBodyValueBytes))
+		}
+
 		return "Email/get", map[string]any{
 			"accountId": accountID,
 			"state":     backend.EmailState(ctx),
-			"list":      filterList(list, props),
+			"list":      formattedList,
 			"notFound":  notFound,
 		}
+	}
+}
+
+func parsePropertiesBody(args map[string]any) []string {
+	rawVal, ok := args["bodyProperties"]
+	if !ok || rawVal == nil {
+		return nil
+	}
+	raw, ok := rawVal.([]any)
+	if !ok {
+		return nil
+	}
+	props := make([]string, 0, len(raw))
+	for _, item := range raw {
+		if s, ok := item.(string); ok {
+			props = append(props, s)
+		}
+	}
+	return props
+}
+
+func formatEmailGet(em *Email, props []string, parsedHeaderProps []*ParsedHeaderProperty, bodyProps []string, fetchText, fetchHTML, fetchAll bool, maxBytes uint64) any {
+	bodyValues := make(map[string]EmailBodyValue)
+	if fetchAll {
+		for k, v := range em.BodyValues {
+			bodyValues[k] = applyMaxBodyValueBytes(v, maxBytes)
+		}
+	} else {
+		if fetchText {
+			for _, part := range em.TextBody {
+				if part.PartID != nil {
+					if bv, ok := em.BodyValues[*part.PartID]; ok {
+						bodyValues[*part.PartID] = applyMaxBodyValueBytes(bv, maxBytes)
+					}
+				}
+			}
+		}
+		if fetchHTML {
+			for _, part := range em.HTMLBody {
+				if part.PartID != nil {
+					if bv, ok := em.BodyValues[*part.PartID]; ok {
+						bodyValues[*part.PartID] = applyMaxBodyValueBytes(bv, maxBytes)
+					}
+				}
+			}
+		}
+	}
+
+	filteredBodyStructure := FilterEmailBodyPart(em.BodyStructure, bodyProps)
+	filteredTextBody := make([]any, 0, len(em.TextBody))
+	for _, p := range em.TextBody {
+		filteredTextBody = append(filteredTextBody, FilterEmailBodyPart(p, bodyProps))
+	}
+	filteredHTMLBody := make([]any, 0, len(em.HTMLBody))
+	for _, p := range em.HTMLBody {
+		filteredHTMLBody = append(filteredHTMLBody, FilterEmailBodyPart(p, bodyProps))
+	}
+	filteredAttachments := make([]any, 0, len(em.Attachments))
+	for _, p := range em.Attachments {
+		filteredAttachments = append(filteredAttachments, FilterEmailBodyPart(p, bodyProps))
+	}
+
+	if props == nil {
+		out := map[string]any{
+			"id":            em.ID,
+			"blobId":        em.BlobID,
+			"threadId":      em.ThreadID,
+			"mailboxIds":    em.MailboxIDs,
+			"keywords":      em.Keywords,
+			"size":          em.Size,
+			"receivedAt":    em.ReceivedAt,
+			"messageId":     em.MessageID,
+			"inReplyTo":     em.InReplyTo,
+			"references":    em.References,
+			"sender":        em.Sender,
+			"from":          em.From,
+			"to":            em.To,
+			"cc":            em.CC,
+			"bcc":           em.BCC,
+			"replyTo":       em.ReplyTo,
+			"subject":       em.Subject,
+			"sentAt":        em.SentAt,
+			"headers":       em.Headers,
+			"bodyStructure": filteredBodyStructure,
+			"textBody":      filteredTextBody,
+			"htmlBody":      filteredHTMLBody,
+			"attachments":   filteredAttachments,
+			"hasAttachment": em.HasAttachment,
+			"preview":       em.Preview,
+		}
+		if len(bodyValues) > 0 {
+			out["bodyValues"] = bodyValues
+		} else if len(em.BodyValues) > 0 {
+			out["bodyValues"] = em.BodyValues
+		}
+		if em.SMIMEStatus != nil {
+			out["smimeStatus"] = *em.SMIMEStatus
+		}
+		if em.SMIMEStatusAt != nil {
+			out["smimeStatusAt"] = *em.SMIMEStatusAt
+		}
+		if em.SMIMEVerifiedWith != nil {
+			out["smimeVerifiedWith"] = *em.SMIMEVerifiedWith
+		}
+		if len(em.SMIMEErrors) > 0 {
+			out["smimeErrors"] = em.SMIMEErrors
+		}
+		return out
+	}
+
+	out := make(map[string]any, len(props)+1)
+	out["id"] = em.ID
+
+	hpMap := make(map[string]*ParsedHeaderProperty, len(parsedHeaderProps))
+	for _, hp := range parsedHeaderProps {
+		hpMap[hp.RawProp] = hp
+	}
+
+	for _, p := range props {
+		if hp, ok := hpMap[p]; ok {
+			out[p] = EvaluateHeaderProperty(em, hp)
+			continue
+		}
+		switch p {
+		case "id":
+			out["id"] = em.ID
+		case "blobId":
+			out["blobId"] = em.BlobID
+		case "threadId":
+			out["threadId"] = em.ThreadID
+		case "mailboxIds":
+			out["mailboxIds"] = em.MailboxIDs
+		case "keywords":
+			out["keywords"] = em.Keywords
+		case "size":
+			out["size"] = em.Size
+		case "receivedAt":
+			out["receivedAt"] = em.ReceivedAt
+		case "messageId":
+			out["messageId"] = em.MessageID
+		case "inReplyTo":
+			out["inReplyTo"] = em.InReplyTo
+		case "references":
+			out["references"] = em.References
+		case "sender":
+			out["sender"] = em.Sender
+		case "from":
+			out["from"] = em.From
+		case "to":
+			out["to"] = em.To
+		case "cc":
+			out["cc"] = em.CC
+		case "bcc":
+			out["bcc"] = em.BCC
+		case "replyTo":
+			out["replyTo"] = em.ReplyTo
+		case "subject":
+			out["subject"] = em.Subject
+		case "sentAt":
+			out["sentAt"] = em.SentAt
+		case "headers":
+			out["headers"] = em.Headers
+		case "bodyStructure":
+			out["bodyStructure"] = filteredBodyStructure
+		case "bodyValues":
+			if len(bodyValues) > 0 {
+				out["bodyValues"] = bodyValues
+			} else {
+				out["bodyValues"] = em.BodyValues
+			}
+		case "textBody":
+			out["textBody"] = filteredTextBody
+		case "htmlBody":
+			out["htmlBody"] = filteredHTMLBody
+		case "attachments":
+			out["attachments"] = filteredAttachments
+		case "hasAttachment":
+			out["hasAttachment"] = em.HasAttachment
+		case "preview":
+			out["preview"] = em.Preview
+		case "smimeStatus":
+			if em.SMIMEStatus != nil {
+				out["smimeStatus"] = *em.SMIMEStatus
+			} else {
+				out["smimeStatus"] = nil
+			}
+		case "smimeStatusAt":
+			if em.SMIMEStatusAt != nil {
+				out["smimeStatusAt"] = *em.SMIMEStatusAt
+			} else {
+				out["smimeStatusAt"] = nil
+			}
+		case "smimeVerifiedWith":
+			if em.SMIMEVerifiedWith != nil {
+				out["smimeVerifiedWith"] = *em.SMIMEVerifiedWith
+			} else {
+				out["smimeVerifiedWith"] = nil
+			}
+		case "smimeErrors":
+			if em.SMIMEErrors != nil {
+				out["smimeErrors"] = em.SMIMEErrors
+			} else {
+				out["smimeErrors"] = []string{}
+			}
+		}
+	}
+
+	return out
+}
+
+func applyMaxBodyValueBytes(bv EmailBodyValue, maxBytes uint64) EmailBodyValue {
+	if maxBytes == 0 || uint64(len(bv.Value)) <= maxBytes {
+		return bv
+	}
+	return EmailBodyValue{
+		Value:             bv.Value[:maxBytes],
+		IsTruncated:       true,
+		IsEncodingProblem: bv.IsEncodingProblem,
 	}
 }
 
@@ -122,7 +378,16 @@ func handleEmailChanges(backend MailBackend) MethodHandler {
 		accountID, _ := args["accountId"].(string)
 		sinceState, _ := args["sinceState"].(string)
 
-		created, updated, destroyed, newState, hasMore := backend.EmailChanges(ctx, sinceState)
+		var maxChanges *uint64
+		if mc, ok := args["maxChanges"].(float64); ok {
+			if mc < 0 {
+				return "error", MethodErrorArgs(MethodErrorInvalidArguments, "maxChanges must be non-negative")
+			}
+			m := uint64(mc)
+			maxChanges = &m
+		}
+
+		created, updated, destroyed, newState, hasMore := backend.EmailChanges(ctx, sinceState, maxChanges)
 		if created == nil {
 			created = []Id{}
 		}
@@ -198,11 +463,16 @@ func handleEmailSet(backend MailBackend) MethodHandler {
 					return res
 				}
 
+				var sentAtPtr *string
+				if sentAt != "" {
+					sentAtPtr = &sentAt
+				}
+				partID1 := "1"
 				em := &Email{
 					Subject:    subject,
 					BlobID:     Id(blobIDStr),
 					ReceivedAt: receivedAt,
-					SentAt:     sentAt,
+					SentAt:     sentAtPtr,
 					From:       parseAddresses("from"),
 					To:         parseAddresses("to"),
 					CC:         parseAddresses("cc"),
@@ -228,9 +498,9 @@ func handleEmailSet(backend MailBackend) MethodHandler {
 
 				if textBody, ok := emData["textBody"].(string); ok {
 					em.BodyValues = map[string]EmailBodyValue{"1": {Value: textBody}}
-					em.TextBody = []EmailBodyPart{{PartID: "1", Type: "text/plain", Size: uint64(len(textBody))}}
+					em.TextBody = []EmailBodyPart{{PartID: &partID1, Type: "text/plain", Size: uint64(len(textBody))}}
 					em.Preview = preview(textBody, 256)
-					em.BodyStructure = EmailBodyPart{PartID: "1", Type: "text/plain", Size: uint64(len(textBody))}
+					em.BodyStructure = EmailBodyPart{PartID: &partID1, Type: "text/plain", Size: uint64(len(textBody))}
 				} else {
 					if bodyValObj, ok := emData["bodyValues"].(map[string]any); ok {
 						bvMap := make(map[string]EmailBodyValue)
@@ -256,8 +526,9 @@ func handleEmailSet(backend MailBackend) MethodHandler {
 								if v, has := em.BodyValues[partID]; has {
 									size = uint64(len(v.Value))
 								}
-								em.TextBody = append(em.TextBody, EmailBodyPart{PartID: partID, Type: typ, Size: size})
-								em.BodyStructure = EmailBodyPart{PartID: partID, Type: typ, Size: size}
+								pID := partID
+								em.TextBody = append(em.TextBody, EmailBodyPart{PartID: &pID, Type: typ, Size: size})
+								em.BodyStructure = EmailBodyPart{PartID: &pID, Type: typ, Size: size}
 								if v, has := em.BodyValues[partID]; has {
 									em.Preview = preview(v.Value, 256)
 								}
@@ -276,9 +547,10 @@ func handleEmailSet(backend MailBackend) MethodHandler {
 								if v, has := em.BodyValues[partID]; has {
 									size = uint64(len(v.Value))
 								}
-								em.HTMLBody = append(em.HTMLBody, EmailBodyPart{PartID: partID, Type: typ, Size: size})
+								pID := partID
+								em.HTMLBody = append(em.HTMLBody, EmailBodyPart{PartID: &pID, Type: typ, Size: size})
 								if em.BodyStructure.Type == "" {
-									em.BodyStructure = EmailBodyPart{PartID: partID, Type: typ, Size: size}
+									em.BodyStructure = EmailBodyPart{PartID: &pID, Type: typ, Size: size}
 								}
 								if em.Preview == "" {
 									if v, has := em.BodyValues[partID]; has {
@@ -525,7 +797,7 @@ func handleEmailQueryChanges(backend MailBackend) MethodHandler {
 			return "error", MethodErrorArgs(errType, errMsg)
 		}
 
-		createdIDs, updatedIDs, destroyedIDs, newState, hasMore := backend.EmailChanges(ctx, sinceState)
+		createdIDs, updatedIDs, destroyedIDs, newState, hasMore := backend.EmailChanges(ctx, sinceState, nil)
 		if hasMore {
 			return "error", MethodErrorArgs("cannotCalculateChanges", "sinceQueryState is too old")
 		}
@@ -605,16 +877,16 @@ func handleEmailImport(backend MailBackend, blobBackend BlobBackend) MethodHandl
 					}
 				}
 			}
-			if recvAt, ok := emData["receivedAt"].(string); ok {
-				em.ReceivedAt = recvAt
+			if rcptAt, ok := emData["receivedAt"].(string); ok && rcptAt != "" {
+				em.ReceivedAt = rcptAt
 			}
 
-			imported, err := backend.CreateEmail(ctx, em)
+			createdEm, err := backend.CreateEmail(ctx, em)
 			if err != nil {
 				notCreated[clientKey] = SetError{Type: "invalidProperties", Description: err.Error()}
-			} else {
-				created[clientKey] = imported
+				continue
 			}
+			created[clientKey] = createdEm
 		}
 
 		return "Email/import", map[string]any{
@@ -627,17 +899,19 @@ func handleEmailImport(backend MailBackend, blobBackend BlobBackend) MethodHandl
 	}
 }
 
+// Parse Handler (RFC 8621 Section 4.9)
+
 func handleEmailParse(backend MailBackend, blobBackend BlobBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
-		blobIDs, _ := args["blobIds"].([]any)
+		blobIDsRaw, _ := args["blobIds"].([]any)
 		parsed := make(map[string]*Email)
-		notParsable := make([]Id, 0)
-		notFound := make([]Id, 0)
+		notParsable := []Id{}
+		notFound := []Id{}
 
-		for _, item := range blobIDs {
-			blobIDStr, ok := item.(string)
-			if !ok {
+		for _, blobIDRaw := range blobIDsRaw {
+			blobIDStr, ok := blobIDRaw.(string)
+			if !ok || blobIDStr == "" {
 				continue
 			}
 
@@ -645,6 +919,7 @@ func handleEmailParse(backend MailBackend, blobBackend BlobBackend) MethodHandle
 				notFound = append(notFound, Id(blobIDStr))
 				continue
 			}
+
 			blob, found, _ := blobBackend.GetBlob(ctx, accountID, blobIDStr)
 			if !found || blob == nil {
 				notFound = append(notFound, Id(blobIDStr))
@@ -795,7 +1070,16 @@ func handleIdentityChanges(backend MailBackend) MethodHandler {
 		accountID, _ := args["accountId"].(string)
 		sinceState, _ := args["sinceState"].(string)
 
-		created, updated, destroyed, newState, hasMore := backend.IdentityChanges(ctx, sinceState)
+		var maxChanges *uint64
+		if mc, ok := args["maxChanges"].(float64); ok {
+			if mc < 0 {
+				return "error", MethodErrorArgs(MethodErrorInvalidArguments, "maxChanges must be non-negative")
+			}
+			m := uint64(mc)
+			maxChanges = &m
+		}
+
+		created, updated, destroyed, newState, hasMore := backend.IdentityChanges(ctx, sinceState, maxChanges)
 		if created == nil {
 			created = []Id{}
 		}

@@ -11,14 +11,15 @@ type MailboxRights struct {
 	MayRename      bool `json:"mayRename"`
 	MayDelete      bool `json:"mayDelete"`
 	MaySubmit      bool `json:"maySubmit"`
+	MayAdmin       bool `json:"mayAdmin"`
 }
 
 // Mailbox represents a JMAP Mailbox object per RFC 8621 Section 2.
 type Mailbox struct {
 	ID            Id            `json:"id"`
 	Name          string        `json:"name"`
-	ParentID      *Id           `json:"parentId,omitempty"`
-	Role          *string       `json:"role,omitempty"`
+	ParentID      *Id           `json:"parentId"`
+	Role          *string       `json:"role"`
 	SortOrder     uint64        `json:"sortOrder"`
 	TotalEmails   uint64        `json:"totalEmails"`
 	UnreadEmails  uint64        `json:"unreadEmails"`
@@ -48,17 +49,18 @@ type EmailHeader struct {
 
 // EmailBodyPart represents a body part structure in an Email per RFC 8621 Section 4.1.4.
 type EmailBodyPart struct {
-	PartID      string        `json:"partId,omitempty"`
-	BlobID      Id            `json:"blobId,omitempty"`
-	Size        uint64        `json:"size"`
-	Type        string        `json:"type"`
-	Subtype     string        `json:"subtype,omitempty"`
-	Name        string        `json:"name,omitempty"`
-	Disposition string        `json:"disposition,omitempty"`
-	Language    []string      `json:"language,omitempty"`
-	CID         string        `json:"cid,omitempty"`
-	Location    string        `json:"location,omitempty"`
-	Headers     []EmailHeader `json:"headers,omitempty"`
+	PartID      *string         `json:"partId"`
+	BlobID      *Id             `json:"blobId"`
+	Size        uint64          `json:"size"`
+	Headers     []EmailHeader   `json:"headers,omitempty"`
+	Name        *string         `json:"name"`
+	Type        string          `json:"type"`
+	Charset     *string         `json:"charset"`
+	Disposition *string         `json:"disposition"`
+	CID         *string         `json:"cid"`
+	Language    []string        `json:"language"`
+	Location    *string         `json:"location"`
+	SubParts    []EmailBodyPart `json:"subParts,omitempty"`
 }
 
 // EmailBodyValue represents decoded body value details per RFC 8621 Section 4.1.4.
@@ -85,22 +87,23 @@ type Email struct {
 	Keywords      map[string]bool           `json:"keywords"`
 	Size          uint64                    `json:"size"`
 	ReceivedAt    string                    `json:"receivedAt"`
-	MessageID     []string                  `json:"messageId,omitempty"`
-	InReplyTo     []string                  `json:"inReplyTo,omitempty"`
-	References    []string                  `json:"references,omitempty"`
-	Sender        []EmailAddress            `json:"sender,omitempty"`
-	From          []EmailAddress            `json:"from,omitempty"`
-	To            []EmailAddress            `json:"to,omitempty"`
-	CC            []EmailAddress            `json:"cc,omitempty"`
-	BCC           []EmailAddress            `json:"bcc,omitempty"`
-	ReplyTo       []EmailAddress            `json:"replyTo,omitempty"`
+	MessageID     []string                  `json:"messageId"`
+	InReplyTo     []string                  `json:"inReplyTo"`
+	References    []string                  `json:"references"`
+	Sender        []EmailAddress            `json:"sender"`
+	From          []EmailAddress            `json:"from"`
+	To            []EmailAddress            `json:"to"`
+	CC            []EmailAddress            `json:"cc"`
+	BCC           []EmailAddress            `json:"bcc"`
+	ReplyTo       []EmailAddress            `json:"replyTo"`
 	Subject       string                    `json:"subject"`
-	SentAt        string                    `json:"sentAt,omitempty"`
+	SentAt        *string                   `json:"sentAt"`
+	Headers       []EmailHeader             `json:"headers"`
 	BodyStructure EmailBodyPart             `json:"bodyStructure"`
 	BodyValues    map[string]EmailBodyValue `json:"bodyValues,omitempty"`
-	TextBody      []EmailBodyPart           `json:"textBody,omitempty"`
-	HTMLBody      []EmailBodyPart           `json:"htmlBody,omitempty"`
-	Attachments   []EmailBodyPart           `json:"attachments,omitempty"`
+	TextBody      []EmailBodyPart           `json:"textBody"`
+	HTMLBody      []EmailBodyPart           `json:"htmlBody"`
+	Attachments   []EmailBodyPart           `json:"attachments"`
 	HasAttachment bool                      `json:"hasAttachment"`
 	Preview       string                    `json:"preview"`
 

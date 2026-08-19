@@ -11,6 +11,60 @@ import (
 	gomail "github.com/emersion/go-message/mail"
 )
 
+func parseRawHeaders(raw []byte) []EmailHeader {
+	var headers []EmailHeader
+	lines := strings.Split(string(raw), "\n")
+	var currentName, currentValue string
+	for _, line := range lines {
+		line = strings.TrimRight(line, "\r")
+		if line == "" {
+			// end of headers
+			break
+		}
+		if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
+			// continuation line
+			if currentName != "" {
+				currentValue += "\r\n" + line
+			}
+		} else {
+			if currentName != "" {
+				headers = append(headers, EmailHeader{Name: currentName, Value: currentValue})
+			}
+			idx := strings.Index(line, ":")
+			if idx >= 0 {
+				currentName = strings.TrimSpace(line[:idx])
+				currentValue = line[idx+1:]
+			} else {
+				currentName = ""
+				currentValue = ""
+			}
+		}
+	}
+	if currentName != "" {
+		headers = append(headers, EmailHeader{Name: currentName, Value: currentValue})
+	}
+	return headers
+}
+
+func parseReferencesList(val string) []string {
+	matches := midRegex.FindAllStringSubmatch(val, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	var out []string
+	for _, m := range matches {
+		s := m[1]
+		if s == "" {
+			s = m[2]
+		}
+		s = strings.Trim(s, "<> \t")
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // parseRFC822 parses a raw RFC 5322 message into a JMAP Email object (RFC 8621 Section 4.1.1),
 // extracting envelope headers and a text body so the result is indistinguishable from what a
 // real server would return for Email/parse and Email/import.
@@ -21,26 +75,33 @@ func parseRFC822(raw []byte) (*Email, error) {
 	}
 
 	hdr := msg.Header
+	headers := parseRawHeaders(raw)
+
 	em := &Email{
-		Size:     uint64(len(raw)),
-		Subject:  decodeHeader(hdr.Get("Subject")),
-		From:     parseAddressList(hdr.Get("From")),
-		Sender:   parseAddressList(hdr.Get("Sender")),
-		To:       parseAddressList(hdr.Get("To")),
-		CC:       parseAddressList(hdr.Get("Cc")),
-		BCC:      parseAddressList(hdr.Get("Bcc")),
-		ReplyTo:  parseAddressList(hdr.Get("Reply-To")),
-		Keywords: map[string]bool{},
+		Size:        uint64(len(raw)),
+		Subject:     decodeHeader(hdr.Get("Subject")),
+		From:        parseAddressList(hdr.Get("From")),
+		Sender:      parseAddressList(hdr.Get("Sender")),
+		To:          parseAddressList(hdr.Get("To")),
+		CC:          parseAddressList(hdr.Get("Cc")),
+		BCC:         parseAddressList(hdr.Get("Bcc")),
+		ReplyTo:     parseAddressList(hdr.Get("Reply-To")),
+		Headers:     headers,
+		References:  parseReferencesList(hdr.Get("References")),
+		Keywords:    map[string]bool{},
+		HTMLBody:    []EmailBodyPart{},
+		Attachments: []EmailBodyPart{},
 	}
 
 	if msgID := strings.TrimSpace(hdr.Get("Message-ID")); msgID != "" {
 		em.MessageID = []string{strings.Trim(msgID, "<>")}
 	}
 	if inReplyTo := strings.TrimSpace(hdr.Get("In-Reply-To")); inReplyTo != "" {
-		em.InReplyTo = []string{strings.Trim(inReplyTo, "<>")}
+		em.InReplyTo = parseReferencesList(inReplyTo)
 	}
 	if date, err := hdr.Date(); err == nil {
-		em.SentAt = date.UTC().Format("2006-01-02T15:04:05Z")
+		s := date.UTC().Format("2006-01-02T15:04:05Z")
+		em.SentAt = &s
 	}
 
 	body, _ := io.ReadAll(msg.Body)
@@ -49,12 +110,19 @@ func parseRFC822(raw []byte) (*Email, error) {
 	if contentType == "" {
 		contentType = "text/plain"
 	}
+	partID := "1"
 	em.BodyStructure = EmailBodyPart{
-		PartID: "1",
-		Type:   contentType,
-		Size:   uint64(len(body)),
+		PartID:  &partID,
+		Type:    contentType,
+		Size:    uint64(len(body)),
+		Headers: headers,
 	}
-	em.TextBody = []EmailBodyPart{{PartID: "1", Type: "text/plain", Size: uint64(len(body))}}
+	em.TextBody = []EmailBodyPart{{
+		PartID:  &partID,
+		Type:    "text/plain",
+		Size:    uint64(len(body)),
+		Headers: headers,
+	}}
 	em.BodyValues = map[string]EmailBodyValue{"1": {Value: bodyStr}}
 	em.Preview = preview(bodyStr, 256)
 
@@ -71,8 +139,8 @@ func FormatEmailRFC822(em *Email) []byte {
 	if em.Subject != "" {
 		h.SetSubject(em.Subject)
 	}
-	if em.SentAt != "" {
-		if t, err := time.Parse(time.RFC3339, em.SentAt); err == nil {
+	if em.SentAt != nil && *em.SentAt != "" {
+		if t, err := time.Parse(time.RFC3339, *em.SentAt); err == nil {
 			h.SetDate(t)
 		} else {
 			h.SetDate(time.Now().UTC())

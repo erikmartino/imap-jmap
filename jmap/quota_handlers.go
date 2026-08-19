@@ -57,7 +57,16 @@ func handleQuotaChanges(backend MailBackend) MethodHandler {
 		accountID, _ := args["accountId"].(string)
 		sinceState, _ := args["sinceState"].(string)
 
-		created, updated, destroyed, newState, hasMore := backend.QuotaChanges(ctx, sinceState)
+		var maxChanges *uint64
+		if mc, ok := args["maxChanges"].(float64); ok {
+			if mc < 0 {
+				return "error", MethodErrorArgs(MethodErrorInvalidArguments, "maxChanges must be non-negative")
+			}
+			m := uint64(mc)
+			maxChanges = &m
+		}
+
+		created, updated, destroyed, newState, hasMore := backend.QuotaChanges(ctx, sinceState, maxChanges)
 		if created == nil {
 			created = []Id{}
 		}
@@ -171,7 +180,7 @@ func handleQuotaQueryChanges(backend MailBackend) MethodHandler {
 		upToID, _ := args["upToId"].(string)
 		sinceState, _ := args["sinceQueryState"].(string)
 
-		createdIDs, updatedIDs, destroyedIDs, newState, hasMore := backend.QuotaChanges(ctx, sinceState)
+		createdIDs, updatedIDs, destroyedIDs, newState, hasMore := backend.QuotaChanges(ctx, sinceState, nil)
 		if hasMore {
 			return "error", MethodErrorArgs("cannotCalculateChanges", "sinceQueryState is too old")
 		}

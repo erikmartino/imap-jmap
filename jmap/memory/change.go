@@ -77,8 +77,8 @@ func (t *changeTracker) record(id jmap.Id, action string) string {
 
 // Changes resolves mutations since the given state token into created, updated,
 // and destroyed id lists per RFC 8620 Section 5.2. If the client state is older
-// than the retained history, hasMoreChanges is true so the client can refetch.
-func (t *changeTracker) Changes(sinceState string) (created, updated, destroyed []jmap.Id, newState string, hasMore bool) {
+// than the retained history, or if maxChanges is exceeded, hasMoreChanges is true.
+func (t *changeTracker) Changes(sinceState string, maxChanges ...*uint64) (created, updated, destroyed []jmap.Id, newState string, hasMore bool) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
@@ -118,10 +118,22 @@ func (t *changeTracker) Changes(sinceState string) (created, updated, destroyed 
 		}
 	}
 
-	// Resolve each id's final action within the window.
+	end := len(t.history)
+	if len(maxChanges) > 0 && maxChanges[0] != nil {
+		limit := int(*maxChanges[0])
+		if end-start > limit {
+			end = start + limit
+			hasMore = true
+			if end > 0 {
+				newState = fmt.Sprintf("~%d", t.history[end-1].state)
+			}
+		}
+	}
+
+	// Resolve each id's final action within the window [start, end).
 	first := make(map[jmap.Id]bool) // true if the id was created within the window
 	last := make(map[jmap.Id]string)
-	for i := start; i < len(t.history); i++ {
+	for i := start; i < end; i++ {
 		e := t.history[i]
 		if _, seen := last[e.id]; !seen {
 			first[e.id] = e.action == "create"

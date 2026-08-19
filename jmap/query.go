@@ -617,7 +617,14 @@ func SortEmailsWithContext(emails []*Email, comparators []Comparator, all, any m
 			case "receivedAt":
 				cmp = strings.Compare(a.ReceivedAt, b.ReceivedAt)
 			case "sentAt":
-				cmp = strings.Compare(a.SentAt, b.SentAt)
+				var sA, sB string
+				if a.SentAt != nil {
+					sA = *a.SentAt
+				}
+				if b.SentAt != nil {
+					sB = *b.SentAt
+				}
+				cmp = strings.Compare(sA, sB)
 			case "subject":
 				cmp = compareStrings(baseSubject(a.Subject), baseSubject(b.Subject), comp.Collation)
 			case "size":

@@ -24,6 +24,10 @@ func TestRFC8621_Section4_4_2_EmailSortComparators(t *testing.T) {
 	// fully deterministic. e1/e1b share a thread, as do e4/e4b (for thread keyword sorts).
 	// They live in their own mailbox so the seeded emails never enter the result set.
 	mk := func(id string, thread string, subject string, from string, to string, size uint64, keywords map[string]bool, receivedAt, sentAt string) *jmap.Email {
+		var sentAtPtr *string
+		if sentAt != "" {
+			sentAtPtr = &sentAt
+		}
 		return &jmap.Email{
 			ID:         jmap.Id(id),
 			ThreadID:   jmap.Id(thread),
@@ -34,7 +38,7 @@ func TestRFC8621_Section4_4_2_EmailSortComparators(t *testing.T) {
 			Keywords:   keywords,
 			Size:       size,
 			ReceivedAt: receivedAt,
-			SentAt:     sentAt,
+			SentAt:     sentAtPtr,
 		}
 	}
 	emails := []*jmap.Email{

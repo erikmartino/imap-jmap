@@ -107,10 +107,7 @@ func newMemoryUserStore(accountID string) *userMailStore {
 		Description:  &quotaMessagesDesc,
 	}
 
-	// Create standard default mailboxes per RFC 8621 Section 2.1.
-	// NOTE: RFC 8621 Section 2.1 mandates that the server MUST create an Inbox mailbox (role: "inbox").
-	// Other system mailboxes (sent, trash, drafts, junk, archive) are optional MAY provisions in RFC 8621
-	// that we implement for full client interoperability and completeness.
+	// Create mandatory default Inbox mailbox per RFC 8621 Section 2.1.
 	inboxRole := "inbox" // MUST provision per RFC 8621 Section 2.1
 	inbox := &jmap.Mailbox{
 		ID:            "mb-inbox",
@@ -131,136 +128,11 @@ func newMemoryUserStore(accountID string) *userMailStore {
 			MayRename:      false,
 			MayDelete:      false,
 			MaySubmit:      true,
+			MayAdmin:       true,
 		},
 		IsSubscribed: true,
 	}
-
-	sentRole := "sent" // MAY provision per RFC 8621 Section 2.1
-	sent := &jmap.Mailbox{
-		ID:            "mb-sent",
-		Name:          "Sent",
-		Role:          &sentRole,
-		SortOrder:     20,
-		TotalEmails:   0,
-		UnreadEmails:  0,
-		TotalThreads:  0,
-		UnreadThreads: 0,
-		MyRights: jmap.MailboxRights{
-			MayReadItems:   true,
-			MayAddItems:    true,
-			MayRemoveItems: true,
-			MaySetSeen:     true,
-			MaySetKeywords: true,
-			MayCreateChild: true,
-			MayRename:      false,
-			MayDelete:      false,
-			MaySubmit:      false,
-		},
-		IsSubscribed: true,
-	}
-
-	trashRole := "trash" // MAY provision per RFC 8621 Section 2.1
-	trash := &jmap.Mailbox{
-		ID:            "mb-trash",
-		Name:          "Trash",
-		Role:          &trashRole,
-		SortOrder:     30,
-		TotalEmails:   0,
-		UnreadEmails:  0,
-		TotalThreads:  0,
-		UnreadThreads: 0,
-		MyRights: jmap.MailboxRights{
-			MayReadItems:   true,
-			MayAddItems:    true,
-			MayRemoveItems: true,
-			MaySetSeen:     true,
-			MaySetKeywords: true,
-			MayCreateChild: true,
-			MayRename:      false,
-			MayDelete:      false,
-			MaySubmit:      false,
-		},
-		IsSubscribed: true,
-	}
-
-	draftsRole := "drafts" // MAY provision per RFC 8621 Section 2.1
-	drafts := &jmap.Mailbox{
-		ID:            "mb-drafts",
-		Name:          "Drafts",
-		Role:          &draftsRole,
-		SortOrder:     15,
-		TotalEmails:   0,
-		UnreadEmails:  0,
-		TotalThreads:  0,
-		UnreadThreads: 0,
-		MyRights: jmap.MailboxRights{
-			MayReadItems:   true,
-			MayAddItems:    true,
-			MayRemoveItems: true,
-			MaySetSeen:     true,
-			MaySetKeywords: true,
-			MayCreateChild: true,
-			MayRename:      false,
-			MayDelete:      false,
-			MaySubmit:      false,
-		},
-		IsSubscribed: true,
-	}
-
-	junkRole := "junk" // MAY provision per RFC 8621 Section 2.1
-	junk := &jmap.Mailbox{
-		ID:            "mb-junk",
-		Name:          "Junk",
-		Role:          &junkRole,
-		SortOrder:     25,
-		TotalEmails:   0,
-		UnreadEmails:  0,
-		TotalThreads:  0,
-		UnreadThreads: 0,
-		MyRights: jmap.MailboxRights{
-			MayReadItems:   true,
-			MayAddItems:    true,
-			MayRemoveItems: true,
-			MaySetSeen:     true,
-			MaySetKeywords: true,
-			MayCreateChild: true,
-			MayRename:      false,
-			MayDelete:      false,
-			MaySubmit:      false,
-		},
-		IsSubscribed: true,
-	}
-
-	archiveRole := "archive" // MAY provision per RFC 8621 Section 2.1
-	archive := &jmap.Mailbox{
-		ID:            "mb-archive",
-		Name:          "Archive",
-		Role:          &archiveRole,
-		SortOrder:     35,
-		TotalEmails:   0,
-		UnreadEmails:  0,
-		TotalThreads:  0,
-		UnreadThreads: 0,
-		MyRights: jmap.MailboxRights{
-			MayReadItems:   true,
-			MayAddItems:    true,
-			MayRemoveItems: true,
-			MaySetSeen:     true,
-			MaySetKeywords: true,
-			MayCreateChild: true,
-			MayRename:      false,
-			MayDelete:      false,
-			MaySubmit:      false,
-		},
-		IsSubscribed: true,
-	}
-
 	us.mailboxes[inbox.ID] = inbox
-	us.mailboxes[sent.ID] = sent
-	us.mailboxes[trash.ID] = trash
-	us.mailboxes[drafts.ID] = drafts
-	us.mailboxes[junk.ID] = junk
-	us.mailboxes[archive.ID] = archive
 
 	// Default identity. The account ID is the base64url encoding of the user's
 	// subject (email address), so recover the real address for the From identity
@@ -279,69 +151,105 @@ func newMemoryUserStore(accountID string) *userMailStore {
 	}
 	us.identities[defaultIdentity.ID] = defaultIdentity
 
-	// Create sample emails in Inbox, Sent, Drafts, and Archive
-	stubStatus := "signed"
-	stubVerifiedWith := "admin@example.com"
-	stub1 := &jmap.Email{
-		ID:                "email-1",
-		ThreadID:          "thread-2",
-		Subject:           "Welcome to JMAP Server",
-		From:              []jmap.EmailAddress{{Name: "JMAP Admin", Email: "admin@example.com"}},
-		To:                []jmap.EmailAddress{{Name: "Primary User", Email: "user@example.com"}},
-		MailboxIDs:        map[jmap.Id]bool{"mb-inbox": true},
-		Keywords:          map[string]bool{"$seen": true},
-		Size:              1024,
-		ReceivedAt:        "2026-08-01T12:00:00Z",
-		SentAt:            "2026-08-01T11:59:00Z",
-		Preview:           "Welcome to your new JMAP mail server. This server supports RFC 8620 and RFC 8621.",
-		BlobID:            "blob-stub-1",
-		SMIMEStatus:       &stubStatus,
-		SMIMEVerifiedWith: &stubVerifiedWith,
-		BodyStructure: jmap.EmailBodyPart{
-			PartID: "1",
-			Type:   "text/plain",
-			Size:   75,
-		},
-		BodyValues: map[string]jmap.EmailBodyValue{
-			"1": {Value: "Welcome to your new JMAP mail server. This server supports RFC 8620 and RFC 8621."},
-		},
-	}
-	us.emails[stub1.ID] = stub1
-	us.threads[stub1.ThreadID] = &jmap.Thread{ID: stub1.ThreadID, EmailIDs: []jmap.Id{stub1.ID}}
-	us.emailState.record(stub1.ID, "create")
-	us.threadState.record(stub1.ThreadID, "create")
+	isDefaultUser := accountID == "" || accountID == jmap.AccountIDForSubject("user@example.com")
+	if isDefaultUser {
+		sentRole := "sent"
+		trashRole := "trash"
+		draftsRole := "drafts"
+		junkRole := "junk"
+		archiveRole := "archive"
+		defaultMailboxes := []*jmap.Mailbox{
+			{
+				ID: "mb-sent", Name: "Sent", Role: &sentRole, SortOrder: 20, IsSubscribed: true,
+				MyRights: jmap.MailboxRights{MayReadItems: true, MayAddItems: true, MayRemoveItems: true, MaySetSeen: true, MaySetKeywords: true, MayCreateChild: true, MayAdmin: true},
+			},
+			{
+				ID: "mb-trash", Name: "Trash", Role: &trashRole, SortOrder: 50, IsSubscribed: true,
+				MyRights: jmap.MailboxRights{MayReadItems: true, MayAddItems: true, MayRemoveItems: true, MaySetSeen: true, MaySetKeywords: true, MayCreateChild: true, MayAdmin: true},
+			},
+			{
+				ID: "mb-drafts", Name: "Drafts", Role: &draftsRole, SortOrder: 30, IsSubscribed: true,
+				MyRights: jmap.MailboxRights{MayReadItems: true, MayAddItems: true, MayRemoveItems: true, MaySetSeen: true, MaySetKeywords: true, MayCreateChild: true, MayAdmin: true},
+			},
+			{
+				ID: "mb-junk", Name: "Junk", Role: &junkRole, SortOrder: 40, IsSubscribed: true,
+				MyRights: jmap.MailboxRights{MayReadItems: true, MayAddItems: true, MayRemoveItems: true, MaySetSeen: true, MaySetKeywords: true, MayCreateChild: true, MayAdmin: true},
+			},
+			{
+				ID: "mb-archive", Name: "Archive", Role: &archiveRole, SortOrder: 60, IsSubscribed: true,
+				MyRights: jmap.MailboxRights{MayReadItems: true, MayAddItems: true, MayRemoveItems: true, MaySetSeen: true, MaySetKeywords: true, MayCreateChild: true, MayAdmin: true},
+			},
+		}
+		for _, mb := range defaultMailboxes {
+			us.mailboxes[mb.ID] = mb
+		}
 
-	stub2 := &jmap.Email{
-		ID:         "email-3",
-		ThreadID:   "thread-4",
-		Subject:    "JMAP Core and Mail Specifications",
-		From:       []jmap.EmailAddress{{Name: "IETF JMAP WG", Email: "noreply@ietf.org"}},
-		To:         []jmap.EmailAddress{{Name: "Primary User", Email: "user@example.com"}},
-		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
-		Keywords:   map[string]bool{"$flagged": true},
-		Size:       2048,
-		ReceivedAt: "2026-08-01T14:30:00Z",
-		SentAt:     "2026-08-01T14:29:00Z",
-		Preview:    "This email verifies that your server supports RFC 8620 (JMAP Core) and RFC 8621 (JMAP Mail).",
-		BlobID:     "blob-stub-2",
-		BodyStructure: jmap.EmailBodyPart{
-			PartID: "1",
-			Type:   "text/plain",
-			Size:   92,
-		},
-		BodyValues: map[string]jmap.EmailBodyValue{
-			"1": {Value: "This email verifies that your server supports RFC 8620 (JMAP Core) and RFC 8621 (JMAP Mail)."},
-		},
-	}
-	us.emails[stub2.ID] = stub2
-	us.threads[stub2.ThreadID] = &jmap.Thread{ID: stub2.ThreadID, EmailIDs: []jmap.Id{stub2.ID}}
-	us.emailState.record(stub2.ID, "create")
-	us.threadState.record(stub2.ThreadID, "create")
+		p1 := "1"
+		s1 := "2026-08-01T11:59:00Z"
+		s2 := "2026-08-01T14:29:00Z"
+		stubStatus := "signed"
+		stubVerifiedWith := "admin@example.com"
+		stub1 := &jmap.Email{
+			ID:                "email-1",
+			ThreadID:          "thread-2",
+			Subject:           "Welcome to JMAP Server",
+			From:              []jmap.EmailAddress{{Name: "JMAP Admin", Email: "admin@example.com"}},
+			To:                []jmap.EmailAddress{{Name: "Primary User", Email: "user@example.com"}},
+			MailboxIDs:        map[jmap.Id]bool{"mb-inbox": true},
+			Keywords:          map[string]bool{"$seen": true},
+			Size:              1024,
+			ReceivedAt:        "2026-08-01T12:00:00Z",
+			SentAt:            &s1,
+			Preview:           "Welcome to your new JMAP mail server. This server supports RFC 8620 and RFC 8621.",
+			BlobID:            "blob-stub-1",
+			SMIMEStatus:       &stubStatus,
+			SMIMEVerifiedWith: &stubVerifiedWith,
+			BodyStructure: jmap.EmailBodyPart{
+				PartID: &p1,
+				Type:   "text/plain",
+				Size:   75,
+			},
+			BodyValues: map[string]jmap.EmailBodyValue{
+				"1": {Value: "Welcome to your new JMAP mail server. This server supports RFC 8620 and RFC 8621."},
+			},
+		}
+		us.emails[stub1.ID] = stub1
+		us.threads[stub1.ThreadID] = &jmap.Thread{ID: stub1.ThreadID, EmailIDs: []jmap.Id{stub1.ID}}
+		us.emailState.record(stub1.ID, "create")
+		us.threadState.record(stub1.ThreadID, "create")
 
-	us.mailboxes["mb-inbox"].TotalEmails = 2
-	us.mailboxes["mb-inbox"].TotalThreads = 2
-	us.mailboxes["mb-inbox"].UnreadEmails = 1
-	us.mailboxes["mb-inbox"].UnreadThreads = 1
+		stub2 := &jmap.Email{
+			ID:         "email-3",
+			ThreadID:   "thread-4",
+			Subject:    "JMAP Core and Mail Specifications",
+			From:       []jmap.EmailAddress{{Name: "IETF JMAP WG", Email: "noreply@ietf.org"}},
+			To:         []jmap.EmailAddress{{Name: "Primary User", Email: "user@example.com"}},
+			MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
+			Keywords:   map[string]bool{"$flagged": true},
+			Size:       2048,
+			ReceivedAt: "2026-08-01T14:30:00Z",
+			SentAt:     &s2,
+			Preview:    "This email verifies that your server supports RFC 8620 (JMAP Core) and RFC 8621 (JMAP Mail).",
+			BlobID:     "blob-stub-2",
+			BodyStructure: jmap.EmailBodyPart{
+				PartID: &p1,
+				Type:   "text/plain",
+				Size:   92,
+			},
+			BodyValues: map[string]jmap.EmailBodyValue{
+				"1": {Value: "This email verifies that your server supports RFC 8620 (JMAP Core) and RFC 8621 (JMAP Mail)."},
+			},
+		}
+		us.emails[stub2.ID] = stub2
+		us.threads[stub2.ThreadID] = &jmap.Thread{ID: stub2.ThreadID, EmailIDs: []jmap.Id{stub2.ID}}
+		us.emailState.record(stub2.ID, "create")
+		us.threadState.record(stub2.ThreadID, "create")
+
+		us.mailboxes["mb-inbox"].TotalEmails = 2
+		us.mailboxes["mb-inbox"].TotalThreads = 2
+		us.mailboxes["mb-inbox"].UnreadEmails = 1
+		us.mailboxes["mb-inbox"].UnreadThreads = 1
+	}
 
 	return us
 }
@@ -390,11 +298,11 @@ func (mb *MemoryBackend) MailboxState(ctx context.Context) string {
 }
 
 // MailboxChanges returns created, updated, and destroyed Mailboxes since sinceState.
-func (mb *MemoryBackend) MailboxChanges(ctx context.Context, sinceState string) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
+func (mb *MemoryBackend) MailboxChanges(ctx context.Context, sinceState string, maxChanges *uint64) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
 	mb.mu.RLock()
 	defer mb.mu.RUnlock()
 	us := mb.getStoreLocked(ctx)
-	return us.mailboxState.Changes(sinceState)
+	return us.mailboxState.Changes(sinceState, maxChanges)
 }
 
 // ThreadState returns current change state token for Thread resources.
@@ -406,11 +314,11 @@ func (mb *MemoryBackend) ThreadState(ctx context.Context) string {
 }
 
 // ThreadChanges returns created, updated, and destroyed Threads since sinceState.
-func (mb *MemoryBackend) ThreadChanges(ctx context.Context, sinceState string) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
+func (mb *MemoryBackend) ThreadChanges(ctx context.Context, sinceState string, maxChanges *uint64) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
 	mb.mu.RLock()
 	defer mb.mu.RUnlock()
 	us := mb.getStoreLocked(ctx)
-	return us.threadState.Changes(sinceState)
+	return us.threadState.Changes(sinceState, maxChanges)
 }
 
 // EmailState returns current change state token for Email resources.
@@ -422,11 +330,11 @@ func (mb *MemoryBackend) EmailState(ctx context.Context) string {
 }
 
 // EmailChanges returns created, updated, and destroyed Emails since sinceState.
-func (mb *MemoryBackend) EmailChanges(ctx context.Context, sinceState string) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
+func (mb *MemoryBackend) EmailChanges(ctx context.Context, sinceState string, maxChanges *uint64) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
 	mb.mu.RLock()
 	defer mb.mu.RUnlock()
 	us := mb.getStoreLocked(ctx)
-	return us.emailState.Changes(sinceState)
+	return us.emailState.Changes(sinceState, maxChanges)
 }
 
 // IdentityState returns current change state token for Identity resources.
@@ -438,11 +346,11 @@ func (mb *MemoryBackend) IdentityState(ctx context.Context) string {
 }
 
 // IdentityChanges returns created, updated, and destroyed Identities since sinceState.
-func (mb *MemoryBackend) IdentityChanges(ctx context.Context, sinceState string) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
+func (mb *MemoryBackend) IdentityChanges(ctx context.Context, sinceState string, maxChanges *uint64) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
 	mb.mu.RLock()
 	defer mb.mu.RUnlock()
 	us := mb.getStoreLocked(ctx)
-	return us.identityState.Changes(sinceState)
+	return us.identityState.Changes(sinceState, maxChanges)
 }
 
 // SubmissionState returns current change state token for EmailSubmission resources.
@@ -454,11 +362,11 @@ func (mb *MemoryBackend) SubmissionState(ctx context.Context) string {
 }
 
 // SubmissionChanges returns created, updated, and destroyed EmailSubmissions since sinceState.
-func (mb *MemoryBackend) SubmissionChanges(ctx context.Context, sinceState string) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
+func (mb *MemoryBackend) SubmissionChanges(ctx context.Context, sinceState string, maxChanges *uint64) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
 	mb.mu.RLock()
 	defer mb.mu.RUnlock()
 	us := mb.getStoreLocked(ctx)
-	return us.submissionState.Changes(sinceState)
+	return us.submissionState.Changes(sinceState, maxChanges)
 }
 
 // QuotaState returns current change state token for Quota resources.
@@ -470,11 +378,11 @@ func (mb *MemoryBackend) QuotaState(ctx context.Context) string {
 }
 
 // QuotaChanges returns created, updated, and destroyed Quotas since sinceState.
-func (mb *MemoryBackend) QuotaChanges(ctx context.Context, sinceState string) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
+func (mb *MemoryBackend) QuotaChanges(ctx context.Context, sinceState string, maxChanges *uint64) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
 	mb.mu.RLock()
 	defer mb.mu.RUnlock()
 	us := mb.getStoreLocked(ctx)
-	return us.quotaState.Changes(sinceState)
+	return us.quotaState.Changes(sinceState, maxChanges)
 }
 
 // GetMailboxes retrieves requested mailboxes by ID.
@@ -528,6 +436,7 @@ func (mb *MemoryBackend) CreateMailbox(ctx context.Context, item *jmap.Mailbox) 
 		MayRename:      true,
 		MayDelete:      true,
 		MaySubmit:      true,
+		MayAdmin:       true,
 	}
 	us.mailboxes[item.ID] = item
 	mb.recordChange(ctx, us.mailboxState, item.ID, "create", "Mailbox")
@@ -545,13 +454,15 @@ func (mb *MemoryBackend) UpdateMailbox(ctx context.Context, id jmap.Id, patch ma
 		return nil, fmt.Errorf("mailbox %s: %w", id, jmap.ErrNotFound)
 	}
 
+	var invalidProps []string
+
 	for prop, val := range patch {
 		switch prop {
 		case "name":
 			name, ok := val.(string)
 			if !ok || name == "" {
-				mb.mu.Unlock()
-				return nil, fmt.Errorf("invalid name")
+				invalidProps = append(invalidProps, "name")
+				continue
 			}
 			item.Name = name
 		case "parentId":
@@ -561,16 +472,16 @@ func (mb *MemoryBackend) UpdateMailbox(ctx context.Context, id jmap.Id, patch ma
 			}
 			pid, ok := val.(string)
 			if !ok {
-				mb.mu.Unlock()
-				return nil, fmt.Errorf("invalid parentId")
+				invalidProps = append(invalidProps, "parentId")
+				continue
 			}
 			if jmap.Id(pid) == id {
-				mb.mu.Unlock()
-				return nil, fmt.Errorf("a mailbox cannot be its own parent")
+				invalidProps = append(invalidProps, "parentId")
+				continue
 			}
 			if _, exists := us.mailboxes[jmap.Id(pid)]; !exists {
-				mb.mu.Unlock()
-				return nil, fmt.Errorf("parent mailbox not found: %s", pid)
+				invalidProps = append(invalidProps, "parentId")
+				continue
 			}
 			p := jmap.Id(pid)
 			item.ParentID = &p
@@ -581,21 +492,123 @@ func (mb *MemoryBackend) UpdateMailbox(ctx context.Context, id jmap.Id, patch ma
 			}
 			role, ok := val.(string)
 			if !ok {
-				mb.mu.Unlock()
-				return nil, fmt.Errorf("invalid role")
+				invalidProps = append(invalidProps, "role")
+				continue
 			}
 			item.Role = &role
 		case "sortOrder":
 			if f, ok := val.(float64); ok {
 				item.SortOrder = uint64(f)
+			} else {
+				invalidProps = append(invalidProps, "sortOrder")
 			}
 		case "isSubscribed":
 			if b, ok := val.(bool); ok {
 				item.IsSubscribed = b
+			} else {
+				invalidProps = append(invalidProps, "isSubscribed")
+			}
+		case "id":
+			if s, ok := val.(string); !ok || jmap.Id(s) != item.ID {
+				invalidProps = append(invalidProps, "id")
+			}
+		case "totalEmails":
+			if f, ok := val.(float64); !ok || uint64(f) != item.TotalEmails {
+				invalidProps = append(invalidProps, "totalEmails")
+			}
+		case "unreadEmails":
+			if f, ok := val.(float64); !ok || uint64(f) != item.UnreadEmails {
+				invalidProps = append(invalidProps, "unreadEmails")
+			}
+		case "totalThreads":
+			if f, ok := val.(float64); !ok || uint64(f) != item.TotalThreads {
+				invalidProps = append(invalidProps, "totalThreads")
+			}
+		case "unreadThreads":
+			if f, ok := val.(float64); !ok || uint64(f) != item.UnreadThreads {
+				invalidProps = append(invalidProps, "unreadThreads")
+			}
+		case "myRights":
+			if m, ok := val.(map[string]any); ok {
+				for rk, rv := range m {
+					b, isBool := rv.(bool)
+					var curr bool
+					switch rk {
+					case "mayReadItems":
+						curr = item.MyRights.MayReadItems
+					case "mayAddItems":
+						curr = item.MyRights.MayAddItems
+					case "mayRemoveItems":
+						curr = item.MyRights.MayRemoveItems
+					case "maySetSeen":
+						curr = item.MyRights.MaySetSeen
+					case "maySetKeywords":
+						curr = item.MyRights.MaySetKeywords
+					case "mayCreateChild":
+						curr = item.MyRights.MayCreateChild
+					case "mayRename":
+						curr = item.MyRights.MayRename
+					case "mayDelete":
+						curr = item.MyRights.MayDelete
+					case "maySubmit":
+						curr = item.MyRights.MaySubmit
+					case "mayAdmin":
+						curr = item.MyRights.MayAdmin
+					default:
+						invalidProps = append(invalidProps, "myRights/"+rk)
+						continue
+					}
+					if !isBool || b != curr {
+						invalidProps = append(invalidProps, "myRights/"+rk)
+					}
+				}
+			} else {
+				invalidProps = append(invalidProps, "myRights")
 			}
 		default:
-			mb.mu.Unlock()
-			return nil, fmt.Errorf("unknown or immutable property: %s", prop)
+			if strings.HasPrefix(prop, "myRights/") {
+				rk := strings.TrimPrefix(prop, "myRights/")
+				b, isBool := val.(bool)
+				var curr bool
+				switch rk {
+				case "mayReadItems":
+					curr = item.MyRights.MayReadItems
+				case "mayAddItems":
+					curr = item.MyRights.MayAddItems
+				case "mayRemoveItems":
+					curr = item.MyRights.MayRemoveItems
+				case "maySetSeen":
+					curr = item.MyRights.MaySetSeen
+				case "maySetKeywords":
+					curr = item.MyRights.MaySetKeywords
+				case "mayCreateChild":
+					curr = item.MyRights.MayCreateChild
+				case "mayRename":
+					curr = item.MyRights.MayRename
+				case "mayDelete":
+					curr = item.MyRights.MayDelete
+				case "maySubmit":
+					curr = item.MyRights.MaySubmit
+				case "mayAdmin":
+					curr = item.MyRights.MayAdmin
+				default:
+					invalidProps = append(invalidProps, prop)
+					continue
+				}
+				if !isBool || b != curr {
+					invalidProps = append(invalidProps, prop)
+				}
+			} else {
+				invalidProps = append(invalidProps, prop)
+			}
+		}
+	}
+	if len(invalidProps) > 0 {
+		mb.mu.Unlock()
+		return nil, jmap.SetError{
+			Type:        "invalidProperties",
+			Description: "invalid or immutable properties in update patch",
+			Properties:  invalidProps,
 		}
 	}
 	mb.mu.Unlock()
@@ -605,7 +618,7 @@ func (mb *MemoryBackend) UpdateMailbox(ctx context.Context, id jmap.Id, patch ma
 }
 
 // DeleteMailbox deletes a mailbox by ID.
-func (mb *MemoryBackend) DeleteMailbox(ctx context.Context, id jmap.Id) (bool, error) {
+func (mb *MemoryBackend) DeleteMailbox(ctx context.Context, id jmap.Id, onDestroyRemoveMessages bool) (bool, error) {
 	mb.mu.Lock()
 	us := mb.getStoreLocked(ctx)
 	defer mb.mu.Unlock()
@@ -613,7 +626,63 @@ func (mb *MemoryBackend) DeleteMailbox(ctx context.Context, id jmap.Id) (bool, e
 	if _, ok := us.mailboxes[id]; !ok {
 		return false, nil
 	}
+
+	// Check if mailbox has children
+	for _, other := range us.mailboxes {
+		if other.ParentID != nil && *other.ParentID == id {
+			return false, jmap.SetError{
+				Type:        "mailboxHasChild",
+				Description: "mailbox has child mailboxes",
+			}
+		}
+	}
+
+	// Check if mailbox has emails
+	var emailsInMailbox []*jmap.Email
+	for _, em := range us.emails {
+		if em.MailboxIDs[id] {
+			emailsInMailbox = append(emailsInMailbox, em)
+		}
+	}
+
+	if len(emailsInMailbox) > 0 {
+		if !onDestroyRemoveMessages {
+			return false, jmap.SetError{
+				Type:        "mailboxHasEmail",
+				Description: "mailbox contains emails and onDestroyRemoveMessages is not true",
+			}
+		}
+		// Destroy or update messages
+		for _, em := range emailsInMailbox {
+			if len(em.MailboxIDs) <= 1 {
+				// Destroy email
+				delete(us.emails, em.ID)
+				if th, ok := us.threads[em.ThreadID]; ok {
+					var newIDs []jmap.Id
+					for _, eid := range th.EmailIDs {
+						if eid != em.ID {
+							newIDs = append(newIDs, eid)
+						}
+					}
+					if len(newIDs) == 0 {
+						delete(us.threads, em.ThreadID)
+						mb.recordChange(ctx, us.threadState, em.ThreadID, "destroy", "Thread")
+					} else {
+						th.EmailIDs = newIDs
+						mb.recordChange(ctx, us.threadState, em.ThreadID, "update", "Thread")
+					}
+				}
+				mb.recordChange(ctx, us.emailState, em.ID, "destroy", "Email")
+			} else {
+				// Remove from this mailbox
+				delete(em.MailboxIDs, id)
+				mb.recordChange(ctx, us.emailState, em.ID, "update", "Email")
+			}
+		}
+	}
+
 	delete(us.mailboxes, id)
+	mb.recalculateMailboxCounts(us)
 	mb.recordChange(ctx, us.mailboxState, id, "destroy", "Mailbox")
 	return true, nil
 }
@@ -691,6 +760,62 @@ func (mb *MemoryBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jmap
 	if em.ID == "" {
 		em.ID = mb.nextID("email")
 	}
+
+	if em.ThreadID == "" {
+		// Look for existing thread via In-Reply-To / References / Message-ID
+		var referencedMIDs []string
+		for _, ref := range em.InReplyTo {
+			s := strings.Trim(ref, "<> \t")
+			if s != "" {
+				referencedMIDs = append(referencedMIDs, s)
+			}
+		}
+		for _, ref := range em.References {
+			s := strings.Trim(ref, "<> \t")
+			if s != "" {
+				referencedMIDs = append(referencedMIDs, s)
+			}
+		}
+		for _, h := range em.Headers {
+			if strings.EqualFold(h.Name, "In-Reply-To") || strings.EqualFold(h.Name, "References") {
+				for _, part := range strings.Fields(h.Value) {
+					s := strings.Trim(part, "<> \t")
+					if s != "" {
+						referencedMIDs = append(referencedMIDs, s)
+					}
+				}
+			}
+		}
+
+		for _, ref := range referencedMIDs {
+			for _, other := range us.emails {
+				for _, mid := range other.MessageID {
+					if strings.Trim(mid, "<> \t") == ref {
+						em.ThreadID = other.ThreadID
+						break
+					}
+				}
+				if em.ThreadID != "" {
+					break
+				}
+				for _, h := range other.Headers {
+					if strings.EqualFold(h.Name, "Message-ID") {
+						if strings.Trim(h.Value, "<> \t") == ref {
+							em.ThreadID = other.ThreadID
+							break
+						}
+					}
+				}
+				if em.ThreadID != "" {
+					break
+				}
+			}
+			if em.ThreadID != "" {
+				break
+			}
+		}
+	}
+
 	if em.ThreadID == "" {
 		em.ThreadID = mb.nextID("thread")
 	}
@@ -714,13 +839,31 @@ func (mb *MemoryBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jmap
 		mb.recordChange(ctx, us.threadState, em.ThreadID, "create", "Thread")
 	} else {
 		th.EmailIDs = append(th.EmailIDs, em.ID)
+		sort.SliceStable(th.EmailIDs, func(i, j int) bool {
+			emA := us.emails[th.EmailIDs[i]]
+			emB := us.emails[th.EmailIDs[j]]
+			if emA == nil || emB == nil {
+				return false
+			}
+			tA := emA.ReceivedAt
+			if tA == "" {
+				if emA.SentAt != nil {
+					tA = *emA.SentAt
+				}
+			}
+			tB := emB.ReceivedAt
+			if tB == "" {
+				if emB.SentAt != nil {
+					tB = *emB.SentAt
+				}
+			}
+			return tA < tB
+		})
 		mb.recordChange(ctx, us.threadState, em.ThreadID, "update", "Thread")
 	}
 
 	mb.recalculateMailboxCounts(us)
 	mb.recordChange(ctx, us.emailState, em.ID, "create", "Email")
-	// Mailbox counts changed, so the affected mailboxes' state must advance with the
-	// same token scheme used by Mailbox/changes (RFC 8621 Section 2.3).
 	for mID := range em.MailboxIDs {
 		mb.recordChange(ctx, us.mailboxState, mID, "update", "Mailbox")
 	}
@@ -1277,7 +1420,7 @@ func (mb *MemoryBackend) LookupBlobReferences(ctx context.Context, typeNames []s
 // emailReferencesBlob reports whether an email references a blob via its attachments.
 func emailReferencesBlob(em *jmap.Email, blobID jmap.Id) bool {
 	for _, att := range em.Attachments {
-		if att.BlobID == blobID {
+		if att.BlobID != nil && *att.BlobID == blobID {
 			return true
 		}
 	}
@@ -1499,19 +1642,20 @@ func (mb *MemoryBackend) SendMDN(ctx context.Context, mdn *jmap.MDN) (*jmap.MDN,
 		mdn.ReportingUA = "imap-jmap-server/1.0"
 	}
 
-	mdnEmail := &jmap.Email{
-		ID:         mb.nextID("email"),
-		BlobID:     jmap.Id(fmt.Sprintf("blob-mdn-%d", mb.idCounter)),
-		ThreadID:   targetEmail.ThreadID,
-		MailboxIDs: map[jmap.Id]bool{"mb-sent": true},
-		Keywords:   map[string]bool{"$seen": true},
-		Subject:    mdn.Subject,
-		ReceivedAt: time.Now().UTC().Format(time.RFC3339),
-		BodyValues: map[string]jmap.EmailBodyValue{
-			"1": {Value: fmt.Sprintf("MDN for email %s: %s (%s/%s)", mdn.ForEmailID, mdn.Disposition.Type, mdn.Disposition.ActionMode, mdn.Disposition.SendingMode)},
-		},
-		TextBody: []jmap.EmailBodyPart{{PartID: "1", Type: "text/plain"}},
-	}
+		partID1 := "1"
+		mdnEmail := &jmap.Email{
+			ID:         mb.nextID("email"),
+			BlobID:     jmap.Id(fmt.Sprintf("blob-mdn-%d", mb.idCounter)),
+			ThreadID:   targetEmail.ThreadID,
+			MailboxIDs: map[jmap.Id]bool{"mb-sent": true},
+			Keywords:   map[string]bool{"$seen": true},
+			Subject:    mdn.Subject,
+			ReceivedAt: time.Now().UTC().Format(time.RFC3339),
+			BodyValues: map[string]jmap.EmailBodyValue{
+				"1": {Value: fmt.Sprintf("MDN for email %s: %s (%s/%s)", mdn.ForEmailID, mdn.Disposition.Type, mdn.Disposition.ActionMode, mdn.Disposition.SendingMode)},
+			},
+			TextBody: []jmap.EmailBodyPart{{PartID: &partID1, Type: "text/plain"}},
+		}
 	us.emails[mdnEmail.ID] = mdnEmail
 
 	// RFC 9007 Section 3.1: sending an MDN creates an email in the Sent mailbox; the
