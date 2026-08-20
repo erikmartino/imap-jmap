@@ -62,7 +62,7 @@ func TestRFC8621_Section2_3_MailboxSet(t *testing.T) {
 			[]any{"Mailbox/set", map[string]any{
 				"accountId": "primary",
 				"create": map[string]any{
-					"k1": map[string]any{"name": "Archive"},
+					"k1": map[string]any{"name": "Projects"},
 				},
 			}, "c1"},
 		},

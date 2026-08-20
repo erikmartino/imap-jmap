@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -86,11 +87,17 @@ func handlePushSubscriptionSet(backend MailBackend) MethodHandler {
 					continue
 				}
 				if sub.URL == "" {
-					notCreated[clientKey] = map[string]any{"type": "invalidProperties", "description": "url is required"}
+					notCreated[clientKey] = map[string]any{"type": "invalidProperties", "description": "url is required", "properties": []string{"url"}}
+					continue
+				}
+				urlLower := strings.ToLower(sub.URL)
+				isLocal := strings.HasPrefix(urlLower, "http://localhost") || strings.HasPrefix(urlLower, "http://127.0.0.1") || strings.HasPrefix(urlLower, "http://[::1]")
+				if !strings.HasPrefix(urlLower, "https://") && !isLocal {
+					notCreated[clientKey] = map[string]any{"type": "invalidProperties", "description": "url must be https", "properties": []string{"url"}}
 					continue
 				}
 				if sub.DeviceClientID == "" {
-					notCreated[clientKey] = map[string]any{"type": "invalidProperties", "description": "deviceClientId is required"}
+					notCreated[clientKey] = map[string]any{"type": "invalidProperties", "description": "deviceClientId is required", "properties": []string{"deviceClientId"}}
 					continue
 				}
 				created_, err := backend.CreatePushSubscription(ctx, &sub)

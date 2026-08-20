@@ -215,28 +215,51 @@ func (s *Session) Data(r io.Reader) error {
 			}
 			msg, err := jmap.ParseITIPMessage(icsBody)
 			if err == nil && msg != nil && msg.UID != "" {
+				senderClean := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(s.from, "mailto:")))
+
 				if strings.EqualFold(msg.Method, "REPLY") {
-					// An inbound REPLY (RFC 5546 Section 3.2.3 / RFC 6047) updates the
-					// replying attendee's participationStatus on the event identified by
-					// UID (RFC 5546 Section 2.1.5) — never the event-level status.
+					// Envelope <-> iTIP identity binding (SEC-2)
+					attendeeEmail := ""
+					if len(msg.Attendees) > 0 && msg.Attendees[0].Email != "" {
+						attendeeEmail = msg.Attendees[0].Email
+					} else if s.from != "" {
+						attendeeEmail = s.from
+					}
+					attendeeClean := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(attendeeEmail, "mailto:")))
+					if senderClean != "" && attendeeClean != "" && senderClean != attendeeClean {
+						log.Printf("SMTP receiver warning: ignoring iTIP REPLY: envelope sender %q does not match attendee %q (SEC-2)", s.from, attendeeEmail)
+						continue
+					}
+
 					ev := s.findEventByUID(rcptCtx, msg.UID)
 					if ev != nil {
-						attendeeEmail := s.from
-						if len(msg.Attendees) > 0 && msg.Attendees[0].Email != "" {
-							attendeeEmail = msg.Attendees[0].Email
+						// Participant authorization (SEC-3)
+						partKey := findParticipantKey(ev, attendeeEmail)
+						if partKey == "" {
+							log.Printf("SMTP receiver warning: ignoring iTIP REPLY: attendee %q is not a participant on event %s (SEC-3)", attendeeEmail, ev.ID)
+							continue
 						}
+
+						// Replay / out-of-order defence (SEC-5)
+						if msg.Sequence > 0 && ev.Sequence > 0 && msg.Sequence < ev.Sequence {
+							log.Printf("SMTP receiver warning: ignoring stale iTIP REPLY: message sequence %d < event sequence %d (SEC-5)", msg.Sequence, ev.Sequence)
+							continue
+						}
+
 						status := strings.ToLower(msg.Status)
 						if status == "" {
 							status = "accepted"
 						}
 
 						patch := map[string]any{
-							"participants/" + attendeeEmail + "/participationStatus": status,
+							"participants/" + partKey + "/participationStatus": status,
 						}
+						if msg.Sequence > ev.Sequence {
+							patch["sequence"] = msg.Sequence
+						}
+
 						if _, err := s.backend.CalendarsBackend.UpdateCalendarEvent(rcptCtx, ev.ID, patch); err == nil {
 							log.Printf("SMTP receiver: applied iTIP REPLY to event %s: participant %s -> %s", ev.ID, attendeeEmail, status)
-							// The change was made by an external party, so record a
-							// CalendarEventNotification (draft-ietf-jmap-calendars-27 Section 7).
 							replyEmail := attendeeEmail
 							s.backend.CalendarsBackend.CreateCalendarEventNotification(rcptCtx, &jmap.CalendarEventNotification{
 								Type:            "updated",
@@ -251,15 +274,28 @@ func (s *Session) Data(r io.Reader) error {
 						}
 					}
 				} else if strings.EqualFold(msg.Method, "REQUEST") {
-					// Full-fidelity import: parse the entire VEVENT (participants,
-					// duration, recurrence, location, alerts) rather than a title+start
-					// stub, so the invitee's calendar copy matches the organizer's.
+					// Envelope <-> iTIP identity binding (SEC-2)
+					orgClean := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(msg.Organizer, "mailto:")))
+					if senderClean != "" && orgClean != "" && senderClean != orgClean {
+						log.Printf("SMTP receiver warning: ignoring iTIP REQUEST: envelope sender %q does not match organizer %q (SEC-2)", s.from, msg.Organizer)
+						continue
+					}
+
 					imported := parseImportedEvent(icsBody, msg)
 					if existing := s.findEventByUID(rcptCtx, imported.UID); existing != nil {
+						// Replay / out-of-order defence (SEC-5)
+						if msg.Sequence > 0 && existing.Sequence > 0 && msg.Sequence < existing.Sequence {
+							log.Printf("SMTP receiver warning: ignoring stale iTIP REQUEST: message sequence %d < event sequence %d (SEC-5)", msg.Sequence, existing.Sequence)
+							continue
+						}
+
 						// Re-REQUEST: re-sync the mutable core details onto the copy.
 						patch := map[string]any{"title": imported.Title, "start": imported.Start}
 						if imported.Duration != "" {
 							patch["duration"] = imported.Duration
+						}
+						if msg.Sequence >= existing.Sequence {
+							patch["sequence"] = msg.Sequence
 						}
 						_, _ = s.backend.CalendarsBackend.UpdateCalendarEvent(rcptCtx, existing.ID, patch)
 					} else {
@@ -272,6 +308,45 @@ func (s *Session) Data(r io.Reader) error {
 						createdEv, err := s.backend.CalendarsBackend.CreateCalendarEvent(rcptCtx, imported)
 						if err == nil && createdEv != nil {
 							log.Printf("SMTP receiver: auto-imported incoming invitation into calendar event %s (%s)", createdEv.ID, createdEv.Title)
+						}
+					}
+				} else if strings.EqualFold(msg.Method, "CANCEL") {
+					// Envelope <-> iTIP identity binding & Participant authorization (SEC-2, SEC-3)
+					ev := s.findEventByUID(rcptCtx, msg.UID)
+					if ev != nil {
+						orgClean := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(msg.Organizer, "mailto:")))
+						if senderClean != "" && orgClean != "" && senderClean != orgClean {
+							log.Printf("SMTP receiver warning: ignoring iTIP CANCEL: envelope sender %q does not match organizer %q (SEC-2)", s.from, msg.Organizer)
+							continue
+						}
+						if senderClean != "" && !isEventOrganizer(ev, s.from) && orgClean != "" && !isEventOrganizer(ev, orgClean) {
+							log.Printf("SMTP receiver warning: ignoring iTIP CANCEL: sender %q is not the organizer of event %s (SEC-3)", s.from, ev.ID)
+							continue
+						}
+
+						// Replay / out-of-order defence (SEC-5)
+						if msg.Sequence > 0 && ev.Sequence > 0 && msg.Sequence < ev.Sequence {
+							log.Printf("SMTP receiver warning: ignoring stale iTIP CANCEL: message sequence %d < event sequence %d (SEC-5)", msg.Sequence, ev.Sequence)
+							continue
+						}
+
+						patch := map[string]any{"status": "cancelled"}
+						if msg.Sequence >= ev.Sequence {
+							patch["sequence"] = msg.Sequence
+						}
+						if _, err := s.backend.CalendarsBackend.UpdateCalendarEvent(rcptCtx, ev.ID, patch); err == nil {
+							log.Printf("SMTP receiver: cancelled event %s from iTIP CANCEL", ev.ID)
+							fromEmail := s.from
+							s.backend.CalendarsBackend.CreateCalendarEventNotification(rcptCtx, &jmap.CalendarEventNotification{
+								Type:            "deleted",
+								CalendarEventID: ev.ID,
+								ChangedBy: jmap.CalendarEventNotificationPerson{
+									Email:           &fromEmail,
+									CalendarAddress: &fromEmail,
+								},
+								Event:      ev,
+								EventPatch: patch,
+							})
 						}
 					}
 				}
@@ -345,6 +420,61 @@ func parseImportedEvent(ics string, msg *jmap.ITIPMessage) *jmap.CalendarEvent {
 		title = "External Meeting Invitation"
 	}
 	return &jmap.CalendarEvent{UID: msg.UID, Title: title, Start: msg.Start}
+}
+
+func findParticipantKey(ev *jmap.CalendarEvent, attendeeEmail string) string {
+	if ev == nil || attendeeEmail == "" {
+		return ""
+	}
+	clean := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(attendeeEmail, "mailto:")))
+	for key, p := range ev.Participants {
+		if strings.ToLower(key) == clean || strings.ToLower(key) == "mailto:"+clean {
+			return key
+		}
+		if p != nil {
+			if strings.EqualFold(strings.TrimPrefix(p.Email, "mailto:"), clean) {
+				return key
+			}
+			if p.SendTo != nil {
+				for _, val := range p.SendTo {
+					if strings.EqualFold(strings.TrimPrefix(val, "mailto:"), clean) {
+						return key
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func isEventOrganizer(ev *jmap.CalendarEvent, email string) bool {
+	if ev == nil || email == "" {
+		return false
+	}
+	clean := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(email, "mailto:")))
+	for key, p := range ev.Participants {
+		if p == nil {
+			continue
+		}
+		isOrg := false
+		if (p.Roles != nil && (p.Roles["owner"] || p.Roles["organizer"] || p.Roles["chair"])) ||
+			p.Role == "owner" || p.Role == "organizer" || p.Role == "chair" {
+			isOrg = true
+		}
+		if isOrg {
+			if strings.ToLower(key) == clean || strings.EqualFold(strings.TrimPrefix(p.Email, "mailto:"), clean) {
+				return true
+			}
+			if p.SendTo != nil {
+				for _, val := range p.SendTo {
+					if strings.EqualFold(strings.TrimPrefix(val, "mailto:"), clean) {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
 }
 
 // ensureOwnerParticipant guarantees the imported event has an owner participant (the

@@ -153,10 +153,11 @@ type Identity struct {
 	ID            Id             `json:"id"`
 	Name          string         `json:"name"`
 	Email         string         `json:"email"`
-	ReplyTo       []EmailAddress `json:"replyTo,omitempty"`
-	BCC           []EmailAddress `json:"bcc,omitempty"`
-	TextSignature string         `json:"textSignature,omitempty"`
-	HTMLSignature string         `json:"htmlSignature,omitempty"`
+	ReplyTo       []EmailAddress `json:"replyTo"`
+	BCC           []EmailAddress `json:"bcc"`
+	TextSignature string         `json:"textSignature"`
+	HTMLSignature string         `json:"htmlSignature"`
+	MayDelete     bool           `json:"mayDelete"`
 }
 
 // SubmissionAddress represents a mail address in an EmailSubmission envelope per RFC 8621 Section 7.1.
@@ -209,8 +210,8 @@ type EmailSubmission struct {
 type SearchSnippet struct {
 	AccountID string  `json:"accountId"`
 	EmailID   Id      `json:"emailId"`
-	Subject   *string `json:"subject,omitempty"`
-	Preview   *string `json:"preview,omitempty"`
+	Subject   *string `json:"subject"`
+	Preview   *string `json:"preview"`
 }
 
 // VacationResponse is the per-account auto-reply singleton per RFC 8621 Section 8.

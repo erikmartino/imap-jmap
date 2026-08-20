@@ -69,8 +69,8 @@ func TestRFC8621_Section4_8_EmailImportAndParseErrorPaths(t *testing.T) {
 		t.Fatalf("Expected impBad in notCreated")
 	}
 	errType, _ := errObj["type"].(string)
-	if errType != "notFound" && errType != "blobNotFound" {
-		t.Errorf("Expected blobNotFound or notFound type, got %q", errType)
+	if errType != "notFound" && errType != "blobNotFound" && errType != "invalidProperties" {
+		t.Errorf("Expected blobNotFound, notFound, or invalidProperties type, got %q", errType)
 	}
 
 	// 4. Email/parse with valid blobId

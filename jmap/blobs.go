@@ -119,6 +119,9 @@ func (s *Server) HandleDownload(w http.ResponseWriter, r *http.Request) {
 
 	mediaType := r.URL.Query().Get("type")
 	if mediaType == "" {
+		mediaType = r.URL.Query().Get("accept")
+	}
+	if mediaType == "" {
 		mediaType = blob.Type
 	}
 
@@ -133,5 +136,6 @@ func (s *Server) HandleDownload(w http.ResponseWriter, r *http.Request) {
 
 	// http.ServeContent handles HTTP Range: bytes=... headers (returning 206 Partial Content),
 	// Content-Length, Accept-Ranges, and HEAD requests per RFC 8620 Section 6.2 MAY provisions.
-	http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(blob.Data))
+	// Pass empty string as name to prevent http.ServeContent from sniffing file extension and overriding Content-Type.
+	http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(blob.Data))
 }

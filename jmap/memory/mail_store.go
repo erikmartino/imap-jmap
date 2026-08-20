@@ -1,8 +1,11 @@
 package memory
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -145,9 +148,10 @@ func newMemoryUserStore(accountID string) *userMailStore {
 		emailAddr = accountID + "@example.com"
 	}
 	defaultIdentity := &jmap.Identity{
-		ID:    "id-primary",
-		Name:  emailAddr,
-		Email: emailAddr,
+		ID:        "id-primary",
+		Name:      emailAddr,
+		Email:     emailAddr,
+		MayDelete: true,
 	}
 	us.identities[defaultIdentity.ID] = defaultIdentity
 
@@ -274,11 +278,51 @@ func (mb *MemoryBackend) recordChange(ctx context.Context, tracker *changeTracke
 	newState := tracker.record(id, action)
 	us := mb.getStoreLocked(ctx)
 	us.state = newState
+	accountID, _ := jmap.AccountIDFromContext(ctx)
 	if mb.broadcaster != nil {
-		accountID, _ := jmap.AccountIDFromContext(ctx)
 		mb.broadcaster.PublishStateChange(accountID, typeName, newState)
 	}
+	for _, sub := range us.pushSubscriptions {
+		if sub.VerificationCode == nil {
+			if len(sub.Types) == 0 {
+				go sendWebPushNotification(sub.URL, accountID, typeName, newState)
+			} else {
+				for _, t := range sub.Types {
+					if strings.EqualFold(t, typeName) {
+						go sendWebPushNotification(sub.URL, accountID, typeName, newState)
+						break
+					}
+				}
+			}
+		}
+	}
 	return newState
+}
+
+func sendWebPushNotification(targetURL, accountID, typeName, newState string) {
+	if !strings.HasPrefix(strings.ToLower(targetURL), "https://") && !strings.HasPrefix(strings.ToLower(targetURL), "http://") {
+		return
+	}
+	payload, err := json.Marshal(map[string]any{
+		"@type": "StateChange",
+		"changed": map[string]map[string]string{
+			accountID: {
+				typeName: newState,
+			},
+		},
+	})
+	if err != nil {
+		return
+	}
+	req, err := http.NewRequest("POST", targetURL, bytes.NewReader(payload))
+	if err == nil {
+		req.Header.Set("Content-Type", "application/json")
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Do(req)
+		if err == nil {
+			resp.Body.Close()
+		}
+	}
 }
 
 // State returns current mail change state token.
@@ -422,6 +466,18 @@ func (mb *MemoryBackend) CreateMailbox(ctx context.Context, item *jmap.Mailbox) 
 	mb.mu.Lock()
 	us := mb.getStoreLocked(ctx)
 	defer mb.mu.Unlock()
+
+	for _, existing := range us.mailboxes {
+		sameParent := (existing.ParentID == nil && item.ParentID == nil) ||
+			(existing.ParentID != nil && item.ParentID != nil && *existing.ParentID == *item.ParentID)
+		if sameParent && strings.EqualFold(existing.Name, item.Name) {
+			return nil, jmap.SetError{
+				Type:        "alreadyExists",
+				Description: "duplicate mailbox name under same parent",
+				Properties:  []string{"name"},
+			}
+		}
+	}
 
 	if item.ID == "" {
 		item.ID = mb.nextID("mb")
@@ -603,6 +659,22 @@ func (mb *MemoryBackend) UpdateMailbox(ctx context.Context, id jmap.Id, patch ma
 			}
 		}
 	}
+	for _, existing := range us.mailboxes {
+		if existing.ID == id {
+			continue
+		}
+		sameParent := (existing.ParentID == nil && item.ParentID == nil) ||
+			(existing.ParentID != nil && item.ParentID != nil && *existing.ParentID == *item.ParentID)
+		if sameParent && strings.EqualFold(existing.Name, item.Name) {
+			mb.mu.Unlock()
+			return nil, jmap.SetError{
+				Type:        "alreadyExists",
+				Description: "duplicate mailbox name under same parent",
+				Properties:  []string{"name"},
+			}
+		}
+	}
+
 	if len(invalidProps) > 0 {
 		mb.mu.Unlock()
 		return nil, jmap.SetError{
@@ -759,18 +831,35 @@ func (mb *MemoryBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jmap
 	}
 
 	if em.ThreadID == "" {
-		// Look for existing thread via In-Reply-To / References / Message-ID
-		var referencedMIDs []string
+		myMIDs := make(map[string]bool)
+		for _, mid := range em.MessageID {
+			s := strings.Trim(mid, "<> \t")
+			if s != "" {
+				myMIDs[s] = true
+			}
+		}
+		for _, h := range em.Headers {
+			if strings.EqualFold(h.Name, "Message-ID") {
+				for _, part := range strings.Fields(h.Value) {
+					s := strings.Trim(part, "<> \t")
+					if s != "" {
+						myMIDs[s] = true
+					}
+				}
+			}
+		}
+
+		myRefs := make(map[string]bool)
 		for _, ref := range em.InReplyTo {
 			s := strings.Trim(ref, "<> \t")
 			if s != "" {
-				referencedMIDs = append(referencedMIDs, s)
+				myRefs[s] = true
 			}
 		}
 		for _, ref := range em.References {
 			s := strings.Trim(ref, "<> \t")
 			if s != "" {
-				referencedMIDs = append(referencedMIDs, s)
+				myRefs[s] = true
 			}
 		}
 		for _, h := range em.Headers {
@@ -778,36 +867,81 @@ func (mb *MemoryBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jmap
 				for _, part := range strings.Fields(h.Value) {
 					s := strings.Trim(part, "<> \t")
 					if s != "" {
-						referencedMIDs = append(referencedMIDs, s)
+						myRefs[s] = true
 					}
 				}
 			}
 		}
 
-		for _, ref := range referencedMIDs {
-			for _, other := range us.emails {
-				for _, mid := range other.MessageID {
-					if strings.Trim(mid, "<> \t") == ref {
-						em.ThreadID = other.ThreadID
-						break
-					}
+		for _, other := range us.emails {
+			otherMIDs := make(map[string]bool)
+			for _, mid := range other.MessageID {
+				s := strings.Trim(mid, "<> \t")
+				if s != "" {
+					otherMIDs[s] = true
 				}
-				if em.ThreadID != "" {
-					break
-				}
-				for _, h := range other.Headers {
-					if strings.EqualFold(h.Name, "Message-ID") {
-						if strings.Trim(h.Value, "<> \t") == ref {
-							em.ThreadID = other.ThreadID
-							break
+			}
+			for _, h := range other.Headers {
+				if strings.EqualFold(h.Name, "Message-ID") {
+					for _, part := range strings.Fields(h.Value) {
+						s := strings.Trim(part, "<> \t")
+						if s != "" {
+							otherMIDs[s] = true
 						}
 					}
 				}
-				if em.ThreadID != "" {
+			}
+
+			otherRefs := make(map[string]bool)
+			for _, ref := range other.InReplyTo {
+				s := strings.Trim(ref, "<> \t")
+				if s != "" {
+					otherRefs[s] = true
+				}
+			}
+			for _, ref := range other.References {
+				s := strings.Trim(ref, "<> \t")
+				if s != "" {
+					otherRefs[s] = true
+				}
+			}
+			for _, h := range other.Headers {
+				if strings.EqualFold(h.Name, "In-Reply-To") || strings.EqualFold(h.Name, "References") {
+					for _, part := range strings.Fields(h.Value) {
+						s := strings.Trim(part, "<> \t")
+						if s != "" {
+							otherRefs[s] = true
+						}
+					}
+				}
+			}
+
+			matched := false
+			for omid := range otherMIDs {
+				if myRefs[omid] {
+					matched = true
 					break
 				}
 			}
-			if em.ThreadID != "" {
+			if !matched {
+				for mymid := range myMIDs {
+					if otherRefs[mymid] {
+						matched = true
+						break
+					}
+				}
+			}
+			if !matched {
+				for myref := range myRefs {
+					if otherRefs[myref] {
+						matched = true
+						break
+					}
+				}
+			}
+
+			if matched {
+				em.ThreadID = other.ThreadID
 				break
 			}
 		}
@@ -1169,6 +1303,7 @@ func (mb *MemoryBackend) CreateIdentity(ctx context.Context, identity *jmap.Iden
 	if identity.ID == "" {
 		identity.ID = mb.nextID("identity")
 	}
+	identity.MayDelete = true
 	us.identities[identity.ID] = identity
 	mb.mu.Unlock()
 
@@ -1199,6 +1334,36 @@ func (mb *MemoryBackend) UpdateIdentity(ctx context.Context, id jmap.Id, patch m
 	}
 	if v, ok := patch["htmlSignature"].(string); ok {
 		identity.HTMLSignature = v
+	}
+	if v, present := patch["replyTo"]; present {
+		if v == nil {
+			identity.ReplyTo = nil
+		} else if arr, ok := v.([]any); ok {
+			var addrs []jmap.EmailAddress
+			for _, item := range arr {
+				if m, ok := item.(map[string]any); ok {
+					name, _ := m["name"].(string)
+					email, _ := m["email"].(string)
+					addrs = append(addrs, jmap.EmailAddress{Name: name, Email: email})
+				}
+			}
+			identity.ReplyTo = addrs
+		}
+	}
+	if v, present := patch["bcc"]; present {
+		if v == nil {
+			identity.BCC = nil
+		} else if arr, ok := v.([]any); ok {
+			var addrs []jmap.EmailAddress
+			for _, item := range arr {
+				if m, ok := item.(map[string]any); ok {
+					name, _ := m["name"].(string)
+					email, _ := m["email"].(string)
+					addrs = append(addrs, jmap.EmailAddress{Name: name, Email: email})
+				}
+			}
+			identity.BCC = addrs
+		}
 	}
 	mb.mu.Unlock()
 
@@ -1782,7 +1947,13 @@ func (mb *MemoryBackend) UpdatePushSubscription(ctx context.Context, id jmap.Id,
 
 	if v, ok := patch["verificationCode"]; ok {
 		if s, ok := v.(string); ok {
-			sub.VerificationCode = &s
+			if sub.VerificationCode != nil && *sub.VerificationCode == s {
+				sub.VerificationCode = nil
+			} else {
+				sub.VerificationCode = &s
+			}
+		} else if v == nil {
+			sub.VerificationCode = nil
 		}
 	}
 	if v, ok := patch["expires"]; ok {

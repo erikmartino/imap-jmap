@@ -164,6 +164,7 @@ type SieveCapability struct {
 type Account struct {
 	Name                string         `json:"name"`
 	IsPrimary           bool           `json:"isPrimary"`
+	IsPersonal          bool           `json:"isPersonal"`
 	IsReadOnly          bool           `json:"isReadOnly"`
 	AccountCapabilities map[string]any `json:"accountCapabilities"`
 }
@@ -286,6 +287,7 @@ func sessionFor(baseURL, username, accountID string) *Session {
 			accountID: {
 				Name:       username,
 				IsPrimary:  true,
+				IsPersonal: true,
 				IsReadOnly: false,
 				AccountCapabilities: map[string]any{
 					CoreCapabilityURI: struct{}{},
@@ -341,7 +343,7 @@ func sessionFor(baseURL, username, accountID string) *Session {
 		},
 		Username:       username,
 		APIURL:         baseURL + "/jmap",
-		DownloadURL:    baseURL + "/download/{accountId}/{blobId}/{name}?accept={type}",
+		DownloadURL:    baseURL + "/download/{accountId}/{blobId}/{name}?type={type}",
 		UploadURL:      baseURL + "/upload/{accountId}/",
 		EventSourceURL: baseURL + "/eventsource?types={types}&closeafter={closeafter}&ping={ping}",
 		State:          "0",

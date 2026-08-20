@@ -25,6 +25,7 @@ func TestEmailSubmissionSetDestroyTests(t *testing.T) {
 	em, err := srv.MailBackend.CreateEmail(seedCtx(), &jmap.Email{
 		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
 		Subject:    "Submission Destroy Test",
+		To:         []jmap.EmailAddress{{Email: "destroy-test@example.com"}},
 	})
 	if err != nil {
 		t.Fatalf("Failed to create email: %v", err)

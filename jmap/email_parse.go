@@ -78,12 +78,15 @@ func parseRFC822(raw []byte, blobBackend ...BlobBackend) (*Email, error) {
 
 // parseRFC822WithAccount parses an RFC 5322 MIME message into a JMAP Email object with optional blob storage.
 func parseRFC822WithAccount(accountID string, raw []byte, blobBackend ...BlobBackend) (*Email, error) {
+	headers := parseRawHeaders(raw)
+	if len(headers) == 0 {
+		return nil, fmt.Errorf("not an RFC5322 message: no headers found")
+	}
 	entity, err := message.Read(bytes.NewReader(raw))
 	if err != nil {
 		return parseRFC822Simple(raw)
 	}
 
-	headers := parseRawHeaders(raw)
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	var bb BlobBackend
@@ -135,6 +138,53 @@ func parseRFC822WithAccount(accountID string, raw []byte, blobBackend ...BlobBac
 		if d, err := mail.ParseDate(dateStr); err == nil {
 			s := d.UTC().Format("2006-01-02T15:04:05Z")
 			em.SentAt = &s
+		}
+	}
+
+	// Also extract from raw headers for any headers that go-message header getters might have normalized away
+	for _, h := range headers {
+		val := strings.TrimSpace(h.Value)
+		switch strings.ToLower(h.Name) {
+		case "message-id":
+			if len(em.MessageID) == 0 {
+				mids := parseReferencesList(val)
+				if len(mids) > 0 {
+					em.MessageID = mids
+				} else if val != "" {
+					em.MessageID = []string{strings.Trim(val, "<> \t")}
+				}
+			}
+		case "in-reply-to":
+			if len(em.InReplyTo) == 0 {
+				em.InReplyTo = parseReferencesList(val)
+			}
+		case "references":
+			if len(em.References) == 0 {
+				em.References = parseReferencesList(val)
+			}
+		case "subject":
+			if em.Subject == "" {
+				em.Subject = decodeHeader(val)
+			}
+		case "date":
+			if em.SentAt == nil {
+				if d, err := mail.ParseDate(val); err == nil {
+					s := d.UTC().Format("2006-01-02T15:04:05Z")
+					em.SentAt = &s
+				}
+			}
+		case "from":
+			if len(em.From) == 0 {
+				if addrs, err := mail.ParseAddressList(val); err == nil {
+					em.From = convertMailAddresses(addrs)
+				}
+			}
+		case "to":
+			if len(em.To) == 0 {
+				if addrs, err := mail.ParseAddressList(val); err == nil {
+					em.To = convertMailAddresses(addrs)
+				}
+			}
 		}
 	}
 

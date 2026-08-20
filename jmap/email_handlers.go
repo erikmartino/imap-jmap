@@ -1263,14 +1263,58 @@ func handleEmailQuery(backend MailBackend) MethodHandler {
 		}
 
 		var limit *uint64
-		if limVal, ok := args["limit"].(float64); ok {
+	if limVal, ok := args["limit"].(float64); ok {
 			l := uint64(limVal)
 			limit = &l
 		}
 
+		collapseThreads, _ := args["collapseThreads"].(bool)
 		var ids []Id
 		var total int
-		if anchor != "" {
+		if collapseThreads {
+			allIDs, _, _ := backend.QueryEmails(ctx, filter, comparators, 0, nil)
+			var collapsedIDs []Id
+			seenThreads := make(map[Id]bool)
+			if len(allIDs) > 0 {
+				emails, _, _ := backend.GetEmails(ctx, allIDs)
+				emailMap := make(map[Id]*Email, len(emails))
+				for _, em := range emails {
+					emailMap[em.ID] = em
+				}
+				for _, id := range allIDs {
+					if em, ok := emailMap[id]; ok {
+						if !seenThreads[em.ThreadID] {
+							seenThreads[em.ThreadID] = true
+							collapsedIDs = append(collapsedIDs, id)
+						}
+					} else {
+						collapsedIDs = append(collapsedIDs, id)
+					}
+				}
+			}
+			total = len(collapsedIDs)
+			if anchor != "" {
+				var found bool
+				position, ids, found = applyQueryAnchor(anchor, anchorOffset, collapsedIDs, limit)
+				if !found {
+					return "error", MethodErrorArgs(MethodErrorAnchorNotFound, "anchor not found in results: "+anchor)
+				}
+			} else {
+				position = NormalizePosition(position, total)
+				if position > len(collapsedIDs) {
+					ids = []Id{}
+				} else {
+					end := len(collapsedIDs)
+					if limit != nil {
+						l := int(*limit)
+						if position+l < end {
+							end = position + l
+						}
+					}
+					ids = collapsedIDs[position:end]
+				}
+			}
+		} else if anchor != "" {
 			allIDs, allTotal, _ := backend.QueryEmails(ctx, filter, comparators, 0, nil)
 			total = allTotal
 			var found bool
@@ -1294,6 +1338,9 @@ func handleEmailQuery(backend MailBackend) MethodHandler {
 		}
 		if calcTotal {
 			res["calculateTotal"] = true
+		}
+		if _, ok := args["collapseThreads"]; ok {
+			res["collapseThreads"] = collapseThreads
 		}
 		return "Email/query", res
 	}
@@ -1340,27 +1387,34 @@ func handleEmailQueryChanges(backend MailBackend) MethodHandler {
 		return "Email/queryChanges", res
 	}
 }
+// Import Handler (RFC 8621 Section 4.8)
 
 func handleEmailImport(backend MailBackend, blobBackend BlobBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
-		accountID, _ := args["accountId"].(string)
-		emailsRaw, hasEmails := args["emails"]
-		if !hasEmails || emailsRaw == nil {
-			emailsRaw = args["create"]
+		rawEmails, hasEmails := args["emails"]
+		if !hasEmails {
+			rawEmails, hasEmails = args["create"]
 		}
-		if emailsRaw == nil {
-			return "error", InvalidArgumentsErrorArgs([]string{"emails"}, "")
+		if !hasEmails || rawEmails == nil {
+			return "error", map[string]any{
+				"type":      "invalidArguments",
+				"arguments": []string{"emails"},
+			}
 		}
-		createMap, ok := emailsRaw.(map[string]any)
+		emailsMap, ok := rawEmails.(map[string]any)
 		if !ok {
-			return "error", InvalidArgumentsErrorArgs([]string{"emails"}, "")
+			return "error", map[string]any{
+				"type":      "invalidArguments",
+				"arguments": []string{"emails"},
+			}
 		}
 
-		created := make(map[string]any)
-		notCreated := make(map[string]any)
+		accountID, _ := args["accountId"].(string)
 		oldState := backend.EmailState(ctx)
+		created := make(map[string]any)
+		notCreated := make(map[string]SetError)
 
-		for clientKey, raw := range createMap {
+		for clientKey, raw := range emailsMap {
 			emData, ok := raw.(map[string]any)
 			if !ok {
 				notCreated[clientKey] = SetError{Type: "invalidProperties"}
@@ -1369,77 +1423,59 @@ func handleEmailImport(backend MailBackend, blobBackend BlobBackend) MethodHandl
 
 			var missingProps []string
 			blobIDRaw, hasBlobID := emData["blobId"]
-			if !hasBlobID {
+			blobID, isBlobStr := blobIDRaw.(string)
+			if !hasBlobID || !isBlobStr || blobID == "" {
 				missingProps = append(missingProps, "blobId")
 			}
-			mbIDsRaw, hasMB := emData["mailboxIds"]
-			if !hasMB || mbIDsRaw == nil {
+
+			mbIDsRaw, hasMbIDs := emData["mailboxIds"]
+			mbIDs, isMbMap := mbIDsRaw.(map[string]any)
+			if !hasMbIDs || !isMbMap || len(mbIDs) == 0 {
 				missingProps = append(missingProps, "mailboxIds")
 			}
+
 			if len(missingProps) > 0 {
 				notCreated[clientKey] = SetError{Type: "invalidProperties", Properties: missingProps}
 				continue
 			}
 
-			blobID, ok := blobIDRaw.(string)
-			if !ok || blobID == "" {
-				notCreated[clientKey] = SetError{Type: "invalidProperties", Properties: []string{"blobId"}}
-				continue
+			// Validate mailbox existence
+			var mbIDsList []Id
+			for id := range mbIDs {
+				mbIDsList = append(mbIDsList, Id(id))
 			}
-
-			mbIDs, ok := mbIDsRaw.(map[string]any)
-			if !ok || len(mbIDs) == 0 {
-				notCreated[clientKey] = SetError{Type: "invalidProperties", Properties: []string{"mailboxIds"}}
-				continue
-			}
-
-			mbValid := true
-			checkIDs := make([]Id, 0, len(mbIDs))
-			for id, v := range mbIDs {
-				b, ok := v.(bool)
-				if !ok || !b {
-					mbValid = false
-					break
-				}
-				checkIDs = append(checkIDs, Id(id))
-			}
-			if mbValid {
-				_, notFound, err := backend.GetMailboxes(ctx, checkIDs)
-				if err != nil || len(notFound) > 0 {
-					mbValid = false
-				}
-			}
-			if !mbValid {
+			_, notFoundMBs, err := backend.GetMailboxes(ctx, mbIDsList)
+			if err != nil || len(notFoundMBs) > 0 {
 				notCreated[clientKey] = SetError{Type: "invalidProperties", Properties: []string{"mailboxIds"}}
 				continue
 			}
 
 			var kwMap map[string]bool
-			if kwRaw, hasKW := emData["keywords"]; hasKW {
-				kws, ok := kwRaw.(map[string]any)
+			if kwRaw, hasKw := emData["keywords"]; hasKw && kwRaw != nil {
+				kwRawMap, ok := kwRaw.(map[string]any)
 				if !ok {
 					notCreated[clientKey] = SetError{Type: "invalidProperties", Properties: []string{"keywords"}}
 					continue
 				}
-				kwMap = make(map[string]bool, len(kws))
-				kwValid := true
-				for k, v := range kws {
+				kwMap = make(map[string]bool, len(kwRawMap))
+				invalidKw := false
+				for k, v := range kwRawMap {
 					b, ok := v.(bool)
-					if !ok || !b || !isValidKeyword(k) {
-						kwValid = false
+					if !ok || !isValidKeyword(k) {
+						invalidKw = true
 						break
 					}
-					kwMap[strings.ToLower(k)] = true
+					kwMap[k] = b
 				}
-				if !kwValid {
+				if invalidKw {
 					notCreated[clientKey] = SetError{Type: "invalidProperties", Properties: []string{"keywords"}}
 					continue
 				}
 			}
 
 			var rcptAtStr string
-			if rcptRaw, hasRcpt := emData["receivedAt"]; hasRcpt {
-				s, ok := rcptRaw.(string)
+			if rcptAt, hasRcpt := emData["receivedAt"]; hasRcpt && rcptAt != nil {
+				s, ok := rcptAt.(string)
 				if !ok || s == "" {
 					notCreated[clientKey] = SetError{Type: "invalidProperties", Properties: []string{"receivedAt"}}
 					continue
@@ -1455,20 +1491,12 @@ func handleEmailImport(backend MailBackend, blobBackend BlobBackend) MethodHandl
 			if blobBackend != nil {
 				blob, found, _ := blobBackend.GetBlob(ctx, accountID, blobID)
 				if !found || blob == nil {
-					errType := "blobNotFound"
-					if len(blobID) < 8 {
-						errType = "invalidProperties"
-					}
-					notCreated[clientKey] = SetError{Type: errType, Properties: []string{"blobId"}}
+					notCreated[clientKey] = SetError{Type: "invalidProperties", Properties: []string{"blobId"}}
 					continue
 				}
 				blobData = blob.Data
 			} else {
-				errType := "blobNotFound"
-				if len(blobID) < 8 {
-					errType = "invalidProperties"
-				}
-				notCreated[clientKey] = SetError{Type: errType, Properties: []string{"blobId"}}
+				notCreated[clientKey] = SetError{Type: "invalidProperties", Properties: []string{"blobId"}}
 				continue
 			}
 
@@ -1504,10 +1532,11 @@ func handleEmailImport(backend MailBackend, blobBackend BlobBackend) MethodHandl
 			}
 		}
 
+		newState := backend.EmailState(ctx)
 		return "Email/import", map[string]any{
 			"accountId":  accountID,
 			"oldState":   oldState,
-			"newState":   backend.EmailState(ctx),
+			"newState":   newState,
 			"created":    created,
 			"notCreated": notCreated,
 		}
@@ -1520,7 +1549,30 @@ func handleEmailParse(backend MailBackend, blobBackend BlobBackend) MethodHandle
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		blobIDsRaw, _ := args["blobIds"].([]any)
-		parsed := make(map[string]*Email)
+		props := parseProperties(args)
+		bodyProps := parsePropertiesBody(args)
+		fetchText, _ := args["fetchTextBodyValues"].(bool)
+		fetchHTML, _ := args["fetchHTMLBodyValues"].(bool)
+		fetchAll, _ := args["fetchAllBodyValues"].(bool)
+		var maxBytes uint64
+		if rawMBV, present := args["maxBodyValueBytes"]; present {
+			if mbv, ok := rawMBV.(float64); ok && mbv > 0 && mbv == float64(uint64(mbv)) {
+				maxBytes = uint64(mbv)
+			}
+		}
+
+		var parsedHeaderProps []*ParsedHeaderProperty
+		if props != nil {
+			for _, p := range props {
+				if strings.HasPrefix(p, "header:") {
+					if hp, err := ParseHeaderProperty(p); err == nil {
+						parsedHeaderProps = append(parsedHeaderProps, hp)
+					}
+				}
+			}
+		}
+
+		parsed := make(map[string]any)
 		notParsable := []Id{}
 		notFound := []Id{}
 
@@ -1546,17 +1598,43 @@ func handleEmailParse(backend MailBackend, blobBackend BlobBackend) MethodHandle
 				notParsable = append(notParsable, Id(blobIDStr))
 				continue
 			}
-			// A parsed Email is not a stored object: it has a blobId but no server id (RFC 8621 §4.9).
 			em.BlobID = Id(blobIDStr)
-			parsed[blobIDStr] = em
+			formatted := formatEmailGet(em, props, parsedHeaderProps, bodyProps, fetchText, fetchHTML, fetchAll, maxBytes)
+			if emMap, ok := formatted.(map[string]any); ok {
+				if _, ok := emMap["id"]; ok {
+					emMap["id"] = nil
+				}
+				if _, ok := emMap["threadId"]; ok {
+					emMap["threadId"] = nil
+				}
+				if _, ok := emMap["mailboxIds"]; ok {
+					emMap["mailboxIds"] = nil
+				}
+				if _, ok := emMap["keywords"]; ok {
+					emMap["keywords"] = nil
+				}
+				if _, ok := emMap["receivedAt"]; ok {
+					emMap["receivedAt"] = nil
+				}
+				parsed[blobIDStr] = emMap
+			} else {
+				parsed[blobIDStr] = formatted
+			}
 		}
 
-		return "Email/parse", map[string]any{
+		res := map[string]any{
 			"accountId":   accountID,
 			"parsed":      parsed,
 			"notParsable": notParsable,
 			"notFound":    notFound,
 		}
+		if len(notParsable) == 0 {
+			res["notParsable"] = nil
+		}
+		if len(notFound) == 0 {
+			res["notFound"] = nil
+		}
+		return "Email/parse", res
 	}
 }
 
@@ -1631,37 +1709,43 @@ func handleSearchSnippetGet(backend MailBackend) MethodHandler {
 
 		var list []SearchSnippet
 		for _, em := range emails {
-			subj := em.Subject
-			prev := em.Preview
+			var subjPtr *string
+			var prevPtr *string
 
 			if filterText != "" {
 				// Highlight matching terms with <mark> tags per RFC 8621 Section 5
-				idx := strings.Index(strings.ToLower(subj), strings.ToLower(filterText))
+				idx := strings.Index(strings.ToLower(em.Subject), strings.ToLower(filterText))
 				if idx >= 0 {
-					matchedText := subj[idx : idx+len(filterText)]
-					subj = subj[:idx] + "<mark>" + matchedText + "</mark>" + subj[idx+len(filterText):]
+					matchedText := em.Subject[idx : idx+len(filterText)]
+					s := em.Subject[:idx] + "<mark>" + matchedText + "</mark>" + em.Subject[idx+len(filterText):]
+					subjPtr = &s
 				}
 
-				idxP := strings.Index(strings.ToLower(prev), strings.ToLower(filterText))
+				idxP := strings.Index(strings.ToLower(em.Preview), strings.ToLower(filterText))
 				if idxP >= 0 {
-					matchedText := prev[idxP : idxP+len(filterText)]
-					prev = prev[:idxP] + "<mark>" + matchedText + "</mark>" + prev[idxP+len(filterText):]
+					matchedText := em.Preview[idxP : idxP+len(filterText)]
+					p := em.Preview[:idxP] + "<mark>" + matchedText + "</mark>" + em.Preview[idxP+len(filterText):]
+					prevPtr = &p
 				}
 			}
 
 			list = append(list, SearchSnippet{
 				AccountID: accountID,
 				EmailID:   em.ID,
-				Subject:   &subj,
-				Preview:   &prev,
+				Subject:   subjPtr,
+				Preview:   prevPtr,
 			})
 		}
 
-		return "SearchSnippet/get", map[string]any{
+		res := map[string]any{
 			"accountId": accountID,
 			"list":      list,
 			"notFound":  notFound,
 		}
+		if len(notFound) == 0 {
+			res["notFound"] = nil
+		}
+		return "SearchSnippet/get", res
 	}
 }
 
@@ -1670,13 +1754,42 @@ func handleSearchSnippetGet(backend MailBackend) MethodHandler {
 func handleIdentityGet(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
-		list, _ := backend.GetIdentities(ctx)
-		return "Identity/get", map[string]any{
+		all, _ := backend.GetIdentities(ctx)
+		var list []*Identity
+		var notFound []Id
+
+		if idsRaw, ok := args["ids"].([]any); ok {
+			idMap := make(map[Id]*Identity, len(all))
+			for _, item := range all {
+				idMap[item.ID] = item
+			}
+			for _, rawID := range idsRaw {
+				if s, ok := rawID.(string); ok {
+					id := Id(s)
+					if item, found := idMap[id]; found {
+						list = append(list, item)
+					} else {
+						notFound = append(notFound, id)
+					}
+				}
+			}
+		} else {
+			list = all
+		}
+		if list == nil {
+			list = []*Identity{}
+		}
+
+		res := map[string]any{
 			"accountId": accountID,
 			"state":     backend.IdentityState(ctx),
 			"list":      list,
-			"notFound":  []Id{},
+			"notFound":  notFound,
 		}
+		if len(notFound) == 0 {
+			res["notFound"] = []Id{}
+		}
+		return "Identity/get", res
 	}
 }
 

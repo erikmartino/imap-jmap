@@ -302,7 +302,7 @@ func TestRFC8620_CreationRefsSubmission(t *testing.T) {
 
 	r := postJMAP(t, ts.URL, []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, []any{
 		[]any{"Identity/set", map[string]any{"accountId": "primary", "create": map[string]any{"i1": map[string]any{"name": "Work", "email": "work@example.com"}}}, "c1"},
-		[]any{"Email/set", map[string]any{"accountId": "primary", "create": map[string]any{"e1": map[string]any{"subject": "Send Me", "mailboxIds": map[string]any{"mb-drafts": true}}}}, "c2"},
+		[]any{"Email/set", map[string]any{"accountId": "primary", "create": map[string]any{"e1": map[string]any{"subject": "Send Me", "to": []any{map[string]any{"email": "recipient@example.com"}}, "mailboxIds": map[string]any{"mb-drafts": true}}}}, "c2"},
 		[]any{"EmailSubmission/set", map[string]any{
 			"accountId": "primary",
 			"create":    map[string]any{"s1": map[string]any{"emailId": "#e1", "identityId": "#i1"}},

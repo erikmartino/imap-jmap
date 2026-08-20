@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -402,6 +403,37 @@ func (s *Server) capabilitySupported(capURI string) bool {
 	return ok
 }
 
+func requiredCapabilityForMethod(name string) string {
+	switch {
+	case strings.HasPrefix(name, "Core/"):
+		return CoreCapabilityURI
+	case strings.HasPrefix(name, "Mailbox/"), strings.HasPrefix(name, "Email/"), strings.HasPrefix(name, "Thread/"), strings.HasPrefix(name, "SearchSnippet/"):
+		return MailCapabilityURI
+	case strings.HasPrefix(name, "EmailSubmission/"):
+		return SubmissionCapabilityURI
+	case strings.HasPrefix(name, "VacationResponse/"):
+		return VacationResponseCapabilityURI
+	case strings.HasPrefix(name, "Identity/"):
+		return SubmissionCapabilityURI
+	case strings.HasPrefix(name, "PushSubscription/"):
+		return CoreCapabilityURI
+	case strings.HasPrefix(name, "Calendar/"), strings.HasPrefix(name, "CalendarEvent/"), strings.HasPrefix(name, "CalendarEventNotification/"), strings.HasPrefix(name, "ParticipantIdentity/"):
+		return CalendarsCapabilityURI
+	case strings.HasPrefix(name, "AddressBook/"), strings.HasPrefix(name, "ContactCard/"), strings.HasPrefix(name, "ContactCardGroup/"), strings.HasPrefix(name, "Contact/"):
+		return ContactsCapabilityURI
+	case strings.HasPrefix(name, "SieveScript/"):
+		return SieveCapabilityURI
+	case strings.HasPrefix(name, "Principal/"):
+		return PrincipalsCapabilityURI
+	case strings.HasPrefix(name, "Blob/"):
+		return BlobCapabilityURI
+	case strings.HasPrefix(name, "Quota/"):
+		return QuotaCapabilityURI
+	default:
+		return CoreCapabilityURI
+	}
+}
+
 func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	if !strings.HasSuffix(r.URL.Path, "/jmap") {
 		http.NotFound(w, r)
@@ -414,18 +446,53 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req Request
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	ct := r.Header.Get("Content-Type")
+	if ct != "" && !strings.HasPrefix(strings.ToLower(ct), "application/json") && !strings.HasPrefix(strings.ToLower(ct), "application/problem+json") {
+		http.Error(w, "Unsupported Media Type", http.StatusUnsupportedMediaType)
+		return
+	}
+
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		s.writeRequestError(w, http.StatusBadRequest, ErrorInvalidJSON, "Cannot read request body")
+		return
+	}
+
+	var rawMap map[string]any
+	if err := json.Unmarshal(bodyBytes, &rawMap); err != nil {
 		s.writeRequestError(w, http.StatusBadRequest, ErrorInvalidJSON, "The request body could not be parsed as valid JSON.")
 		return
 	}
 
+	usingRaw, hasUsing := rawMap["using"]
+	methodCallsRaw, hasCalls := rawMap["methodCalls"]
+	if !hasUsing || !hasCalls {
+		s.writeRequestError(w, http.StatusBadRequest, ErrorNotRequest, "Request MUST have 'using' and 'methodCalls' properties.")
+		return
+	}
+	if _, ok := usingRaw.([]any); !ok {
+		s.writeRequestError(w, http.StatusBadRequest, ErrorNotRequest, "'using' must be an array.")
+		return
+	}
+	if _, ok := methodCallsRaw.([]any); !ok {
+		s.writeRequestError(w, http.StatusBadRequest, ErrorNotRequest, "'methodCalls' must be an array.")
+		return
+	}
+
+	var req Request
+	if err := json.Unmarshal(bodyBytes, &req); err != nil {
+		s.writeRequestError(w, http.StatusBadRequest, ErrorInvalidJSON, "Invalid request format.")
+		return
+	}
+
 	// Validate 'using' capabilities (RFC 8620 Section 3.1 & 3.6.1)
+	usingSet := make(map[string]bool, len(req.Using))
 	for _, capURI := range req.Using {
 		if !s.capabilitySupported(capURI) {
 			s.writeRequestError(w, http.StatusBadRequest, ErrorUnknownCapability, "Unknown capability: "+capURI)
 			return
 		}
+		usingSet[capURI] = true
 	}
 
 	var responses []Invocation
@@ -439,6 +506,29 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	reqCtx = withResponseSpill(reqCtx)
 
 	for _, call := range req.MethodCalls {
+		// Check that required capability for method is present in 'using'
+		reqCap := requiredCapabilityForMethod(call.Name)
+		if !usingSet[reqCap] && !usingSet[CoreCapabilityURI] {
+			respInv := Invocation{
+				Name:         "error",
+				Args:         MethodErrorArgs(MethodErrorUnknownMethod, "Method requires capability "+reqCap+" which is not in 'using'"),
+				ClientCallID: call.ClientCallID,
+			}
+			responses = append(responses, respInv)
+			executedMap[call.ClientCallID] = respInv
+			continue
+		}
+		if len(req.Using) == 0 {
+			respInv := Invocation{
+				Name:         "error",
+				Args:         MethodErrorArgs(MethodErrorUnknownMethod, "Method calls require non-empty 'using'"),
+				ClientCallID: call.ClientCallID,
+			}
+			responses = append(responses, respInv)
+			executedMap[call.ClientCallID] = respInv
+			continue
+		}
+
 		// Resolve Result References in arguments (RFC 8620 Section 3.7)
 		resolvedArgs, refErrType, refErr := s.resolveResultReferences(call.Args, executedMap)
 		if refErr != "" {
@@ -464,21 +554,75 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		targetAccountID, _ := resolvedArgs["accountId"].(string)
 		principalAccountID, _ := AccountIDFromContext(reqCtx)
-		if targetAccountID == "" || targetAccountID == "primary" || targetAccountID == principalAccountID || AccountIDForSubject(targetAccountID) == principalAccountID {
+		var targetAccountID string
+
+		if call.Name == "Core/echo" {
+			// Core/echo returns arguments untouched
+			methodCallCtx := reqCtx
+			respName, respArgs := handler(methodCallCtx, resolvedArgs, call.ClientCallID)
+			respInv := Invocation{
+				Name:         respName,
+				Args:         respArgs,
+				ClientCallID: call.ClientCallID,
+			}
+			responses = append(responses, respInv)
+			executedMap[call.ClientCallID] = respInv
+			continue
+		} else if strings.HasPrefix(call.Name, "PushSubscription/") {
 			targetAccountID = principalAccountID
-			resolvedArgs["accountId"] = principalAccountID
 		} else {
-			if s.PermissionGuard != nil && !s.PermissionGuard.CanAccessAccount(reqCtx, principalAccountID, targetAccountID) {
+			rawAcct, hasAcct := resolvedArgs["accountId"]
+			if !hasAcct || rawAcct == nil {
 				respInv := Invocation{
 					Name:         "error",
-					Args:         MethodErrorArgs(MethodErrorAccountNotFound, fmt.Sprintf("Account %q not found", targetAccountID)),
+					Args:         MethodErrorArgs(MethodErrorInvalidArguments, "accountId is required"),
 					ClientCallID: call.ClientCallID,
 				}
 				responses = append(responses, respInv)
 				executedMap[call.ClientCallID] = respInv
 				continue
+			}
+			acctStr, ok := rawAcct.(string)
+			if !ok || acctStr == "" {
+				respInv := Invocation{
+					Name:         "error",
+					Args:         MethodErrorArgs(MethodErrorInvalidArguments, "accountId must be a non-empty string"),
+					ClientCallID: call.ClientCallID,
+				}
+				responses = append(responses, respInv)
+				executedMap[call.ClientCallID] = respInv
+				continue
+			}
+
+			if rawIDs, hasIDs := resolvedArgs["ids"]; hasIDs && rawIDs != nil {
+				if _, ok := rawIDs.([]any); !ok {
+					respInv := Invocation{
+						Name:         "error",
+						Args:         MethodErrorArgs(MethodErrorInvalidArguments, "ids must be an array or null"),
+						ClientCallID: call.ClientCallID,
+					}
+					responses = append(responses, respInv)
+					executedMap[call.ClientCallID] = respInv
+					continue
+				}
+			}
+
+			targetAccountID = acctStr
+			if targetAccountID == "primary" || targetAccountID == principalAccountID || AccountIDForSubject(targetAccountID) == principalAccountID {
+				targetAccountID = principalAccountID
+				resolvedArgs["accountId"] = principalAccountID
+			} else {
+				if s.PermissionGuard != nil && !s.PermissionGuard.CanAccessAccount(reqCtx, principalAccountID, targetAccountID) {
+					respInv := Invocation{
+						Name:         "error",
+						Args:         MethodErrorArgs(MethodErrorAccountNotFound, fmt.Sprintf("Account %q not found", targetAccountID)),
+						ClientCallID: call.ClientCallID,
+					}
+					responses = append(responses, respInv)
+					executedMap[call.ClientCallID] = respInv
+					continue
+				}
 			}
 		}
 

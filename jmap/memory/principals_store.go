@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -181,6 +182,7 @@ func (b *MemoryPrincipalsBackend) QueryPrincipals(ctx context.Context, filter ma
 
 func (b *MemoryPrincipalsBackend) GetAvailability(ctx context.Context, principalID jmap.Id, utcStart, utcEnd string) ([]*jmap.AvailabilityWindow, error) {
 	b.mu.RLock()
+	p, _ := b.principals[principalID]
 	cb := b.calendarsBackend
 	b.mu.RUnlock()
 
@@ -193,44 +195,121 @@ func (b *MemoryPrincipalsBackend) GetAvailability(ctx context.Context, principal
 	winStart, hasStart := parseRFC3339(utcStart)
 	winEnd, hasEnd := parseRFC3339(utcEnd)
 
-	events, err := cb.GetAllCalendarEvents(ctx)
-	if err != nil {
-		return windows, nil
+	// Determine account contexts to query for the principal
+	var contexts []context.Context
+	if p != nil && len(p.AccountIDs) > 0 {
+		for accID := range p.AccountIDs {
+			contexts = append(contexts, jmap.ContextWithAccountID(ctx, accID))
+		}
+	} else {
+		contexts = append(contexts, ctx)
 	}
-	for _, ev := range events {
-		if ev == nil || ev.Start == "" {
+
+	for _, pCtx := range contexts {
+		cals, err := cb.GetAllCalendars(pCtx)
+		if err != nil {
 			continue
 		}
-		// Secret events must behave as though they do not exist to other principals, so
-		// they never contribute to shared free-busy. Cancelled events and events explicitly
-		// marked "free" are not busy time either (draft-ietf-jmap-calendars availability).
-		if ev.Privacy == "secret" || ev.Status == "cancelled" {
+		calInAvail := make(map[jmap.Id]string, len(cals))
+		for _, cal := range cals {
+			calInAvail[cal.ID] = cal.IncludeInAvailability
+		}
+
+		events, err := cb.GetAllCalendarEvents(pCtx)
+		if err != nil {
 			continue
 		}
-		fb := ev.FreeBusyStatus
-		if fb == "" {
-			fb = "busy"
-		}
-		if fb == "free" {
-			continue
-		}
-		// Expand recurrences and emit one busy window per instance that overlaps the query
-		// window. End is start+duration (previously collapsed to start, yielding zero-length
-		// windows), and recurring events now contribute every occurrence in range.
-		for _, inst := range ExpandRecurrenceInstances(ev, winEnd) {
-			if hasEnd && !inst.Start.Before(winEnd) {
-				continue // occurrence starts at/after the window end
+
+		for _, ev := range events {
+			if ev == nil || ev.Start == "" {
+				continue
 			}
-			if hasStart && !inst.End.After(winStart) {
-				continue // occurrence ends at/before the window start
+			// Secret events must behave as though they do not exist to other principals, so
+			// they never contribute to shared free-busy. Cancelled events and events explicitly
+			// marked "free" are not busy time either (draft-ietf-jmap-calendars availability).
+			if ev.Privacy == "secret" || ev.Status == "cancelled" {
+				continue
 			}
-			windows = append(windows, &jmap.AvailabilityWindow{
-				UTCStart:       inst.Start.UTC().Format(time.RFC3339),
-				UTCEnd:         inst.End.UTC().Format(time.RFC3339),
-				FreeBusyStatus: fb,
-			})
+			fb := ev.FreeBusyStatus
+			if fb == "" {
+				fb = "busy"
+			}
+			if fb == "free" {
+				continue
+			}
+
+			// Check calendar-level includeInAvailability setting (draft-ietf-jmap-calendars-27 Section 2)
+			if len(ev.CalendarIDs) > 0 {
+				included := false
+				for calID := range ev.CalendarIDs {
+					incSetting := calInAvail[calID]
+					if incSetting == "none" {
+						continue
+					}
+					if incSetting == "attending" {
+						if p != nil && isPrincipalAttending(ev, p) {
+							included = true
+							break
+						}
+						continue
+					}
+					// "all" or empty defaults to included
+					included = true
+					break
+				}
+				if !included {
+					continue
+				}
+			}
+
+			// Expand recurrences and emit one busy window per instance that overlaps the query window.
+			for _, inst := range ExpandRecurrenceInstances(ev, winEnd) {
+				if hasEnd && !inst.Start.Before(winEnd) {
+					continue // occurrence starts at/after the window end
+				}
+				if hasStart && !inst.End.After(winStart) {
+					continue // occurrence ends at/before the window start
+				}
+				windows = append(windows, &jmap.AvailabilityWindow{
+					UTCStart:       inst.Start.UTC().Format(time.RFC3339),
+					UTCEnd:         inst.End.UTC().Format(time.RFC3339),
+					FreeBusyStatus: fb,
+				})
+			}
 		}
 	}
 
 	return windows, nil
+}
+
+func isPrincipalAttending(ev *jmap.CalendarEvent, p *jmap.Principal) bool {
+	if ev == nil || p == nil {
+		return false
+	}
+	for _, part := range ev.Participants {
+		if part == nil {
+			continue
+		}
+		matches := false
+		if p.Email != "" && strings.EqualFold(part.Email, p.Email) {
+			matches = true
+		}
+		if p.CalendarAddress != "" {
+			if strings.EqualFold(part.SendTo["imip"], p.CalendarAddress) || strings.EqualFold(part.Email, strings.TrimPrefix(p.CalendarAddress, "mailto:")) {
+				matches = true
+			}
+		}
+		if p.Name != "" && strings.EqualFold(part.Name, p.Name) {
+			matches = true
+		}
+		if matches {
+			if part.ParticipationStatus == "accepted" || part.ParticipationStatus == "attending" {
+				return true
+			}
+			if part.Roles != nil && (part.Roles["chair"] || part.Roles["organizer"]) {
+				return true
+			}
+		}
+	}
+	return false
 }

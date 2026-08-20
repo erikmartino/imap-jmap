@@ -187,8 +187,8 @@ func TestRFC9404_Section4_3_BlobLookup(t *testing.T) {
 			"accountId": "primary",
 			"create": map[string]any{
 				"b1": map[string]any{
-					"data": "UmV2ZXJzZSBMb29rdXAgVGVzdA==", // Base64 "Reverse Lookup Test"
-					"type": "text/plain",
+					"data": "RnJvbTogdGVzdEBleGFtcGxlLmNvbQ0KU3ViamVjdDogUmV2ZXJzZSBMb29rdXAgVGVzdA0KDQpCb2R5IHRleHQ=", // Base64 "From: test@example.com\r\nSubject: Reverse Lookup Test\r\n\r\nBody text"
+					"type": "message/rfc822",
 				},
 			},
 		}, "c1"},

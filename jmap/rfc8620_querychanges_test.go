@@ -38,8 +38,8 @@ func TestQueryChangesFilterReevaluation(t *testing.T) {
 		[]any{"Email/set", map[string]any{
 			"accountId": "primary",
 			"create": map[string]any{
-				"e1": map[string]any{"subject": "Filtered Out Email", "mailboxIds": map[string]any{"mb-archive": true}},
-				"e2": map[string]any{"subject": "Filtered In Email", "mailboxIds": map[string]any{"mb-inbox": true}},
+				"e1": map[string]any{"subject": "Filtered Out Email", "to": []any{map[string]any{"email": "querychanges@example.com"}}, "mailboxIds": map[string]any{"mb-archive": true}},
+				"e2": map[string]any{"subject": "Filtered In Email", "to": []any{map[string]any{"email": "querychanges@example.com"}}, "mailboxIds": map[string]any{"mb-inbox": true}},
 			},
 		}, "c3"},
 		[]any{"EmailSubmission/set", map[string]any{
@@ -119,14 +119,13 @@ func TestQueryChangesUpToId(t *testing.T) {
 
 	// 2. Create two inbox emails ("aaa" sorts before "bbb" under the subject sort) and two
 	//    submissions referencing them via creation references with explicit sendAt values
-	//    (sendAt descending is the default sort). The created emails have no recipient
-	//    headers, so no delivery copies are produced.
+	//    (sendAt descending is the default sort).
 	r2 := post([]any{
 		[]any{"Email/set", map[string]any{
 			"accountId": "primary",
 			"create": map[string]any{
-				"e1": map[string]any{"subject": "aaa Anchor Email", "mailboxIds": map[string]any{"mb-inbox": true}},
-				"e2": map[string]any{"subject": "bbb Beyond Email", "mailboxIds": map[string]any{"mb-inbox": true}},
+				"e1": map[string]any{"subject": "aaa Anchor Email", "to": []any{map[string]any{"email": "querychanges@example.com"}}, "mailboxIds": map[string]any{"mb-inbox": true}},
+				"e2": map[string]any{"subject": "bbb Beyond Email", "to": []any{map[string]any{"email": "querychanges@example.com"}}, "mailboxIds": map[string]any{"mb-inbox": true}},
 			},
 		}, "c3"},
 		[]any{"EmailSubmission/set", map[string]any{

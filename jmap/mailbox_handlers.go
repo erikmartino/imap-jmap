@@ -207,11 +207,13 @@ func handleMailboxSet(backend MailBackend) MethodHandler {
 		}
 
 		onDestroyRemoveMessages, _ := args["onDestroyRemoveMessages"].(bool)
+		onDestroyRemoveEmails, _ := args["onDestroyRemoveEmails"].(bool)
+		removeEmails := onDestroyRemoveMessages || onDestroyRemoveEmails
 		if destroyList, ok := args["destroy"].([]any); ok {
 			for _, rawID := range destroyList {
 				if idStr, ok := rawID.(string); ok {
 					resolvedID := resolveCreationID(idStr, creationRefs)
-					okDel, err := backend.DeleteMailbox(ctx, Id(resolvedID), onDestroyRemoveMessages)
+					okDel, err := backend.DeleteMailbox(ctx, Id(resolvedID), removeEmails)
 					if err != nil {
 						if setErr, ok := err.(SetError); ok {
 							notDestroyed[string(resolvedID)] = setErr

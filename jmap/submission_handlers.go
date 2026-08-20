@@ -208,6 +208,10 @@ func handleEmailSubmissionSet(backend MailBackend, blobBackend BlobBackend, reso
 					}
 				}
 
+				if len(recipients) == 0 {
+					return "", SetError{Type: "noRecipients", Description: "email and envelope have no recipients"}
+				}
+
 				deliveryStatus := make(map[string]DeliveryStatus)
 				deliverableCount := 0
 				var externalRecipients []string

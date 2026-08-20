@@ -43,7 +43,7 @@ marked done. All are now fixed (one commit each):
 - **CAL-7** — Event `status` no longer accepts Task states; `calendarIds` must reference existing
   calendars; `Calendar/set` rejects unknown properties.
 
-### Follow-ups from the audit — completed (2026-08-08)
+### Follow-ups from the audit — completed (2026-08-08 & 2026-08-20)
 - **FU-1** `Principal/getAvailability` now emits real busy windows: end = start+duration, recurrence
   expanded across the query window, and `free`/cancelled/`secret` events excluded.
 - **FU-2** JSCalendar Task `progress` enum validated
@@ -53,12 +53,10 @@ marked done. All are now fixed (one commit each):
   (synthetic occurrence ids are not change-tracked).
 - **FU-4** `inCalendars` (plural `Id[]`) canonical filter condition covered by tests (evaluation
   added in CAL-6).
-
-### Still open
-- `Principal/getAvailability` reads events from the caller's account context, not the target
-  principal's — genuine cross-principal availability needs account resolution by principal.
-- Calendar-level `includeInAvailability` ("all"/"none"/"attending") is stored but not yet consulted
-  when building free-busy.
+- **FU-5** `Principal/getAvailability` resolves distinct account contexts for the target principal
+  to provide true cross-principal availability.
+- **FU-6** Calendar-level `includeInAvailability` ("all"/"none"/"attending") is fully evaluated when
+  building free-busy windows.
 
 ---
 
@@ -77,19 +75,19 @@ the parsing discipline these build on.
   ([RFC 7489](https://www.rfc-editor.org/rfc/rfc7489)) on received messages before any iTIP
   is auto-applied. Fail closed: a message that does not authenticate MUST NOT mutate
   calendar state (deliver to inbox only, or drop).
-- **SEC-2 — Envelope↔iTIP identity binding.** Require the authenticated sender to match the
+- **[DONE] SEC-2 — Envelope↔iTIP identity binding.** Require the authenticated sender to match the
   iTIP actor: for REPLY, the sender MUST be the replying `ATTENDEE`; for REQUEST/CANCEL, the
   sender MUST be the `ORGANIZER`. Reject/ignore mismatches (prevents spoofing another
   participant's status). (RFC 6047 §3 security considerations; RFC 5546 §5.)
-- **SEC-3 — Participant authorization.** For REPLY, the target event (matched by UID) MUST
+- **[DONE] SEC-3 — Participant authorization.** For REPLY, the target event (matched by UID) MUST
   already list that attendee as a participant, or the reply is ignored. For CANCEL, the
   sender MUST be the event's organizer. Do not create/patch on unauthorized actors.
 - **SEC-4 — Real SMTP auth boundary.** Replace the no-op `AuthPlain`: separate the
   unauthenticated inbound MX path from authenticated submission
   ([RFC 6409](https://www.rfc-editor.org/rfc/rfc6409) / [RFC 4954](https://www.rfc-editor.org/rfc/rfc4954)),
   and gate scheduling trust on which path a message arrived by.
-- **SEC-5 — Replay / out-of-order defence.** Apply `scheduleSequence` / `scheduleUpdated`
-  (draft-ietf-jmap-calendars-27 §5.2.1–5.2.2) to discard stale, duplicate, or out-of-order
+- **[DONE] SEC-5 — Replay / out-of-order defence.** Apply `scheduleSequence` / `scheduleUpdated`
+  (draft-ietf-jmap-calendars-27 §5.2.1–5.2.2 / RFC 5546 §2.1.4) to discard stale, duplicate, or out-of-order
   iTIP messages before applying them (email is at-least-once and can reorder).
 - **SEC-6 — Resource limits.** Bound MIME message size, part count, and nesting depth when
   parsing inbound mail to prevent DoS on malformed/deeply-nested input.

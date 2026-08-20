@@ -10,6 +10,7 @@ import (
 type ITIPMessage struct {
 	Method    string         `json:"method"` // "REQUEST", "REPLY", "CANCEL"
 	UID       string         `json:"uid"`
+	Sequence  uint32         `json:"sequence"`
 	Summary   string         `json:"summary"`
 	Start     string         `json:"start"`
 	End       string         `json:"end,omitempty"`
@@ -171,6 +172,10 @@ func ParseITIPMessage(icsContent string) (*ITIPMessage, error) {
 			msg.Method = strings.TrimPrefix(line, "METHOD:")
 		} else if strings.HasPrefix(line, "UID:") {
 			msg.UID = strings.TrimPrefix(line, "UID:")
+		} else if strings.HasPrefix(line, "SEQUENCE:") {
+			var seq uint32
+			fmt.Sscanf(strings.TrimPrefix(line, "SEQUENCE:"), "%d", &seq)
+			msg.Sequence = seq
 		} else if strings.HasPrefix(line, "SUMMARY:") {
 			msg.Summary = strings.TrimPrefix(line, "SUMMARY:")
 		} else if strings.HasPrefix(line, "DTSTART:") {

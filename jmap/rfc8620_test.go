@@ -323,7 +323,7 @@ func TestRFC9670_Section1_5_2_PrincipalsOwnerImpliedCapability(t *testing.T) {
 			jmap.PrincipalsOwnerCapabilityURI,
 		},
 		"methodCalls": []any{
-			[]any{"Mailbox/get", map[string]any{}, "c1"},
+			[]any{"Mailbox/get", map[string]any{"accountId": "primary"}, "c1"},
 		},
 	}
 	body, _ := json.Marshal(reqPayload)

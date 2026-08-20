@@ -42,8 +42,8 @@ func (c *submissionQueryClient) seed(t *testing.T) (s1ID, s2ID, s3ID, eAID, eBID
 		[]any{"Email/set", map[string]any{
 			"accountId": "primary",
 			"create": map[string]any{
-				"eA": map[string]any{"subject": "Query Alpha", "mailboxIds": map[string]any{"mb-inbox": true}},
-				"eB": map[string]any{"subject": "Query Beta", "mailboxIds": map[string]any{"mb-inbox": true}},
+				"eA": map[string]any{"subject": "Query Alpha", "to": []any{map[string]any{"email": "query-rcpt@example.com"}}, "mailboxIds": map[string]any{"mb-inbox": true}},
+				"eB": map[string]any{"subject": "Query Beta", "to": []any{map[string]any{"email": "query-rcpt@example.com"}}, "mailboxIds": map[string]any{"mb-inbox": true}},
 			},
 		}, "c2"},
 		[]any{"EmailSubmission/set", map[string]any{
