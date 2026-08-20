@@ -33,32 +33,6 @@ Configure DNS and auto-configuration endpoints for seamless client discovery.
   - `https://autoconfig.profundo.dk/mail/config-v1.1.xml` (Thunderbird)
   - `https://autodiscover.profundo.dk/autodiscover/autodiscover.xml` (Outlook)
 
----
-
-## Completed Milestones
-
-### External Test Suite Conformance (2026-08-20)
-- [x] **Fastmail `JMAP-TestSuite` (Perl)**: **89/89 test files PASS (100%)** on both HTTP and WebSocket (`JMTS_USE_WEBSOCKETS=1`) transports (0 failures, 0 skipped).
-- [x] **TypeScript `jmap-test-suite`**: **309/309 tests PASS (100%)** (304 required, 5 recommended, 0 failures, 0 skipped), including multi-account and cross-account copy operations.
-- [x] **Internal Go Conformance & Unit Tests**: `go test ./...` **100% PASS** across all packages (`jmap`, `jmap/memory`, `smtp`, `dav`).
-
-### iTIP Scheduling Security Hardening (2026-08-20)
-- [x] **SEC-2 — Envelope ↔ iTIP Identity Binding**: Requires authenticated sender to match replying `ATTENDEE` on `REPLY`, and `ORGANIZER` on `REQUEST`/`CANCEL` (RFC 6047 §3, RFC 5546 §5).
-- [x] **SEC-3 — Participant Authorization**: For `REPLY`, target event must already list the attendee as participant; for `CANCEL`, sender must be the event organizer.
-- [x] **SEC-5 — Replay & Out-of-Order Defense**: Evaluates `SEQUENCE` / `scheduleSequence` to discard stale, duplicate, or reordered iTIP messages before mutating calendar state.
-
-### Calendar Compliance Review & Spec Audit (2026-08-08 & 2026-08-20)
-- [x] **CAL-1 — Owner vs Non-Owner Privacy**: `CalendarEvent/get` returns full event data to calendar owners while enforcing private/secret event masking and `hideAttendees` for non-owners.
-- [x] **CAL-2 — Recurrence Expansion**: Full RFC 8984 recurrence expansion with `rrule-go` supporting `byX` rules, `bySetPosition`, `firstDayOfWeek`, and `recurrenceOverrides`.
-- [x] **CAL-3 — Spec-Compliant RSVP**: Removed non-spec methods; RSVP operates via standard `CalendarEvent/set` updating `participants/{id}/participationStatus`.
-- [x] **CAL-4 — Cross-Account Copy**: `Calendar/copy` and `CalendarEvent/copy` properly scoped across accounts with `onSuccessDestroyOriginal` and `destroyFromIfInState`.
-- [x] **CAL-5 — ParticipantIdentity/set**: Returns `null` on update per RFC 8620 §5.3.
-- [x] **CAL-6 — Filter & Sort Validation**: `CalendarEvent/query` validates filter conditions and sort properties, rejecting unsupported properties with `unsupportedFilter`/`unsupportedSort`.
-- [x] **CAL-7 — Validation Boundaries**: Calendar IDs and properties strictly validated against JSCalendar specifications.
-- [x] **FU-1–FU-6 — Availability & Free-Busy**: Real busy window calculation in `Principal/getAvailability`, cross-principal account resolution, and `includeInAvailability` evaluations.
-
-### Authentication & Token Validation
-- [x] **AUTH-1 — OIDC Bearer Token Validation**: Implemented [`jmap.OIDCAuthBackend`](file:///home/martino/git/imap-jmap/jmap/oidc_auth.go) with JWKS signature verification, token expiration, issuer validation, and account mapping (RFC 8620 §2.1).
 
 ---
 
