@@ -1833,11 +1833,21 @@ func TestRFC8621_QueryChanges_DeltaCalculations(t *testing.T) {
 	if len(mbAdded) != 2 {
 		t.Fatalf("Expected 2 added mailboxes (created mb + inbox with changed counts), got %v", mbAdded)
 	}
-	addedMbObj, _ := mbAdded[0].(map[string]any)
-	if addedMbObj["id"].(string) != newMbID {
-		t.Errorf("Expected added mailbox ID %s, got %v", newMbID, addedMbObj["id"])
+	foundNewMb := false
+	foundInbox := false
+	for _, a := range mbAdded {
+		obj, _ := a.(map[string]any)
+		if obj["id"] == newMbID {
+			foundNewMb = true
+		}
+		if obj["id"] == "mb-inbox" {
+			foundInbox = true
+		}
 	}
-	if inboxAdded, _ := mbAdded[1].(map[string]any); inboxAdded["id"].(string) != "mb-inbox" {
-		t.Errorf("Expected updated mb-inbox re-added (email landed in it), got %v", inboxAdded)
+	if !foundNewMb {
+		t.Errorf("Expected added mailbox ID %s in %v", newMbID, mbAdded)
+	}
+	if !foundInbox {
+		t.Errorf("Expected updated mb-inbox re-added in %v", mbAdded)
 	}
 }

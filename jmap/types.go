@@ -104,11 +104,24 @@ func MethodErrorArgs(errType string, description string) map[string]any {
 	return args
 }
 
-// SetError defines error object for /set methods per RFC 8620 Section 5.3.
+// InvalidArgumentsErrorArgs returns argument map for invalidArguments per RFC 8620 Section 3.6.2.
+func InvalidArgumentsErrorArgs(invalidArgs []string, description string) map[string]any {
+	args := map[string]any{
+		"type":      MethodErrorInvalidArguments,
+		"arguments": invalidArgs,
+	}
+	if description != "" {
+		args["description"] = description
+	}
+	return args
+}
+
+// SetError defines error object for /set methods per RFC 8620 Section 5.3 and RFC 8621 Section 4.6.
 type SetError struct {
 	Type        string   `json:"type"`
 	Description string   `json:"description,omitempty"`
 	Properties  []string `json:"properties,omitempty"`
+	NotFound    []string `json:"notFound,omitempty"`
 }
 
 func (e SetError) Error() string {

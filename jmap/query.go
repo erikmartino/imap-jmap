@@ -5,6 +5,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 // parseQueryPosition extracts the "position" argument per RFC 8620 Section 5.5: an integer
@@ -214,8 +215,19 @@ func computeQueryChanges(created, updated, destroyed, currentIDs []Id, upToId st
 	return added, removed
 }
 
-// MatchesFilter checks if an email matches a filter object (FilterCondition or FilterOperator) per RFC 8621 Section 4.5.
+// ThreadFilterContext provides thread-level keyword counts for query filters.
+type ThreadFilterContext struct {
+	ThreadEmailsCount  map[Id]int
+	ThreadEmailsWithKw map[Id]map[string]int
+}
+
+// MatchesFilter checks if an email matches a filter object per RFC 8621 Section 4.5.
 func MatchesFilter(em *Email, filter map[string]any) bool {
+	return MatchesFilterWithThreadContext(em, filter, nil)
+}
+
+// MatchesFilterWithThreadContext checks if an email matches a filter object with thread context.
+func MatchesFilterWithThreadContext(em *Email, filter map[string]any, tc *ThreadFilterContext) bool {
 	if len(filter) == 0 {
 		return true
 	}
@@ -232,7 +244,7 @@ func MatchesFilter(em *Email, filter map[string]any) bool {
 		case "AND":
 			for _, condRaw := range condsRaw {
 				if condMap, ok := condRaw.(map[string]any); ok {
-					if !MatchesFilter(em, condMap) {
+					if !MatchesFilterWithThreadContext(em, condMap, tc) {
 						return false
 					}
 				}
@@ -242,7 +254,7 @@ func MatchesFilter(em *Email, filter map[string]any) bool {
 		case "OR":
 			for _, condRaw := range condsRaw {
 				if condMap, ok := condRaw.(map[string]any); ok {
-					if MatchesFilter(em, condMap) {
+					if MatchesFilterWithThreadContext(em, condMap, tc) {
 						return true
 					}
 				}
@@ -252,7 +264,7 @@ func MatchesFilter(em *Email, filter map[string]any) bool {
 		case "NOT":
 			for _, condRaw := range condsRaw {
 				if condMap, ok := condRaw.(map[string]any); ok {
-					if MatchesFilter(em, condMap) {
+					if MatchesFilterWithThreadContext(em, condMap, tc) {
 						return false
 					}
 				}
@@ -318,6 +330,49 @@ func MatchesFilter(em *Email, filter map[string]any) bool {
 		}
 	}
 
+	// allInThreadHaveKeyword
+	if kwRaw, ok := filter["allInThreadHaveKeyword"].(string); ok && kwRaw != "" {
+		if tc != nil {
+			count := tc.ThreadEmailsCount[em.ThreadID]
+			withKw := tc.ThreadEmailsWithKw[em.ThreadID][kwRaw]
+			if count == 0 || withKw != count {
+				return false
+			}
+		} else {
+			if em.Keywords == nil || !em.Keywords[kwRaw] {
+				return false
+			}
+		}
+	}
+
+	// someInThreadHaveKeyword
+	if kwRaw, ok := filter["someInThreadHaveKeyword"].(string); ok && kwRaw != "" {
+		if tc != nil {
+			withKw := tc.ThreadEmailsWithKw[em.ThreadID][kwRaw]
+			if withKw == 0 {
+				return false
+			}
+		} else {
+			if em.Keywords == nil || !em.Keywords[kwRaw] {
+				return false
+			}
+		}
+	}
+
+	// noneInThreadHaveKeyword
+	if kwRaw, ok := filter["noneInThreadHaveKeyword"].(string); ok && kwRaw != "" {
+		if tc != nil {
+			withKw := tc.ThreadEmailsWithKw[em.ThreadID][kwRaw]
+			if withKw > 0 {
+				return false
+			}
+		} else {
+			if em.Keywords != nil && em.Keywords[kwRaw] {
+				return false
+			}
+		}
+	}
+
 	// hasAttachment
 	if hasAttRaw, ok := filter["hasAttachment"].(bool); ok {
 		if em.HasAttachment != hasAttRaw {
@@ -327,7 +382,8 @@ func MatchesFilter(em *Email, filter map[string]any) bool {
 
 	// subject
 	if subjRaw, ok := filter["subject"].(string); ok && subjRaw != "" {
-		if !containsAllTerms(em.Subject, searchTerms(subjRaw)) {
+		term := cleanQueryTerm(subjRaw)
+		if term != "" && !strings.Contains(strings.ToLower(em.Subject), strings.ToLower(term)) {
 			return false
 		}
 	}
@@ -423,8 +479,31 @@ func searchTerms(q string) []string {
 // An empty term list matches everything (e.g. a bare "*" query).
 func containsAllTerms(haystack string, terms []string) bool {
 	h := strings.ToLower(haystack)
+	words := strings.FieldsFunc(h, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '@' && r != '.' && r != '-' && r != '_'
+	})
+	wordSet := make(map[string]bool, len(words))
+	for _, w := range words {
+		wordSet[w] = true
+	}
+
 	for _, t := range terms {
-		if !strings.Contains(h, t) {
+		if wordSet[t] {
+			continue
+		}
+		if strings.Contains(t, " ") || strings.Contains(t, "@") {
+			if strings.Contains(h, t) {
+				continue
+			}
+		}
+		matched := false
+		for w := range wordSet {
+			if strings.HasPrefix(w, t) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
 			return false
 		}
 	}
@@ -453,13 +532,20 @@ func emailSearchText(em *Email) string {
 	return sb.String()
 }
 
+func cleanQueryTerm(q string) string {
+	return strings.Trim(strings.TrimSpace(q), "*\"'")
+}
+
 func matchBody(em *Email, query string) bool {
-	terms := searchTerms(query)
-	if containsAllTerms(em.Preview, terms) {
+	q := strings.ToLower(cleanQueryTerm(query))
+	if q == "" {
+		return true
+	}
+	if strings.Contains(strings.ToLower(em.Preview), q) {
 		return true
 	}
 	for _, val := range em.BodyValues {
-		if containsAllTerms(val.Value, terms) {
+		if strings.Contains(strings.ToLower(val.Value), q) {
 			return true
 		}
 	}
@@ -498,9 +584,12 @@ func matchHeader(em *Email, headerName, headerValue string) bool {
 }
 
 func matchAddresses(addrs []EmailAddress, query string) bool {
-	terms := searchTerms(query)
+	q := strings.ToLower(cleanQueryTerm(query))
+	if q == "" {
+		return true
+	}
 	for _, addr := range addrs {
-		if containsAllTerms(addr.Name, terms) || containsAllTerms(addr.Email, terms) {
+		if strings.Contains(strings.ToLower(addr.Name), q) || strings.Contains(strings.ToLower(addr.Email), q) {
 			return true
 		}
 	}

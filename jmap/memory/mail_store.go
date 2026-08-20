@@ -298,11 +298,11 @@ func (mb *MemoryBackend) MailboxState(ctx context.Context) string {
 }
 
 // MailboxChanges returns created, updated, and destroyed Mailboxes since sinceState.
-func (mb *MemoryBackend) MailboxChanges(ctx context.Context, sinceState string, maxChanges *uint64) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
+func (mb *MemoryBackend) MailboxChanges(ctx context.Context, sinceState string, maxChanges *uint64) ([]jmap.Id, []jmap.Id, []jmap.Id, []string, string, bool) {
 	mb.mu.RLock()
 	defer mb.mu.RUnlock()
 	us := mb.getStoreLocked(ctx)
-	return us.mailboxState.Changes(sinceState, maxChanges)
+	return us.mailboxState.MailboxChanges(sinceState, maxChanges)
 }
 
 // ThreadState returns current change state token for Thread resources.
@@ -606,9 +606,8 @@ func (mb *MemoryBackend) UpdateMailbox(ctx context.Context, id jmap.Id, patch ma
 	if len(invalidProps) > 0 {
 		mb.mu.Unlock()
 		return nil, jmap.SetError{
-			Type:        "invalidProperties",
-			Description: "invalid or immutable properties in update patch",
-			Properties:  invalidProps,
+			Type:       "invalidProperties",
+			Properties: invalidProps,
 		}
 	}
 	mb.mu.Unlock()
@@ -631,8 +630,7 @@ func (mb *MemoryBackend) DeleteMailbox(ctx context.Context, id jmap.Id, onDestro
 	for _, other := range us.mailboxes {
 		if other.ParentID != nil && *other.ParentID == id {
 			return false, jmap.SetError{
-				Type:        "mailboxHasChild",
-				Description: "mailbox has child mailboxes",
+				Type: "mailboxHasChild",
 			}
 		}
 	}
@@ -648,8 +646,7 @@ func (mb *MemoryBackend) DeleteMailbox(ctx context.Context, id jmap.Id, onDestro
 	if len(emailsInMailbox) > 0 {
 		if !onDestroyRemoveMessages {
 			return false, jmap.SetError{
-				Type:        "mailboxHasEmail",
-				Description: "mailbox contains emails and onDestroyRemoveMessages is not true",
+				Type: "mailboxHasEmail",
 			}
 		}
 		// Destroy or update messages
@@ -824,6 +821,12 @@ func (mb *MemoryBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jmap
 	}
 	if em.Keywords == nil {
 		em.Keywords = make(map[string]bool)
+	} else {
+		lowered := make(map[string]bool, len(em.Keywords))
+		for k, v := range em.Keywords {
+			lowered[strings.ToLower(k)] = v
+		}
+		em.Keywords = lowered
 	}
 
 	us.emails[em.ID] = em
@@ -865,7 +868,7 @@ func (mb *MemoryBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jmap
 	mb.recalculateMailboxCounts(us)
 	mb.recordChange(ctx, us.emailState, em.ID, "create", "Email")
 	for mID := range em.MailboxIDs {
-		mb.recordChange(ctx, us.mailboxState, mID, "update", "Mailbox")
+		mb.recordChange(ctx, us.mailboxState, mID, "counts", "Mailbox")
 	}
 	return em, nil
 }
@@ -936,12 +939,12 @@ func (mb *MemoryBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map[
 				em.Keywords = make(map[string]bool)
 				for k, v := range kwMap {
 					if boolVal, ok := v.(bool); ok {
-						em.Keywords[k] = boolVal
+						em.Keywords[strings.ToLower(k)] = boolVal
 					}
 				}
 			}
 		} else if strings.HasPrefix(path, "keywords/") {
-			kw := strings.TrimPrefix(path, "keywords/")
+			kw := strings.ToLower(strings.TrimPrefix(path, "keywords/"))
 			if val == nil {
 				delete(em.Keywords, kw)
 			} else if boolVal, ok := val.(bool); ok {
@@ -982,7 +985,7 @@ func (mb *MemoryBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map[
 		affected[mID] = true
 	}
 	for mID := range affected {
-		mb.recordChange(ctx, us.mailboxState, mID, "update", "Mailbox")
+		mb.recordChange(ctx, us.mailboxState, mID, "counts", "Mailbox")
 	}
 	return em, nil
 }
@@ -1025,7 +1028,7 @@ func (mb *MemoryBackend) DeleteEmail(ctx context.Context, id jmap.Id) (bool, err
 	mb.recalculateMailboxCounts(us)
 	mb.recordChange(ctx, us.emailState, id, "destroy", "Email")
 	for mID := range affected {
-		mb.recordChange(ctx, us.mailboxState, mID, "update", "Mailbox")
+		mb.recordChange(ctx, us.mailboxState, mID, "counts", "Mailbox")
 	}
 	return true, nil
 }
@@ -1036,9 +1039,27 @@ func (mb *MemoryBackend) QueryEmails(ctx context.Context, filter map[string]any,
 	us := mb.getStoreLocked(ctx)
 	defer mb.mu.RUnlock()
 
+	threadEmailsCount := make(map[jmap.Id]int)
+	threadEmailsWithKw := make(map[jmap.Id]map[string]int)
+	for _, em := range us.emails {
+		threadEmailsCount[em.ThreadID]++
+		if _, ok := threadEmailsWithKw[em.ThreadID]; !ok {
+			threadEmailsWithKw[em.ThreadID] = make(map[string]int)
+		}
+		for kw, val := range em.Keywords {
+			if val {
+				threadEmailsWithKw[em.ThreadID][kw]++
+			}
+		}
+	}
+	tc := &jmap.ThreadFilterContext{
+		ThreadEmailsCount:  threadEmailsCount,
+		ThreadEmailsWithKw: threadEmailsWithKw,
+	}
+
 	var matched []*jmap.Email
 	for _, em := range us.emails {
-		if jmap.MatchesFilter(em, filter) {
+		if jmap.MatchesFilterWithThreadContext(em, filter, tc) {
 			matched = append(matched, em)
 		}
 	}

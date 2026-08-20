@@ -1,5 +1,7 @@
 package jmap
 
+import "encoding/json"
+
 // MailboxRights defines rights on a mailbox per RFC 8621 Section 2.
 type MailboxRights struct {
 	MayReadItems   bool `json:"mayReadItems"`
@@ -37,8 +39,40 @@ type Thread struct {
 
 // EmailAddress represents an address structure in Email headers per RFC 8621 Section 4.1.2.
 type EmailAddress struct {
-	Name  string `json:"name,omitempty"`
+	Name  string `json:"name"`
 	Email string `json:"email"`
+}
+
+func (a EmailAddress) MarshalJSON() ([]byte, error) {
+	type Alias struct {
+		Name  *string `json:"name"`
+		Email string  `json:"email"`
+	}
+	var namePtr *string
+	if a.Name != "" {
+		namePtr = &a.Name
+	}
+	return json.Marshal(Alias{
+		Name:  namePtr,
+		Email: a.Email,
+	})
+}
+
+func (a *EmailAddress) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Name  *string `json:"name"`
+		Email string  `json:"email"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if raw.Name != nil {
+		a.Name = *raw.Name
+	} else {
+		a.Name = ""
+	}
+	a.Email = raw.Email
+	return nil
 }
 
 // EmailHeader represents a raw RFC 5322 email header field.
@@ -66,8 +100,8 @@ type EmailBodyPart struct {
 // EmailBodyValue represents decoded body value details per RFC 8621 Section 4.1.4.
 type EmailBodyValue struct {
 	Value             string `json:"value"`
-	IsEncodingProblem bool   `json:"isEncodingProblem,omitempty"`
-	IsTruncated       bool   `json:"isTruncated,omitempty"`
+	IsEncodingProblem bool   `json:"isEncodingProblem"`
+	IsTruncated       bool   `json:"isTruncated"`
 }
 
 // SmimeVerificationResult represents the result of Email/verifySmime per RFC 9219 Section 4.

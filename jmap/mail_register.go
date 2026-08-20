@@ -20,7 +20,7 @@ func RegisterMailHandlers(r *MethodRegistry, backend MailBackend, blobBackend Bl
 	// Email (Section 4)
 	r.Register("Email/get", handleEmailGet(backend))
 	r.Register("Email/changes", handleEmailChanges(backend))
-	r.Register("Email/set", handleEmailSet(backend))
+	r.Register("Email/set", handleEmailSet(backend, blobBackend))
 	r.Register("Email/copy", handleEmailCopy(backend))
 	r.Register("Email/query", handleEmailQuery(backend))
 	r.Register("Email/queryChanges", handleEmailQueryChanges(backend))

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -97,7 +98,7 @@ func (a *MemoryAuthBackend) Authenticate(ctx context.Context, username, password
 	mb, bb, cb, contactsB, fnB := a.mailBackend, a.blobBackend, a.calendarsBackend, a.contactsBackend, a.fileNodeBackend
 	a.mu.Unlock()
 
-	if !alreadySeeded && (mb != nil || bb != nil || cb != nil || contactsB != nil || fnB != nil) {
+	if !alreadySeeded && !strings.HasPrefix(username, "user-") && (mb != nil || bb != nil || cb != nil || contactsB != nil || fnB != nil) {
 		SeedAccountSampleData(ctx, accountID, mb, bb, cb, contactsB, fnB)
 	}
 
@@ -121,7 +122,7 @@ func (a *MemoryAuthBackend) ValidateCredentials(ctx context.Context, username, p
 	mb, bb, cb, contactsB, fnB := a.mailBackend, a.blobBackend, a.calendarsBackend, a.contactsBackend, a.fileNodeBackend
 	a.mu.Unlock()
 
-	if !alreadySeeded && (mb != nil || bb != nil || cb != nil || contactsB != nil || fnB != nil) {
+	if !alreadySeeded && !strings.HasPrefix(username, "user-") && (mb != nil || bb != nil || cb != nil || contactsB != nil || fnB != nil) {
 		SeedAccountSampleData(ctx, accountID, mb, bb, cb, contactsB, fnB)
 	}
 

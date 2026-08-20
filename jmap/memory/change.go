@@ -81,30 +81,54 @@ func (t *changeTracker) record(id jmap.Id, action string) string {
 func (t *changeTracker) Changes(sinceState string, maxChanges ...*uint64) (created, updated, destroyed []jmap.Id, newState string, hasMore bool) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
+	c, u, d, ns, hm, _, _ := t.changesLocked(sinceState, maxChanges...)
+	return c, u, d, ns, hm
+}
 
+// MailboxChanges resolves mutations per RFC 8621 Section 2.3 including updatedProperties.
+func (t *changeTracker) MailboxChanges(sinceState string, maxChanges ...*uint64) (created, updated, destroyed []jmap.Id, updatedProperties []string, newState string, hasMore bool) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	c, u, d, ns, hm, start, end := t.changesLocked(sinceState, maxChanges...)
+	if len(c) == 0 && len(d) == 0 && len(u) > 0 {
+		allCounts := true
+		for i := start; i < end; i++ {
+			if t.history[i].action != "counts" {
+				allCounts = false
+				break
+			}
+		}
+		if allCounts {
+			updatedProperties = []string{"totalEmails", "unreadEmails", "totalThreads", "unreadThreads"}
+		}
+	}
+	return c, u, d, updatedProperties, ns, hm
+}
+
+func (t *changeTracker) changesLocked(sinceState string, maxChanges ...*uint64) (created, updated, destroyed []jmap.Id, newState string, hasMore bool, start, end int) {
 	newState = fmt.Sprintf("~%d", t.counter)
 
 	since, ok := parseStateToken(sinceState)
 	if !ok {
-		return nil, nil, nil, newState, true
+		return nil, nil, nil, newState, true, 0, 0
 	}
 	if t.counter == 0 {
 		if since == 0 {
-			return nil, nil, nil, newState, false
+			return nil, nil, nil, newState, false, 0, 0
 		}
-		return nil, nil, nil, newState, true
+		return nil, nil, nil, newState, true, 0, 0
 	}
 	if since >= t.counter {
-		return nil, nil, nil, newState, false
+		return nil, nil, nil, newState, false, 0, 0
 	}
 
 	// Start from the first retained entry that is newer than sinceState.
-	start := 0
+	start = 0
 	for start < len(t.history) && t.history[start].state <= since {
 		start++
 	}
 	if start == len(t.history) {
-		return nil, nil, nil, newState, false
+		return nil, nil, nil, newState, false, 0, 0
 	}
 
 	// SinceState is older than the oldest retained entry, so some mutations
@@ -118,7 +142,7 @@ func (t *changeTracker) Changes(sinceState string, maxChanges ...*uint64) (creat
 		}
 	}
 
-	end := len(t.history)
+	end = len(t.history)
 	if len(maxChanges) > 0 && maxChanges[0] != nil {
 		limit := int(*maxChanges[0])
 		if end-start > limit {
@@ -143,7 +167,7 @@ func (t *changeTracker) Changes(sinceState string, maxChanges ...*uint64) (creat
 
 	for id, action := range last {
 		switch action {
-		case "create", "update":
+		case "create", "update", "counts":
 			if first[id] {
 				created = append(created, id)
 			} else {
@@ -156,5 +180,5 @@ func (t *changeTracker) Changes(sinceState string, maxChanges ...*uint64) (creat
 		}
 	}
 
-	return created, updated, destroyed, newState, hasMore
+	return created, updated, destroyed, newState, hasMore, start, end
 }

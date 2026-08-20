@@ -16,7 +16,7 @@ type MailBackend interface {
 
 	// Mailboxes (RFC 8621 Section 2)
 	MailboxState(ctx context.Context) string
-	MailboxChanges(ctx context.Context, sinceState string, maxChanges *uint64) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
+	MailboxChanges(ctx context.Context, sinceState string, maxChanges *uint64) (created, updated, destroyed []Id, updatedProperties []string, newState string, hasMoreChanges bool)
 	GetMailboxes(ctx context.Context, ids []Id) (list []*Mailbox, notFound []Id, err error)
 	GetAllMailboxes(ctx context.Context) ([]*Mailbox, error)
 	CreateMailbox(ctx context.Context, mb *Mailbox) (*Mailbox, error)

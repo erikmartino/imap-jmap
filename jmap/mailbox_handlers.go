@@ -56,13 +56,13 @@ func handleMailboxChanges(backend MailBackend) MethodHandler {
 		var maxChanges *uint64
 		if mc, ok := args["maxChanges"].(float64); ok {
 			if mc < 0 {
-				return "error", MethodErrorArgs(MethodErrorInvalidArguments, "maxChanges must be non-negative")
+				return "error", InvalidArgumentsErrorArgs([]string{"maxChanges"}, "maxChanges must be non-negative")
 			}
 			m := uint64(mc)
 			maxChanges = &m
 		}
 
-		created, updated, destroyed, newState, hasMore := backend.MailboxChanges(ctx, sinceState, maxChanges)
+		created, updated, destroyed, updatedProperties, newState, hasMore := backend.MailboxChanges(ctx, sinceState, maxChanges)
 		if created == nil {
 			created = []Id{}
 		}
@@ -73,7 +73,7 @@ func handleMailboxChanges(backend MailBackend) MethodHandler {
 			destroyed = []Id{}
 		}
 
-		return "Mailbox/changes", map[string]any{
+		resp := map[string]any{
 			"accountId":      accountID,
 			"oldState":       sinceState,
 			"newState":       newState,
@@ -82,6 +82,10 @@ func handleMailboxChanges(backend MailBackend) MethodHandler {
 			"updated":        updated,
 			"destroyed":      destroyed,
 		}
+		if len(updatedProperties) > 0 && len(created) == 0 && len(destroyed) == 0 {
+			resp["updatedProperties"] = updatedProperties
+		}
+		return "Mailbox/changes", resp
 	}
 }
 
@@ -111,22 +115,33 @@ func handleMailboxSet(backend MailBackend) MethodHandler {
 				if _, has := m["id"]; has {
 					invalidProps = append(invalidProps, "id")
 				}
-				if _, has := m["totalEmails"]; has {
-					invalidProps = append(invalidProps, "totalEmails")
+				if val, has := m["totalEmails"]; has {
+					if n, ok := val.(float64); !ok || n != 0 {
+						invalidProps = append(invalidProps, "totalEmails")
+					}
 				}
-				if _, has := m["unreadEmails"]; has {
-					invalidProps = append(invalidProps, "unreadEmails")
+				if val, has := m["unreadEmails"]; has {
+					if n, ok := val.(float64); !ok || n != 0 {
+						invalidProps = append(invalidProps, "unreadEmails")
+					}
 				}
-				if _, has := m["totalThreads"]; has {
-					invalidProps = append(invalidProps, "totalThreads")
+				if val, has := m["totalThreads"]; has {
+					if n, ok := val.(float64); !ok || n != 0 {
+						invalidProps = append(invalidProps, "totalThreads")
+					}
 				}
-				if _, has := m["unreadThreads"]; has {
-					invalidProps = append(invalidProps, "unreadThreads")
+				if val, has := m["unreadThreads"]; has {
+					if n, ok := val.(float64); !ok || n != 0 {
+						invalidProps = append(invalidProps, "unreadThreads")
+					}
 				}
 				if mr, has := m["myRights"]; has {
 					if mrMap, ok := mr.(map[string]any); ok {
-						for k := range mrMap {
-							invalidProps = append(invalidProps, "myRights/"+k)
+						for k, v := range mrMap {
+							b, ok := v.(bool)
+							if !ok || !b {
+								invalidProps = append(invalidProps, "myRights/"+k)
+							}
 						}
 					} else {
 						invalidProps = append(invalidProps, "myRights")
@@ -134,9 +149,8 @@ func handleMailboxSet(backend MailBackend) MethodHandler {
 				}
 				if len(invalidProps) > 0 {
 					return "", SetError{
-						Type:        "invalidProperties",
-						Description: "cannot set immutable properties on create",
-						Properties:  invalidProps,
+						Type:       "invalidProperties",
+						Properties: invalidProps,
 					}
 				}
 
@@ -144,7 +158,11 @@ func handleMailboxSet(backend MailBackend) MethodHandler {
 				if name == "" {
 					return "", fmt.Errorf("name is required")
 				}
-				mb := &Mailbox{Name: name}
+				mb := &Mailbox{
+					Name:         name,
+					SortOrder:    10,
+					IsSubscribed: false,
+				}
 				if pid, ok := m["parentId"].(string); ok && pid != "" {
 					p := Id(pid)
 					mb.ParentID = &p
@@ -372,17 +390,17 @@ func handleMailboxQuery(backend MailBackend) MethodHandler {
 
 		position, posErr := parseQueryPosition(args)
 		if posErr != "" {
-			return "error", MethodErrorArgs(MethodErrorInvalidArguments, posErr)
+			return "error", InvalidArgumentsErrorArgs([]string{"position"}, posErr)
 		}
 
 		anchor, anchorOffset, anchorErr := parseQueryAnchor(args)
 		if anchorErr != "" {
-			return "error", MethodErrorArgs(MethodErrorInvalidArguments, anchorErr)
+			return "error", InvalidArgumentsErrorArgs([]string{"anchor"}, anchorErr)
 		}
 
 		if limVal, ok := args["limit"].(float64); ok {
 			if limVal < 0 {
-				return "error", MethodErrorArgs(MethodErrorInvalidArguments, "limit must be non-negative")
+				return "error", InvalidArgumentsErrorArgs([]string{"limit"}, "limit must be non-negative")
 			}
 		}
 
@@ -451,7 +469,7 @@ func handleMailboxQueryChanges(backend MailBackend) MethodHandler {
 			return "error", MethodErrorArgs(errType, errMsg)
 		}
 
-		createdIDs, updatedIDs, destroyedIDs, newState, hasMore := backend.MailboxChanges(ctx, sinceState, nil)
+		createdIDs, updatedIDs, destroyedIDs, _, newState, hasMore := backend.MailboxChanges(ctx, sinceState, nil)
 		if hasMore {
 			return "error", MethodErrorArgs("cannotCalculateChanges", "sinceQueryState is too old")
 		}

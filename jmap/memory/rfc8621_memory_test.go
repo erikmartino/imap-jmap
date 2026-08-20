@@ -160,7 +160,7 @@ func TestMailBackend_ChangeTracking(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateMailbox failed: %v", err)
 	}
-	cMb, _, _, _, _ := mb.MailboxChanges(ctx, mbState0, nil)
+	cMb, _, _, _, _, _ := mb.MailboxChanges(ctx, mbState0, nil)
 	if len(cMb) != 1 || cMb[0] != box.ID {
 		t.Errorf("expected created mailbox %s, got %v", box.ID, cMb)
 	}

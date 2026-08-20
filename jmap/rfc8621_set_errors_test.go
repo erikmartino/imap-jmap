@@ -261,8 +261,9 @@ func TestRFC8621_EmailCreateReconstructsBodyStructure(t *testing.T) {
 
 	r2 := postJMAP(t, ts.URL, []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, []any{
 		[]any{"Email/get", map[string]any{
-			"accountId": "primary",
-			"ids":       []any{textID, htmlID},
+			"accountId":  "primary",
+			"ids":        []any{textID, htmlID},
+			"properties": []any{"subject", "bodyStructure", "textBody", "htmlBody", "preview", "bodyValues"},
 		}, "g"},
 	})
 	args := r2.MethodResponses[0].Args

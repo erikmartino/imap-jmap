@@ -150,10 +150,15 @@ func formatHeaderValue(raw string, form HeaderForm) any {
 	}
 }
 
+var unfoldingRegex = regexp.MustCompile(`\r?\n[ \t]+`)
+
+func unfoldHeader(raw string) string {
+	unfolded := unfoldingRegex.ReplaceAllString(raw, " ")
+	return strings.TrimSpace(unfolded)
+}
+
 func decodeHeaderText(raw string) string {
-	unfolded := strings.ReplaceAll(raw, "\r\n", " ")
-	unfolded = strings.ReplaceAll(unfolded, "\n", " ")
-	unfolded = strings.TrimSpace(unfolded)
+	unfolded := unfoldHeader(raw)
 
 	dec := new(mime.WordDecoder)
 	decoded, err := dec.DecodeHeader(unfolded)
@@ -165,9 +170,7 @@ func decodeHeaderText(raw string) string {
 }
 
 func decodeHeaderAddresses(raw string) any {
-	unfolded := strings.ReplaceAll(raw, "\r\n", " ")
-	unfolded = strings.ReplaceAll(unfolded, "\n", " ")
-	unfolded = strings.TrimSpace(unfolded)
+	unfolded := unfoldHeader(raw)
 
 	if idx := strings.Index(unfolded, ":"); idx >= 0 {
 		sub := unfolded[idx+1:]
@@ -377,15 +380,17 @@ func FilterEmailBodyPart(part EmailBodyPart, bodyProperties []string) map[string
 		}
 	}
 	if propMap["subParts"] {
-		if len(part.SubParts) > 0 {
-			var subs []any
-			for _, sp := range part.SubParts {
-				subs = append(subs, FilterEmailBodyPart(sp, bodyProperties))
-			}
-			out["subParts"] = subs
-		} else {
-			out["subParts"] = []any{}
+		var subs []any = []any{}
+		for _, sp := range part.SubParts {
+			subs = append(subs, FilterEmailBodyPart(sp, bodyProperties))
 		}
+		out["subParts"] = subs
+	} else if len(part.SubParts) > 0 || strings.HasPrefix(part.Type, "multipart/") {
+		var subs []any = []any{}
+		for _, sp := range part.SubParts {
+			subs = append(subs, FilterEmailBodyPart(sp, bodyProperties))
+		}
+		out["subParts"] = subs
 	}
 
 	return out

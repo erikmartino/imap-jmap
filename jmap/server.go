@@ -522,8 +522,7 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 // webmail treat a truthy empty object as an error marker.
 func normalizeSetResult(respName string, args map[string]any) {
 	inSet := strings.HasSuffix(respName, "/set") ||
-		strings.HasSuffix(respName, "/copy") ||
-		strings.HasSuffix(respName, "/import")
+		strings.HasSuffix(respName, "/copy")
 	if !inSet {
 		return
 	}
