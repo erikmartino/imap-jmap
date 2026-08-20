@@ -26,7 +26,7 @@ func seedCtx() context.Context {
 // basicAuthHeader returns an Authorization header with Basic credentials for the default
 // test user, for transports that only accept headers (e.g. WebSocket dialing).
 func basicAuthHeader() http.Header {
-	return http.Header{"Authorization": []string{"Basic " + base64.StdEncoding.EncodeToString([]byte(testUsername + ":" + testUsername))}}
+	return http.Header{"Authorization": []string{"Basic " + base64.StdEncoding.EncodeToString([]byte(testUsername+":"+testUsername))}}
 }
 
 // authedRequest returns an HTTP request authenticated as the default test user.

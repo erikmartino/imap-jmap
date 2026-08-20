@@ -972,5 +972,3 @@ func TestEmailSubmission_PushStateChange(t *testing.T) {
 		t.Errorf("Expected StateChange event payload containing 'EmailSubmission', got %q", dataLine)
 	}
 }
-
-

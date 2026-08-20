@@ -112,8 +112,8 @@ func TestRFC8621_EmailSetEmptyFieldsNull(t *testing.T) {
 
 	// postRaw gives the raw JSON body so we can assert the wire representation.
 	r := postRaw(t, ts.URL, map[string]any{
-		"using":       []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
-		"createdIds":  map[string]string{},
+		"using":      []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+		"createdIds": map[string]string{},
 		"methodCalls": []any{
 			[]any{"Email/set", map[string]any{
 				"accountId": "primary",

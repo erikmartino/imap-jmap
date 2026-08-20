@@ -134,33 +134,13 @@ prove -lr t/
 
 ---
 
-## 5. CalConnect & Apple `CalDAVTester` (CalDAV & CardDAV Conformance)
+## 5. Cyrus `Cassandane` JMAP Test Suite
 
-`CalDAVTester` ([https://github.com/CalConnect/caldavtester](https://github.com/CalConnect/caldavtester) and [https://github.com/apple/ccs-caldavtester](https://github.com/apple/ccs-caldavtester)) is the industry standard for CalDAV ([RFC 4791](https://www.rfc-editor.org/rfc/rfc4791.html)), CardDAV ([RFC 6352](https://www.rfc-editor.org/rfc/rfc6352.html)), and iCalendar/vCard protocol conformance testing.
-
-### Running CalDAVTester
-```bash
-cd ~/git
-git clone https://github.com/CalConnect/caldavtester.git
-cd caldavtester
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# Run test scripts against local DAV endpoint (e.g. port 8444)
-python testcaldav.py -s scripts/tests/caldav.xml
-python testcaldav.py -s scripts/tests/carddav.xml
-```
+Cyrus `Cassandane` ([https://github.com/cyrusimap/cassandane](https://github.com/cyrusimap/cassandane)) is an automated integration and protocol test framework with dedicated JMAP torture tests covering complex queries, concurrency, large payloads, and edge cases.
 
 ---
 
-## 6. Cyrus `Cassandane` Torture Test Suite
-
-Cyrus `Cassandane` ([https://github.com/cyrusimap/cassandane](https://github.com/cyrusimap/cassandane)) is an automated integration and protocol test framework used for deep regression testing of IMAP, JMAP, and CalDAV/CardDAV servers under heavy load, edge-case parsing, and concurrency scenarios.
-
----
-
-## 7. Playwright End-to-End Suite (`e2e/`)
+## 6. Playwright End-to-End Suite (`e2e/`)
 
 The Bulwark webmail integration tests are located in `e2e/`.
 

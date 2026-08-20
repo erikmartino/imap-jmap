@@ -615,4 +615,3 @@ func TestRFC8621_SubmissionQueryChanges(t *testing.T) {
 		t.Errorf("Expected added id %q, got %q", subID, item["id"])
 	}
 }
-

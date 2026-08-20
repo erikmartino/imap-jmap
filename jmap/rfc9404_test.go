@@ -313,7 +313,7 @@ func TestRFC9404_Section4_BlobCopy(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-reqPayload := map[string]any{
+	reqPayload := map[string]any{
 		"using": []string{jmap.CoreCapabilityURI, jmap.BlobCapabilityURI},
 		"methodCalls": []any{
 			[]any{"Blob/copy", map[string]any{

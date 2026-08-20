@@ -285,7 +285,7 @@ func sessionFor(baseURL, username, accountID string) *Session {
 				MaxObjectsInSet:       500,
 				CollationAlgorithms:   []string{"i;ascii-casemap", "i;octet"},
 			},
-			MailCapabilityURI: struct{}{},
+			MailCapabilityURI:       struct{}{},
 			SubmissionCapabilityURI: SubmissionCapability{},
 			SmimeCapabilityURI: SmimeCapability{
 				SmimeVerificationSupported: true,
