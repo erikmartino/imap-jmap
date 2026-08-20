@@ -94,7 +94,26 @@ JMTS_USE_WEBSOCKETS=1 JMAP_SERVER_ADAPTER_FILE=imap-jmap.json prove -lv t/basic.
 
 ---
 
-## 3. `jmapio/jmap-perl` Test Suite
+---
+
+## 3. TypeScript `jmap-test-suite` (Core & RFC 8621 Conformance)
+
+The TypeScript/Node.js JMAP conformance test suite is located in `~/git/jmap-test-suite`.
+
+### Step 1: Run TypeScript Suite
+With the server running on port `8181`:
+```bash
+cd ~/git/jmap-test-suite
+node dist/cli.js -c imap-jmap.json -f
+```
+
+### Conformance Status
+- **Status**: **100% PASS (309/309 tests)** (304 required, 5 recommended, 0 failures, 0 skipped).
+- Covers multi-account, cross-account `Blob/copy` and `Email/copy`, `EventSource`, `PushSubscription`, `Identity`, `EmailSubmission`, `VacationResponse`, and search snippets.
+
+---
+
+## 4. `jmapio/jmap-perl` Test Suite
 
 The `jmapio/jmap-perl` repository ([https://github.com/jmapio/jmap-perl](https://github.com/jmapio/jmap-perl)) provides tests across JMAP Core, Mail, Calendars, and Contacts.
 
@@ -115,7 +134,33 @@ prove -lr t/
 
 ---
 
-## 4. Playwright End-to-End Suite (`e2e/`)
+## 5. CalConnect & Apple `CalDAVTester` (CalDAV & CardDAV Conformance)
+
+`CalDAVTester` ([https://github.com/CalConnect/caldavtester](https://github.com/CalConnect/caldavtester) and [https://github.com/apple/ccs-caldavtester](https://github.com/apple/ccs-caldavtester)) is the industry standard for CalDAV ([RFC 4791](https://www.rfc-editor.org/rfc/rfc4791.html)), CardDAV ([RFC 6352](https://www.rfc-editor.org/rfc/rfc6352.html)), and iCalendar/vCard protocol conformance testing.
+
+### Running CalDAVTester
+```bash
+cd ~/git
+git clone https://github.com/CalConnect/caldavtester.git
+cd caldavtester
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Run test scripts against local DAV endpoint (e.g. port 8444)
+python testcaldav.py -s scripts/tests/caldav.xml
+python testcaldav.py -s scripts/tests/carddav.xml
+```
+
+---
+
+## 6. Cyrus `Cassandane` Torture Test Suite
+
+Cyrus `Cassandane` ([https://github.com/cyrusimap/cassandane](https://github.com/cyrusimap/cassandane)) is an automated integration and protocol test framework used for deep regression testing of IMAP, JMAP, and CalDAV/CardDAV servers under heavy load, edge-case parsing, and concurrency scenarios.
+
+---
+
+## 7. Playwright End-to-End Suite (`e2e/`)
 
 The Bulwark webmail integration tests are located in `e2e/`.
 
