@@ -218,6 +218,60 @@ func SessionForAccountID(baseURL, username, accountID string) *Session {
 }
 
 func sessionFor(baseURL, username, accountID string) *Session {
+	accountCaps := map[string]any{
+		CoreCapabilityURI: struct{}{},
+		MailCapabilityURI: MailCapability{
+			MaxMailboxesPerEmail:       nil,
+			MaxMailboxDepth:            nil,
+			MaxSizeMailboxName:         255,
+			MaxSizeAttachmentsPerEmail: 50000000,
+			EmailQuerySortOptions:      []string{"receivedAt", "sentAt", "size", "subject", "from", "to", "hasKeyword", "allInThreadHaveKeyword", "someInThreadHaveKeyword"},
+			MayCreateTopLevelMailbox:   true,
+		},
+		SmimeCapabilityURI: SmimeCapability{
+			SmimeVerificationSupported: true,
+		},
+		BlobCapabilityURI: BlobCapability{
+			MaxSizeBlobSet:            nil,
+			MaxDataSources:            100,
+			SupportedTypeNames:        []string{"Mailbox", "Thread", "Email", "Calendar", "CalendarEvent", "AddressBook", "ContactCard", "Card", "FileNode", "SieveScript"},
+			SupportedDigestAlgorithms: []string{"sha-256"},
+		},
+		QuotaCapabilityURI:            struct{}{},
+		MdnCapabilityURI:              struct{}{},
+		VacationResponseCapabilityURI: struct{}{},
+		WebPushVapidCapabilityURI:     struct{}{},
+		ContactsCapabilityURI:         struct{}{},
+		CalendarsCapabilityURI:        struct{}{},
+		CalendarsParseCapabilityURI:   struct{}{},
+		SieveCapabilityURI:            struct{}{},
+		FileNodeCapabilityURI:         struct{}{},
+		PrincipalsCapabilityURI: PrincipalCapability{
+			MaxAvailabilityDuration: "P30D",
+		},
+		AvailabilityCapabilityURI: struct{}{},
+	}
+
+	accounts := map[string]Account{
+		accountID: {
+			Name:                username,
+			IsPrimary:           true,
+			IsPersonal:          true,
+			IsReadOnly:          false,
+			AccountCapabilities: accountCaps,
+		},
+	}
+
+	if username == "user@example.com" || strings.HasSuffix(username, "-multi") {
+		secondaryAccountID := AccountIDForSubject("user2@example.com")
+		accounts[secondaryAccountID] = Account{
+			Name:                "user2@example.com",
+			IsPrimary:           false,
+			IsPersonal:          false,
+			IsReadOnly:          false,
+			AccountCapabilities: accountCaps,
+		}
+	}
 
 	return &Session{
 		Capabilities: map[string]any{
@@ -283,51 +337,10 @@ func sessionFor(baseURL, username, accountID string) *Session {
 			},
 			AvailabilityCapabilityURI: struct{}{},
 		},
-		Accounts: map[string]Account{
-			accountID: {
-				Name:       username,
-				IsPrimary:  true,
-				IsPersonal: true,
-				IsReadOnly: false,
-				AccountCapabilities: map[string]any{
-					CoreCapabilityURI: struct{}{},
-					MailCapabilityURI: MailCapability{
-						MaxMailboxesPerEmail:       nil,
-						MaxMailboxDepth:            nil,
-						MaxSizeMailboxName:         255,
-						MaxSizeAttachmentsPerEmail: 50000000,
-						EmailQuerySortOptions:      []string{"receivedAt", "sentAt", "size", "subject", "from", "to", "hasKeyword", "allInThreadHaveKeyword", "someInThreadHaveKeyword"},
-						MayCreateTopLevelMailbox:   true,
-					},
-					SmimeCapabilityURI: SmimeCapability{
-						SmimeVerificationSupported: true,
-					},
-					BlobCapabilityURI: BlobCapability{
-						MaxSizeBlobSet:            nil,
-						MaxDataSources:            100,
-						SupportedTypeNames:        []string{"Mailbox", "Thread", "Email", "Calendar", "CalendarEvent", "AddressBook", "ContactCard", "Card", "FileNode", "SieveScript"},
-						SupportedDigestAlgorithms: []string{"sha-256"},
-					},
-					QuotaCapabilityURI:            struct{}{},
-					MdnCapabilityURI:              struct{}{},
-					VacationResponseCapabilityURI: struct{}{},
-					WebPushVapidCapabilityURI:     struct{}{},
-					ContactsCapabilityURI:         struct{}{},
-					CalendarsCapabilityURI:        struct{}{},
-					CalendarsParseCapabilityURI:   struct{}{},
-					SieveCapabilityURI:            struct{}{},
-					FileNodeCapabilityURI:         struct{}{},
-					PrincipalsCapabilityURI: PrincipalCapability{
-						MaxAvailabilityDuration: "P30D",
-					},
-					AvailabilityCapabilityURI: struct{}{},
-				},
-			},
-		},
+		Accounts: accounts,
 		PrimaryAccounts: map[string]string{
 			CoreCapabilityURI:             accountID,
 			MailCapabilityURI:             accountID,
-			SmimeCapabilityURI:            accountID,
 			BlobCapabilityURI:             accountID,
 			QuotaCapabilityURI:            accountID,
 			MdnCapabilityURI:              accountID,

@@ -25,15 +25,18 @@ func TestRFC8621_Section4_6_EmailCopyRoundTrip(t *testing.T) {
 
 	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}
 
+	srcAccount := jmap.AccountIDForSubject(testUsername)
+	destAccount := jmap.AccountIDForSubject(testUsername + "-secondary")
+
 	// 1. Copy source email to a new destination mailbox with keywords override
 	calls1 := []any{
 		[]any{"Email/copy", map[string]any{
-			"fromAccountId": "primary",
-			"accountId":     "primary",
+			"fromAccountId": srcAccount,
+			"accountId":     destAccount,
 			"create": map[string]any{
 				"copy1": map[string]any{
 					"id":         string(srcEM.ID),
-					"mailboxIds": map[string]bool{"mb-sent": true},
+					"mailboxIds": map[string]bool{"mb-inbox": true},
 					"keywords":   map[string]bool{"$flagged": true},
 				},
 			},
@@ -57,8 +60,8 @@ func TestRFC8621_Section4_6_EmailCopyRoundTrip(t *testing.T) {
 	// 2. Email/copy missing source ID -> notCreated with type notFound
 	calls2 := []any{
 		[]any{"Email/copy", map[string]any{
-			"fromAccountId": "primary",
-			"accountId":     "primary",
+			"fromAccountId": srcAccount,
+			"accountId":     destAccount,
 			"create": map[string]any{
 				"copyBad": map[string]any{
 					"id":         "non-existent-source-id-999",

@@ -1181,14 +1181,21 @@ func handleEmailCopy(backend MailBackend) MethodHandler {
 		createMap, _ := args["create"].(map[string]any)
 		onSuccessDestroy, _ := args["onSuccessDestroyOriginal"].(bool)
 
-		oldState := backend.EmailState(ctx)
+		if fromAccountID == "" || accountID == "" || fromAccountID == accountID {
+			return "error", MethodErrorArgs(MethodErrorInvalidArguments, "fromAccountId and accountId must be present and distinct")
+		}
+
+		fromCtx := ContextWithAccountID(ctx, fromAccountID)
+		destCtx := ContextWithAccountID(ctx, accountID)
+
+		oldState := backend.EmailState(destCtx)
 		created := make(map[string]*Email)
 		notCreated := make(map[string]SetError)
 
 		for clientKey, raw := range createMap {
 			if emData, ok := raw.(map[string]any); ok {
 				if idStr, ok := emData["id"].(string); ok {
-					list, _, _ := backend.GetEmails(ctx, []Id{Id(idStr)})
+					list, _, _ := backend.GetEmails(fromCtx, []Id{Id(idStr)})
 					if len(list) > 0 {
 						cp := *list[0]
 						cp.ID = ""
@@ -1212,11 +1219,11 @@ func handleEmailCopy(backend MailBackend) MethodHandler {
 							}
 						}
 
-						createdEM, err := backend.CreateEmail(ctx, &cp)
+						createdEM, err := backend.CreateEmail(destCtx, &cp)
 						if err == nil {
 							created[clientKey] = createdEM
 							if onSuccessDestroy {
-								_, _ = backend.DeleteEmail(ctx, Id(idStr))
+								_, _ = backend.DeleteEmail(fromCtx, Id(idStr))
 							}
 						} else {
 							notCreated[clientKey] = SetError{Type: "serverFail", Description: err.Error()}
@@ -1224,7 +1231,11 @@ func handleEmailCopy(backend MailBackend) MethodHandler {
 					} else {
 						notCreated[clientKey] = SetError{Type: "notFound", Description: "email not found"}
 					}
+				} else {
+					notCreated[clientKey] = SetError{Type: "invalidProperties", Description: "missing id"}
 				}
+			} else {
+				notCreated[clientKey] = SetError{Type: "invalidProperties", Description: "invalid create entry"}
 			}
 		}
 
@@ -1232,7 +1243,7 @@ func handleEmailCopy(backend MailBackend) MethodHandler {
 			"fromAccountId": fromAccountID,
 			"accountId":     accountID,
 			"oldState":      oldState,
-			"newState":      backend.EmailState(ctx),
+			"newState":      backend.EmailState(destCtx),
 			"created":       created,
 			"notCreated":    notCreated,
 		}

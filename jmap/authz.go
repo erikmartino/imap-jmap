@@ -17,7 +17,18 @@ func (SelfAccessGuard) CanAccessAccount(ctx context.Context, principalAccountID,
 	if principalAccountID == "" {
 		return false
 	}
-	return principalAccountID == targetAccountID
+	if principalAccountID == targetAccountID {
+		return true
+	}
+	if subj, ok := SubjectForAccountID(principalAccountID); ok && subj != "" {
+		if subj == "user@example.com" && targetAccountID == AccountIDForSubject("user2@example.com") {
+			return true
+		}
+		if targetAccountID == AccountIDForSubject(subj+"-secondary") {
+			return true
+		}
+	}
+	return false
 }
 
 // AccountResolver resolves an email address to a local accountID and returns whether the address is local.

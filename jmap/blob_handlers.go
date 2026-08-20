@@ -323,6 +323,10 @@ func handleBlobCopy(backend BlobBackend) MethodHandler {
 		fromAccountID, _ := args["fromAccountId"].(string)
 		accountID, _ := args["accountId"].(string)
 
+		if fromAccountID == "" || accountID == "" || fromAccountID == accountID {
+			return "error", MethodErrorArgs(MethodErrorInvalidArguments, "fromAccountId and accountId must be present and distinct")
+		}
+
 		copied := make(map[string]string)
 		notCopied := make(map[string]any)
 
@@ -340,7 +344,7 @@ func handleBlobCopy(backend BlobBackend) MethodHandler {
 					if blobID, ok := item["blobId"].(string); ok {
 						copiedBlob, err := backend.CopyBlob(ctx, fromAccountID, accountID, blobID)
 						if err != nil {
-							notCopied[clientKey] = SetError{Type: "notFound", Description: "blob not found"}
+							notCopied[clientKey] = SetError{Type: "blobNotFound", Description: "blob not found"}
 						} else {
 							copied[clientKey] = copiedBlob.ID
 						}
@@ -358,7 +362,7 @@ func handleBlobCopy(backend BlobBackend) MethodHandler {
 		for _, blobID := range blobIDs {
 			copiedBlob, err := backend.CopyBlob(ctx, fromAccountID, accountID, blobID)
 			if err != nil {
-				notCopied[blobID] = SetError{Type: "notFound", Description: "blob not found"}
+				notCopied[blobID] = SetError{Type: "blobNotFound", Description: "blob not found"}
 			} else {
 				copied[blobID] = copiedBlob.ID
 			}

@@ -999,9 +999,10 @@ func TestRFC8621_Section4_EmailCopy(t *testing.T) {
 		"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
 		"methodCalls": []any{
 			[]any{"Email/copy", map[string]any{
-				"accountId": "primary",
+				"fromAccountId": jmap.AccountIDForSubject(testUsername + "-secondary"),
+				"accountId":     jmap.AccountIDForSubject(testUsername),
 				"create": map[string]any{
-					"em1": map[string]any{"mailboxIds": map[string]bool{"mb-inbox": true}},
+					"em1": map[string]any{"id": "nonexistent", "mailboxIds": map[string]bool{"mb-inbox": true}},
 				},
 			}, "c1"},
 		},
@@ -1478,13 +1479,13 @@ func TestRFC8621_EmailCopy_SearchSnippet_Sieve_CalendarEvent(t *testing.T) {
 	// 3. Test Email/copy with property overrides and onSuccessDestroyOriginal
 	r2 := post([]any{
 		[]any{"Email/copy", map[string]any{
-			"accountId":                "primary",
-			"fromAccountId":            "primary",
+			"fromAccountId":            jmap.AccountIDForSubject(testUsername),
+			"accountId":                jmap.AccountIDForSubject(testUsername + "-secondary"),
 			"onSuccessDestroyOriginal": true,
 			"create": map[string]any{
 				"cp1": map[string]any{
 					"id":         targetID,
-					"mailboxIds": map[string]bool{"mb-trash": true},
+					"mailboxIds": map[string]bool{"mb-inbox": true},
 				},
 			},
 		}, "c2"},
