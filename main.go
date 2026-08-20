@@ -50,6 +50,11 @@ func main() {
 		defaultHTTPSPort = "8443"
 	}
 
+	defaultSubmissionPort := os.Getenv("SUBMISSION_PORT")
+	if defaultSubmissionPort == "" {
+		defaultSubmissionPort = "587"
+	}
+
 	defaultPrimaryDomain := os.Getenv("PRIMARY_DOMAIN")
 	if defaultPrimaryDomain == "" {
 		defaultPrimaryDomain = "example.com"
@@ -62,6 +67,8 @@ func main() {
 	host := flag.String("host", defaultHost, "HTTP server listening host")
 	smtpPort := flag.String("smtp-port", defaultSMTPPort, "SMTP receiver listening port")
 	smtpHost := flag.String("smtp-host", defaultSMTPHost, "SMTP receiver listening host")
+	submissionPort := flag.String("submission-port", defaultSubmissionPort, "SMTP message submission (RFC 6409) listening port (default 587)")
+	submissionHost := flag.String("submission-host", os.Getenv("SUBMISSION_HOST"), "SMTP message submission listening host (default same as SMTP host)")
 	primaryDomain := flag.String("primary-domain", defaultPrimaryDomain, "Primary email domain for local account resolution")
 	allowedRecipientsStr := flag.String("allowed-recipients", defaultAllowedRecipients, "Comma-separated list of allowed external recipient email addresses")
 	// TLS cert/key files for the HTTPS server. When provided (e.g. an mkcert cert),
@@ -85,6 +92,11 @@ func main() {
 	addr := fmt.Sprintf("%s:%s", *host, *port)
 	httpsAddr := fmt.Sprintf("%s:%s", *host, *httpsPort)
 	smtpAddr := fmt.Sprintf("%s:%s", *smtpHost, *smtpPort)
+	submissionHostStr := *submissionHost
+	if submissionHostStr == "" {
+		submissionHostStr = *smtpHost
+	}
+	submissionAddr := fmt.Sprintf("%s:%s", submissionHostStr, *submissionPort)
 	publicURL := os.Getenv("PUBLIC_URL")
 
 	session := jmap.DefaultSession(publicURL, "user@example.com")
@@ -137,11 +149,32 @@ func main() {
 	memSieveBackend.SetBroadcaster(server.Broadcaster)
 	memFileNodeBackend.SetBroadcaster(server.Broadcaster)
 
-	smtpServer := smtp.NewServer(smtpAddr, memBackend, memBlobBackend, memCalBackend, smtp.WithAccountResolver(accountResolver))
+	smtpServer := smtp.NewServer(smtpAddr, memBackend, memBlobBackend, memCalBackend,
+		smtp.WithAccountResolver(accountResolver),
+		smtp.WithSenderVerifier(smtp.NewSPFDKIMDMARCVerifier()),
+	)
 	go func() {
 		log.Printf("Starting SMTP receiver server on %s", smtpAddr)
 		if err := smtpServer.ListenAndServe(); err != nil {
 			log.Printf("SMTP server stopped: %v", err)
+		}
+	}()
+
+	// RFC 6409 Section 3.1: message submission is a distinct transport (port
+	// 587) that requires SMTP-AUTH (RFC 6409 Section 7) and binds the envelope
+	// sender to the authenticated identity (RFC 6409 Section 6.1). The submission
+	// boundary is trusted (SEC-4) so iTIP scheduling messages from an
+	// authenticated client are applied without DNS sender authentication.
+	submissionServer := smtp.NewServer(submissionAddr, memBackend, memBlobBackend, memCalBackend,
+		smtp.WithAccountResolver(accountResolver),
+		smtp.WithTransportMode(smtp.TransportModeSubmission),
+		smtp.WithAuthenticator(smtp.NewAuthBackendAuthenticator(authBackend)),
+		smtp.WithSenderVerifier(smtp.NewSPFDKIMDMARCVerifier()),
+	)
+	go func() {
+		log.Printf("Starting SMTP submission server on %s (AUTH required)", submissionAddr)
+		if err := submissionServer.ListenAndServe(); err != nil {
+			log.Printf("SMTP submission server stopped: %v", err)
 		}
 	}()
 

@@ -7,14 +7,43 @@ import (
 	"io"
 	"log"
 	"mime"
+	"net"
+	"net/mail"
+	"os"
+	"regexp"
 	"strings"
 	"time"
 
 	gomail "github.com/emersion/go-message/mail"
+	"github.com/emersion/go-sasl"
 	"github.com/emersion/go-smtp"
 
 	"imap-jmap/jmap"
 )
+
+// TransportMode distinguishes the two SMTP transports defined by RFC 6409
+// Section 3.1: the unauthenticated inbound relay path (port 25, MX) and the
+// authenticated message submission path (port 587).
+type TransportMode int
+
+const (
+	// TransportModeMX is the unauthenticated inbound relay transport (RFC 6409
+	// Section 3.1). Messages received on this path MUST be sender-authenticated
+	// (SPF/DKIM/DMARC) before iTIP is auto-applied.
+	TransportModeMX TransportMode = iota
+	// TransportModeSubmission is the authenticated message submission transport
+	// (RFC 6409 Section 3.1, port 587). Clients MUST authenticate (RFC 6409
+	// Section 4.3) and the authenticated identity is trusted on this boundary.
+	TransportModeSubmission
+)
+
+// Authenticator validates SMTP AUTH credentials (RFC 4954) for the submission
+// transport. Authenticate returns the authenticated user's email address when
+// the credentials are valid, ok=false when they are rejected, and an error for
+// a temporary authentication failure.
+type Authenticator interface {
+	Authenticate(ctx context.Context, username, password string) (email string, ok bool, err error)
+}
 
 // ReceiverBackend implements smtp.Backend for receiving emails and storing them into JMAP backends.
 type ReceiverBackend struct {
@@ -23,6 +52,22 @@ type ReceiverBackend struct {
 	CalendarsBackend jmap.CalendarsBackend
 	AccountResolver  jmap.AccountResolver
 	AccountID        string
+	// SenderVerifier authenticates the sender (SPF/DKIM/DMARC, SEC-1) before
+	// iTIP scheduling messages are auto-applied. When nil (development mode)
+	// the authentication gate is skipped; production deployments MUST set a
+	// verifier so unauthenticated messages fail closed and never mutate
+	// calendar state.
+	SenderVerifier SenderVerifier
+	// Mode selects the transport boundary this server is on (RFC 6409
+	// Section 3.1). Defaults to TransportModeMX.
+	Mode TransportMode
+	// Authenticator validates SMTP AUTH credentials on the submission transport.
+	// When nil (development mode) the submission server accepts any credentials.
+	Authenticator Authenticator
+	// AllowInsecureAuth mirrors the go-smtp server setting: when true, AUTH is
+	// permitted without TLS (RFC 4954 Section 9 requires a secure layer for
+	// plaintext password mechanisms unless the site accepts the risk).
+	AllowInsecureAuth bool
 	// ServerName is the receiving host name used in the RFC 5321 Section 4.4
 	// "Received:" trace header prepended to every accepted message.
 	ServerName string
@@ -47,11 +92,17 @@ func NewReceiverBackend(mailBackend jmap.MailBackend, blobBackend jmap.BlobBacke
 // NewSession starts a new SMTP receiving session per connection, capturing the
 // client's HELO name and remote address for the Received trace header.
 func (b *ReceiverBackend) NewSession(c *smtp.Conn) (smtp.Session, error) {
-	s := &Session{backend: b}
+	s := &Session{
+		backend: b,
+		mode:    b.Mode,
+	}
 	if c != nil {
 		s.helo = c.Hostname()
 		if conn := c.Conn(); conn != nil {
 			s.remoteAddr = conn.RemoteAddr().String()
+		}
+		if _, tlsActive := c.TLSConnectionState(); tlsActive {
+			s.tlsActive = true
 		}
 	}
 	return s, nil
@@ -59,22 +110,118 @@ func (b *ReceiverBackend) NewSession(c *smtp.Conn) (smtp.Session, error) {
 
 // Session handles individual SMTP transaction commands (MAIL FROM, RCPT TO, DATA).
 type Session struct {
-	backend    *ReceiverBackend
-	from       string
-	to         []string
-	helo       string
-	remoteAddr string
+	backend         *ReceiverBackend
+	mode            TransportMode
+	from            string
+	to              []string
+	helo            string
+	remoteAddr      string
+	authenticated   bool
+	authenticatedAs string
+	tlsActive       bool
 }
 
-// AuthPlain handles PLAIN authentication (noop / accepts all for receiving server).
+// AuthMechanisms advertises the supported SASL mechanism (RFC 4954 Section 3):
+// PLAIN is mandatory-to-implement (RFC 4954 Section 14). AUTH is appropriate
+// only for the submission protocol (RFC 4954 Section 3), so the unauthenticated
+// inbound MX transport never advertises it. Without an encryption layer the
+// server must not advertise a plaintext password mechanism (RFC 4954
+// Section 9), unless the site has explicitly permitted insecure AUTH.
+func (s *Session) AuthMechanisms() []string {
+	if s.mode != TransportModeSubmission {
+		return nil
+	}
+	if !s.tlsActive && !s.backend.AllowInsecureAuth {
+		return nil
+	}
+	return []string{sasl.Plain}
+}
+
+// Auth starts an AUTH PLAIN exchange (RFC 4954 Section 4). The returned SASL
+// server validates the credentials against the configured Authenticator; a
+// failed exchange is rejected with 535 5.7.8 (invalid credentials) or a
+// 4xx temporary error (RFC 4954 Section 6).
+func (s *Session) Auth(mech string) (sasl.Server, error) {
+	if s.backend.Authenticator == nil {
+		return nil, smtp.ErrAuthUnsupported
+	}
+	if mech != sasl.Plain {
+		return nil, smtp.ErrAuthUnknownMechanism
+	}
+	return sasl.NewPlainServer(func(identity, username, password string) error {
+		email, ok, err := s.backend.Authenticator.Authenticate(context.Background(), username, password)
+		if err != nil {
+			return &smtp.SMTPError{
+				Code:         454,
+				EnhancedCode: smtp.EnhancedCode{4, 7, 0},
+				Message:      "Temporary authentication failure",
+			}
+		}
+		if !ok {
+			return smtp.ErrAuthFailed
+		}
+		s.authenticated = true
+		s.authenticatedAs = email
+		return nil
+	}), nil
+}
+
+// AuthPlain handles PLAIN authentication (RFC 4954). It validates the
+// credentials against the configured Authenticator when one is set; without an
+// authenticator (development mode) it accepts the credentials so local testing
+// and the delivery harness can submit without a credential store.
 func (s *Session) AuthPlain(username, password string) error {
+	if s.backend.Authenticator == nil {
+		return nil
+	}
+	email, ok, err := s.backend.Authenticator.Authenticate(context.Background(), username, password)
+	if err != nil {
+		return &smtp.SMTPError{
+			Code:         454,
+			EnhancedCode: smtp.EnhancedCode{4, 7, 0},
+			Message:      "Temporary authentication failure",
+		}
+	}
+	if !ok {
+		return smtp.ErrAuthFailed
+	}
+	s.authenticated = true
+	s.authenticatedAs = email
 	return nil
+}
+
+// ErrAuthenticationRequired is the RFC 6409 Section 4.3 / RFC 4954 Section 6
+// reply for a command on the submission transport while authentication is not
+// in force: 530 5.7.0. The go-smtp library's ErrAuthRequired uses 502, so the
+// submission transport returns this code explicitly.
+var ErrAuthenticationRequired = &smtp.SMTPError{
+	Code:         530,
+	EnhancedCode: smtp.EnhancedCode{5, 7, 0},
+	Message:      "Authentication required",
 }
 
 // Mail handles MAIL FROM command per RFC 5321.
 func (s *Session) Mail(from string, opts *smtp.MailOptions) error {
+	if s.mode == TransportModeSubmission {
+		// RFC 6409 Section 4.3 (MUST): on the submission transport the server
+		// MUST require authentication before accepting a message, unless it has
+		// independently established authorization (e.g. a protected subnetwork).
+		if !s.authenticated {
+			return ErrAuthenticationRequired
+		}
+		// RFC 6409 Section 6.1 (MAY): reject a MAIL command whose address is not
+		// authorized with the authenticated identity (550 5.7.1). This is how the
+		// submission boundary binds the sender to the authenticated user.
+		if s.authenticatedAs != "" && !emailAddressMatches(from, s.authenticatedAs) {
+			return &smtp.SMTPError{
+				Code:         550,
+				EnhancedCode: smtp.EnhancedCode{5, 7, 1},
+				Message:      fmt.Sprintf("MAIL FROM does not match the authenticated user %s", s.authenticatedAs),
+			}
+		}
+	}
 	s.from = from
-	log.Printf("SMTP receiver: MAIL FROM <%s> from %s (helo=%q)", from, s.remoteAddr, s.helo)
+	log.Printf("SMTP receiver: MAIL FROM <%s> from %s (helo=%q, authenticated=%v)", from, s.remoteAddr, s.helo, s.authenticated)
 	return nil
 }
 
@@ -131,6 +278,20 @@ func (s *Session) Data(r io.Reader) error {
 	log.Printf("SMTP receiver: DATA from %s (helo=%q, envelope from=%q, recipients=%v, size=%d bytes)",
 		s.remoteAddr, s.helo, s.from, s.to, len(data))
 
+	// Keep the message exactly as received for DKIM signature verification:
+	// DKIM signs the received bytes (RFC 6376 Section 6.1), so the server's own
+	// Received: trace header must not be part of what is verified.
+	rawData := data
+
+	// RFC 6409 Section 8.3 (SHOULD): the MSA adds a valid Message-ID field to a
+	// submitted message that lacks one, since a number of clients still do not
+	// generate them. The addition applies only on the submission transport and
+	// only to the stored copy: the bytes that DKIM verifies stay the client's
+	// original bytes.
+	if s.mode == TransportModeSubmission && !hasValidMessageID(data) {
+		data = append([]byte(fmt.Sprintf("Message-ID: <%d.%d@%s>\r\n", time.Now().UnixNano(), os.Getpid(), s.backend.ServerName)), data...)
+	}
+
 	// Prepend an RFC 5321 Section 4.4 trace ("Received:") header. A receiving SMTP
 	// server MUST insert this at the top of the message so delivery is auditable in
 	// the message headers, recording where it came from, the receiving host, and when.
@@ -167,6 +328,11 @@ func (s *Session) Data(r io.Reader) error {
 	// 2. Deliver message copy for each target accountID
 	deliveredAny := false
 	var firstFailure error
+	// SEC-1: sender authentication is evaluated once per message (not once per
+	// recipient account) and cached for the delivery loop.
+	var authChecked bool
+	var authOK bool
+	var authReason string
 	for targetAccountID := range targetAccountIDs {
 		rcptCtx := jmap.ContextWithAccountID(context.Background(), targetAccountID)
 		log.Printf("SMTP receiver: delivering message to account %s", targetAccountID)
@@ -234,6 +400,19 @@ func (s *Session) Data(r io.Reader) error {
 			}
 			msg, err := jmap.ParseITIPMessage(icsBody)
 			if err == nil && msg != nil && msg.UID != "" {
+				// SEC-1 sender authentication gate: SPF/DKIM/DMARC verification is
+				// performed once per message and must pass before any iTIP is
+				// auto-applied. Fail closed: unauthenticated or unverifiable senders
+				// are still delivered to the mailbox but never mutate calendar state.
+				if !authChecked {
+					authChecked = true
+					authOK, authReason = s.checkSenderAuth(rawData)
+				}
+				if !authOK {
+					log.Printf("SMTP receiver: not applying iTIP %s for account %s: %s", msg.Method, targetAccountID, authReason)
+					continue
+				}
+
 				senderClean := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(s.from, "mailto:")))
 
 				if strings.EqualFold(msg.Method, "REPLY") {
@@ -394,6 +573,64 @@ func (s *Session) Data(r io.Reader) error {
 	return nil
 }
 
+// checkSenderAuth enforces the SEC-1 sender authentication gate: an iTIP
+// scheduling message is only auto-applied when its sender is authenticated via
+// SPF/DKIM/DMARC (RFC 7208 / RFC 6376 / RFC 7489). Fail closed: unauthenticated
+// or unverifiable senders never mutate calendar state — the message is still
+// delivered to the mailbox, exactly as a real server delivers it.
+//
+// Local trust exceptions keep local delivery working without DNS validation,
+// mirroring real MTA trusted-network behavior (e.g. Postfix "mynetworks"):
+//   - clients connected via the loopback interface (the server's own outbound
+//     relay, local tooling, and the local delivery harness), and
+//   - envelope senders whose address belongs to a local account of this server
+//     (same-server users scheduling with each other).
+//
+// When no SenderVerifier is configured (development mode) the gate is skipped.
+func (s *Session) checkSenderAuth(raw []byte) (bool, string) {
+	if s.backend.SenderVerifier == nil {
+		return true, "no sender verifier configured (development mode)"
+	}
+	// Transport-boundary trust (SEC-4): on the authenticated submission channel
+	// the authenticated user IS the sender, established by RFC 4954 AUTH at the
+	// transport layer (RFC 6409 Section 4.3). No SPF/DKIM/DMARC lookup is needed
+	// on this boundary because the server authenticated the client directly.
+	if s.mode == TransportModeSubmission && s.authenticated {
+		return true, fmt.Sprintf("authenticated submission user %q (transport-boundary trust)", s.authenticatedAs)
+	}
+	if ip := remoteIP(s.remoteAddr); ip != nil && ip.IsLoopback() {
+		return true, "locally trusted client (loopback)"
+	}
+	if s.from != "" && s.backend.AccountResolver != nil {
+		if _, local := s.backend.AccountResolver.ResolveAccountID(context.Background(), s.from); local {
+			return true, fmt.Sprintf("locally trusted sender %q (local account)", s.from)
+		}
+	}
+	res, err := s.backend.SenderVerifier.Verify(context.Background(), &MessageToVerify{
+		RawMessage:   raw,
+		EnvelopeFrom: s.from,
+		ClientIP:     remoteIP(s.remoteAddr),
+		HeloName:     s.helo,
+	})
+	if err != nil {
+		return false, "sender verification error: " + err.Error()
+	}
+	if !res.AuthAuthenticated {
+		return false, res.Reason
+	}
+	return true, res.Reason
+}
+
+// remoteIP parses the "ip:port" remote address of a session into the client's
+// IP address, returning nil when it cannot be parsed.
+func remoteIP(remoteAddr string) net.IP {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		return nil
+	}
+	return net.ParseIP(host)
+}
+
 // extractCalendarBody returns the decoded body of the message's text/calendar MIME part
 // (RFC 6047 Section 2.4), using a real MIME reader that also decodes any
 // Content-Transfer-Encoding (base64 / quoted-printable). Only a genuine text/calendar
@@ -547,7 +784,8 @@ func (s *Session) findEventByUID(ctx context.Context, uid string) *jmap.Calendar
 // buildReceivedHeader constructs an RFC 5321 Section 4.4 / RFC 5322 Section 3.6.7
 // "Received:" trace header for the current transaction, recording the client (HELO
 // name and remote address), the receiving host, a delivery id, the envelope
-// recipient, and the receipt time.
+// recipient, and the receipt time. When the session was authenticated the
+// "with" clause is ESMTPA (ESMTPSA over TLS) per RFC 4954 Section 7.
 func (s *Session) buildReceivedHeader() string {
 	from := s.helo
 	if from == "" {
@@ -561,13 +799,52 @@ func (s *Session) buildReceivedHeader() string {
 	if by == "" {
 		by = "localhost"
 	}
+	with := "ESMTP"
+	if s.authenticated {
+		if s.tlsActive {
+			with = "ESMTPSA"
+		} else {
+			with = "ESMTPA"
+		}
+	}
 	now := time.Now().UTC()
 	forClause := ""
 	if len(s.to) > 0 {
 		forClause = fmt.Sprintf("\r\n\tfor <%s>", s.to[0])
 	}
-	return fmt.Sprintf("Received: from %s (%s)\r\n\tby %s with ESMTP id %d%s;\r\n\t%s\r\n",
-		from, remote, by, now.UnixNano(), forClause, now.Format(time.RFC1123Z))
+	return fmt.Sprintf("Received: from %s (%s)\r\n\tby %s with %s id %d%s;\r\n\t%s\r\n",
+		from, remote, by, with, now.UnixNano(), forClause, now.Format(time.RFC1123Z))
+}
+
+// msgIDRe matches the RFC 5322 Section 3.6.4 msg-id ABNF (id-left "@" id-right
+// wrapped in angle brackets) without whitespace, used to decide whether a
+// submitted message already carries a valid Message-ID (RFC 6409 Section 8.3).
+var msgIDRe = regexp.MustCompile(`^<[^<>@\s]+@[^<>@\s]+>$`)
+
+// hasValidMessageID reports whether the message carries a Message-ID header
+// field whose value conforms to the RFC 5322 Section 3.6.4 msg-id syntax.
+func hasValidMessageID(data []byte) bool {
+	msg, err := mail.ReadMessage(bytes.NewReader(data))
+	if err != nil {
+		return false
+	}
+	v := strings.TrimSpace(msg.Header.Get("Message-ID"))
+	return v != "" && msgIDRe.MatchString(v)
+}
+
+// emailAddressMatches reports whether the envelope sender address matches the
+// authenticated identity (RFC 6409 Section 6.1). The local part is compared
+// case-sensitively and the domain case-insensitively per RFC 5321 Section 2.4.
+func emailAddressMatches(from, authenticatedAs string) bool {
+	if from == "" || authenticatedAs == "" {
+		return false
+	}
+	fromLocal, fromDomain, okFrom := strings.Cut(from, "@")
+	authLocal, authDomain, okAuth := strings.Cut(authenticatedAs, "@")
+	if !okFrom || !okAuth {
+		return false
+	}
+	return fromLocal == authLocal && strings.EqualFold(fromDomain, authDomain)
 }
 
 // Reset clears transaction state (RSET command).

@@ -8,16 +8,24 @@
 
 ## Open Tasks
 
-### 1. iMIP / iTIP Mail-Path Security Hardening
-Inbound scheduling messages (iTIP over iMIP processed by the SMTP receiver) require robust sender verification and authentication boundaries to prevent spoofing and state corruption (RFC 6047, RFC 5546, draft-ietf-jmap-calendars-27).
-
-- [ ] **SEC-1 — Sender Authentication**: Verify SPF ([RFC 7208](https://www.rfc-editor.org/rfc/rfc7208)), DKIM ([RFC 6376](https://www.rfc-editor.org/rfc/rfc6376)), and DMARC ([RFC 7489](https://www.rfc-editor.org/rfc/rfc7489)) on received messages before any iTIP is auto-applied. Fail closed: unauthenticated messages MUST NOT mutate calendar state (deliver to mailbox only, or reject).
-- [ ] **SEC-4 — Real SMTP Auth Boundary**: Separate unauthenticated inbound MX transport from authenticated submission ([RFC 6409](https://www.rfc-editor.org/rfc/rfc6409) / [RFC 4954](https://www.rfc-editor.org/rfc/rfc4954)), and gate scheduling trust on the transport boundary.
-
-### 2. Authentication & Deployment (OIDC / Keycloak)
+### 1. Authentication & Deployment (OIDC / Keycloak)
 Production deployment (`jmap.profundo.dk`) transition from development in-memory auth to Keycloak OIDC authentication.
 
 - [ ] **AUTH-2 — Retire `password == email` in Production**: Remove or disable the fallback in-memory credential path from production environments so plain password matches are rejected when OIDC is active.
+
+### 2. External Conformance Test Suites Verification
+Track and continuously execute all verified external test suites against the server:
+
+- [ ] **`jmapio/jscontact-tests` (Python)**: Ingest/run JSContact Card ([RFC 9553](https://www.rfc-editor.org/rfc/rfc9553.html)) and vCard conversion test cases against server endpoints.
+- [ ] **MIME Torture Test Suite**: Run standard W3C / MHonArc deeply nested/malformed MIME test fixtures against `Email/parse` and inbound SMTP.
+
+---
+
+## Completed
+- **SEC-1 — Sender Authentication**: SPF/DKIM/DMARC verification gates iTIP auto-apply; unauthenticated messages fail closed (delivered to mailbox only).
+- **SEC-4 — Real SMTP Auth Boundary**: Unauthenticated inbound MX transport separated from authenticated submission (RFC 6409 / RFC 4954); scheduling trust gated on the transport boundary.
+- **Fastmail `JMAP-TestSuite` (Perl)**: 89/89 test files PASS (Core RFC 8620, Mail RFC 8621, WebSockets RFC 8887).
+- **TypeScript `jmap-test-suite` (Node.js)**: 309/309 tests PASS (Core, Mail, Multi-account, EventSource, Push, Submissions, Quotas).
 
 ---
 

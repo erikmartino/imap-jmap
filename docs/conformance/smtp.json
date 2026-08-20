@@ -1,5 +1,61 @@
 [
   {
+    "spec": "RFC4954",
+    "section": "3",
+    "level": "MUST",
+    "text": "The EHLO keyword value associated with this extension is AUTH, and the AUTH EHLO keyword contains as a parameter a space-separated list of the names of available SASL mechanisms.",
+    "tests": ["TestRFC4954_SMTPAuthOverWire"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC4954",
+    "section": "3",
+    "level": "MUST",
+    "text": "The AUTH extension is appropriate for the submission protocol, not for the unauthenticated inbound MX relay path.",
+    "tests": ["TestRFC6409_MXServerDoesNotAdvertiseAUTH"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC4954",
+    "section": "4",
+    "level": "MUST",
+    "text": "Should the client successfully complete the exchange, the SMTP server issues a 235 reply.",
+    "tests": ["TestRFC4954_SMTPAuthOverWire"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC4954",
+    "section": "6",
+    "level": "SHOULD",
+    "text": "530 5.7.0 Authentication required: this response SHOULD be returned by any command other than AUTH, EHLO, HELO, NOOP, RSET, or QUIT when server policy requires authentication in order to perform the requested action and authentication is not currently in force.",
+    "tests": ["TestRFC6409_SubmissionRequiresAuthentication", "TestRFC6409_SubmissionRequiresAuthenticationOverWire"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC4954",
+    "section": "6",
+    "level": "SHOULD",
+    "text": "535 5.7.8 Authentication credentials invalid: the authentication failed due to invalid or insufficient authentication credentials.",
+    "tests": ["TestRFC4954_AuthFailureOverWire", "TestRFC4954_AuthPlainInvalidCredentialsRejected"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC4954",
+    "section": "7",
+    "level": "SHOULD",
+    "text": "Upon successful authentication, a server SHOULD use the ESMTPA or the ESMTPSA (when appropriate) keyword in the with clause of the Received header field.",
+    "tests": ["TestRFC4954_ReceivedWithClauseESMTPA", "TestRFC6409_SubmissionDeliversMessageWithESMTPAReceived"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC4954",
+    "section": "9",
+    "level": "MUST",
+    "text": "If an implementation supports SASL mechanisms that are vulnerable to passive eavesdropping attacks (such as PLAIN), then the implementation MUST support at least one configuration where these SASL mechanisms are not advertised or used without the presence of an external security layer such as TLS.",
+    "tests": ["TestRFC4954_NoInsecureAuthConfigurationOverWire", "TestRFC4954_PlainMechanismOnlyWithSecureLayer"],
+    "status": "covered"
+  },
+  {
     "spec": "RFC5321",
     "section": "3.4",
     "level": "MUST",
@@ -39,11 +95,99 @@
     "tests": ["TestRFC6047_InboundReplyUpdatesParticipationStatus"],
     "status": "covered"
   },
+{
+    "spec": "RFC6047",
+    "section": "2.2.2",
+    "level": "MUST",
+    "text": "Authentication gate: without a configured SenderVerifier (development mode) the gate is skipped.",
+    "tests": ["TestCheckSenderAuth_NoVerifierDevelopmentMode"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC6047",
+    "section": "2.2.2",
+    "level": "MUST",
+    "text": "Local trust exception: loopback clients are trusted without SPF/DKIM/DMARC validation so local delivery works.",
+    "tests": ["TestCheckSenderAuth_LoopbackClientTrusted", "TestRFC6047_SenderAuth_LocalDeliveryWorksWithoutValidation"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC6047",
+    "section": "2.2.2",
+    "level": "MUST",
+    "text": "Local trust exception: envelope senders that are local accounts of this server are trusted without DNS validation.",
+    "tests": ["TestCheckSenderAuth_LocalAccountSenderTrusted"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC6047",
+    "section": "2.2.2",
+    "level": "MUST",
+    "text": "Unauthenticated messages may not be trusted: verification errors fail closed.",
+    "tests": ["TestCheckSenderAuth_VerifierErrorFailsClosed"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC6047",
+    "section": "2.2.2",
+    "level": "MUST",
+    "text": "Authenticated sender passes the gate and the iTIP REPLY is applied.",
+    "tests": ["TestRFC6047_SenderAuth_DMARCOrgDomainDiscoveryApplies", "TestRFC6047_SenderAuth_SPFPassAppliesREPLY"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC6047",
+    "section": "2.2.2",
+    "level": "MUST",
+    "text": "Unauthenticated messages may not be trusted: the message is delivered to the mailbox but never mutates calendar state.",
+    "tests": ["TestRFC6047_SenderAuth_DMARCPolicyRejectBlocks", "TestRFC6047_SenderAuth_SPFFailNoMutation"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC6047",
+    "section": "2.2.2",
+    "level": "MUST",
+    "text": "Authenticated sender passes the gate and the iTIP REQUEST is imported.",
+    "tests": ["TestRFC6047_SenderAuth_DKIMPassImportsREQUEST"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC6047",
+    "section": "2.2.2",
+    "level": "MUST",
+    "text": "Unauthenticated messages may not be trusted: absence of SPF, DKIM and DMARC information fails closed.",
+    "tests": ["TestRFC6047_SenderAuth_NoAuthInfoFailClosed", "TestVerify_FailClosedWithEmptyDNS"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC6047",
+    "section": "2.2.2",
+    "level": "MUST",
+    "text": "Unauthenticated messages may not be trusted: DNS errors fail closed.",
+    "tests": ["TestRFC6047_SenderAuth_DNSTimeoutFailClosed"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC6047",
+    "section": "2.2.2",
+    "level": "MUST",
+    "text": "Transport-boundary trust: an iTIP message submitted by an RFC 4954 authenticated client on the submission transport is applied without DNS sender authentication.",
+    "tests": ["TestSenderAuth_AuthenticatedSubmissionTrusted"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC6047",
+    "section": "2.2.2",
+    "level": "MUST",
+    "text": "Unauthenticated messages may not be trusted: the same message on the MX transport is blocked because the sender cannot be verified.",
+    "tests": ["TestSenderAuth_MXBoundaryDoesNotTrustEnvelope"],
+    "status": "covered"
+  },
   {
     "spec": "RFC6047",
     "section": "2.4",
     "level": "MUST",
-    "text": "A received text/calendar body part with method=REPLY is processed as an iTIP scheduling response.",
+    "text": "A received text/calendar body with method=REPLY is processed as an iTIP scheduling response.",
     "tests": ["TestRFC6047_InboundReplyUpdatesParticipationStatus"],
     "status": "covered"
   },
@@ -53,6 +197,126 @@
     "level": "MUST",
     "text": "The text/calendar part is located and decoded via a MIME parser (honouring Content-Transfer-Encoding), not raw byte scanning.",
     "tests": ["TestRFC6047_InboundRequestFullFidelityMultipart"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC6047",
+    "section": "3",
+    "level": "MUST",
+    "text": "Security Considerations: the originator of an iCalendar object must be authenticated by a recipient.",
+    "tests": ["TestCheckSenderAuth_ExternalSenderVerified"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC6376",
+    "section": "6.1",
+    "level": "MUST",
+    "text": "Every DKIM-Signature header field of the message is verified; a verified signature authenticates the message.",
+    "tests": ["TestRFC6047_SenderAuth_DKIMPassImportsREQUEST"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC6409",
+    "section": "3.1",
+    "level": "MUST",
+    "text": "Port 587 is reserved for email message submission as specified in this document. Messages received on this port are defined to be submissions. The protocol used is ESMTP, with additional restrictions or allowances as specified here.",
+    "tests": ["TestRFC6409_SubmissionRequiresAuthenticationOverWire"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC6409",
+    "section": "4.3",
+    "level": "MUST",
+    "text": "The MSA MUST, by default, issue an error response to the MAIL command if the session has not been authenticated using SMTP-AUTH, unless it has already independently established authentication or authorization (such as being within a protected subnetwork).",
+    "tests": ["TestRFC6409_SubmissionRequiresAuthentication", "TestRFC6409_SubmissionRequiresAuthenticationOverWire"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC6409",
+    "section": "6.1",
+    "level": "MAY",
+    "text": "The MSA MAY issue an error response to a MAIL command if the address in MAIL FROM appears to have insufficient submission rights or is not authorized with the authentication used (if the session has been authenticated). Reply code 550 with an appropriate enhanced status code, such as 5.7.1, is used for this purpose.",
+    "tests": ["TestRFC6409_SubmissionSenderMustMatchAuthenticatedIdentity", "TestRFC6409_SubmissionSenderMustMatchAuthenticatedUserOverWire"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC6409",
+    "section": "6.2",
+    "level": "MAY",
+    "text": "The MSA MAY issue an error response to a RCPT command if inconsistent with the permissions given to the user (if the session has been authenticated). Reply code 550 with an appropriate enhanced status code, such as 5.7.1, is used for this purpose.",
+    "tests": ["TestRFC6409_SubmissionRcptPermissions"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC6409",
+    "section": "8.3",
+    "level": "SHOULD",
+    "text": "The MSA SHOULD add or replace the Message-ID field, if it lacks it, or it is not valid syntax.",
+    "tests": ["TestRFC6409_SubmissionAddsMessageID", "TestRFC6409_SubmissionDeliversMessageWithESMTPAReceived"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC7208",
+    "section": "2.6.3",
+    "level": "MUST",
+    "text": "A 'pass' result is an explicit statement that the client is authorized to inject mail with the given identity.",
+    "tests": ["TestRFC6047_SenderAuth_SPFPassAppliesREPLY"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC7208",
+    "section": "2.6.4",
+    "level": "MUST",
+    "text": "A 'fail' result is an explicit statement that the client is not authorized to use the domain in the given identity.",
+    "tests": ["TestRFC6047_SenderAuth_SPFFailNoMutation"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC7208",
+    "section": "4.6.4",
+    "level": "MUST",
+    "text": "Check Host() when a DNS error occurs: results other than 'domain does not exist' yield 'temperror'.",
+    "tests": ["TestRFC6047_SenderAuth_DNSTimeoutFailClosed"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC7489",
+    "section": "3.1",
+    "level": "MUST",
+    "text": "Identifier Alignment: strict mode requires an exact FQDN match; relaxed mode compares Organizational Domains.",
+    "tests": ["TestAligned_StrictAndRelaxedModes", "TestRFC6047_SenderAuth_DMARCOrgDomainDiscoveryApplies"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC7489",
+    "section": "3.2",
+    "level": "MUST",
+    "text": "Organizational Domain heuristic: the registered domain is the last two DNS labels.",
+    "tests": ["TestOrganizationalDomain_Heuristic"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC7489",
+    "section": "6.6.1",
+    "level": "MUST",
+    "text": "Extract Author Domain: messages without a usable RFC5322.From domain are not processed.",
+    "tests": ["TestExtractFromDomain_FailClosedCases"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC7489",
+    "section": "6.6.2",
+    "level": "MUST",
+    "text": "Step 5: if no Authenticated Identifier aligns with the RFC5322.From domain, the message fails the DMARC check.",
+    "tests": ["TestRFC6047_SenderAuth_DMARCPolicyRejectBlocks"],
+    "status": "covered"
+  },
+  {
+    "spec": "RFC7489",
+    "section": "6.6.3",
+    "level": "MUST",
+    "text": "Policy Discovery: when no record exists at the RFC5322.From domain, the DMARC record at the Organizational Domain is used.",
+    "tests": ["TestRFC6047_SenderAuth_DMARCOrgDomainDiscoveryApplies"],
     "status": "covered"
   }
 ]
