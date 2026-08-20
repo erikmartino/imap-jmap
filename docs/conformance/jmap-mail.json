@@ -32,6 +32,14 @@
     "status": "covered"
   },
   {
+    "spec": "RFC8620",
+    "section": "8.2",
+    "level": "MUST",
+    "text": "Credential authentication must fail closed: when no credential backend is configured, a plain username == password match MUST NOT be accepted.",
+    "tests": ["TestRFC8620_Auth_OIDCRejectsCredentialsWithoutFallback"],
+    "status": "covered"
+  },
+  {
     "spec": "RFC8621",
     "section": "2.1",
     "level": "MUST",

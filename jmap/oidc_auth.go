@@ -62,24 +62,29 @@ func NewOIDCAuthBackend(cfg OIDCConfig) (*OIDCAuthBackend, error) {
 	}, nil
 }
 
+// Authenticate validates username/password credentials. The OIDC backend
+// itself never accepts passwords: it authenticates via JWT tokens issued by the
+// identity provider. Credentials are only honored when a fallback backend
+// (e.g. MemoryAuthBackend for development) is explicitly configured; without
+// one, every credential attempt fails closed rather than accepting the
+// development "username == password" convention in a production OIDC
+// deployment (AUTH-2).
 func (o *OIDCAuthBackend) Authenticate(ctx context.Context, username, password string) (string, error) {
 	if o.fallbackBackend != nil {
 		return o.fallbackBackend.Authenticate(ctx, username, password)
 	}
-	if username == "" || username != password {
-		return "", errors.New("invalid credentials")
-	}
-	return AccountIDForSubject(username), nil
+	return "", errors.New("credentials are not accepted when no credential backend is configured; use an OIDC access token")
 }
 
+// ValidateCredentials verifies username/password credentials (HTTP Basic
+// authentication). Like Authenticate, it fails closed when no credential
+// backend is configured: plain "username == password" matches MUST NOT be
+// accepted in production (AUTH-2).
 func (o *OIDCAuthBackend) ValidateCredentials(ctx context.Context, username, password string) (string, error) {
 	if o.fallbackBackend != nil {
 		return o.fallbackBackend.ValidateCredentials(ctx, username, password)
 	}
-	if username == "" || username != password {
-		return "", errors.New("invalid credentials")
-	}
-	return AccountIDForSubject(username), nil
+	return "", errors.New("credentials are not accepted when no credential backend is configured; use an OIDC access token")
 }
 
 func (o *OIDCAuthBackend) ValidateToken(ctx context.Context, token string) (string, string, error) {

@@ -11,6 +11,7 @@ import (
 
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/memory"
+	"imap-jmap/jmap/spectest"
 
 	"github.com/coder/websocket"
 )
@@ -389,6 +390,86 @@ func TestRFC8620_PermissionGuard_Dispatch(t *testing.T) {
 	errType, _ := res3.MethodResponses[0].Args["type"].(string)
 	if errType != "accountNotFound" {
 		t.Errorf("Expected accountNotFound method error, got %q", errType)
+	}
+}
+
+// TestRFC8620_Auth_OIDCRejectsCredentialsWithoutFallback is the AUTH-2 gate:
+// with OIDC active and no credential fallback configured, plain username ==
+// password matches MUST be rejected (fail closed) rather than accepted through
+// the development credential path.
+func TestRFC8620_Auth_OIDCRejectsCredentialsWithoutFallback(t *testing.T) {
+	spectest.Require(t, "RFC8620", "8.2", spectest.MUST,
+		"Credential authentication must fail closed: when no credential backend is configured, a plain username == password match MUST NOT be accepted.")
+
+	oidcBackend, err := jmap.NewOIDCAuthBackend(jmap.OIDCConfig{Issuer: "https://auth.example.com"})
+	if err != nil {
+		t.Fatalf("NewOIDCAuthBackend: %v", err)
+	}
+	ctx := context.Background()
+
+	// Even credentials that equal the username must be rejected.
+	if _, err := oidcBackend.Authenticate(ctx, "alice@example.com", "alice@example.com"); err == nil {
+		t.Fatalf("Authenticate must reject username==password when no fallback is configured")
+	}
+	if _, err := oidcBackend.ValidateCredentials(ctx, "alice@example.com", "alice@example.com"); err == nil {
+		t.Fatalf("ValidateCredentials must reject username==password when no fallback is configured")
+	}
+
+	// Basic authentication through the HTTP middleware must 401.
+	srv := newTestServer(jmap.WithAuthBackend(oidcBackend))
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("GET", ts.URL+"/.well-known/jmap", nil)
+	req.SetBasicAuth("alice@example.com", "alice@example.com")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("Basic auth with password==email must 401 on a fallback-less OIDC backend, got %d", resp.StatusCode)
+	}
+
+	// Login (credential exchange) must fail too.
+	loginBody, _ := json.Marshal(map[string]string{"username": "alice@example.com", "password": "alice@example.com"})
+	loginResp, err := http.Post(ts.URL+"/jmap/login", "application/json", bytes.NewReader(loginBody))
+	if err != nil {
+		t.Fatalf("POST /jmap/login failed: %v", err)
+	}
+	defer loginResp.Body.Close()
+	if loginResp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("login with password==email must 401 on a fallback-less OIDC backend, got %d", loginResp.StatusCode)
+	}
+}
+
+// TestRFC8620_Auth_OIDCDelegatesCredentialsToFallback preserves the development
+// behavior: an explicitly configured fallback backend (e.g. MemoryAuthBackend)
+// still accepts its credentials so local development and the test harness work.
+func TestRFC8620_Auth_OIDCDelegatesCredentialsToFallback(t *testing.T) {
+	fallback := memory.NewMemoryAuthBackend()
+	oidcBackend, err := jmap.NewOIDCAuthBackend(jmap.OIDCConfig{
+		Issuer:          "https://auth.example.com",
+		FallbackBackend: fallback,
+	})
+	if err != nil {
+		t.Fatalf("NewOIDCAuthBackend: %v", err)
+	}
+	ctx := context.Background()
+
+	id, err := oidcBackend.ValidateCredentials(ctx, "alice@example.com", "alice@example.com")
+	if err != nil {
+		t.Fatalf("ValidateCredentials with explicit fallback: %v", err)
+	}
+	if id != jmap.AccountIDForSubject("alice@example.com") {
+		t.Fatalf("expected accountID %q, got %q", jmap.AccountIDForSubject("alice@example.com"), id)
+	}
+	token, err := oidcBackend.Authenticate(ctx, "bob@example.com", "bob@example.com")
+	if err != nil {
+		t.Fatalf("Authenticate with explicit fallback: %v", err)
+	}
+	if token == "" {
+		t.Fatalf("expected a token from the fallback backend")
 	}
 }
 

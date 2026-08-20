@@ -112,15 +112,25 @@ func main() {
 
 	var authBackend jmap.AuthBackend = devAuthBackend
 	if *oidcIssuer != "" {
+		var oidcFallback jmap.AuthBackend
+		// AUTH-2: the in-memory "password == email" credential path MUST NOT leak
+		// into a production OIDC deployment. It is only attached as the OIDC
+		// credential fallback when explicitly requested via AUTH_DEV_FALLBACK=true;
+		// by default the OIDC backend accepts tokens only and rejects every
+		// username/password attempt (failing closed).
+		if strings.EqualFold(os.Getenv("AUTH_DEV_FALLBACK"), "true") {
+			oidcFallback = devAuthBackend
+			log.Printf("WARNING: AUTH_DEV_FALLBACK=true — development username==password credentials are enabled alongside OIDC. Do not use in production.")
+		}
 		oidcBackend, err := jmap.NewOIDCAuthBackend(jmap.OIDCConfig{
 			Issuer:          *oidcIssuer,
 			JWKSURL:         *oidcJWKSURL,
-			FallbackBackend: devAuthBackend,
+			FallbackBackend: oidcFallback,
 		})
 		if err != nil {
 			log.Fatalf("Failed to initialize OIDCAuthBackend: %v", err)
 		}
-		log.Printf("OIDC authentication enabled with issuer %s", *oidcIssuer)
+		log.Printf("OIDC authentication enabled with issuer %s (dev credential fallback: %t)", *oidcIssuer, oidcFallback != nil)
 		authBackend = oidcBackend
 	}
 

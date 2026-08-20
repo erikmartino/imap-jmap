@@ -8,12 +8,7 @@
 
 ## Open Tasks
 
-### 1. Authentication & Deployment (OIDC / Keycloak)
-Production deployment (`jmap.profundo.dk`) transition from development in-memory auth to Keycloak OIDC authentication.
-
-- [ ] **AUTH-2 — Retire `password == email` in Production**: Remove or disable the fallback in-memory credential path from production environments so plain password matches are rejected when OIDC is active.
-
-### 2. External Conformance Test Suites Verification
+### 1. External Conformance Test Suites Verification
 Track and continuously execute all verified external test suites against the server:
 
 - [ ] **`jmapio/jscontact-tests` (Python)**: Ingest/run JSContact Card ([RFC 9553](https://www.rfc-editor.org/rfc/rfc9553.html)) and vCard conversion test cases against server endpoints.
@@ -22,6 +17,7 @@ Track and continuously execute all verified external test suites against the ser
 ---
 
 ## Completed
+- **AUTH-2 — Retire `password == email` in Production**: The OIDC backend now fails closed (rejects all credential attempts) unless an explicit `AUTH_DEV_FALLBACK=true` attaches the in-memory dev credential backend.
 - **SEC-1 — Sender Authentication**: SPF/DKIM/DMARC verification gates iTIP auto-apply; unauthenticated messages fail closed (delivered to mailbox only).
 - **SEC-4 — Real SMTP Auth Boundary**: Unauthenticated inbound MX transport separated from authenticated submission (RFC 6409 / RFC 4954); scheduling trust gated on the transport boundary.
 - **Fastmail `JMAP-TestSuite` (Perl)**: 89/89 test files PASS (Core RFC 8620, Mail RFC 8621, WebSockets RFC 8887).
