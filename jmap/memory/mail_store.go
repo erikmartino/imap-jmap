@@ -154,38 +154,39 @@ func newMemoryUserStore(accountID string) *userMailStore {
 	}
 	us.identities[defaultIdentity.ID] = defaultIdentity
 
+	sentRole := jmap.RoleSent
+	trashRole := jmap.RoleTrash
+	draftsRole := jmap.RoleDrafts
+	junkRole := jmap.RoleJunk
+	archiveRole := jmap.RoleArchive
+	defaultMailboxes := []*jmap.Mailbox{
+		{
+			ID: "mb-sent", Name: "Sent", Role: &sentRole, SortOrder: 20, IsSubscribed: true,
+			MyRights: jmap.MailboxRights{MayReadItems: true, MayAddItems: true, MayRemoveItems: true, MaySetSeen: true, MaySetKeywords: true, MayCreateChild: true, MayAdmin: true},
+		},
+		{
+			ID: "mb-drafts", Name: "Drafts", Role: &draftsRole, SortOrder: 30, IsSubscribed: true,
+			MyRights: jmap.MailboxRights{MayReadItems: true, MayAddItems: true, MayRemoveItems: true, MaySetSeen: true, MaySetKeywords: true, MayCreateChild: true, MayAdmin: true},
+		},
+		{
+			ID: "mb-junk", Name: "Junk", Role: &junkRole, SortOrder: 40, IsSubscribed: true,
+			MyRights: jmap.MailboxRights{MayReadItems: true, MayAddItems: true, MayRemoveItems: true, MaySetSeen: true, MaySetKeywords: true, MayCreateChild: true, MayAdmin: true},
+		},
+		{
+			ID: "mb-trash", Name: "Trash", Role: &trashRole, SortOrder: 50, IsSubscribed: true,
+			MyRights: jmap.MailboxRights{MayReadItems: true, MayAddItems: true, MayRemoveItems: true, MaySetSeen: true, MaySetKeywords: true, MayCreateChild: true, MayAdmin: true},
+		},
+		{
+			ID: "mb-archive", Name: "Archive", Role: &archiveRole, SortOrder: 60, IsSubscribed: true,
+			MyRights: jmap.MailboxRights{MayReadItems: true, MayAddItems: true, MayRemoveItems: true, MaySetSeen: true, MaySetKeywords: true, MayCreateChild: true, MayAdmin: true},
+		},
+	}
+	for _, mb := range defaultMailboxes {
+		us.mailboxes[mb.ID] = mb
+	}
+
 	isDefaultUser := accountID == "" || accountID == jmap.AccountIDForSubject("user@example.com")
 	if isDefaultUser {
-		sentRole := "sent"
-		trashRole := "trash"
-		draftsRole := "drafts"
-		junkRole := "junk"
-		archiveRole := "archive"
-		defaultMailboxes := []*jmap.Mailbox{
-			{
-				ID: "mb-sent", Name: "Sent", Role: &sentRole, SortOrder: 20, IsSubscribed: true,
-				MyRights: jmap.MailboxRights{MayReadItems: true, MayAddItems: true, MayRemoveItems: true, MaySetSeen: true, MaySetKeywords: true, MayCreateChild: true, MayAdmin: true},
-			},
-			{
-				ID: "mb-trash", Name: "Trash", Role: &trashRole, SortOrder: 50, IsSubscribed: true,
-				MyRights: jmap.MailboxRights{MayReadItems: true, MayAddItems: true, MayRemoveItems: true, MaySetSeen: true, MaySetKeywords: true, MayCreateChild: true, MayAdmin: true},
-			},
-			{
-				ID: "mb-drafts", Name: "Drafts", Role: &draftsRole, SortOrder: 30, IsSubscribed: true,
-				MyRights: jmap.MailboxRights{MayReadItems: true, MayAddItems: true, MayRemoveItems: true, MaySetSeen: true, MaySetKeywords: true, MayCreateChild: true, MayAdmin: true},
-			},
-			{
-				ID: "mb-junk", Name: "Junk", Role: &junkRole, SortOrder: 40, IsSubscribed: true,
-				MyRights: jmap.MailboxRights{MayReadItems: true, MayAddItems: true, MayRemoveItems: true, MaySetSeen: true, MaySetKeywords: true, MayCreateChild: true, MayAdmin: true},
-			},
-			{
-				ID: "mb-archive", Name: "Archive", Role: &archiveRole, SortOrder: 60, IsSubscribed: true,
-				MyRights: jmap.MailboxRights{MayReadItems: true, MayAddItems: true, MayRemoveItems: true, MaySetSeen: true, MaySetKeywords: true, MayCreateChild: true, MayAdmin: true},
-			},
-		}
-		for _, mb := range defaultMailboxes {
-			us.mailboxes[mb.ID] = mb
-		}
 
 		p1 := "1"
 		s1 := "2026-08-01T11:59:00Z"

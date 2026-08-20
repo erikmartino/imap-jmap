@@ -229,6 +229,7 @@ func SeedAccountSampleData(ctx context.Context, accountID string, mb jmap.MailBa
 	}
 
 	if mb != nil {
+		seedStandardMailboxes(accountCtx, mb)
 		emails, _ := mb.GetAllEmails(accountCtx)
 		if len(emails) == 0 {
 			p1 := "1"
@@ -386,5 +387,43 @@ func SeedAccountSampleData(ctx context.Context, accountID string, mb jmap.MailBa
 			_, _ = fnB.CreateFileNode(accountCtx, file1)
 			_, _ = fnB.CreateFileNode(accountCtx, file2)
 		}
+	}
+}
+
+// seedStandardMailboxes ensures all standard role mailboxes expected by a mail
+// client exist on a newly seeded account (idempotent helper).
+func seedStandardMailboxes(ctx context.Context, mb jmap.MailBackend) {
+	existing, err := mb.GetAllMailboxes(ctx)
+	if err != nil {
+		return
+	}
+	hasRole := make(map[string]bool, len(existing))
+	for _, mailbox := range existing {
+		if mailbox != nil && mailbox.Role != nil {
+			hasRole[*mailbox.Role] = true
+		}
+	}
+
+	for _, spec := range []struct {
+		id, name, role string
+		sortOrder      uint64
+	}{
+		{id: "mb-sent", name: "Sent", role: jmap.RoleSent, sortOrder: 20},
+		{id: "mb-drafts", name: "Drafts", role: jmap.RoleDrafts, sortOrder: 30},
+		{id: "mb-junk", name: "Junk", role: jmap.RoleJunk, sortOrder: 40},
+		{id: "mb-trash", name: "Trash", role: jmap.RoleTrash, sortOrder: 50},
+		{id: "mb-archive", name: "Archive", role: jmap.RoleArchive, sortOrder: 60},
+	} {
+		if hasRole[spec.role] {
+			continue
+		}
+		role := spec.role
+		_, _ = mb.CreateMailbox(ctx, &jmap.Mailbox{
+			ID:           jmap.Id(spec.id),
+			Name:         spec.name,
+			Role:         &role,
+			SortOrder:    spec.sortOrder,
+			IsSubscribed: true,
+		})
 	}
 }

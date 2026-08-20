@@ -20,16 +20,18 @@ const (
 	KeywordMDNSent   = "$mdnsent"
 )
 
-// Standard RFC 9979 JMAP Mailbox Role Constants per RFC 9979 Section 4.
+// Standard RFC 9979 and RFC 8621 JMAP Mailbox Role Constants.
 const (
-	RoleAll       = "all"
-	RoleArchive   = "archive"
-	RoleDrafts    = "drafts"
-	RoleFlagged   = "flagged"
-	RoleJunk      = "junk"
-	RoleSent      = "sent"
-	RoleTrash     = "trash"
-	RoleImportant = "important"
+	RoleInbox      = "inbox"
+	RoleAll        = "all"
+	RoleArchive    = "archive"
+	RoleDrafts     = "drafts"
+	RoleFlagged    = "flagged"
+	RoleJunk       = "junk"
+	RoleSent       = "sent"
+	RoleTrash      = "trash"
+	RoleImportant  = "important"
+	RoleSubscribed = "subscribed"
 )
 
 var (

@@ -40,6 +40,26 @@ func TestRFCLess_FirstUseAccountSeeding(t *testing.T) {
 		t.Errorf("Expected seeded emails for brand-new account, got 0")
 	}
 
+	// 1a. First-use seeding provisions all standard role mailboxes required by
+	// real mail-client compose, send, archive, and delete workflows.
+	mailboxes := postJMAPWithToken(t, ts.URL, token, usingAll, []any{
+		[]any{"Mailbox/get", map[string]any{"accountId": "primary"}, "c1a"},
+	})
+	mailboxList, _ := mailboxes.MethodResponses[0].Args["list"].([]any)
+	roles := map[string]bool{}
+	for _, raw := range mailboxList {
+		if mailbox, ok := raw.(map[string]any); ok {
+			if role, ok := mailbox["role"].(string); ok {
+				roles[role] = true
+			}
+		}
+	}
+	for _, role := range []string{jmap.RoleInbox, jmap.RoleSent, jmap.RoleDrafts, jmap.RoleJunk, jmap.RoleTrash, jmap.RoleArchive} {
+		if !roles[role] {
+			t.Errorf("Expected seeded account to have %q mailbox role, got %v", role, roles)
+		}
+	}
+
 	// 2. CalendarEvent/get returns seeded calendar events
 	res2 := postJMAPWithToken(t, ts.URL, token, usingAll, []any{
 		[]any{"CalendarEvent/get", map[string]any{"accountId": "primary"}, "c2"},

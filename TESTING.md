@@ -92,6 +92,22 @@ JMTS_USE_WEBSOCKETS=1 JMAP_SERVER_ADAPTER_FILE=imap-jmap.json prove -lv t/basic.
 - See [`JMAP_TEST_SUITE_STATUS.md`](./JMAP_TEST_SUITE_STATUS.md) for the full per-file report.
 - **Continuous Non-Regression Gate**: All 89 test files must pass without regression before and after any changes.
 
+### Intentionally Ignored Fastmail Tests
+
+The following upstream tests assume that a pristine account has no mailboxes
+other than Inbox. This server intentionally provisions standard role mailboxes
+(`sent`, `drafts`, `trash`, `junk`, and `archive`) for every account so real
+mail clients can compose, save drafts, send, archive, and delete messages on a
+new account. RFC 8621 permits either account shape, but the upstream pristine
+account assumption conflicts with this server's interoperability policy.
+
+- `t/Mailbox/get/no-existing-entities.t`
+- `t/Mailbox/query/no-existing-entities.t`
+
+These two tests are an explicit exception to the Fastmail non-regression gate.
+Do not change account provisioning or suppress standard mailbox roles merely to
+make them pass. All other Fastmail `JMAP-TestSuite` tests remain required.
+
 ---
 
 ## 3. TypeScript `jmap-test-suite` (Core & RFC 8621 Conformance)
