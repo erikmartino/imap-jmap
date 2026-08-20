@@ -94,8 +94,6 @@ JMTS_USE_WEBSOCKETS=1 JMAP_SERVER_ADAPTER_FILE=imap-jmap.json prove -lv t/basic.
 
 ---
 
----
-
 ## 3. TypeScript `jmap-test-suite` (Core & RFC 8621 Conformance)
 
 The TypeScript/Node.js JMAP conformance test suite is located in `~/git/jmap-test-suite`.
@@ -113,34 +111,13 @@ node dist/cli.js -c imap-jmap.json -f
 
 ---
 
-## 4. `jmapio/jmap-perl` Test Suite
-
-The `jmapio/jmap-perl` repository ([https://github.com/jmapio/jmap-perl](https://github.com/jmapio/jmap-perl)) provides tests across JMAP Core, Mail, Calendars, and Contacts.
-
-### Step 1: Clone the Repository
-```bash
-cd ~/git
-git clone https://github.com/jmapio/jmap-perl.git
-cd jmap-perl
-```
-
-### Step 2: Run Against `imap-jmap`
-With `imap-jmap` running on port `8181`:
-```bash
-cd ~/git/jmap-perl
-# Execute tests against http://localhost:8181
-prove -lr t/
-```
-
----
-
-## 5. Cyrus `Cassandane` JMAP Test Suite
+## 4. Cyrus `Cassandane` JMAP Test Suite
 
 Cyrus `Cassandane` ([https://github.com/cyrusimap/cassandane](https://github.com/cyrusimap/cassandane)) is an automated integration and protocol test framework with dedicated JMAP torture tests covering complex queries, concurrency, large payloads, and edge cases.
 
 ---
 
-## 6. JSContact (`RFC 9553`) & JSCalendar (`RFC 8984`) Conformance Suites
+## 5. JSContact (`RFC 9553`) & JSCalendar (`RFC 8984`) Conformance Suites
 
 ### A. `jmapio/jscontact-tests`
 The official IETF JSContact test suite ([https://github.com/jmapio/jscontact-tests](https://github.com/jmapio/jscontact-tests)) provides JSON test vectors verifying:
@@ -158,7 +135,7 @@ A suite of unit and property tests ([https://github.com/stalwartlabs/calcard](ht
 
 ---
 
-## 7. Apache James JMAP Cucumber Test Suite
+## 6. Apache James JMAP Cucumber Test Suite
 
 The Apache James project ([https://github.com/apache/james-project](https://github.com/apache/james-project)) includes an extensive Cucumber-based functional test suite (`server/protocols/jmap-rfc-8621-integration-tests`) covering:
 - **Core (RFC 8620)**: Batching, method call limits, capability negotiation, result references.
@@ -167,7 +144,7 @@ The Apache James project ([https://github.com/apache/james-project](https://gith
 
 ---
 
-## 8. MIME Torture & Robustness Test Suite
+## 7. MIME Torture & Robustness Test Suite
 
 MIME torture test vectors ([https://www.w3.org/2001/06/tests/](https://www.w3.org/2001/06/tests/) and `mhonarc` torture suites) test parser resilience against:
 - Deeply-nested multipart trees (RFC 2045 / RFC 2046).
@@ -176,7 +153,7 @@ MIME torture test vectors ([https://www.w3.org/2001/06/tests/](https://www.w3.or
 
 ---
 
-## 9. SMTP & Inbound Mail Compliance (`swaks` & `chasquid`)
+## 8. SMTP & Inbound Mail Compliance (`swaks` & `chasquid`)
 
 ### A. `swaks` (Swiss Army Knife for SMTP)
 Used to automate ESMTP verification against the receiving endpoint (e.g. port `1026`):
@@ -193,7 +170,7 @@ The `chasquid` test suite ([https://github.com/albertito/chasquid](https://githu
 
 ---
 
-## 10. Playwright End-to-End Suite (`e2e/`)
+## 9. Playwright End-to-End Suite (`e2e/`)
 
 The Bulwark webmail integration tests are located in `e2e/`.
 
