@@ -160,48 +160,12 @@ These JMAP extensions have **not** been published as RFCs yet; cite the latest d
 
 ---
 
-## Running External Conformance Test Suites (JMAP-TestSuite)
+## Running Test Suites & Conformance Verification
 
-In addition to the internal Go unit tests and Playwright E2E suites, the server can be verified against the official Fastmail Perl test suite located in `~/git/fastmail/JMAP-TestSuite`.
+See [`TESTING.md`](./TESTING.md) for full instructions on running, configuring, and debugging:
+- **Internal Go Unit & RFC Conformance Tests** (`go test ./...`, timeout rules, requirement traceability matrices).
+- **Fastmail `JMAP-TestSuite`** (Core and Mail protocol conformance).
+- **`jmapio/jmap-perl` Test Suite** (Core, Mail, Calendar, and Contact protocol tests).
+- **Playwright End-to-End Suite** (`e2e/`).
 
-### 1. Start the JMAP Server
-Ensure the Go server is running locally (e.g., on port `8181`):
-```bash
-cd ~/git/imap-jmap
-go run . -port 8181 -https-port 8444 -smtp-port 1026
-```
-
-### 2. Configure the Server Adapter
-In `~/git/fastmail/JMAP-TestSuite`, the `ImapJmap` server adapter (`lib/JMAP/TestSuite/ServerAdapter/ImapJmap.pm`) connects to the running server using `imap-jmap.json`:
-```json
-{
-  "adapter": "ImapJmap",
-  "base_uri": "http://localhost:8181",
-  "credentials": [{
-    "username": "user@example.com",
-    "password": "user@example.com"
-  }]
-}
-```
-
-### 3. Run the Tests
-From `~/git/fastmail/JMAP-TestSuite`:
-> **Note on Prerequisites**: Only run `cpanm --installdeps .` (or `cpanm -l ~/perl5 --installdeps .`) if dependencies are missing or required. If dependencies are already installed, skip this step as dependency installation takes a long time.
-
-```bash
-cd ~/git/fastmail/JMAP-TestSuite
-
-# Run a single test file (verbose)
-JMAP_SERVER_ADAPTER_FILE=imap-jmap.json prove -lv t/basic.t
-
-# Run a specific test subsystem
-JMAP_SERVER_ADAPTER_FILE=imap-jmap.json prove -lr t/Mailbox/
-JMAP_SERVER_ADAPTER_FILE=imap-jmap.json prove -lr t/Email/
-
-# Run with full JMAP request/response telemetry logged to STDERR
-JMTS_TELEMETRY=1 JMAP_SERVER_ADAPTER_FILE=imap-jmap.json prove -lv t/basic.t
-
-# Run over WebSockets transport (RFC 8887)
-JMTS_USE_WEBSOCKETS=1 JMAP_SERVER_ADAPTER_FILE=imap-jmap.json prove -lv t/basic.t
-```
 
