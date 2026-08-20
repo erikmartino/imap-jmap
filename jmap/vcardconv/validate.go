@@ -175,6 +175,15 @@ func validateObject(obj map[string]any, typeName, path string) error {
 				return &ValidationError{Path: childPath, Reason: "must be an array"}
 			}
 			typeName := strings.TrimPrefix(kind, "arr:")
+			if typeName == "vcardprops" {
+				for i, el := range arr {
+					prop, ok := el.([]any)
+					if !ok || len(prop) < 4 {
+						return &ValidationError{Path: fmt.Sprintf("%s/%d", childPath, i), Reason: "must be a vCard property tuple"}
+					}
+				}
+				continue
+			}
 			for i, el := range arr {
 				sub, ok := el.(map[string]any)
 				if !ok {

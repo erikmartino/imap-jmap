@@ -858,22 +858,25 @@ func addressFromField(f *vcard.Field) map[string]any {
 				}
 			}
 		}
-		// Prefix the classic single-value fields.
+		// Prefix the classic single-value fields while preserving their
+		// structured-value order.
+		var prefix []component
 		if v := get(3); v != "" {
-			all = append([]component{{kind: "locality", value: v}}, all...)
+			prefix = append(prefix, component{kind: "locality", value: v})
 		}
 		if v := get(4); v != "" {
-			all = append([]component{{kind: "region", value: v}}, all...)
+			prefix = append(prefix, component{kind: "region", value: v})
 		}
 		if v := get(5); v != "" {
-			all = append([]component{{kind: "postcode", value: v}}, all...)
+			prefix = append(prefix, component{kind: "postcode", value: v})
 		}
 		if v := get(6); v != "" {
-			all = append([]component{{kind: "country", value: v}}, all...)
+			prefix = append(prefix, component{kind: "country", value: v})
 		}
 		if v := get(0); v != "" {
-			all = append([]component{{kind: "postOfficeBox", value: v}}, all...)
+			prefix = append(prefix, component{kind: "postOfficeBox", value: v})
 		}
+		all = append(prefix, all...)
 		for _, c := range all {
 			comps = append(comps, map[string]any{"kind": c.kind, "value": c.value})
 		}
