@@ -11,7 +11,12 @@
 ### 1. External Conformance Test Suites Verification
 Track and continuously execute all verified external test suites against the server:
 
-- [ ] **`jmapio/jscontact-tests` (Python)**: Ingest/run JSContact Card ([RFC 9553](https://www.rfc-editor.org/rfc/rfc9553.html)) and vCard conversion test cases against server endpoints.
+- [ ] **`jmapio/jscontact-tests` (Python)**: Ingest/run JSContact Card ([RFC 9553](https://www.rfc-editor.org/rfc/rfc9553.html)) and vCard conversion test cases against server endpoints. Requires implementing the RFC 9555 ([JSContact ↔ vCard](https://www.rfc-editor.org/rfc/rfc9555.html)) + RFC 9554 (extended property preservation) bidirectional conversion in-repo (vendored `go-jscontact` was assessed and covers only ~30% of the suite — infeasible without compromise):
+  - [ ] Implement `jmap/vcardconv`: JSContact → vCard (RFC 9555, vCard 4.0 target, RFC 6868 escaping, strict property/parameter output).
+  - [ ] Implement `jmap/vcardconv`: vCard → JSContact (incl. `localizations`, phonetic/sortAs names, `vCardProps`/`vCardParams` preservation, IANA props).
+  - [ ] Wire CNR-style `/convert` endpoint (public, `application/jscontact+json` ⇄ `text/vcard`, 422 for invalid cards).
+  - [ ] Vendor the 55 suite vectors as Go tests (`spectest.Require`, matrix rows for RFC 9555/RFC 9554).
+  - [ ] Run `jscontact-tests` Python suite against the live server until 55/55 green.
 - [ ] **MIME Torture Test Suite**: Run standard W3C / MHonArc deeply nested/malformed MIME test fixtures against `Email/parse` and inbound SMTP.
 
 ---
