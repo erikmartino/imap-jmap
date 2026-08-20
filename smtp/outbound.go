@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/textproto"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -31,8 +32,12 @@ var _ jmap.OutboundMailSender = (*MXOutboundSender)(nil)
 // NewMXOutboundSender returns a sender with production defaults (public DNS MX
 // lookup, TCP dial with a 15s timeout). Dial and LookupMX are overridable for tests.
 func NewMXOutboundSender() *MXOutboundSender {
+	localName := "localhost"
+	if h, err := os.Hostname(); err == nil && h != "" {
+		localName = h
+	}
 	return &MXOutboundSender{
-		LocalName:      "localhost",
+		LocalName:      localName,
 		DialTimeout:    15 * time.Second,
 		CommandTimeout: 30 * time.Second,
 		LookupMX:       net.LookupMX,
@@ -191,8 +196,15 @@ func (s *MXOutboundSender) tryHost(ctx context.Context, host, from string, recip
 		}
 	}
 
-	from = sanitizeEnvelope(from, "<>")
-	code, msg, err = sess.cmd(250, "MAIL FROM:%s", from)
+	mailFrom := strings.TrimSpace(from)
+	if mailFrom == "" || mailFrom == "<>" {
+		mailFrom = "<>"
+	} else {
+		mailFrom = strings.TrimPrefix(mailFrom, "<")
+		mailFrom = strings.TrimSuffix(mailFrom, ">")
+		mailFrom = "<" + sanitizeEnvelope(mailFrom, "") + ">"
+	}
+	code, msg, err = sess.cmd(250, "MAIL FROM:%s", mailFrom)
 	if err != nil {
 		// MAIL rejected: permanent failure for everyone, transient for retry.
 		reply := fmt.Sprintf("%d %s", code, msg)
@@ -208,7 +220,10 @@ func (s *MXOutboundSender) tryHost(ctx context.Context, host, from string, recip
 	var accepted []string
 	for _, rcpt := range recipients {
 		sess.setTimeout()
-		code, msg, err = sess.cmd(250, "RCPT TO:<%s>", sanitizeEnvelope(rcpt, "invalid"))
+		rcptClean := strings.TrimSpace(rcpt)
+		rcptClean = strings.TrimPrefix(rcptClean, "<")
+		rcptClean = strings.TrimSuffix(rcptClean, ">")
+		code, msg, err = sess.cmd(250, "RCPT TO:<%s>", sanitizeEnvelope(rcptClean, "invalid"))
 		if err == nil {
 			accepted = append(accepted, rcpt)
 			continue
@@ -228,7 +243,7 @@ func (s *MXOutboundSender) tryHost(ctx context.Context, host, from string, recip
 	}
 
 	sess.setTimeout()
-	code, msg, err = sess.cmd(354, "DATA (%d bytes)", len(rawMessage))
+	code, msg, err = sess.cmd(354, "DATA")
 	if err != nil {
 		return final, append(accepted, retry...), false
 	}

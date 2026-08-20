@@ -972,3 +972,74 @@ func TestEmailSubmission_PushStateChange(t *testing.T) {
 		t.Errorf("Expected StateChange event payload containing 'EmailSubmission', got %q", dataLine)
 	}
 }
+
+// TestEmailSubmission_OnSuccessUpdateEmail_DraftToSent tests moving a draft to Sent
+// and removing the $draft keyword when EmailSubmission succeeds.
+func TestEmailSubmission_OnSuccessUpdateEmail_DraftToSent(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Create a draft email in mb-drafts
+	em, err := srv.MailBackend.CreateEmail(seedCtx(), &jmap.Email{
+		MailboxIDs: map[jmap.Id]bool{"mb-drafts": true},
+		Keywords:   map[string]bool{"$draft": true},
+		Subject:    "Draft to Sent Test",
+		From:       []jmap.EmailAddress{{Email: "sender@profundo.dk"}},
+		To:         []jmap.EmailAddress{{Email: "recipient@external.org"}},
+	})
+	if err != nil {
+		t.Fatalf("CreateEmail draft failed: %v", err)
+	}
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.SubmissionCapabilityURI}
+	calls := []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sub1": map[string]any{
+					"identityId": "id-primary",
+					"emailId":    string(em.ID),
+				},
+			},
+			"onSuccessUpdateEmail": map[string]any{
+				"#sub1": map[string]any{
+					"mailboxIds/mb-drafts": nil,
+					"mailboxIds/mb-sent":   true,
+					"keywords/$draft":      nil,
+				},
+			},
+		}, "c1"},
+	}
+
+	res := postJMAP(t, ts.URL, using, calls)
+	if len(res.MethodResponses) < 1 {
+		t.Fatalf("Expected responses for EmailSubmission/set")
+	}
+
+	subResp := res.MethodResponses[0]
+	if subResp.Name != "EmailSubmission/set" {
+		t.Fatalf("Expected EmailSubmission/set response, got %s", subResp.Name)
+	}
+	created, _ := subResp.Args["created"].(map[string]any)
+	if created["sub1"] == nil {
+		t.Fatalf("Expected sub1 to be created, notCreated=%v", subResp.Args["notCreated"])
+	}
+
+	// Verify email is now in Sent, not in Drafts, and does not have $draft
+	emails, _, err := srv.MailBackend.GetEmails(seedCtx(), []jmap.Id{em.ID})
+	if err != nil || len(emails) == 0 {
+		t.Fatalf("Failed to fetch updated email: %v", err)
+	}
+	updatedEmail := emails[0]
+	if updatedEmail.MailboxIDs["mb-drafts"] {
+		t.Errorf("Expected email to NOT be in mb-drafts after send")
+	}
+	if !updatedEmail.MailboxIDs["mb-sent"] {
+		t.Errorf("Expected email to be in mb-sent after send, got mailboxIds=%v", updatedEmail.MailboxIDs)
+	}
+	if updatedEmail.Keywords["$draft"] {
+		t.Errorf("Expected $draft keyword to be removed after send")
+	}
+}
+

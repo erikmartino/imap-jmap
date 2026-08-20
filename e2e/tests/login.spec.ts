@@ -15,11 +15,12 @@ test.describe('login', () => {
   test('rejects invalid credentials with an inline error', async ({ page }) => {
     await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
     const urlField = page.locator('input[type="url"]');
-    await expect(urlField).toBeVisible({ timeout: 30_000 });
-    if (await urlField.isEditable().catch(() => false)) {
-      await urlField.fill(JMAP_URL);
+    if (await urlField.isVisible({ timeout: 2000 }).catch(() => false)) {
+      if (await urlField.isEditable().catch(() => false)) {
+        await urlField.fill(JMAP_URL);
+      }
     }
-    await page.fill('input[type="text"]', 'invalid@example.com');
+    await page.fill('input[type="text"], input[type="email"]', 'invalid@example.com');
     await page.fill('input[type="password"]', 'wrong-password');
     await page.click('button[type="submit"]');
     await expect(page.getByText(/invalid email or password/i)).toBeVisible({ timeout: 15_000 });

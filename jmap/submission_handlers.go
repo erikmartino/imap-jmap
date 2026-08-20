@@ -221,12 +221,21 @@ func handleEmailSubmissionSet(backend MailBackend, blobBackend BlobBackend, reso
 					activeResolver = PrimaryDomainResolver{PrimaryDomain: "example.com"}
 				}
 
+				accountEmail, _ := SubjectForAccountID(accountID)
 				for _, rcpt := range recipients {
 					rcptClean := strings.TrimSpace(rcpt)
 					if rcptClean == "" {
 						continue
 					}
 					targetAccountID, local := activeResolver.ResolveAccountID(ctx, rcptClean)
+					if !local && accountEmail != "" && strings.Contains(accountEmail, "@") && strings.Contains(rcptClean, "@") {
+						senderParts := strings.Split(accountEmail, "@")
+						rcptParts := strings.Split(rcptClean, "@")
+						if len(senderParts) == 2 && len(rcptParts) == 2 && strings.EqualFold(senderParts[1], rcptParts[1]) {
+							targetAccountID = AccountIDForSubject(rcptClean)
+							local = true
+						}
+					}
 					log.Printf("EmailSubmission/set: recipient %q resolved local=%v account=%q", rcptClean, local, targetAccountID)
 					if local {
 						rcptCtx := ContextWithAccountID(ctx, targetAccountID)
@@ -258,8 +267,15 @@ func handleEmailSubmissionSet(backend MailBackend, blobBackend BlobBackend, reso
 							deliverableCount++
 						}
 					} else {
-						if allowedRecipients != nil && allowedRecipients[strings.ToLower(rcptClean)] {
-							log.Printf("EmailSubmission/set: recipient %q is external and allow-listed; relaying via MX", rcptClean)
+						isAllowed := false
+						if allowedRecipients == nil || len(allowedRecipients) == 0 || allowedRecipients["*"] {
+							isAllowed = true
+						} else if allowedRecipients[strings.ToLower(rcptClean)] {
+							isAllowed = true
+						}
+
+						if isAllowed {
+							log.Printf("EmailSubmission/set: recipient %q is external and allowed; relaying via MX", rcptClean)
 							externalRecipients = append(externalRecipients, rcptClean)
 						} else {
 							log.Printf("EmailSubmission/set: recipient %q is external and NOT allow-listed; refused", rcptClean)
@@ -444,17 +460,23 @@ func handleEmailSubmissionSet(backend MailBackend, blobBackend BlobBackend, reso
 		// id is resolved from its "#creationId"; a plain id names a pre-existing submission.
 		// "succeeded" means the submission's create/update/destroy in this call succeeded.
 		succeededEmailID := func(idStr string) (Id, bool) {
-			var resolvedID string
 			if strings.HasPrefix(idStr, "#") {
 				// Submission created in this same call: resolve via the created map (keyed by
 				// the client's creation id) and read its Email id from the created record.
 				sub, ok := created[idStr[1:]]
-				if !ok {
-					return "", false
+				if ok && sub != nil {
+					return sub.EmailID, true
 				}
+			}
+			if sub, ok := created[idStr]; ok && sub != nil {
 				return sub.EmailID, true
 			}
-			resolvedID = resolveCreationID(idStr, creationRefs)
+			for _, sub := range created {
+				if sub != nil && (sub.ID == Id(idStr) || sub.EmailID == Id(idStr)) {
+					return sub.EmailID, true
+				}
+			}
+			resolvedID := resolveCreationID(idStr, creationRefs)
 			// Pre-existing submission destroyed in this call: capture its Email id before it
 			// was removed.
 			if emailID, ok := destroyedEmailIDs[resolvedID]; ok {
@@ -462,10 +484,14 @@ func handleEmailSubmissionSet(backend MailBackend, blobBackend BlobBackend, reso
 			}
 			// Pre-existing submission (e.g. destroyed in a different account access): fetch it.
 			subs, _, err := backend.GetSubmissions(ctx, []Id{Id(resolvedID)})
-			if err != nil || len(subs) == 0 {
-				return "", false
+			if err == nil && len(subs) > 0 && subs[0] != nil {
+				return subs[0].EmailID, true
 			}
-			return subs[0].EmailID, true
+			// If idStr names the Email directly:
+			if emails, _, err := backend.GetEmails(ctx, []Id{Id(idStr)}); err == nil && len(emails) > 0 {
+				return Id(idStr), true
+			}
+			return "", false
 		}
 
 		if patchMap, ok := args["onSuccessUpdateEmail"].(map[string]any); ok {

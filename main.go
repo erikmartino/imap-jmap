@@ -138,6 +138,14 @@ func main() {
 
 	// Sample data is dynamically auto-seeded per account upon first login in MemoryAuthBackend.
 
+	outboundSender := smtp.NewMXOutboundSender()
+	if *primaryDomain != "" {
+		outboundSender.LocalName = "mail." + *primaryDomain
+	}
+	if sn := os.Getenv("SERVER_NAME"); sn != "" {
+		outboundSender.LocalName = sn
+	}
+
 	server := jmap.NewServer(
 		session,
 		jmap.WithMailBackend(memBackend),
@@ -150,7 +158,7 @@ func main() {
 		jmap.WithAuthBackend(authBackend),
 		jmap.WithAccountResolver(accountResolver),
 		jmap.WithAllowedRecipients(allowedSlice),
-		jmap.WithOutboundSender(smtp.NewMXOutboundSender()),
+		jmap.WithOutboundSender(outboundSender),
 		jmap.WithPublicBaseURL(publicURL),
 	)
 	memBackend.SetBroadcaster(server.Broadcaster)
