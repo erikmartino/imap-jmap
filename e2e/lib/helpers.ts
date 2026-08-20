@@ -258,6 +258,18 @@ export class JMAPClient {
     return (await this.mailboxes()).find((mb: any) => mb.role === role)?.id;
   }
 
+  /**
+   * Creates an Email (Email/set create) and returns its server id.
+   */
+  async createEmail(props: Record<string, unknown>): Promise<string> {
+    const res = await this.call('Email/set', { create: { k1: props } });
+    const created = res.created?.k1;
+    if (!created) {
+      throw new Error(`Email/set did not create the email: ${JSON.stringify(res.notCreated)}`);
+    }
+    return created.id;
+  }
+
   /** Returns the ids of all emails in the given mailbox role (e.g. "inbox", "sent", "drafts"). */
   async emailsInMailboxRole(role: string): Promise<string[]> {
     const mailboxId = await this.mailboxIdByRole(role);

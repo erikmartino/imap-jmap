@@ -64,22 +64,16 @@ test.describe('mail', () => {
     const subject = `E2E protocol-created message ${Date.now()}`;
 
     const inboxId = await jmap.mailboxIdByRole('inbox');
-    const create = await jmap.api([
-      ['Email/set', {
-        create: {
-          k1: {
-            mailboxIds: { [inboxId!]: true },
-            subject,
-            from: [{ name: 'Protocol Sender', email: 'protocol-sender@example.com' }],
-            to: [{ email: recipient.username }],
-            keywords: { $seen: true },
-            bodyValues: { '1': { value: 'Created via JMAP, viewed via Bulwark' } },
-            textBody: [{ partId: '1', type: 'text/plain' }],
-          },
-        },
-      }, 'c1'],
-    ]);
-    expect(create[0][1].created?.k1?.id).toBeTruthy();
+    const emailId = await jmap.createEmail({
+      mailboxIds: { [inboxId!]: true },
+      subject,
+      from: [{ name: 'Protocol Sender', email: 'protocol-sender@example.com' }],
+      to: [{ email: recipient.username }],
+      keywords: { $seen: true },
+      bodyValues: { '1': { value: 'Created via JMAP, viewed via Bulwark' } },
+      textBody: [{ partId: '1', type: 'text/plain' }],
+    });
+    expect(emailId).toBeTruthy();
 
     await login(page, recipient.username, recipient.password);
     await expect(page.getByText(subject).first()).toBeVisible({ timeout: 15_000 });
@@ -95,22 +89,15 @@ test.describe('mail', () => {
     const subject = `E2E archive me ${Date.now()}`;
 
     const inboxId = await jmap.mailboxIdByRole('inbox');
-    const create = await jmap.api([
-      ['Email/set', {
-        create: {
-          k1: {
-            mailboxIds: { [inboxId!]: true },
-            subject,
-            from: { name: 'Archive Sender', email: 'archive-sender@example.com' },
-            to: [{ email: acct.username }],
-            keywords: { $seen: true },
-            bodyValues: { '1': { value: 'Please archive me' } },
-            textBody: [{ partId: '1', type: 'text/plain' }],
-          },
-        },
-      }, 'c1'],
-    ]);
-    const emailId = create[0][1].created.k1.id as string;
+    const emailId = await jmap.createEmail({
+      mailboxIds: { [inboxId!]: true },
+      subject,
+      from: [{ name: 'Archive Sender', email: 'archive-sender@example.com' }],
+      to: [{ email: acct.username }],
+      keywords: { $seen: true },
+      bodyValues: { '1': { value: 'Please archive me' } },
+      textBody: [{ partId: '1', type: 'text/plain' }],
+    });
 
     await login(page, acct.username, acct.password);
     await expect(page.getByText(subject).first()).toBeVisible({ timeout: 15_000 });

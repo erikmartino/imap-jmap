@@ -598,8 +598,8 @@ func (s *Session) checkSenderAuth(raw []byte) (bool, string) {
 	if s.mode == TransportModeSubmission && s.authenticated {
 		return true, fmt.Sprintf("authenticated submission user %q (transport-boundary trust)", s.authenticatedAs)
 	}
-	if ip := remoteIP(s.remoteAddr); ip != nil && ip.IsLoopback() {
-		return true, "locally trusted client (loopback)"
+	if ip := remoteIP(s.remoteAddr); ip != nil && (ip.IsLoopback() || ip.IsPrivate()) {
+		return true, "locally trusted client (loopback/private network)"
 	}
 	if s.from != "" && s.backend.AccountResolver != nil {
 		if _, local := s.backend.AccountResolver.ResolveAccountID(context.Background(), s.from); local {

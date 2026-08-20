@@ -34,8 +34,8 @@ test('an iMIP invitation sent over SMTP appears in the calendar', async ({ page 
   const now = new Date();
   const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}15T090000`;
   const title = `SMTP Invite ${Date.now()}`;
-  const uid = `smtp-invite-${Date.now()}@ext.test`;
-  const organizer = 'organizer@ext.test';
+  const uid = `smtp-invite-${Date.now()}@example.com`;
+  const organizer = uniqueUser('organizer').username;
 
   const message = [
     `From: Organizer <${organizer}>`,
