@@ -103,11 +103,30 @@ func (s *Session) Rcpt(to string, opts *smtp.RcptOptions) error {
 	return nil
 }
 
+const (
+	// MaxSMTPMessageSize is the maximum size accepted in SMTP DATA (50MB).
+	MaxSMTPMessageSize = 50 * 1024 * 1024
+	// MaxMIMENestingDepth is the maximum allowed MIME multipart recursion depth.
+	MaxMIMENestingDepth = 10
+	// MaxMIMEParts is the maximum total number of MIME parts inspected for scheduling bodies.
+	MaxMIMEParts = 100
+)
+
 // Data handles DATA command per RFC 5321, storing raw blob and JMAP Email object per RFC 8620 & RFC 8621.
 func (s *Session) Data(r io.Reader) error {
-	data, err := io.ReadAll(r)
+	lr := io.LimitReader(r, MaxSMTPMessageSize+1)
+	data, err := io.ReadAll(lr)
 	if err != nil {
 		return err
+	}
+	if len(data) > MaxSMTPMessageSize {
+		log.Printf("SMTP receiver: rejected oversized message from %s (%d bytes > %d bytes limit)",
+			s.remoteAddr, len(data), MaxSMTPMessageSize)
+		return &smtp.SMTPError{
+			Code:         552,
+			EnhancedCode: smtp.EnhancedCode{5, 3, 4},
+			Message:      fmt.Sprintf("Message size exceeds maximum limit of %d bytes", MaxSMTPMessageSize),
+		}
 	}
 	log.Printf("SMTP receiver: DATA from %s (helo=%q, envelope from=%q, recipients=%v, size=%d bytes)",
 		s.remoteAddr, s.helo, s.from, s.to, len(data))
@@ -384,11 +403,16 @@ func extractCalendarBody(raw []byte) string {
 	if err != nil {
 		return ""
 	}
+	partsCount := 0
 	for {
+		if partsCount >= MaxMIMEParts {
+			break
+		}
 		p, err := mr.NextPart()
 		if err != nil {
 			break
 		}
+		partsCount++
 		mediaType, _, _ := mime.ParseMediaType(p.Header.Get("Content-Type"))
 		if strings.EqualFold(mediaType, "text/calendar") {
 			body, err := io.ReadAll(p.Body)

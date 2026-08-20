@@ -1,9 +1,13 @@
 package smtp_test
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"io"
 	"net"
 	"net/smtp"
+	"strings"
 	"testing"
 	"time"
 
@@ -280,5 +284,106 @@ func TestRFC6047_SecurityHardening_InboundCancel(t *testing.T) {
 	updated, _, _ := calBackend.GetCalendarEvents(inviteeCtx, []jmap.Id{ev.ID})
 	if len(updated) == 0 || updated[0].Status != "cancelled" {
 		t.Fatalf("expected event status cancelled, got %v", updated[0].Status)
+	}
+}
+
+// repeatedByteReader provides an io.Reader streaming repeating bytes without allocating all bytes in RAM.
+type repeatedByteReader struct {
+	remaining int64
+	val       byte
+}
+
+func (r *repeatedByteReader) Read(p []byte) (n int, err error) {
+	if r.remaining <= 0 {
+		return 0, io.EOF
+	}
+	toRead := int64(len(p))
+	if toRead > r.remaining {
+		toRead = r.remaining
+	}
+	for i := int64(0); i < toRead; i++ {
+		p[i] = r.val
+	}
+	r.remaining -= toRead
+	return int(toRead), nil
+}
+
+// TestRFC5321_SEC6_OversizedMessageRejected tests that inbound DATA streams exceeding MaxSMTPMessageSize (50MB)
+// are rejected with SMTP error 552 5.3.4 per RFC 5321 §4.2.3 & RFC 1870.
+func TestRFC5321_SEC6_OversizedMessageRejected(t *testing.T) {
+	spectest.Require(t, "RFC5321", "4.2.3", spectest.MUST,
+		"Resource limits: Oversized messages exceeding maximum limit must be rejected with 552 error.")
+
+	mailBackend := memory.NewMemoryBackend()
+	blobBackend := memory.NewMemoryBlobBackend()
+	calBackend := memory.NewMemoryCalendarsBackend()
+
+	backend := jmapsmtp.NewReceiverBackend(mailBackend, blobBackend, calBackend)
+	session, err := backend.NewSession(nil)
+	if err != nil {
+		t.Fatalf("Failed to create session: %v", err)
+	}
+
+	_ = session.Mail("sender@example.com", nil)
+	_ = session.Rcpt("user@example.com", nil)
+
+	// Stream 50MB + 1KB
+	oversizedReader := &repeatedByteReader{
+		remaining: int64(jmapsmtp.MaxSMTPMessageSize + 1024),
+		val:       'X',
+	}
+
+	dataErr := session.Data(oversizedReader)
+	if dataErr == nil {
+		t.Fatalf("Expected error when sending message exceeding %d bytes, got nil", jmapsmtp.MaxSMTPMessageSize)
+	}
+	if !strings.Contains(dataErr.Error(), "552") {
+		t.Errorf("Expected 552 error code for oversized message, got: %v", dataErr)
+	}
+}
+
+// TestRFC5321_SEC6_MIMEPartLimits tests that messages with many parts are bounded by MaxMIMEParts.
+func TestRFC5321_SEC6_MIMEPartLimits(t *testing.T) {
+	spectest.Require(t, "RFC2045", "1", spectest.MUST,
+		"Resource limits: Bounded MIME multipart extraction prevents unbounded part allocation.")
+
+	mailBackend := memory.NewMemoryBackend()
+	blobBackend := memory.NewMemoryBlobBackend()
+	calBackend := memory.NewMemoryCalendarsBackend()
+
+	backend := jmapsmtp.NewReceiverBackend(mailBackend, blobBackend, calBackend)
+	session, err := backend.NewSession(nil)
+	if err != nil {
+		t.Fatalf("Failed to create session: %v", err)
+	}
+
+	_ = session.Mail("sender@example.com", nil)
+	_ = session.Rcpt("user@example.com", nil)
+
+	// Build a multipart message with 120 parts (exceeding MaxMIMEParts=100)
+	var buf bytes.Buffer
+	boundary := "bound123"
+	buf.WriteString("From: sender@example.com\r\n")
+	buf.WriteString("To: user@example.com\r\n")
+	buf.WriteString("Subject: Many parts test\r\n")
+	buf.WriteString("MIME-Version: 1.0\r\n")
+	buf.WriteString(fmt.Sprintf("Content-Type: multipart/mixed; boundary=\"%s\"\r\n\r\n", boundary))
+
+	for i := 1; i <= 120; i++ {
+		buf.WriteString(fmt.Sprintf("--%s\r\n", boundary))
+		buf.WriteString("Content-Type: text/plain\r\n\r\n")
+		buf.WriteString(fmt.Sprintf("Part %d body\r\n", i))
+	}
+	buf.WriteString(fmt.Sprintf("--%s--\r\n", boundary))
+
+	dataErr := session.Data(&buf)
+	if dataErr != nil {
+		t.Fatalf("DATA failed unexpectedly for multi-part message: %v", dataErr)
+	}
+
+	ctx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject("user@example.com"))
+	emailIDs, _, err := mailBackend.QueryEmails(ctx, nil, nil, 0, nil)
+	if err != nil || len(emailIDs) == 0 {
+		t.Fatalf("Expected stored email in backend, got %d (err: %v)", len(emailIDs), err)
 	}
 }

@@ -71,6 +71,15 @@ func parseReferencesList(val string) []string {
 	return out
 }
 
+const (
+	// MaxEmailRawSize is the maximum size of a raw RFC 5322 message accepted for parsing (50MB).
+	MaxEmailRawSize = 50 * 1024 * 1024
+	// MaxMIMENestingDepth is the maximum allowed MIME multipart recursion depth.
+	MaxMIMENestingDepth = 10
+	// MaxMIMEParts is the maximum total number of MIME parts to parse in a single message.
+	MaxMIMEParts = 100
+)
+
 // parseRFC822 parses a raw RFC 5322 MIME message into a JMAP Email object (RFC 8621 Section 4.1).
 func parseRFC822(raw []byte, blobBackend ...BlobBackend) (*Email, error) {
 	return parseRFC822WithAccount("", raw, blobBackend...)
@@ -78,6 +87,9 @@ func parseRFC822(raw []byte, blobBackend ...BlobBackend) (*Email, error) {
 
 // parseRFC822WithAccount parses an RFC 5322 MIME message into a JMAP Email object with optional blob storage.
 func parseRFC822WithAccount(accountID string, raw []byte, blobBackend ...BlobBackend) (*Email, error) {
+	if len(raw) > MaxEmailRawSize {
+		return nil, fmt.Errorf("message size (%d bytes) exceeds maximum limit (%d bytes)", len(raw), MaxEmailRawSize)
+	}
 	headers := parseRawHeaders(raw)
 	if len(headers) == 0 {
 		return nil, fmt.Errorf("not an RFC5322 message: no headers found")
@@ -189,7 +201,7 @@ func parseRFC822WithAccount(accountID string, raw []byte, blobBackend ...BlobBac
 	}
 
 	partCounter := 0
-	bodyStructure, err := parseMIMEEntity(context.Background(), accountID, entity, &partCounter, em.BodyValues, bb)
+	bodyStructure, err := parseMIMEEntity(context.Background(), accountID, entity, 0, &partCounter, em.BodyValues, bb)
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +235,7 @@ func parseRFC822WithAccount(accountID string, raw []byte, blobBackend ...BlobBac
 	return em, nil
 }
 
-func parseMIMEEntity(ctx context.Context, accountID string, e *message.Entity, partCounter *int, bodyValues map[string]EmailBodyValue, bb BlobBackend) (EmailBodyPart, error) {
+func parseMIMEEntity(ctx context.Context, accountID string, e *message.Entity, depth int, partCounter *int, bodyValues map[string]EmailBodyValue, bb BlobBackend) (EmailBodyPart, error) {
 	mediaType := "text/plain"
 	var mediaParams map[string]string
 	ctHeader := e.Header.Get("Content-Type")
@@ -303,9 +315,12 @@ func parseMIMEEntity(ctx context.Context, accountID string, e *message.Entity, p
 	}
 
 	mr := e.MultipartReader()
-	if mr != nil {
+	if mr != nil && depth < MaxMIMENestingDepth {
 		var subParts []EmailBodyPart
 		for {
+			if *partCounter >= MaxMIMEParts {
+				break
+			}
 			subEntity, err := mr.NextPart()
 			if err == io.EOF {
 				break
@@ -313,7 +328,7 @@ func parseMIMEEntity(ctx context.Context, accountID string, e *message.Entity, p
 			if err != nil {
 				break
 			}
-			subPart, err := parseMIMEEntity(ctx, accountID, subEntity, partCounter, bodyValues, bb)
+			subPart, err := parseMIMEEntity(ctx, accountID, subEntity, depth+1, partCounter, bodyValues, bb)
 			if err != nil {
 				continue
 			}
