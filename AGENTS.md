@@ -157,6 +157,8 @@ These JMAP extensions have **not** been published as RFCs yet; cite the latest d
 
 ### Non-Goals & Out-of-Scope Specifications
 - **JMAP Sharing**: [RFC 9670](https://www.rfc-editor.org/rfc/rfc9670.html) — *JMAP Sharing* (Explicitly set as a Non-Goal for this server implementation).
+- **Legacy XML Mail Auto-Configuration**: Legacy XML autodiscovery schemas (Mozilla AutoConfig `config-v1.1.xml` and Microsoft AutoDiscover `Autodiscover.xml`) designed for legacy IMAP/POP/SMTP/Exchange are out-of-scope. Discovery for this server is strictly JMAP-native, standardized via **RFC 8620 §2.1 Session Discovery (`/.well-known/jmap`)**, **RFC 8620 DNS SRV/TXT bootstrapping (`_jmaps._tcp`, `_jmap._tcp`)**, and **IETF PACC JSON autoconfiguration (`draft-ietf-mailmaint-pacc`, `/.well-known/user-agent-configuration.json`)**.
+
 
 ---
 

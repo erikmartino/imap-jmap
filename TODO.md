@@ -22,17 +22,10 @@ Production deployment (`jmap.profundo.dk`) transition from development in-memory
 - [ ] **AUTH-2 — Retire `password == email` in Production**: Remove or disable the fallback in-memory credential path from production environments so plain password matches are rejected when OIDC is active.
 - [ ] **AUTH-3 — Basic-Auth Bridge (Optional)**: For clients that only speak HTTP Basic, validate supplied credentials against Keycloak via Resource Owner Password Credentials (ROPC) or issue app-specific passwords.
 
-### 3. DNS Auto-Discovery & Configuration
-Configure legacy auto-configuration endpoints for seamless client discovery.
-
-- [ ] **DNS-2 — Legacy AutoConfig / AutoDiscover XML Endpoints**:
-  - `https://autoconfig.profundo.dk/mail/config-v1.1.xml` (Thunderbird)
-  - `https://autodiscover.profundo.dk/autodiscover/autodiscover.xml` (Outlook)
-
-
 ---
 
 ## Non-Goals & Out-of-Scope Specifications
 - **RFC 9670 (JMAP Sharing)**: Explicitly designated as out-of-scope per [AGENTS.md](./AGENTS.md).
+- **Legacy XML Mail Auto-Configuration (AutoConfig/AutoDiscover)**: Replaced by native RFC 8620 Session Discovery, DNS SRV/TXT bootstrapping, and IETF PACC JSON autoconfiguration per [AGENTS.md](./AGENTS.md).
 - **Process-Restart In-Memory Persistence**: In-memory backend persistence across process restarts is non-goal (state rebuilds on start).
 - **DAV Native JMAP Intermixing**: CalDAV/CardDAV/WebDAV protocol handling is isolated in the `dav/` package.
