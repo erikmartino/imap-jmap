@@ -272,6 +272,7 @@ func (s *Session) Data(r io.Reader) error {
 
 						patch := map[string]any{
 							"participants/" + partKey + "/participationStatus": status,
+							"participants/" + partKey + "/scheduleStatus":      "2.0;delivered",
 						}
 						if msg.Sequence > ev.Sequence {
 							patch["sequence"] = msg.Sequence

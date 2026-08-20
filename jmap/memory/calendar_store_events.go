@@ -127,6 +127,8 @@ func setCalendarEventField(ev *jmap.CalendarEvent, path string, val any) {
 					if field == "participationStatus" || field == "status" {
 						p.ParticipationStatus = valStr
 						p.Status = valStr
+					} else if field == "scheduleStatus" {
+						p.ScheduleStatus = valStr
 					} else if field == "role" {
 						p.Role = valStr
 						if p.Roles == nil {

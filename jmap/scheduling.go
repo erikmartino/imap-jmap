@@ -3,6 +3,7 @@ package jmap
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 )
 
@@ -126,9 +127,9 @@ func eventForRecipient(ev *CalendarEvent, recipientKey string) *CalendarEvent {
 // sendSchedulingEmail persists an iMIP email (RFC 6047) carrying an iTIP body part
 // and submits it. The body part's Content-Type method parameter matches the
 // iCalendar METHOD (RFC 6047 Section 2.4).
-func sendSchedulingEmail(ctx context.Context, mailBackend MailBackend, subject, toAddr, ics, method string) {
+func sendSchedulingEmail(ctx context.Context, mailBackend MailBackend, subject, toAddr, ics, method string) error {
 	if mailBackend == nil || toAddr == "" || ics == "" {
-		return
+		return fmt.Errorf("missing mailBackend, toAddr, or ics data")
 	}
 	email := &Email{
 		Subject: subject,
@@ -142,12 +143,14 @@ func sendSchedulingEmail(ctx context.Context, mailBackend MailBackend, subject, 
 		},
 	}
 	saved, err := mailBackend.CreateEmail(ctx, email)
-	if err == nil && saved != nil {
-		_, _ = mailBackend.CreateSubmission(ctx, &EmailSubmission{
-			EmailID:  saved.ID,
-			ThreadID: saved.ThreadID,
-		})
+	if err != nil || saved == nil {
+		return err
 	}
+	_, err = mailBackend.CreateSubmission(ctx, &EmailSubmission{
+		EmailID:  saved.ID,
+		ThreadID: saved.ThreadID,
+	})
+	return err
 }
 
 // cloneEventForDelivery deep-copies an event for delivery into another account's
@@ -209,10 +212,10 @@ func localAccountCtx(resolver AccountResolver, addr string) (context.Context, bo
 // the event (with the recipient's participation still pending) the first time, and
 // re-syncs the mutable details on a subsequent REQUEST. A CalendarEventNotification
 // records the change as made by the organizer (draft-ietf-jmap-calendars-27 Section 7).
-func deliverRequestLocal(calBackend CalendarsBackend, resolver AccountResolver, ev *CalendarEvent, recipientKey, recipientAddr string) {
+func deliverRequestLocal(calBackend CalendarsBackend, resolver AccountResolver, ev *CalendarEvent, recipientKey, recipientAddr string) bool {
 	rcptCtx, ok := localAccountCtx(resolver, recipientAddr)
 	if !ok || calBackend == nil {
-		return
+		return false
 	}
 	view := eventForRecipient(ev, recipientKey)
 	if existing := findEventByUIDIn(rcptCtx, calBackend, ev.UID); existing != nil {
@@ -221,16 +224,16 @@ func deliverRequestLocal(calBackend CalendarsBackend, resolver AccountResolver, 
 		if view.Duration != "" {
 			patch["duration"] = view.Duration
 		}
-		_, _ = calBackend.UpdateCalendarEvent(rcptCtx, existing.ID, patch)
-		return
+		_, err := calBackend.UpdateCalendarEvent(rcptCtx, existing.ID, patch)
+		return err == nil
 	}
 	copyEv := cloneEventForDelivery(view)
 	if copyEv == nil {
-		return
+		return false
 	}
 	created, err := calBackend.CreateCalendarEvent(rcptCtx, copyEv)
 	if err != nil || created == nil {
-		return
+		return false
 	}
 	_, _ = calBackend.CreateCalendarEventNotification(rcptCtx, &CalendarEventNotification{
 		Type:            "created",
@@ -238,23 +241,27 @@ func deliverRequestLocal(calBackend CalendarsBackend, resolver AccountResolver, 
 		ChangedBy:       notificationChangedBy(ev),
 		Event:           created,
 	})
+	return true
 }
 
 // deliverReplyLocal applies an attendee's REPLY into a local organizer's copy of the
 // event (matched by uid), updating that participant's participationStatus and recording
 // a CalendarEventNotification (draft-ietf-jmap-calendars-27 Section 5.9.2.3 / Section 7).
-func deliverReplyLocal(calBackend CalendarsBackend, resolver AccountResolver, ev *CalendarEvent, attendeeAddr, status string) {
+func deliverReplyLocal(calBackend CalendarsBackend, resolver AccountResolver, ev *CalendarEvent, attendeeAddr, status string) bool {
 	orgCtx, ok := localAccountCtx(resolver, organizerAddress(ev))
 	if !ok || calBackend == nil {
-		return
+		return false
 	}
 	orgEvent := findEventByUIDIn(orgCtx, calBackend, ev.UID)
 	if orgEvent == nil {
-		return
+		return false
 	}
-	patch := map[string]any{"participants/" + attendeeAddr + "/participationStatus": status}
+	patch := map[string]any{
+		"participants/" + attendeeAddr + "/participationStatus": status,
+		"participants/" + attendeeAddr + "/scheduleStatus":      "2.0;delivered",
+	}
 	if _, err := calBackend.UpdateCalendarEvent(orgCtx, orgEvent.ID, patch); err != nil {
-		return
+		return false
 	}
 	replyEmail := attendeeAddr
 	_, _ = calBackend.CreateCalendarEventNotification(orgCtx, &CalendarEventNotification{
@@ -264,36 +271,59 @@ func deliverReplyLocal(calBackend CalendarsBackend, resolver AccountResolver, ev
 		Event:           orgEvent,
 		EventPatch:      patch,
 	})
+	return true
 }
 
 // deliverCancelLocal marks a local recipient's copy of the event cancelled when the
 // organizer destroys it (draft-ietf-jmap-calendars-27 Section 5.9.2.2).
-func deliverCancelLocal(calBackend CalendarsBackend, resolver AccountResolver, ev *CalendarEvent, recipientAddr string) {
+func deliverCancelLocal(calBackend CalendarsBackend, resolver AccountResolver, ev *CalendarEvent, recipientAddr string) bool {
 	rcptCtx, ok := localAccountCtx(resolver, recipientAddr)
 	if !ok || calBackend == nil {
-		return
+		return false
 	}
 	existing := findEventByUIDIn(rcptCtx, calBackend, ev.UID)
 	if existing == nil {
-		return
+		return false
 	}
-	_, _ = calBackend.UpdateCalendarEvent(rcptCtx, existing.ID, map[string]any{"status": "cancelled"})
+	_, err := calBackend.UpdateCalendarEvent(rcptCtx, existing.ID, map[string]any{"status": "cancelled"})
+	return err == nil
 }
 
 // dispatchITIPRequests sends a METHOD:REQUEST to every scheduling recipient of the event
 // (draft-ietf-jmap-calendars-27 Section 5.9.2.1): the calendar owner/organizer is never a
 // recipient, and hideAttendees is honoured. Recipients local to this server also receive
 // the event directly in their calendar (same-server iTIP delivery); external recipients
-// get an iMIP email.
+// get an iMIP email. It also records the per-participant scheduleStatus (SEC-7 / RFC 6638 Section 3.2.14).
 func dispatchITIPRequests(ctx context.Context, mailBackend MailBackend, calBackend CalendarsBackend, resolver AccountResolver, ev *CalendarEvent, subjectPrefix, organizerEmail string) {
 	if ev == nil {
 		return
 	}
+	statusPatches := make(map[string]any)
 	for key, addr := range schedulingRecipients(ev) {
-		deliverRequestLocal(calBackend, resolver, ev, key, addr)
+		deliveredLocal := deliverRequestLocal(calBackend, resolver, ev, key, addr)
+		sentEmail := false
 		if mailBackend != nil {
 			if reqICS, err := BuildITIPRequest(eventForRecipient(ev, key), organizerEmail); err == nil {
-				sendSchedulingEmail(ctx, mailBackend, subjectPrefix+ev.Title, addr, reqICS, "REQUEST")
+				if err := sendSchedulingEmail(ctx, mailBackend, subjectPrefix+ev.Title, addr, reqICS, "REQUEST"); err == nil {
+					sentEmail = true
+				}
+			}
+		}
+		if deliveredLocal {
+			statusPatches["participants/"+key+"/scheduleStatus"] = "2.0;delivered"
+		} else if sentEmail {
+			statusPatches["participants/"+key+"/scheduleStatus"] = "1.1;sent"
+		} else {
+			statusPatches["participants/"+key+"/scheduleStatus"] = "5.1;failed"
+		}
+	}
+	if len(statusPatches) > 0 && calBackend != nil && ev.ID != "" {
+		updated, _ := calBackend.UpdateCalendarEvent(ctx, ev.ID, statusPatches)
+		if updated != nil && ev.Participants != nil {
+			for k, p := range updated.Participants {
+				if ev.Participants[k] != nil && p != nil {
+					ev.Participants[k].ScheduleStatus = p.ScheduleStatus
+				}
 			}
 		}
 	}
@@ -310,7 +340,7 @@ func dispatchITIPCancels(ctx context.Context, mailBackend MailBackend, calBacken
 	for _, addr := range schedulingRecipients(ev) {
 		deliverCancelLocal(calBackend, resolver, ev, addr)
 		if mailBackend != nil && icsErr == nil {
-			sendSchedulingEmail(ctx, mailBackend, "Cancelled: "+ev.Title, addr, cancelICS, "CANCEL")
+			_ = sendSchedulingEmail(ctx, mailBackend, "Cancelled: "+ev.Title, addr, cancelICS, "CANCEL")
 		}
 	}
 }
@@ -359,10 +389,16 @@ func dispatchITIPRepliesForPatch(ctx context.Context, mailBackend MailBackend, c
 		if attendee == organizer {
 			continue
 		}
-		deliverReplyLocal(calBackend, resolver, ev, attendee, status)
-		if mailBackend != nil {
+		deliveredLocal := deliverReplyLocal(calBackend, resolver, ev, attendee, status)
+		if deliveredLocal {
+			patch["participants/"+partKey+"/scheduleStatus"] = "2.0;delivered"
+		} else if mailBackend != nil {
 			if replyICS, err := BuildITIPReply(ev, attendee, status); err == nil {
-				sendSchedulingEmail(ctx, mailBackend, "Re: "+ev.Title, organizer, replyICS, "REPLY")
+				if err := sendSchedulingEmail(ctx, mailBackend, "Re: "+ev.Title, organizer, replyICS, "REPLY"); err == nil {
+					patch["participants/"+partKey+"/scheduleStatus"] = "1.1;sent"
+				} else {
+					patch["participants/"+partKey+"/scheduleStatus"] = "5.1;failed"
+				}
 			}
 		}
 		sentAny = true

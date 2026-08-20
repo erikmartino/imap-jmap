@@ -118,7 +118,7 @@ func TestRFC8984_SameServerInviteAcceptRoundTrip(t *testing.T) {
 		t.Fatalf("Bob accept did not update his event: %+v", acceptResp.MethodResponses[0].Args)
 	}
 
-	// 4. Alice's copy reflects Bob's acceptance.
+	// 4. Alice's copy reflects Bob's acceptance and scheduleStatus.
 	aliceEvents := postGetEvents(t, ts.URL, alice, aliceAcct, cal, []string{aliceEventID})
 	aliceEvent := firstEvent(aliceEvents)
 	if aliceEvent == nil {
@@ -126,6 +126,71 @@ func TestRFC8984_SameServerInviteAcceptRoundTrip(t *testing.T) {
 	}
 	if got := participationStatus(aliceEvent, bob); got != "accepted" {
 		t.Errorf("Alice sees Bob's participationStatus = %q, want accepted", got)
+	}
+	if got := scheduleStatus(aliceEvent, bob); got != "2.0;delivered" {
+		t.Errorf("Alice sees Bob's scheduleStatus = %q, want '2.0;delivered'", got)
+	}
+}
+
+// TestRFC8984_SEC7_ScheduleStatusReporting tests per-participant scheduleStatus reporting
+// (SEC-7 / draft-ietf-jmap-calendars-27 Section 4.2.7 / RFC 6638 Section 3.2.14) for both
+// same-server local delivery and external iMIP email delivery.
+func TestRFC8984_SEC7_ScheduleStatusReporting(t *testing.T) {
+	spectest.Require(t, "draft-ietf-jmap-calendars-27", "4.2.7", spectest.MUST,
+		"The scheduleStatus property represents the status of scheduling message delivery as a STATCODE string.")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	const alice = "alice-sec7@example.com"
+	const bob = "bob-sec7@example.com"             // Local recipient
+	const charlie = "charlie-sec7@external.example.com" // External recipient
+
+	cal := []string{jmap.CoreCapabilityURI, jmap.CalendarsCapabilityURI, jmap.MailCapabilityURI}
+	aliceAcct := jmap.AccountIDForSubject(alice)
+
+	createResp := postAs(t, ts.URL, alice, cal, []any{
+		[]any{"CalendarEvent/set", map[string]any{
+			"accountId":              aliceAcct,
+			"sendSchedulingMessages": true,
+			"create": map[string]any{
+				"e1": map[string]any{
+					"title":    "Security Architecture Review",
+					"start":    "2026-11-01T10:00:00Z",
+					"duration": "PT1H",
+					"replyTo":  map[string]any{"imip": "mailto:" + alice},
+					"participants": map[string]any{
+						alice:   map[string]any{"email": alice, "roles": map[string]any{"owner": true}},
+						bob:     map[string]any{"email": bob, "roles": map[string]any{"attendee": true}, "participationStatus": "needs-action"},
+						charlie: map[string]any{"email": charlie, "roles": map[string]any{"attendee": true}, "participationStatus": "needs-action"},
+					},
+				},
+			},
+		}, "c1"},
+	})
+
+	created, ok := createResp.MethodResponses[0].Args["created"].(map[string]any)
+	if !ok || created["e1"] == nil {
+		t.Fatalf("Alice create failed: %+v", createResp.MethodResponses[0].Args)
+	}
+	aliceEventID := created["e1"].(map[string]any)["id"].(string)
+
+	// Fetch event and verify scheduleStatus on each participant
+	aliceEvents := postGetEvents(t, ts.URL, alice, aliceAcct, cal, []string{aliceEventID})
+	aliceEvent := firstEvent(aliceEvents)
+	if aliceEvent == nil {
+		t.Fatalf("event not found")
+	}
+
+	// Bob is local -> delivered directly into his calendar
+	if got := scheduleStatus(aliceEvent, bob); got != "2.0;delivered" {
+		t.Errorf("Bob scheduleStatus = %q, want '2.0;delivered'", got)
+	}
+
+	// Charlie is external -> dispatched via iMIP email
+	if got := scheduleStatus(aliceEvent, charlie); got != "1.1;sent" {
+		t.Errorf("Charlie scheduleStatus = %q, want '1.1;sent'", got)
 	}
 }
 
@@ -193,5 +258,12 @@ func participationStatus(event map[string]any, participantKey string) string {
 	participants, _ := event["participants"].(map[string]any)
 	p, _ := participants[participantKey].(map[string]any)
 	s, _ := p["participationStatus"].(string)
+	return s
+}
+
+func scheduleStatus(event map[string]any, participantKey string) string {
+	participants, _ := event["participants"].(map[string]any)
+	p, _ := participants[participantKey].(map[string]any)
+	s, _ := p["scheduleStatus"].(string)
 	return s
 }

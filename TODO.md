@@ -13,13 +13,11 @@ Inbound scheduling messages (iTIP over iMIP processed by the SMTP receiver) requ
 
 - [ ] **SEC-1 — Sender Authentication**: Verify SPF ([RFC 7208](https://www.rfc-editor.org/rfc/rfc7208)), DKIM ([RFC 6376](https://www.rfc-editor.org/rfc/rfc6376)), and DMARC ([RFC 7489](https://www.rfc-editor.org/rfc/rfc7489)) on received messages before any iTIP is auto-applied. Fail closed: unauthenticated messages MUST NOT mutate calendar state (deliver to mailbox only, or reject).
 - [ ] **SEC-4 — Real SMTP Auth Boundary**: Separate unauthenticated inbound MX transport from authenticated submission ([RFC 6409](https://www.rfc-editor.org/rfc/rfc6409) / [RFC 4954](https://www.rfc-editor.org/rfc/rfc4954)), and gate scheduling trust on the transport boundary.
-- [ ] **SEC-7 — `scheduleStatus` Reporting**: Record per-participant `scheduleStatus` for outbound delivery outcomes (sent / delivered / failed) so organizer events reflect delivery failures and bounces.
 
 ### 2. Authentication & Deployment (OIDC / Keycloak)
 Production deployment (`jmap.profundo.dk`) transition from development in-memory auth to Keycloak OIDC authentication.
 
 - [ ] **AUTH-2 — Retire `password == email` in Production**: Remove or disable the fallback in-memory credential path from production environments so plain password matches are rejected when OIDC is active.
-- [ ] **AUTH-3 — Basic-Auth Bridge (Optional)**: For clients that only speak HTTP Basic, validate supplied credentials against Keycloak via Resource Owner Password Credentials (ROPC) or issue app-specific passwords.
 
 ---
 

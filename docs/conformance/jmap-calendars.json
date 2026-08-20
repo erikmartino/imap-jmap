@@ -153,6 +153,14 @@
   },
   {
     "spec": "draft-ietf-jmap-calendars-27",
+    "section": "4.2.7",
+    "level": "MUST",
+    "text": "The scheduleStatus property represents the status of scheduling message delivery as a STATCODE string.",
+    "tests": ["TestRFC8984_SEC7_ScheduleStatusReporting"],
+    "status": "covered"
+  },
+  {
+    "spec": "draft-ietf-jmap-calendars-27",
     "section": "4.2.10",
     "level": "MUST",
     "text": "privacy=private: only non-owner sharees get the reduced property set; the owner sees full data.",
