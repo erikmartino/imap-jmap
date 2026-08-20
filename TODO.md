@@ -23,12 +23,8 @@ Production deployment (`jmap.profundo.dk`) transition from development in-memory
 - [ ] **AUTH-3 — Basic-Auth Bridge (Optional)**: For clients that only speak HTTP Basic, validate supplied credentials against Keycloak via Resource Owner Password Credentials (ROPC) or issue app-specific passwords.
 
 ### 3. DNS Auto-Discovery & Configuration
-Configure DNS and auto-configuration endpoints for seamless client discovery.
+Configure legacy auto-configuration endpoints for seamless client discovery.
 
-- [ ] **DNS-1 — JMAP SRV & TXT Discovery Records**:
-  - `_jmap._tcp.profundo.dk. 300 IN SRV 0 1 443 jmap.profundo.dk.` (Configured)
-  - `_jmaps._tcp.profundo.dk. 300 IN SRV 0 1 443 jmap.profundo.dk.` (Missing SRV)
-  - `_jmap._tcp.profundo.dk. 300 IN TXT "v=jmap1 path=/.well-known/jmap"` (Missing TXT)
 - [ ] **DNS-2 — Legacy AutoConfig / AutoDiscover XML Endpoints**:
   - `https://autoconfig.profundo.dk/mail/config-v1.1.xml` (Thunderbird)
   - `https://autodiscover.profundo.dk/autodiscover/autodiscover.xml` (Outlook)
