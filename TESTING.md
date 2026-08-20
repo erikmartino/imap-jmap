@@ -87,6 +87,11 @@ JMTS_TELEMETRY=1 JMAP_SERVER_ADAPTER_FILE=imap-jmap.json prove -lv t/basic.t
 JMTS_USE_WEBSOCKETS=1 JMAP_SERVER_ADAPTER_FILE=imap-jmap.json prove -lv t/basic.t
 ```
 
+### Conformance Status
+- **Status**: **100% PASS (89/89 test files)** across all subsystems.
+- See [`JMAP_TEST_SUITE_STATUS.md`](./JMAP_TEST_SUITE_STATUS.md) for the full per-file report.
+- **Continuous Non-Regression Gate**: All 89 test files must pass without regression before and after any changes.
+
 ---
 
 ## 3. `jmapio/jmap-perl` Test Suite

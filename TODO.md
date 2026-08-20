@@ -10,25 +10,7 @@ the `dav/` package's own tests.
 
 ---
 
-## Highest Priority — Fastmail JMAP-TestSuite Conformance & Maintenance
-
-Maintaining 100% compliance with the official Fastmail [`JMAP-TestSuite`](https://github.com/fastmail/JMAP-TestSuite) (`~/git/fastmail/JMAP-TestSuite`) is our **highest priority**. All future changes, protocol extensions, and refactorings MUST run against and pass this test suite without regression.
-
-- **[DONE] Conformance Milestone 1 (2026-08-20)**: **100% PASS (89/89 test files)** across all subsystems:
-  - `t/core/` & `t/basic.t`: 5/5 (100%)
-  - `t/Mailbox/`: 20/20 (100%)
-  - `t/Thread/`: 6/6 (100%)
-  - `t/Email/`: 55/55 (100%)
-  - Legacy/preview tests: 3/3 (100%)
-  - See [`JMAP_TEST_SUITE_STATUS.md`](./JMAP_TEST_SUITE_STATUS.md) for full per-file status breakdown.
-- **Continuous Requirement**:
-  - Run the server: `go run . -port 8181 -https-port 8444 -smtp-port 1026`
-  - In `~/git/fastmail/JMAP-TestSuite`: `JMAP_SERVER_ADAPTER_FILE=imap-jmap.json prove -lr t/`
-  - Any regression in any test file is a blocking defect.
-
----
-
-## High Priority — `jmapio/jmap-perl` Conformance Goal
+## Highest Priority — `jmapio/jmap-perl` Conformance Goal
 
 Run the community [`jmapio/jmap-perl`](https://github.com/jmapio/jmap-perl) test suite against `imap-jmap` to extend external compliance verification across JMAP Core, Mail, Calendars, and Contacts.
 
