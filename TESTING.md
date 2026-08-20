@@ -140,7 +140,60 @@ Cyrus `Cassandane` ([https://github.com/cyrusimap/cassandane](https://github.com
 
 ---
 
-## 6. Playwright End-to-End Suite (`e2e/`)
+## 6. JSContact (`RFC 9553`) & JSCalendar (`RFC 8984`) Conformance Suites
+
+### A. `jmapio/jscontact-tests`
+The official IETF JSContact test suite ([https://github.com/jmapio/jscontact-tests](https://github.com/jmapio/jscontact-tests)) provides JSON test vectors verifying:
+- JSContact Card ([RFC 9553](https://www.rfc-editor.org/rfc/rfc9553.html)) data structures and validation boundaries.
+- Bidirectional vCard 3.0/4.0 ↔ JSContact object transformation.
+
+### B. `ietf-jmap/jscalendar`
+The IETF JSCalendar repository ([https://github.com/ietf-jmap/jscalendar](https://github.com/ietf-jmap/jscalendar)) provides normative test vectors for:
+- RFC 8984 JSCalendar event, task, and group models.
+- Recurrence rule expansion (`byDay`, `bySetPosition`, `firstDayOfWeek`, `recurrenceOverrides`).
+- iCalendar (RFC 5545) ↔ JSCalendar (RFC 8984) conversion.
+
+### C. `stalwartlabs/calcard`
+A suite of unit and property tests ([https://github.com/stalwartlabs/calcard](https://github.com/stalwartlabs/calcard)) covering strict JSCalendar and JSContact serialization and round-trip fidelity.
+
+---
+
+## 7. Apache James JMAP Cucumber Test Suite
+
+The Apache James project ([https://github.com/apache/james-project](https://github.com/apache/james-project)) includes an extensive Cucumber-based functional test suite (`server/protocols/jmap-rfc-8621-integration-tests`) covering:
+- **Core (RFC 8620)**: Batching, method call limits, capability negotiation, result references.
+- **Mail (RFC 8621)**: Threading, mailbox trees, message importation, full-text query snippets.
+- **Extensions**: MDN ([RFC 9007](https://www.rfc-editor.org/rfc/rfc9007.html)), Quotas ([RFC 9425](https://www.rfc-editor.org/rfc/rfc9425.html)), Contacts ([RFC 9610](https://www.rfc-editor.org/rfc/rfc9610.html)), Sieve ([RFC 9661](https://www.rfc-editor.org/rfc/rfc9661.html)).
+
+---
+
+## 8. MIME Torture & Robustness Test Suite
+
+MIME torture test vectors ([https://www.w3.org/2001/06/tests/](https://www.w3.org/2001/06/tests/) and `mhonarc` torture suites) test parser resilience against:
+- Deeply-nested multipart trees (RFC 2045 / RFC 2046).
+- Malformed header fields, folded CRLF lines, unquoted boundaries.
+- Boundary smuggling, CTE bypass (base64/quoted-printable), and non-standard charsets.
+
+---
+
+## 9. SMTP & Inbound Mail Compliance (`swaks` & `chasquid`)
+
+### A. `swaks` (Swiss Army Knife for SMTP)
+Used to automate ESMTP verification against the receiving endpoint (e.g. port `1026`):
+```bash
+# Test basic mail delivery
+swaks --to user@example.com --from sender@example.com --server 127.0.0.1:1026
+
+# Test oversized message rejection (RFC 5321 §4.2.3 / RFC 1870)
+swaks --to user@example.com --from sender@example.com --server 127.0.0.1:1026 --data large_msg.eml
+```
+
+### B. `chasquid` SMTP Integration Test Suite
+The `chasquid` test suite ([https://github.com/albertito/chasquid](https://github.com/albertito/chasquid)) provides automated Go-based SMTP tests verifying authentication boundaries, SPF validation, and queue handling.
+
+---
+
+## 10. Playwright End-to-End Suite (`e2e/`)
 
 The Bulwark webmail integration tests are located in `e2e/`.
 
