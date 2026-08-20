@@ -1513,7 +1513,7 @@ func handleEmailImport(backend MailBackend, blobBackend BlobBackend) MethodHandl
 
 			em, err := parseRFC822WithAccount(accountID, blobData, blobBackend)
 			if err != nil {
-				notCreated[clientKey] = SetError{Type: "invalidProperties", Properties: []string{"blobId"}}
+				notCreated[clientKey] = SetError{Type: "invalidEmail", Description: fmt.Sprintf("invalid email: %v", err)}
 				continue
 			}
 			em.BlobID = Id(blobID)
