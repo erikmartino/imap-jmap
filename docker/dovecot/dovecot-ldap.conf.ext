@@ -1,0 +1,9 @@
+hosts = ldap:389
+dn = cn=admin,dc=example,dc=org
+dnpass = admin
+auth_bind = yes
+base = ou=users,dc=example,dc=org
+user_attrs = mail=user
+user_filter = (|(uid=%u)(mail=%u))
+pass_attrs = uid=user,userPassword=password
+pass_filter = (|(uid=%u)(mail=%u))

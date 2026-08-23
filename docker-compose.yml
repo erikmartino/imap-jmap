@@ -54,17 +54,20 @@ services:
     restart: unless-stopped
 
   dovecot:
-    image: mailhog/dovecot:latest
+    image: dovecot/dovecot:latest-root
     container_name: dovecot-imapd
     ports:
       - "143:143"
       - "993:993"
+    volumes:
+      - ./docker/dovecot/dovecot.conf:/etc/dovecot/dovecot.conf:ro
+      - ./docker/dovecot/dovecot-ldap.conf.ext:/etc/dovecot/dovecot-ldap.conf.ext:ro
     depends_on:
       - ldap
     restart: unless-stopped
 
   radicale:
-    image: tomsun/radicale:latest
+    image: tomsquest/docker-radicale:latest
     container_name: radicale-dav
     ports:
       - "5232:5232"
@@ -73,3 +76,5 @@ services:
     depends_on:
       - ldap
     restart: unless-stopped
+
+
