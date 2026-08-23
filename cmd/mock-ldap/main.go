@@ -13,10 +13,18 @@ import (
 )
 
 func main() {
-	port := os.Getenv("LDAP_PORT")
+	port := os.Getenv("LDAP_LISTEN_PORT")
+	if port == "" {
+		port = os.Getenv("LDAP_PORT")
+	}
+	if strings.Contains(port, "://") {
+		parts := strings.Split(port, ":")
+		port = parts[len(parts)-1]
+	}
 	if port == "" {
 		port = "389"
 	}
+
 
 	server := ldapserver.NewServer()
 	routes := ldapserver.NewRouteMux()
