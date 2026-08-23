@@ -83,6 +83,22 @@ services:
       - ldap
     restart: unless-stopped
 
+  smtp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: smtp-server
+    command: ["/mock-smtp"]
+    ports:
+      - "25:25"
+    environment:
+      - SMTP_PORT=25
+      - LDAP_HOST=ldap:389
+    depends_on:
+      - ldap
+    restart: unless-stopped
+
+
 
 volumes:
   radicale-data:
