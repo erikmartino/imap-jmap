@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -134,6 +135,9 @@ func (a *MemoryAuthBackend) ValidateCredentials(ctx context.Context, username, p
 }
 
 func autoCreateLdapUser(username, password string) {
+	if os.Getenv("AUTO_CREATE_LDAP_USERS") != "true" {
+		return
+	}
 	parts := strings.Split(username, "@")
 	user := parts[0]
 	domain := "example.org"
@@ -143,6 +147,7 @@ func autoCreateLdapUser(username, password string) {
 	// Execute script in background if present
 	exec.Command("scripts/create_test_user.sh", user, domain, password).Run()
 }
+
 
 
 // ValidateToken looks up the token and returns the associated accountID.
