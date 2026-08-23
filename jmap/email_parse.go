@@ -80,13 +80,21 @@ const (
 	MaxMIMEParts = 100
 )
 
-// parseRFC822 parses a raw RFC 5322 MIME message into a JMAP Email object (RFC 8621 Section 4.1).
-func parseRFC822(raw []byte, blobBackend ...BlobBackend) (*Email, error) {
-	return parseRFC822WithAccount("", raw, blobBackend...)
+// ParseRFC822 parses a raw RFC 5322 MIME message into a JMAP Email object (RFC 8621 Section 4.1).
+func ParseRFC822(raw []byte, blobBackend ...BlobBackend) (*Email, error) {
+	return ParseRFC822WithAccount("", raw, blobBackend...)
 }
 
-// parseRFC822WithAccount parses an RFC 5322 MIME message into a JMAP Email object with optional blob storage.
+func parseRFC822(raw []byte, blobBackend ...BlobBackend) (*Email, error) {
+	return ParseRFC822(raw, blobBackend...)
+}
+
 func parseRFC822WithAccount(accountID string, raw []byte, blobBackend ...BlobBackend) (*Email, error) {
+	return ParseRFC822WithAccount(accountID, raw, blobBackend...)
+}
+
+// ParseRFC822WithAccount parses an RFC 5322 MIME message into a JMAP Email object with optional blob storage.
+func ParseRFC822WithAccount(accountID string, raw []byte, blobBackend ...BlobBackend) (*Email, error) {
 	if len(raw) > MaxEmailRawSize {
 		return nil, fmt.Errorf("message size (%d bytes) exceeds maximum limit (%d bytes)", len(raw), MaxEmailRawSize)
 	}

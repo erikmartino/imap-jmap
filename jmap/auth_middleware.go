@@ -33,6 +33,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		var authErr error
 		authed := false
 
+		var credUsername, credPassword string
 		auth := r.Header.Get("Authorization")
 		queryToken := r.URL.Query().Get("access_token")
 		if strings.HasPrefix(auth, "Basic ") {
@@ -42,6 +43,10 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 				accountID, authErr = s.AuthBackend.ValidateCredentials(r.Context(), username, password)
 				subject = username
 				authed = authErr == nil
+				if authed {
+					credUsername = username
+					credPassword = password
+				}
 			} else {
 				authErr = errors.New("malformed Basic authorization header")
 			}
@@ -49,10 +54,26 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			token := strings.TrimPrefix(auth, "Bearer ")
 			accountID, subject, authErr = s.AuthBackend.ValidateToken(r.Context(), token)
 			authed = authErr == nil
+			if authed {
+				if extractor, ok := s.AuthBackend.(TokenCredentialsExtractor); ok {
+					if u, p, ok := extractor.ExtractCredentials(r.Context(), token); ok {
+						credUsername = u
+						credPassword = p
+					}
+				}
+			}
 		} else if queryToken != "" {
 			// RFC 6750 Section 2.3: token in URI query (required for browser SSE and WebSocket).
 			accountID, subject, authErr = s.AuthBackend.ValidateToken(r.Context(), queryToken)
 			authed = authErr == nil
+			if authed {
+				if extractor, ok := s.AuthBackend.(TokenCredentialsExtractor); ok {
+					if u, p, ok := extractor.ExtractCredentials(r.Context(), queryToken); ok {
+						credUsername = u
+						credPassword = p
+					}
+				}
+			}
 		} else if auth != "" {
 			authErr = fmt.Errorf("unsupported authorization scheme: %q", auth)
 		} else {
@@ -70,6 +91,9 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		ctx := ContextWithAccountID(r.Context(), accountID)
 		if subject != "" {
 			ctx = ContextWithSubject(ctx, subject)
+		}
+		if credUsername != "" {
+			ctx = ContextWithCredentials(ctx, credUsername, credPassword)
 		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

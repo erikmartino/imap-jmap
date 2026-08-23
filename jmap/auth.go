@@ -11,7 +11,25 @@ type contextKey int
 const (
 	authAccountIDKey contextKey = iota
 	authSubjectKey
+	authCredentialsKey
 )
+
+// AuthCredentials holds username and password credentials for gateway backends.
+type AuthCredentials struct {
+	Username string
+	Password string
+}
+
+// CredentialsFromContext retrieves the authenticated credentials from context if present.
+func CredentialsFromContext(ctx context.Context) (AuthCredentials, bool) {
+	creds, ok := ctx.Value(authCredentialsKey).(AuthCredentials)
+	return creds, ok && creds.Username != ""
+}
+
+// ContextWithCredentials injects authenticated credentials into context for downstream backends.
+func ContextWithCredentials(ctx context.Context, username, password string) context.Context {
+	return context.WithValue(ctx, authCredentialsKey, AuthCredentials{Username: username, Password: password})
+}
 
 // AccountIDForSubject converts a subject (e.g. username or email address) to a stable, URL-safe account ID.
 func AccountIDForSubject(subject string) string {
@@ -58,6 +76,12 @@ type AuthBackend interface {
 	ValidateCredentials(ctx context.Context, username, password string) (accountID string, err error)
 	// ValidateToken checks a Bearer token and returns the authenticated accountID and subject email.
 	ValidateToken(ctx context.Context, token string) (accountID string, subject string, err error)
+}
+
+// TokenCredentialsExtractor is an optional interface that AuthBackends can implement
+// to allow extracting upstream credentials (e.g. decrypted username/password) from a Bearer token.
+type TokenCredentialsExtractor interface {
+	ExtractCredentials(ctx context.Context, token string) (username, password string, ok bool)
 }
 
 // AccountIDFromContext retrieves the authenticated accountID injected by the auth middleware.

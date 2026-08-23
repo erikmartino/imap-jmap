@@ -140,8 +140,16 @@ func main() {
 	devAuthBackend := memory.NewMemoryAuthBackend()
 	devAuthBackend.SetBackends(mailBackend, blobBackend, memCalBackend, memContactsBackend, memFileNodeBackend)
 
-
 	var authBackend jmap.AuthBackend = devAuthBackend
+	if backendType == "imapsmtp" {
+		if gw, ok := mailBackend.(*imapsmtp.IMAPSMTPBackend); ok {
+			secretKey := os.Getenv("SESSION_SECRET")
+			if secretKey == "" {
+				secretKey = "imap-jmap-secret-session-key-32b!"
+			}
+			authBackend = imapsmtp.NewAuthBackend(gw.Pool(), secretKey)
+		}
+	}
 	if *oidcIssuer != "" {
 		var oidcFallback jmap.AuthBackend
 		// AUTH-2: the in-memory "password == email" credential path MUST NOT leak
