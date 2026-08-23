@@ -116,11 +116,14 @@ func extractUsername(dn string) string {
 
 func extractUsernameFromFilter(filter string) string {
 	parts := strings.FieldsFunc(filter, func(r rune) bool {
-		return r == ' ' || r == '{' || r == '}' || r == '[' || r == ']' || r == '(' || r == ')'
+		return r == ' ' || r == '{' || r == '}' || r == '[' || r == ']' || r == '(' || r == ')' || r == '=' || r == '|' || r == '&'
 	})
 	for i, part := range parts {
 		if (part == "uid" || part == "mail" || part == "cn") && i+1 < len(parts) {
-			return parts[i+1]
+			val := parts[i+1]
+			if val != "%u" && val != "" && !strings.Contains(val, "(") {
+				return val
+			}
 		}
 	}
 	return ""
