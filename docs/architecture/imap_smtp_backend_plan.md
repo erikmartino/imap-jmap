@@ -45,68 +45,100 @@ Credential context is extracted directly from the incoming JMAP HTTP request (vi
 
 ---
 
-## 2. Core Modules & Component Architecture
+## 2. Key Architectural Decisions
 
-The backend will be isolated in the package `jmap/imapsmtp/` and implement the `jmap.MailBackend` and `jmap.BlobBackend` interfaces.
+1. **Authentication & Credential Flow**:
+   - **Option C**: Encrypted/authenticated session token containing upstream IMAP/SMTP credentials.
+   - For HTTP Basic auth: credentials extracted directly from `Authorization: Basic <base64>`.
+   - For Bearer auth: session token decrypts to username/password or upstream OAuth token. Zero persistence of user credentials on gateway disk.
+
+2. **Cross-Folder Querying & Email IDs**:
+   - JMAP Email ID format: `<MailboxID>:<UID>` where `MailboxID` is URL-safe base64 of the IMAP mailbox name.
+   - Cross-folder querying (`Email/query` without `inMailbox` constraint) aggregates results across all IMAP mailboxes discovered via `LIST`.
+
+3. **Blob Lifecycle & Staging Storage**:
+   - **Option B**: Intermediate uncommitted blobs (attachments / drafts uploaded via `POST /upload` before `Email/set` or `EmailSubmission/set`) are staged as draft messages in the user's IMAP `Drafts` mailbox.
+
+4. **Stateless Composite State & Change Tracking**:
+   - The JMAP state string (`EmailState`, `MailboxState`) is a **stateless composite token** encoding per-folder IMAP state markers:
+     `v1.<base64url(JSON/compact([folder: {UIDVALIDITY, HIGHESTMODSEQ, UIDNEXT, MESSAGES}]))>`
+   - On `Email/changes(sinceState)`:
+     - The gateway decodes `sinceState` into prior folder markers and compares against current `STATUS` across mailboxes.
+     - With IMAP `CONDSTORE`/`QRESYNC`: queries `CHANGES SINCE <modseq>` and `VANISHED` to return exact `created`, `updated`, and `destroyed` diffs.
+     - If `sinceState` indicates invalidated `UIDVALIDITY` or unresolvable legacy state: returns `cannotCalculateChanges: true` per RFC 8620 §5.2.
+   - **100% Stateless Gateway**: No database or sticky session memory required; survives server restarts and scales across instances seamlessly.
+
+5. **Threading Strategy**:
+   - The gateway probes upstream IMAP capabilities for `THREAD=REFERENCES` and `THREAD=ORDEREDSUBJECT` (RFC 5256).
+   - If available, IMAP `THREAD` is used directly; otherwise falls back to calculating thread groups via `Message-ID`, `In-Reply-To`, and `References` headers during envelope scans.
+
+6. **Non-Mail Capabilities**:
+   - In `imapsmtp` mode, non-mail capabilities (`jmap.ContactBackend`, `jmap.CalendarBackend`, `jmap.SieveBackend`) utilize the in-memory backend initially. Future phases will integrate live CardDAV, CalDAV, and ManageSieve (RFC 5804) adapters.
+
+---
+
+## 3. Core Modules & Component Architecture
+
+The backend is isolated in `jmap/imapsmtp/` and implements the `jmap.MailBackend` and `jmap.BlobBackend` interfaces.
 
 ### Modules:
 1. **`client_pool.go` (IMAP/SMTP Connection & Session Pool)**:
    - Manages connection lifecycle to external IMAP and SMTP endpoints per JMAP account context.
-   - Leverages `github.com/emersion/go-imap/v2` (or `v1`) and `github.com/emersion/go-sasl` / `net/smtp`.
-   - Context-aware caching: Reuses connections within request context scope or pooled idle connections authenticated with the user's credentials.
+   - Supports plain TCP, STARTTLS, and direct TLS (e.g. port 993 / 465).
+   - Context-aware caching: Reuses connections within request context scope or pooled authenticated connections.
 
 2. **`mailbox_mapper.go` (Mailbox <-> IMAP Folder)**:
-   - Maps JMAP Mailbox IDs (e.g. base64-encoded IMAP folder names) to IMAP mailbox paths (`INBOX`, `Sent`, `Drafts`, `Trash`).
+   - Maps JMAP Mailbox IDs (URL-safe base64-encoded IMAP folder names) to IMAP mailbox paths (`INBOX`, `Sent`, `Drafts`, `Trash`).
    - Translates `Mailbox/get`, `Mailbox/set` (create, rename, delete) to IMAP commands (`CREATE`, `RENAME`, `DELETE`, `LIST`, `STATUS`).
 
 3. **`email_mapper.go` (Email <-> IMAP Message & UID)**:
-   - Maps JMAP Email IDs (e.g., `<MailboxID>:<UID>`) to IMAP UIDs.
+   - Maps JMAP Email IDs (`<MailboxID>:<UID>`) to IMAP UIDs.
    - Translates `Email/get` to IMAP `FETCH` (fetching envelopes, headers, MIME structure, or body parts).
    - Translates `Email/query` to IMAP `SEARCH` / `UID SEARCH` with criteria (`SINCE`, `BEFORE`, `FROM`, `HEADER`, `FLAG`).
-   - Translates `Email/set` updates (keywords like `$seen`, `$flagged`, `$draft`) to IMAP `STORE` / `UID STORE` (`+FLAGS`, `-FLAGS`).
+   - Translates `Email/set` updates (keywords like `$seen`, `$flagged`, `$draft`, `$answered`) to IMAP `STORE` / `UID STORE` (`+FLAGS`, `-FLAGS`).
    - Translates `Email/set` creates/imports to IMAP `APPEND`.
 
 4. **`submission_handler.go` (EmailSubmission <-> SMTP Client)**:
    - Handles JMAP `EmailSubmission/set`.
-   - Connects to the external SMTP server using the extracted user credentials.
-   - Delivers the raw MIME message bytes over SMTP (`MAIL FROM`, `RCPT TO`, `DATA`).
-   - Copies the sent message to the IMAP `Sent` folder via IMAP `APPEND` if required.
+   - Connects to external SMTP using extracted user credentials.
+   - Delivers raw MIME message bytes over SMTP (`MAIL FROM`, `RCPT TO`, `DATA`).
+   - Copies sent message to IMAP `Sent` folder via IMAP `APPEND`.
 
-5. **`change_tracker.go` (State & High-Water Mark Tracking)**:
-   - Maps IMAP `HIGHESTMODSEQ` / `UIDNEXT` / `UIDVALIDITY` (per RFC 7162 CONDSTORE/QRESYNC if supported) or synthesized sequence counters to JMAP `EmailState` and `MailboxState`.
+5. **`change_tracker.go` (Composite State & Delta Sync)**:
+   - Encodes and decodes composite state tokens.
+   - Evaluates mailbox deltas and calculates `created`, `updated`, and `destroyed` lists for `Email/changes` and `Mailbox/changes`.
 
 ---
 
-## 3. Detailed Data & Protocol Mapping Rules
+## 4. Detailed Data & Protocol Mapping Rules
 
 ### A. Identifier Encoding
-- **Mailbox ID**: URL-safe base64 encoding of the IMAP folder name (e.g., `INBOX` -> `SU5CT1g`).
-- **Email ID**: Composite string format `<MailboxID>:<UID>` or RFC 8620-compliant opaque hash mapped to `(folder, uid)`.
-- **Thread ID**: Mapped to IMAP `THREAD` extensions (RFC 5256) or derived from the `Message-ID` / `In-Reply-To` / `References` headers during envelope fetch.
+- **Mailbox ID**: URL-safe base64 encoding of IMAP folder name (e.g., `INBOX` -> `SU5CT1g`).
+- **Email ID**: Composite string format `<MailboxID>:<UID>`.
+- **Thread ID**: Mapped to IMAP `THREAD` results or synthesized from `Message-ID` / `In-Reply-To` / `References` headers.
 
 ### B. Keywords & Flags
 - `$seen` <-> `\Seen`
 - `$flagged` <-> `\Flagged`
 - `$draft` <-> `\Draft`
 - `$answered` <-> `\Answered`
-- `$phishing` / custom keywords <-> Custom IMAP keywords / flags.
+- Custom keywords <-> Custom IMAP keywords / flags.
 
 ### C. Outbound Email Submissions
 1. Client issues `EmailSubmission/set` referencing an Email ID or blob.
-2. `imapsmtp` backend fetches the MIME payload from IMAP/Blob storage.
-3. Opens an authenticated SMTP TLS connection (`smtpHost:smtpPort`) using user credentials.
+2. `imapsmtp` backend fetches MIME payload from IMAP/Blob staging.
+3. Opens authenticated SMTP TLS connection (`smtpHost:smtpPort`) using user credentials.
 4. Issues `MAIL FROM` and `RCPT TO` for all envelope addresses and transfers `DATA`.
 5. Appends the message to the user's `Sent` folder on IMAP.
 6. Returns created `EmailSubmission` object with `sendAt` timestamp and status.
 
 ---
 
-## 4. Configuration & Server Setup
+## 5. Configuration & Server Setup
 
-The server selection between `memory` and `imapsmtp` will be governed by environment flags or initialization options:
+Server selection between `memory` and `imapsmtp` is governed by environment flags or initialization options:
 
-```go
-// Environment configuration
+```
 BACKEND_TYPE=imapsmtp          # Options: "memory", "imapsmtp"
 IMAP_SERVER=dovecot:143        # External IMAP server host:port
 SMTP_SERVER=smtp:25            # External SMTP server host:port
@@ -116,20 +148,21 @@ SMTP_TLS=false
 
 ---
 
-## 5. Implementation Phases & Milestones
+## 6. Implementation Phases & Milestones
 
 | Phase | Description | Deliverables |
 | :--- | :--- | :--- |
-| **Phase 1: Core Client Pool & Authentication** | Implement dynamic IMAP/SMTP connection pooling with request-context credential extraction. | `jmap/imapsmtp/client_pool.go` |
+| **Phase 1: Core Client Pool & Authentication** | Dynamic IMAP/SMTP connection pooling with request-context credential extraction. | `jmap/imapsmtp/client_pool.go` |
 | **Phase 2: Mailbox Operations** | Implement `Mailbox/get`, `Mailbox/set` (create, rename, delete) over IMAP `LIST`/`STATUS`/`CREATE`. | `jmap/imapsmtp/mailbox.go` |
-| **Phase 3: Email Fetching & Querying** | Implement `Email/get`, `Email/query` over IMAP `FETCH` and `SEARCH`. | `jmap/imapsmtp/email_read.go` |
+| **Phase 3: Email Fetching & Querying** | Implement `Email/get`, `Email/query` over IMAP `FETCH` and `SEARCH` across folders. | `jmap/imapsmtp/email_read.go` |
 | **Phase 4: Email Mutation & Flags** | Implement `Email/set` (update flags/keywords, move, delete) over IMAP `STORE`/`COPY`/`EXPUNGE`. | `jmap/imapsmtp/email_write.go` |
-| **Phase 5: SMTP Outbound Submission** | Implement `EmailSubmission/set` over external SMTP with automatic IMAP `Sent` folder append. | `jmap/imapsmtp/submission.go` |
-| **Phase 6: Integration & Test Coverage** | Dedicated unit test suite with live IMAP (Dovecot) & SMTP (Mock-SMTP) backends. | `jmap/imapsmtp/*_test.go` |
+| **Phase 5: State & Delta Sync** | Implement composite state tokens and `Email/changes`, `Mailbox/changes` tracking. | `jmap/imapsmtp/change_tracker.go` |
+| **Phase 6: SMTP Outbound Submission & Blobs** | Implement `EmailSubmission/set` over SMTP and staging draft blobs in IMAP `Drafts`. | `jmap/imapsmtp/submission.go`, `jmap/imapsmtp/blob.go` |
+| **Phase 7: Integration & Test Coverage** | Dedicated unit test suite with live IMAP (Dovecot) & SMTP (Mock-SMTP) backends. | `jmap/imapsmtp/*_test.go` |
 
 ---
 
-## 6. Spec Compliance & Architectural Constraints Verification
+## 7. Spec Compliance & Architectural Constraints Verification
 - **No Hardcoded Usernames**: Credentials extracted strictly from request context.
 - **Data Loss Prevention**: Partial flag updates in `Email/set` mutate only explicitly provided keywords.
 - **Standard Parsers**: MIME parsing via `go-message`, IMAP protocol handling via `go-imap`.
