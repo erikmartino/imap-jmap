@@ -77,9 +77,13 @@ services:
     ports:
       - "5232:5232"
     volumes:
-      - ./docker/radicale/config:/etc/radicale/config:ro
+      - ./docker/radicale/config:/config/config:ro
+      - radicale-data:/data
     depends_on:
       - ldap
     restart: unless-stopped
 
+
+volumes:
+  radicale-data:
 

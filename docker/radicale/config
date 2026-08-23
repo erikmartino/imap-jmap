@@ -1,11 +1,13 @@
-# Radicale authentication configuration for LDAP
 [server]
 hosts = 0.0.0.0:5232
 
 [auth]
 type = ldap
-ldap_url = ldap://ldap:389
+ldap_uri = ldap://ldap:389
 ldap_base = ou=users,dc=example,dc=org
-ldap_attribute = uid
-ldap_bind_dn = cn=admin,dc=example,dc=org
-ldap_password = admin
+ldap_reader_dn = cn=admin,dc=example,dc=org
+ldap_secret = admin
+ldap_filter = (|(uid={0})(mail={0}))
+
+[storage]
+filesystem_folder = /data/collections

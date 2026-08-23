@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -49,7 +50,8 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	log.Printf("[MockLDAP] Bind request: DN=%s", bindDN)
 	username := extractUsername(bindDN)
 
-	if username != "" && (password == username || password != "") {
+	// Accept admin bind or strict username == password authentication
+	if bindDN == "cn=admin,dc=example,dc=org" || (username != "" && password == username) {
 		log.Printf("[MockLDAP] Bind SUCCESS for %s", username)
 		w.Write(ldapserver.NewBindResponse(ldapserver.LDAPResultSuccess))
 		return
@@ -61,15 +63,19 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 
 func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	r := m.GetSearchRequest()
-	log.Printf("[MockLDAP] Search BaseDN=%s Filter=%s", r.BaseObject(), r.Filter())
+	filterStr := fmt.Sprintf("%v", r.Filter())
+	log.Printf("[MockLDAP] Search BaseDN=%s Filter=%s", r.BaseObject(), filterStr)
 
-	baseDN := string(r.BaseObject())
-	username := extractUsername(baseDN)
+	username := extractUsernameFromFilter(filterStr)
 	if username == "" {
+		username = extractUsername(string(r.BaseObject()))
+	}
+	if username == "" || strings.HasPrefix(username, "ou=") || strings.HasPrefix(username, "dc=") {
 		username = "user@example.com"
 	}
 
-	e := ldapserver.NewSearchResultEntry(baseDN)
+	entryDN := fmt.Sprintf("uid=%s,ou=users,dc=example,dc=org", username)
+	e := ldapserver.NewSearchResultEntry(entryDN)
 	e.AddAttribute("objectClass", message.AttributeValue("inetOrgPerson"), message.AttributeValue("posixAccount"), message.AttributeValue("top"))
 	e.AddAttribute("uid", message.AttributeValue(username))
 	e.AddAttribute("mail", message.AttributeValue(username))
@@ -90,5 +96,20 @@ func extractUsername(dn string) string {
 			return kv[1]
 		}
 	}
-	return dn
+	if !strings.Contains(dn, "=") {
+		return dn
+	}
+	return ""
+}
+
+func extractUsernameFromFilter(filter string) string {
+	parts := strings.FieldsFunc(filter, func(r rune) bool {
+		return r == ' ' || r == '{' || r == '}' || r == '[' || r == ']' || r == '(' || r == ')'
+	})
+	for i, part := range parts {
+		if (part == "uid" || part == "mail" || part == "cn") && i+1 < len(parts) {
+			return parts[i+1]
+		}
+	}
+	return ""
 }
