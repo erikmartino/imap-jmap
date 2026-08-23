@@ -175,6 +175,8 @@ func main() {
 	s.Addr = "0.0.0.0:" + port
 	s.Domain = "profundo.dk"
 	s.AllowInsecureAuth = true
+	s.AuthMechs = map[string]bool{"PLAIN": true, "LOGIN": true}
+
 
 	log.Printf("Starting Mock SMTP server for profundo.dk on 0.0.0.0:%s (LDAP: %s) ...", port, ldapHost)
 
