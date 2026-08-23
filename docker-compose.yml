@@ -61,6 +61,14 @@ services:
       - "993:993"
     volumes:
       - ./docker/dovecot/dovecot-ldap.conf.ext:/etc/dovecot/dovecot-ldap.conf.ext:ro
+      - ./docker/dovecot/dovecot.conf:/etc/dovecot/conf.d/auth-ldap.conf:ro
+
+
+
+
+
+
+
 
 
 

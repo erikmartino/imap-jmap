@@ -78,12 +78,13 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	log.Printf("[MockLDAP] Search BaseDN=%s Filter=%s", r.BaseObject(), filterStr)
 
 	username := extractUsernameFromFilter(filterStr)
-	if username == "" {
+	if username == "" || username == "%u" {
 		username = extractUsername(string(r.BaseObject()))
 	}
-	if username == "" || strings.HasPrefix(username, "ou=") || strings.HasPrefix(username, "dc=") {
+	if username == "" || username == "%u" || strings.HasPrefix(username, "ou=") || strings.HasPrefix(username, "dc=") {
 		username = "user@example.com"
 	}
+
 
 	entryDN := fmt.Sprintf("uid=%s,ou=users,dc=example,dc=org", username)
 	e := ldapserver.NewSearchResultEntry(entryDN)
