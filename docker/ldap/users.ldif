@@ -14,3 +14,43 @@ userPassword: user@example.com
 uidNumber: 1000
 gidNumber: 1000
 homeDirectory: /home/user
+
+dn: uid=testuser1@example.org,ou=users,dc=example,dc=org
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: testuser1@example.org
+cn: Test User 1
+sn: User1
+mail: testuser1@example.org
+userPassword: Password123!
+uidNumber: 1001
+gidNumber: 1001
+homeDirectory: /home/testuser1
+
+dn: uid=testuser2@example.org,ou=users,dc=example,dc=org
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: testuser2@example.org
+cn: Test User 2
+sn: User2
+mail: testuser2@example.org
+userPassword: Password123!
+uidNumber: 1002
+gidNumber: 1002
+homeDirectory: /home/testuser2
+
+
+dn: uid=testuser_1787494055_20002@example.org,ou=users,dc=example,dc=org
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: testuser_1787494055_20002@example.org
+cn: testuser_1787494055_20002
+sn: TestUser
+mail: testuser_1787494055_20002@example.org
+userPassword: Password123!
+uidNumber: 4601
+gidNumber: 4601
+homeDirectory: /home/testuser_1787494055_20002
