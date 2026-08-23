@@ -19,11 +19,8 @@ type Backend struct {
 	ldapHost string
 }
 
-func (b *Backend) EnableAuth() []string {
-	return []string{sasl.Plain}
-}
-
 func (b *Backend) NewSession(c *smtp.Conn) (smtp.Session, error) {
+
 
 	return &Session{backend: b, remoteAddr: c.Conn().RemoteAddr().String()}, nil
 }
