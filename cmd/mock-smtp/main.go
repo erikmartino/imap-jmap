@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/emersion/go-sasl"
 	"github.com/emersion/go-smtp"
 )
 
@@ -31,20 +32,29 @@ type Session struct {
 	recipients    []string
 }
 
-func (s *Session) AuthPlain(username, password string) error {
-	log.Printf("[MockSMTP] Authenticate request for user: %s", username)
-
-	// Validate credentials against LDAP server
-	if err := authenticateLDAP(s.backend.ldapHost, username, password); err != nil {
-		log.Printf("[MockSMTP] LDAP Auth FAILED for user: %s: %v", username, err)
-		return fmt.Errorf("invalid LDAP credentials")
-	}
-
-	s.authenticated = true
-	s.authUser = username
-	log.Printf("[MockSMTP] LDAP Auth SUCCESS for user: %s", username)
-	return nil
+func (s *Session) AuthMechanisms() []string {
+	return []string{sasl.Plain}
 }
+
+func (s *Session) Auth(mech string) (sasl.Server, error) {
+	switch mech {
+	case sasl.Plain:
+		return sasl.NewPlainServer(func(identity, username, password string) error {
+			log.Printf("[MockSMTP] AUTH PLAIN request for user: %s", username)
+			if err := authenticateLDAP(s.backend.ldapHost, username, password); err != nil {
+				log.Printf("[MockSMTP] LDAP Auth FAILED for user: %s: %v", username, err)
+				return fmt.Errorf("invalid LDAP credentials")
+			}
+			s.authenticated = true
+			s.authUser = username
+			log.Printf("[MockSMTP] LDAP Auth SUCCESS for user: %s", username)
+			return nil
+		}), nil
+	default:
+		return nil, smtp.ErrAuthUnsupported
+	}
+}
+
 
 func (s *Session) Mail(from string, opts *smtp.MailOptions) error {
 	s.from = from
@@ -53,7 +63,6 @@ func (s *Session) Mail(from string, opts *smtp.MailOptions) error {
 }
 
 func (s *Session) Rcpt(to string, opts *smtp.RcptOptions) error {
-	// If mail is sent for external delivery / relay, enforce LDAP authentication
 	domain := getDomain(to)
 	if domain != "profundo.dk" && domain != "example.org" && domain != "example.com" && !s.authenticated {
 		return fmt.Errorf("authentication required for outbound mail delivery")
@@ -91,10 +100,8 @@ func (s *Session) Logout() error {
 }
 
 func authenticateLDAP(ldapHost, username, password string) error {
-	// Connect to LDAP port 389
 	conn, err := net.Dial("tcp", ldapHost)
 	if err != nil {
-		// Fallback: accept matching credentials if LDAP connection fails in minimal mode
 		if username != "" && password == username {
 			return nil
 		}
@@ -102,12 +109,9 @@ func authenticateLDAP(ldapHost, username, password string) error {
 	}
 	defer conn.Close()
 
-	// Perform LDAP bind check over simple TCP socket protocol
-	userDN := fmt.Sprintf("uid=%s,ou=users,dc=example,dc=org", username)
 	if username != "" && password == username {
 		return nil
 	}
-	_ = userDN
 	return fmt.Errorf("invalid credentials")
 }
 
@@ -175,8 +179,6 @@ func main() {
 	s.Addr = "0.0.0.0:" + port
 	s.Domain = "profundo.dk"
 	s.AllowInsecureAuth = true
-	s.AuthMechs = map[string]bool{"PLAIN": true, "LOGIN": true}
-
 
 	log.Printf("Starting Mock SMTP server for profundo.dk on 0.0.0.0:%s (LDAP: %s) ...", port, ldapHost)
 
