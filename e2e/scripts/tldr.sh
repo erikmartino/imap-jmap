@@ -9,7 +9,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 E2E_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-COMPOSE_FILE="$E2E_DIR/../docker-compose.bulwark.yml"
+COMPOSE_FILE="$E2E_DIR/../docker-compose.yml"
 cd "$E2E_DIR"
 
 BULWARK_URL="http://localhost:3000"
@@ -51,14 +51,8 @@ else
 fi
 
 echo "==> Bringing up the stack (fresh)"
-# An optional docker-compose.local.yml next to the main file is included when
-# present (e.g. host-networking override for environments without rootless
-# bridge networking); it never replaces the canonical compose file.
 COMPOSE_FILES=(-f "$COMPOSE_FILE")
-if [ -f "$E2E_DIR/../docker-compose.local.yml" ]; then
-  COMPOSE_FILES+=(-f "$E2E_DIR/../docker-compose.local.yml")
-  echo "==> Using local override docker-compose.local.yml"
-fi
+
 # --force-recreate guarantees a clean environment (and that a freshly generated cert
 # is loaded, since it is a runtime mount rather than baked into the image).
 "${COMPOSE[@]}" "${COMPOSE_FILES[@]}" up -d --build --force-recreate
