@@ -17,8 +17,16 @@ services:
       - PUBLIC_URL=https://localhost:8443
       - TLS_CERT_FILE=/certs/cert.pem
       - TLS_KEY_FILE=/certs/key.pem
+      - BACKEND_TYPE=imapsmtp
+      - IMAP_SERVER=dovecot:143
+      - SMTP_SERVER=smtp:25
+      - SESSION_SECRET=imap-jmap-secret-session-key-32b!
     volumes:
       - ./certs:/certs:ro
+    depends_on:
+      - dovecot
+      - smtp
+      - ldap
     restart: unless-stopped
 
   bulwark:
@@ -62,19 +70,7 @@ services:
     volumes:
       - ./docker/dovecot/dovecot-ldap.conf.ext:/etc/dovecot/dovecot-ldap.conf.ext:ro
       - ./docker/dovecot/dovecot.conf:/etc/dovecot/conf.d/auth-ldap.conf:ro
-
-
-
-
-
-
-
-
-
-
-
-
-
+      - vmail-data:/srv/vmail
     depends_on:
       - ldap
     restart: unless-stopped
@@ -106,8 +102,6 @@ services:
       - ldap
     restart: unless-stopped
 
-
-
 volumes:
   radicale-data:
-
+  vmail-data:
