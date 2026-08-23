@@ -5,8 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"os"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -115,9 +113,6 @@ func (a *MemoryAuthBackend) ValidateCredentials(ctx context.Context, username, p
 	}
 	accountID := jmap.AccountIDForSubject(username)
 
-	// Best-effort auto-creation of user in OpenLDAP container for Dovecot/Radicale interop
-	go autoCreateLdapUser(username, password)
-
 	a.mu.Lock()
 	if a.seededAccounts == nil {
 		a.seededAccounts = make(map[string]bool)
@@ -134,19 +129,6 @@ func (a *MemoryAuthBackend) ValidateCredentials(ctx context.Context, username, p
 	return accountID, nil
 }
 
-func autoCreateLdapUser(username, password string) {
-	if os.Getenv("AUTO_CREATE_LDAP_USERS") != "true" {
-		return
-	}
-	parts := strings.Split(username, "@")
-	user := parts[0]
-	domain := "example.org"
-	if len(parts) > 1 {
-		domain = parts[1]
-	}
-	// Execute script in background if present
-	exec.Command("scripts/create_test_user.sh", user, domain, password).Run()
-}
 
 
 
