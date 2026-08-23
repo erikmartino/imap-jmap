@@ -32,6 +32,9 @@ type Session struct {
 	recipients    []string
 }
 
+var _ smtp.AuthSession = (*Session)(nil)
+
+
 func (s *Session) AuthMechanisms() []string {
 	return []string{sasl.Plain}
 }
