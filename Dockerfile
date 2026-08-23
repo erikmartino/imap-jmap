@@ -11,7 +11,8 @@ ARG BUILD_TIME=""
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-w -s -X imap-jmap/jmap.Version=${VERSION} -X imap-jmap/jmap.Commit=${COMMIT} -X imap-jmap/jmap.BuildTime=${BUILD_TIME}" \
     -o imap-jmap main.go && \
-    CGO_ENABLED=0 GOOS=linux go build -o /mock-ldap ./cmd/mock-ldap
+    CGO_ENABLED=0 GOOS=linux go build -o /mock-ldap ./cmd/mock-ldap && \
+    CGO_ENABLED=0 GOOS=linux go build -o /mock-smtp ./cmd/mock-smtp
 
 FROM alpine:latest
 
@@ -21,6 +22,8 @@ WORKDIR /root/
 
 COPY --from=builder /app/imap-jmap .
 COPY --from=builder /mock-ldap /mock-ldap
+COPY --from=builder /mock-smtp /mock-smtp
+
 
 EXPOSE 8080
 
