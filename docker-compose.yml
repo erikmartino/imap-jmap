@@ -60,8 +60,13 @@ services:
       - "143:143"
       - "993:993"
     volumes:
-      - ./docker/dovecot/dovecot.conf:/etc/dovecot/dovecot.conf:ro
       - ./docker/dovecot/dovecot-ldap.conf.ext:/etc/dovecot/dovecot-ldap.conf.ext:ro
+
+
+
+
+
+
     depends_on:
       - ldap
     restart: unless-stopped
