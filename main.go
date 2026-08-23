@@ -20,8 +20,10 @@ import (
 
 	"imap-jmap/dav"
 	"imap-jmap/jmap"
+	"imap-jmap/jmap/imapsmtp"
 	"imap-jmap/jmap/memory"
 	"imap-jmap/smtp"
+
 )
 
 func main() {
@@ -99,16 +101,45 @@ func main() {
 	submissionAddr := fmt.Sprintf("%s:%s", submissionHostStr, *submissionPort)
 	publicURL := os.Getenv("PUBLIC_URL")
 
+	backendType := os.Getenv("BACKEND_TYPE")
+	if backendType == "" {
+		backendType = "memory"
+	}
+	imapServer := os.Getenv("IMAP_SERVER")
+	if imapServer == "" {
+		imapServer = "dovecot:143"
+	}
+	smtpTargetServer := os.Getenv("SMTP_SERVER")
+	if smtpTargetServer == "" {
+		smtpTargetServer = "smtp:25"
+	}
+
 	session := jmap.DefaultSession(publicURL, "user@example.com")
-	memBackend := memory.NewMemoryBackend()
-	memBlobBackend := memory.NewMemoryBlobBackend()
+
+	var mailBackend jmap.MailBackend
+	var blobBackend jmap.BlobBackend
+
+	if backendType == "imapsmtp" {
+		log.Printf("Initializing IMAP/SMTP Gateway Backend (IMAP: %s, SMTP: %s)", imapServer, smtpTargetServer)
+		gwBackend := imapsmtp.New(imapServer, smtpTargetServer)
+		mailBackend = gwBackend
+		blobBackend = gwBackend
+	} else {
+		log.Printf("Initializing Memory Backend")
+		memBackend := memory.NewMemoryBackend()
+		memBlobBackend := memory.NewMemoryBlobBackend()
+		mailBackend = memBackend
+		blobBackend = memBlobBackend
+	}
+
 	memCalBackend := memory.NewMemoryCalendarsBackend()
 	memContactsBackend := memory.NewMemoryContactsBackend()
 	memSieveBackend := memory.NewMemorySieveBackend()
 	memIMAPBackend := memory.NewMemoryIMAPAccessBackend()
 	memFileNodeBackend := memory.NewMemoryFileNodeBackend()
 	devAuthBackend := memory.NewMemoryAuthBackend()
-	devAuthBackend.SetBackends(memBackend, memBlobBackend, memCalBackend, memContactsBackend, memFileNodeBackend)
+	devAuthBackend.SetBackends(mailBackend, blobBackend, memCalBackend, memContactsBackend, memFileNodeBackend)
+
 
 	var authBackend jmap.AuthBackend = devAuthBackend
 	if *oidcIssuer != "" {
@@ -148,8 +179,8 @@ func main() {
 
 	server := jmap.NewServer(
 		session,
-		jmap.WithMailBackend(memBackend),
-		jmap.WithBlobBackend(memBlobBackend),
+		jmap.WithMailBackend(mailBackend),
+		jmap.WithBlobBackend(blobBackend),
 		jmap.WithCalendarsBackend(memCalBackend),
 		jmap.WithContactsBackend(memContactsBackend),
 		jmap.WithSieveBackend(memSieveBackend),
@@ -161,13 +192,16 @@ func main() {
 		jmap.WithOutboundSender(outboundSender),
 		jmap.WithPublicBaseURL(publicURL),
 	)
-	memBackend.SetBroadcaster(server.Broadcaster)
+	if mb, ok := mailBackend.(interface{ SetBroadcaster(*jmap.Broadcaster) }); ok {
+		mb.SetBroadcaster(server.Broadcaster)
+	}
+
 	memCalBackend.SetBroadcaster(server.Broadcaster)
 	memContactsBackend.SetBroadcaster(server.Broadcaster)
 	memSieveBackend.SetBroadcaster(server.Broadcaster)
 	memFileNodeBackend.SetBroadcaster(server.Broadcaster)
 
-	smtpServer := smtp.NewServer(smtpAddr, memBackend, memBlobBackend, memCalBackend,
+	smtpServer := smtp.NewServer(smtpAddr, mailBackend, blobBackend, memCalBackend,
 		smtp.WithAccountResolver(accountResolver),
 		smtp.WithSenderVerifier(smtp.NewSPFDKIMDMARCVerifier()),
 	)
@@ -183,7 +217,7 @@ func main() {
 	// sender to the authenticated identity (RFC 6409 Section 6.1). The submission
 	// boundary is trusted (SEC-4) so iTIP scheduling messages from an
 	// authenticated client are applied without DNS sender authentication.
-	submissionServer := smtp.NewServer(submissionAddr, memBackend, memBlobBackend, memCalBackend,
+	submissionServer := smtp.NewServer(submissionAddr, mailBackend, blobBackend, memCalBackend,
 		smtp.WithAccountResolver(accountResolver),
 		smtp.WithTransportMode(smtp.TransportModeSubmission),
 		smtp.WithAuthenticator(smtp.NewAuthBackendAuthenticator(authBackend)),
