@@ -20,7 +20,6 @@ services:
       - BACKEND_TYPE=imapsmtp
       - IMAP_SERVER=dovecot:143
       - SMTP_SERVER=smtp:25
-      - IMAP_BACKEND_PASSWORD=imap-jmap-backend-pass
       - SESSION_SECRET=imap-jmap-secret-session-key-32b!
     volumes:
       - ./certs:/certs:ro

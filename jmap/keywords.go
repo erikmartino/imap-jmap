@@ -1,7 +1,6 @@
 package jmap
 
 import (
-	"regexp"
 	"sort"
 	"strings"
 )
@@ -87,8 +86,6 @@ var (
 		RoleTrash:     "\\Trash",
 		RoleImportant: "\\Important",
 	}
-
-	validJMAPKeywordRegex = regexp.MustCompile(`^[$a-zA-Z0-9_-]+$`)
 )
 
 // IMAPFlagToJMAPKeyword converts an IMAP system flag (case-insensitive) to its standard JMAP keyword per RFC 9979.
@@ -134,13 +131,25 @@ func JMAPRoleToIMAPAttribute(role string) string {
 	return "\\" + strings.Title(lower)
 }
 
-// IsValidJMAPKeyword checks if a string is a valid JMAP keyword per RFC 8621 / RFC 9979.
-// Valid keywords must be non-empty, contain only ASCII alphanumeric characters, '$', '_', or '-', and not contain whitespace.
+// IsValidJMAPKeyword checks if a string is a valid JMAP keyword per RFC 8621
+// Section 4.2.2. A keyword is 1-255 bytes of ASCII %x21-%x7e, excluding the
+// characters ( ) { ] % * " \ and space/control. This grammar is shared with
+// IMAP and permits the '/' used by $tag/<name>[/<value>] tags.
 func IsValidJMAPKeyword(keyword string) bool {
 	if keyword == "" || len(keyword) > 255 {
 		return false
 	}
-	return validJMAPKeywordRegex.MatchString(keyword)
+	for i := 0; i < len(keyword); i++ {
+		c := keyword[i]
+		if c < 0x21 || c > 0x7e {
+			return false
+		}
+		switch c {
+		case '(', ')', '{', ']', '%', '*', '"', '\\':
+			return false
+		}
+	}
+	return true
 }
 
 // NormalizeJMAPKeyword normalizes a keyword to lowercase per RFC 9979 guidelines.

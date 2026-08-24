@@ -7,49 +7,36 @@ import (
 	"fmt"
 	"net"
 	"net/smtp"
-	"os"
 	"sync"
 
 	"github.com/emersion/go-imap/v2/imapclient"
 	"imap-jmap/jmap"
 )
 
-// ClientPool manages active IMAP and SMTP connections for user accounts.
+// ClientPool manages active IMAP and SMTP connections for user accounts. The
+// gateway only ever authenticates to the upstream IMAP server with the
+// credentials of the user it is acting on behalf of — it holds no shared or
+// administrative secret.
 type ClientPool struct {
-	imapAddr        string
-	smtpAddr        string
-	backendPassword string
-	mu              sync.Mutex
-	idle            map[string][]*imapclient.Client
+	imapAddr string
+	smtpAddr string
+	mu       sync.Mutex
+	idle     map[string][]*imapclient.Client
 }
 
 func NewClientPool(imapAddr string) *ClientPool {
 	return &ClientPool{
-		imapAddr:        imapAddr,
-		backendPassword: backendPassword(),
-		idle:            make(map[string][]*imapclient.Client),
+		imapAddr: imapAddr,
+		idle:     make(map[string][]*imapclient.Client),
 	}
 }
 
 func NewClientPoolWithSMTP(imapAddr, smtpAddr string) *ClientPool {
 	return &ClientPool{
-		imapAddr:        imapAddr,
-		smtpAddr:        smtpAddr,
-		backendPassword: backendPassword(),
-		idle:            make(map[string][]*imapclient.Client),
+		imapAddr: imapAddr,
+		smtpAddr: smtpAddr,
+		idle:     make(map[string][]*imapclient.Client),
 	}
-}
-
-// backendPassword returns the shared IMAP backend password used to log into the
-// upstream IMAP server. In the dev stack Dovecot's passdb static entry accepts
-// this password for any account; the gateway validates each client's own
-// credentials (the dev username==password convention) before connecting, so the
-// IMAP password itself never varies per user. Configurable via IMAP_BACKEND_PASSWORD.
-func backendPassword() string {
-	if pw := os.Getenv("IMAP_BACKEND_PASSWORD"); pw != "" {
-		return pw
-	}
-	return "imap-jmap-backend-pass"
 }
 
 // Close closes all pooled IMAP client connections.
@@ -126,9 +113,7 @@ func (p *ClientPool) ReleaseClientForUser(username, password string, client *ima
 		return
 	}
 
-	// The pool is keyed by the backend password actually used for the IMAP
-	// LOGIN, so a connection released here is found by GetClient/GetClientForContext.
-	key := username + ":" + p.backendPassword
+	key := username + ":" + password
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -143,7 +128,7 @@ func (p *ClientPool) ReleaseClientForUser(username, password string, client *ima
 
 // GetClient establishes or reuses an authenticated IMAP client connection using the provided credentials.
 func (p *ClientPool) GetClient(ctx context.Context, username, password string) (*imapclient.Client, error) {
-	key := username + ":" + p.backendPassword
+	key := username + ":" + password
 
 	p.mu.Lock()
 	if list := p.idle[key]; len(list) > 0 {
@@ -189,7 +174,7 @@ func (p *ClientPool) GetClient(ctx context.Context, username, password string) (
 		client = c
 	}
 
-	if err := client.Login(username, p.backendPassword).Wait(); err != nil {
+	if err := client.Login(username, password).Wait(); err != nil {
 		_ = client.Close()
 		return nil, fmt.Errorf("IMAP login failed for user %s: %w", username, err)
 	}

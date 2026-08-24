@@ -306,6 +306,11 @@ func (b *IMAPSMTPBackend) QueryEmails(ctx context.Context, filter map[string]any
 					searchCriteria.Flag = append(searchCriteria.Flag, imap.FlagDraft)
 				case "$answered":
 					searchCriteria.Flag = append(searchCriteria.Flag, imap.FlagAnswered)
+				default:
+					// Arbitrary keyword, e.g. a $tag/<name>[/<value>] tag. The
+					// keyword atom is also the IMAP keyword, so SEARCH KEYWORD
+					// applies directly.
+					searchCriteria.Flag = append(searchCriteria.Flag, imap.Flag(strings.ToLower(kw)))
 				}
 			}
 			if notKw, ok := filter["notKeyword"].(string); ok {
@@ -316,6 +321,10 @@ func (b *IMAPSMTPBackend) QueryEmails(ctx context.Context, filter map[string]any
 					searchCriteria.NotFlag = append(searchCriteria.NotFlag, imap.FlagFlagged)
 				case "$draft":
 					searchCriteria.NotFlag = append(searchCriteria.NotFlag, imap.FlagDraft)
+				case "$answered":
+					searchCriteria.NotFlag = append(searchCriteria.NotFlag, imap.FlagAnswered)
+				default:
+					searchCriteria.NotFlag = append(searchCriteria.NotFlag, imap.Flag(strings.ToLower(notKw)))
 				}
 			}
 			if text, ok := filter["text"].(string); ok && text != "" {

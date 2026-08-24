@@ -16,14 +16,6 @@ import (
 	"imap-jmap/jmap"
 )
 
-// validDevCredentials enforces the development convention used by the whole
-// test stack (mock LDAP, memory auth backend): an account is valid when
-// username == password. This is deliberately NOT a production policy; it is
-// what the e2e suite's uniqueUser() accounts rely on.
-func validDevCredentials(username, password string) bool {
-	return username != "" && password != "" && username == password
-}
-
 // IMAPAuthBackend authenticates users directly against an upstream IMAP server and issues encrypted session tokens.
 type IMAPAuthBackend struct {
 	pool      *ClientPool
@@ -50,21 +42,20 @@ func NewAuthBackend(pool *ClientPool, secret string) *IMAPAuthBackend {
 
 // Authenticate verifies credentials against upstream IMAP and returns an encrypted session Bearer token.
 func (a *IMAPAuthBackend) Authenticate(ctx context.Context, username, password string) (string, error) {
-	if !validDevCredentials(username, password) {
-		return "", errors.New("invalid credentials")
+	if username == "" || password == "" {
+		return "", errors.New("empty credentials")
 	}
 
-	// Validate against live upstream IMAP (the pool logs in with the shared
-	// backend password; the client's own password was already checked above).
+	// Validate against live upstream IMAP using the user's own credentials.
 	client, err := a.pool.GetClient(ctx, username, password)
 	if err != nil {
 		return "", fmt.Errorf("upstream IMAP authentication failed: %w", err)
 	}
-	a.pool.ReleaseClientForUser(username, a.pool.backendPassword, client)
+	a.pool.ReleaseClientForUser(username, password, client)
 
 	payload := tokenPayload{
 		Username:  username,
-		Password:  a.pool.backendPassword,
+		Password:  password,
 		ExpiresAt: time.Now().Add(24 * 7 * time.Hour).Unix(),
 	}
 
@@ -94,8 +85,8 @@ func (a *IMAPAuthBackend) Authenticate(ctx context.Context, username, password s
 
 // ValidateCredentials verifies credentials against upstream IMAP without issuing a token (for HTTP Basic auth).
 func (a *IMAPAuthBackend) ValidateCredentials(ctx context.Context, username, password string) (string, error) {
-	if !validDevCredentials(username, password) {
-		return "", errors.New("invalid credentials")
+	if username == "" || password == "" {
+		return "", errors.New("empty credentials")
 	}
 
 	client, err := a.pool.GetClient(ctx, username, password)
@@ -105,7 +96,7 @@ func (a *IMAPAuthBackend) ValidateCredentials(ctx context.Context, username, pas
 	// Keep the verified connection for reuse instead of dropping it; every JMAP
 	// request re-authenticates over Basic, so a fresh dial+login per request is
 	// wasteful.
-	a.pool.ReleaseClientForUser(username, a.pool.backendPassword, client)
+	a.pool.ReleaseClientForUser(username, password, client)
 
 	return jmap.AccountIDForSubject(username), nil
 }

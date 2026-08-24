@@ -425,14 +425,17 @@ func MatchesFilterWithThreadContext(em *Email, filter map[string]any, tc *Thread
 
 	// hasKeyword
 	if kwRaw, ok := filter["hasKeyword"].(string); ok && kwRaw != "" {
-		if em.Keywords == nil || !em.Keywords[kwRaw] {
+		// Keywords are stored lowercase (RFC 8621 Section 4.2.2); a query for
+		// e.g. "$tag/Project" must match the stored "$tag/project".
+		kw := strings.ToLower(kwRaw)
+		if em.Keywords == nil || !em.Keywords[kw] {
 			return false
 		}
 	}
 
 	// notKeyword
 	if notKwRaw, ok := filter["notKeyword"].(string); ok && notKwRaw != "" {
-		if em.Keywords != nil && em.Keywords[notKwRaw] {
+		if em.Keywords != nil && em.Keywords[strings.ToLower(notKwRaw)] {
 			return false
 		}
 	}

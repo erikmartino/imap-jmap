@@ -63,6 +63,11 @@ func DetectRole(name string, attrs []imap.MailboxAttr) string {
 
 // GetAllMailboxes retrieves all mailboxes from upstream IMAP.
 func (b *IMAPSMTPBackend) GetAllMailboxes(ctx context.Context) ([]*jmap.Mailbox, error) {
+	// Clean up the account's own [JMAP-BLOB:] staging messages in Drafts (lazy,
+	// rate-limited). This runs on the authenticated user's request, so it only
+	// ever touches that user's folder.
+	b.maybeSweepBlobStaging(ctx)
+
 	client, err := b.pool.GetClientForContext(ctx)
 	if err != nil {
 		return nil, err

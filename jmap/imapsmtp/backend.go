@@ -2,6 +2,8 @@ package imapsmtp
 
 import (
 	"context"
+	"sync"
+	"time"
 
 	"imap-jmap/jmap"
 )
@@ -11,6 +13,13 @@ type IMAPSMTPBackend struct {
 	imapHost string
 	smtpHost string
 	pool     *ClientPool
+
+	// lastSweep tracks when blob staging was last swept per account so the lazy
+	// sweep on read paths runs at most every blobStagingSweepInterval. The sweep
+	// only ever touches the account currently authenticated in the request
+	// context — the gateway has no shared or administrative IMAP credentials.
+	sweepMu   sync.Mutex
+	lastSweep map[string]time.Time
 }
 
 var _ jmap.MailBackend = (*IMAPSMTPBackend)(nil)
@@ -19,9 +28,10 @@ var _ jmap.BlobBackend = (*IMAPSMTPBackend)(nil)
 // New creates a new IMAP/SMTP gateway backend.
 func New(imapHost, smtpHost string) *IMAPSMTPBackend {
 	return &IMAPSMTPBackend{
-		imapHost: imapHost,
-		smtpHost: smtpHost,
-		pool:     NewClientPoolWithSMTP(imapHost, smtpHost),
+		imapHost:  imapHost,
+		smtpHost:  smtpHost,
+		pool:      NewClientPoolWithSMTP(imapHost, smtpHost),
+		lastSweep: make(map[string]time.Time),
 	}
 }
 
