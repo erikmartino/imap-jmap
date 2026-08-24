@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -262,12 +263,9 @@ func main() {
 
 	// Start HTTPS TLS Listener for browser clients enforcing HTTPS connect-src CSP.
 	// Prefer a caller-supplied certificate (e.g. mkcert, which is trusted by the
-	// browser so there is no warning); fall back to a self-signed certificate.
-	tlsCert, certErr := loadTLSCertificate(*tlsCertFile, *tlsKeyFile)
-	if certErr != nil {
-		log.Printf("HTTPS TLS: %v; falling back to a self-signed certificate", certErr)
-		tlsCert, certErr = generateSelfSignedCert()
-	}
+	// browser so there is no warning); fall back to reusing or generating a persistent
+	// self-signed certificate so certificate trust is preserved across restarts.
+	tlsCert, certErr := getOrGenerateCertificate(*tlsCertFile, *tlsKeyFile)
 	if certErr == nil {
 		tlsConfig := &tls.Config{
 			Certificates: []tls.Certificate{tlsCert},
@@ -278,15 +276,13 @@ func main() {
 			TLSConfig: tlsConfig,
 		}
 		go func() {
-			if *tlsCertFile != "" && *tlsKeyFile != "" {
-				log.Printf("Starting HTTPS TLS server on https://%s (cert %s)", httpsAddr, *tlsCertFile)
-			} else {
-				log.Printf("Starting HTTPS TLS server on https://%s (self-signed)", httpsAddr)
-			}
+			log.Printf("Starting HTTPS TLS server on https://%s", httpsAddr)
 			if err := httpsServer.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
 				log.Printf("HTTPS TLS server error: %v", err)
 			}
 		}()
+	} else {
+		log.Printf("HTTPS TLS disabled (failed to obtain certificate: %v)", certErr)
 	}
 
 	log.Printf("Starting JMAP & WebDAV server on http://%s (public URL: %s)", addr, publicURL)
@@ -354,9 +350,33 @@ func (s *seedingAuthBackend) maybeSeed(accountID, subject string) {
 	s.seedFn(context.Background(), accountID, subject)
 }
 
+// defaultCacheDir returns a platform-appropriate directory for persistent cache files.
+func defaultCacheDir() string {
+	if dir, err := os.UserCacheDir(); err == nil && dir != "" {
+		return filepath.Join(dir, "imap-jmap")
+	}
+	return filepath.Join(os.TempDir(), "imap-jmap-certs")
+}
+
+// saveCertAndKey writes the certificate and private key PEM data to disk with appropriate permissions.
+func saveCertAndKey(certFile, keyFile string, certPEM, keyPEM []byte) error {
+	if err := os.MkdirAll(filepath.Dir(certFile), 0755); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(keyFile), 0755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(certFile, certPEM, 0644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(keyFile, keyPEM, 0600); err != nil {
+		return err
+	}
+	return nil
+}
+
 // loadTLSCertificate loads a PEM certificate/key pair from disk (e.g. an mkcert cert).
-// It returns an error when either path is empty or the files cannot be loaded, so the
-// caller can fall back to a self-signed certificate.
+// It returns an error when either path is empty or the files cannot be loaded.
 func loadTLSCertificate(certFile, keyFile string) (tls.Certificate, error) {
 	if certFile == "" || keyFile == "" {
 		return tls.Certificate{}, fmt.Errorf("no TLS cert/key configured")
@@ -368,18 +388,87 @@ func loadTLSCertificate(certFile, keyFile string) (tls.Certificate, error) {
 	return cert, nil
 }
 
-func generateSelfSignedCert() (tls.Certificate, error) {
-	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+// getOrGenerateCertificate resolves a TLS certificate for the HTTPS listener:
+// 1. If explicit certFile and keyFile exist on disk, loads and returns them.
+// 2. If certFile and keyFile are specified but don't exist yet, generates a self-signed
+//    certificate and saves it to those paths (if writable) so subsequent starts reuse it.
+// 3. If certFile and keyFile are not specified, looks for an existing cached self-signed
+//    certificate in default search locations (./certs, user cache dir). If found, reuses it.
+// 4. Otherwise, generates a self-signed certificate, persists it to the first writable default
+//    location, and returns it.
+func getOrGenerateCertificate(certFile, keyFile string) (tls.Certificate, error) {
+	if certFile != "" && keyFile != "" {
+		cert, err := loadTLSCertificate(certFile, keyFile)
+		if err == nil {
+			log.Printf("HTTPS TLS: loaded certificate from %s (key %s)", certFile, keyFile)
+			return cert, nil
+		}
+		log.Printf("HTTPS TLS: configured cert/key (%s, %s) not loaded: %v; generating persistent self-signed cert", certFile, keyFile, err)
+
+		certPEM, keyPEM, tlsCert, genErr := generateSelfSignedCertBytes()
+		if genErr != nil {
+			return tls.Certificate{}, genErr
+		}
+		if saveErr := saveCertAndKey(certFile, keyFile, certPEM, keyPEM); saveErr == nil {
+			log.Printf("HTTPS TLS: saved self-signed certificate to %s (key %s) for reuse across restarts", certFile, keyFile)
+		} else {
+			log.Printf("HTTPS TLS: could not save self-signed cert to %s/%s (%v); falling back to cache directory", certFile, keyFile, saveErr)
+			fallbackDir := defaultCacheDir()
+			_ = saveCertAndKey(filepath.Join(fallbackDir, "cert.pem"), filepath.Join(fallbackDir, "key.pem"), certPEM, keyPEM)
+		}
+		return tlsCert, nil
+	}
+
+	// No explicit paths provided: check default persistent cache candidates
+	candidates := []struct{ cert, key string }{
+		{cert: "certs/cert.pem", key: "certs/key.pem"},
+		{cert: filepath.Join(defaultCacheDir(), "cert.pem"), key: filepath.Join(defaultCacheDir(), "key.pem")},
+	}
+
+	for _, c := range candidates {
+		if c.cert == "" || c.key == "" {
+			continue
+		}
+		if cert, err := loadTLSCertificate(c.cert, c.key); err == nil {
+			log.Printf("HTTPS TLS: reusing persistent self-signed certificate from %s (key %s)", c.cert, c.key)
+			return cert, nil
+		}
+	}
+
+	// Generate fresh cert and try persisting to the first writable candidate
+	certPEM, keyPEM, tlsCert, err := generateSelfSignedCertBytes()
 	if err != nil {
 		return tls.Certificate{}, err
 	}
+	for _, c := range candidates {
+		if c.cert == "" || c.key == "" {
+			continue
+		}
+		if saveErr := saveCertAndKey(c.cert, c.key, certPEM, keyPEM); saveErr == nil {
+			log.Printf("HTTPS TLS: saved persistent self-signed certificate to %s (key %s) for reuse across restarts", c.cert, c.key)
+			break
+		}
+	}
+	return tlsCert, nil
+}
 
-	notBefore := time.Now()
+func generateSelfSignedCert() (tls.Certificate, error) {
+	_, _, cert, err := generateSelfSignedCertBytes()
+	return cert, err
+}
+
+func generateSelfSignedCertBytes() ([]byte, []byte, tls.Certificate, error) {
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, tls.Certificate{}, err
+	}
+
+	notBefore := time.Now().Add(-1 * time.Hour)
 	notAfter := notBefore.Add(365 * 24 * time.Hour)
 
 	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {
-		return tls.Certificate{}, err
+		return nil, nil, tls.Certificate{}, err
 	}
 
 	template := x509.Certificate{
@@ -392,21 +481,26 @@ func generateSelfSignedCert() (tls.Certificate, error) {
 		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
-		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("0.0.0.0")},
+		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("0.0.0.0"), net.IPv6loopback},
 		DNSNames:              []string{"localhost", "127.0.0.1", "imap-jmap"},
 	}
 
 	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
 	if err != nil {
-		return tls.Certificate{}, err
+		return nil, nil, tls.Certificate{}, err
 	}
 
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
 	privBytes, err := x509.MarshalPKCS8PrivateKey(priv)
 	if err != nil {
-		return tls.Certificate{}, err
+		return nil, nil, tls.Certificate{}, err
 	}
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privBytes})
 
-	return tls.X509KeyPair(certPEM, keyPEM)
+	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		return nil, nil, tls.Certificate{}, err
+	}
+
+	return certPEM, keyPEM, tlsCert, nil
 }

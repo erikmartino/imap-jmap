@@ -22,7 +22,7 @@ services:
       - SMTP_SERVER=smtp:25
       - SESSION_SECRET=imap-jmap-secret-session-key-32b!
     volumes:
-      - ./certs:/certs:ro
+      - ./certs:/certs
     depends_on:
       - dovecot
       - smtp
