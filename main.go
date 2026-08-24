@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -16,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"imap-jmap/dav"
@@ -176,6 +178,20 @@ func main() {
 	accountResolver := jmap.PrimaryDomainResolver{PrimaryDomain: *primaryDomain}
 
 	// Sample data is dynamically auto-seeded per account upon first login in MemoryAuthBackend.
+	// For the IMAP/SMTP gateway deployment the memory auth backend is not in the auth path, so
+	// seed through the live backends on first successful authentication instead.
+	if backendType == "imapsmtp" {
+		authBackend = &seedingAuthBackend{
+			inner:  authBackend,
+			seeded: make(map[string]bool),
+			seedFn: func(ctx context.Context, accountID, subject string) {
+				accountCtx := jmap.ContextWithAccountID(context.Background(), accountID)
+				accountCtx = jmap.ContextWithSubject(accountCtx, subject)
+				accountCtx = jmap.ContextWithCredentials(accountCtx, subject, subject)
+				memory.SeedAccountSampleData(accountCtx, accountID, mailBackend, blobBackend, memCalBackend, memContactsBackend, memFileNodeBackend)
+			},
+		}
+	}
 
 	outboundSender := smtp.NewMXOutboundSender()
 	if *primaryDomain != "" {
@@ -281,6 +297,61 @@ func main() {
 	if err := http.ListenAndServe(addr, httpMux); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
+}
+
+// seedingAuthBackend wraps a jmap.AuthBackend and runs a one-time per-account
+// callback after the first successful credential authentication. Used by the
+// IMAP/SMTP gateway deployment to lazily seed sample data (the memory auth
+// backend does this internally, but it is not in the auth path there).
+type seedingAuthBackend struct {
+	inner  jmap.AuthBackend
+	seedFn func(ctx context.Context, accountID, subject string)
+	mu     sync.Mutex
+	seeded map[string]bool
+}
+
+var _ jmap.AuthBackend = (*seedingAuthBackend)(nil)
+var _ jmap.TokenCredentialsExtractor = (*seedingAuthBackend)(nil)
+
+func (s *seedingAuthBackend) Authenticate(ctx context.Context, username, password string) (string, error) {
+	token, err := s.inner.Authenticate(ctx, username, password)
+	if err == nil {
+		s.maybeSeed(jmap.AccountIDForSubject(username), username)
+	}
+	return token, err
+}
+
+func (s *seedingAuthBackend) ValidateCredentials(ctx context.Context, username, password string) (string, error) {
+	accountID, err := s.inner.ValidateCredentials(ctx, username, password)
+	if err == nil {
+		s.maybeSeed(accountID, username)
+	}
+	return accountID, err
+}
+
+func (s *seedingAuthBackend) ValidateToken(ctx context.Context, token string) (string, string, error) {
+	return s.inner.ValidateToken(ctx, token)
+}
+
+func (s *seedingAuthBackend) ExtractCredentials(ctx context.Context, token string) (string, string, bool) {
+	if ex, ok := s.inner.(jmap.TokenCredentialsExtractor); ok {
+		return ex.ExtractCredentials(ctx, token)
+	}
+	return "", "", false
+}
+
+func (s *seedingAuthBackend) maybeSeed(accountID, subject string) {
+	if accountID == "" || s.seedFn == nil {
+		return
+	}
+	s.mu.Lock()
+	if s.seeded[accountID] {
+		s.mu.Unlock()
+		return
+	}
+	s.seeded[accountID] = true
+	s.mu.Unlock()
+	s.seedFn(context.Background(), accountID, subject)
 }
 
 // loadTLSCertificate loads a PEM certificate/key pair from disk (e.g. an mkcert cert).

@@ -2,6 +2,12 @@ FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
 
+# The third_party copy of ldapserver is required by the replace directive in
+# go.mod, so it must be present before `go mod download`.
+COPY go.mod go.sum ./
+COPY third_party ./third_party
+RUN go mod download
+
 COPY . .
 
 ARG VERSION=dev
@@ -28,4 +34,3 @@ COPY --from=builder /mock-smtp /mock-smtp
 EXPOSE 8080
 
 ENTRYPOINT ["./imap-jmap"]
-

@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/lor00x/goldap/message"
 	"github.com/vjeantet/ldapserver"
@@ -30,6 +31,12 @@ func main() {
 
 
 	server := ldapserver.NewServer()
+	// No read deadline: closing an idle connection here makes Dovecot's LDAP
+	// client pay a reconnect penalty on its next auth request. Instead, apply a
+	// per-write deadline so a client that stops reading (wedged auth worker)
+	// cannot stall the connection forever — the server closes it and Dovecot
+	// reconnects fast, exactly like a real LDAP server.
+	server.WriteTimeout = 5 * time.Second
 	routes := ldapserver.NewRouteMux()
 
 	routes.Bind(handleBind)

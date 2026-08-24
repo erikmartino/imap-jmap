@@ -91,6 +91,7 @@ func (b *IMAPSMTPBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jma
 	em.ID = emailID
 	em.BlobID = jmap.Id(emailID)
 	em.Size = uint64(len(rawBytes))
+	em.ReceivedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	return em, nil
 }
 

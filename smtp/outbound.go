@@ -263,14 +263,19 @@ func (s *MXOutboundSender) tryHost(ctx context.Context, host, from string, recip
 	if err == nil {
 		for _, rcpt := range accepted {
 			final[rcpt] = jmap.OutboundDeliveryResult{Delivered: true, SmtpReply: reply}
+			log.Printf("[SMTP RELAY SUCCESS] Host: %s Recipient: <%s> From: <%s> Reply: %q", host, rcpt, mailFrom, reply)
 		}
 		return final, retry, true
 	}
 	if code >= 500 && code < 600 {
 		for _, rcpt := range accepted {
 			final[rcpt] = jmap.OutboundDeliveryResult{Delivered: false, SmtpReply: reply}
+			log.Printf("[SMTP RELAY REJECTED] Host: %s Recipient: <%s> From: <%s> Reply: %q", host, rcpt, mailFrom, reply)
 		}
 		return final, retry, false
+	}
+	for _, rcpt := range accepted {
+		log.Printf("[SMTP RELAY TRANSIENT] Host: %s Recipient: <%s> From: <%s> Reply: %q", host, rcpt, mailFrom, reply)
 	}
 	return final, append(accepted, retry...), false
 }

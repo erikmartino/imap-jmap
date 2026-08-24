@@ -10,6 +10,26 @@ import (
 
 // EmailSubmission Handlers (RFC 8621 Section 7)
 
+// InboxMailboxID returns the id of the account's INBOX mailbox (role "inbox") as
+// reported by the backend, or "" when it cannot be determined. Backends use
+// different id schemes (the memory backend uses "mb-inbox", gateway backends
+// derive ids from the folder name), so delivery code must never hardcode one.
+func InboxMailboxID(ctx context.Context, backend MailBackend) Id {
+	if backend == nil {
+		return ""
+	}
+	mailboxes, err := backend.GetAllMailboxes(ctx)
+	if err != nil {
+		return ""
+	}
+	for _, mb := range mailboxes {
+		if mb != nil && mb.Role != nil && *mb.Role == RoleInbox {
+			return mb.ID
+		}
+	}
+	return ""
+}
+
 // submissionSortableProperties is the set of EmailSubmission properties the server supports
 // sorting on (RFC 8621 Section 7.2: emailId, threadId and sentAt MUST be supported; sentAt
 // is accepted as an alias for the sendAt property; undoStatus is also supported).
@@ -238,11 +258,30 @@ func handleEmailSubmissionSet(backend MailBackend, blobBackend BlobBackend, reso
 					}
 					log.Printf("EmailSubmission/set: recipient %q resolved local=%v account=%q", rcptClean, local, targetAccountID)
 					if local {
-						rcptCtx := ContextWithAccountID(ctx, targetAccountID)
+						// Do NOT inherit the submitting account's context: it carries the
+						// sender's credentials (and accountID), which gateway backends use
+						// to pick the Dovecot login — the delivered copy would land in the
+						// sender's mailbox. A fresh context keyed only by the recipient's
+						// accountID makes GetClientForContext resolve the recipient.
+						rcptCtx := ContextWithAccountID(context.Background(), targetAccountID)
 						if targetEmail != nil {
 							copyEmail := *targetEmail
 							copyEmail.ID = ""
-							copyEmail.MailboxIDs = map[Id]bool{"mb-inbox": true}
+							// Resolve the recipient's INBOX mailbox id by role rather than
+							// assuming a backend-specific id: the memory backend uses
+							// "mb-inbox", gateway backends (IMAP/SMTP) derive it from the
+							// folder name. A hardcoded id would append into a nonexistent
+							// folder and fail local delivery.
+							inboxID := InboxMailboxID(rcptCtx, backend)
+							if inboxID == "" {
+								log.Printf("EmailSubmission/set: local delivery to %q failed: no INBOX mailbox for account", rcptClean)
+								deliveryStatus[rcptClean] = DeliveryStatus{
+									Delivered: "failed",
+									SmtpReply: "451 4.3.0 local delivery failed: no INBOX mailbox",
+								}
+								continue
+							}
+							copyEmail.MailboxIDs = map[Id]bool{inboxID: true}
 							deliveredCopy, err := backend.CreateEmail(rcptCtx, &copyEmail)
 							if err != nil {
 								log.Printf("EmailSubmission/set: local delivery to %q failed: %v", rcptClean, err)
@@ -344,8 +383,20 @@ func handleEmailSubmissionSet(backend MailBackend, blobBackend BlobBackend, reso
 					}
 				}
 
+				mailFrom := accountEmail
+				if env != nil && env.MailFrom.Email != "" {
+					mailFrom = env.MailFrom.Email
+				} else if targetEmail != nil && len(targetEmail.From) > 0 {
+					mailFrom = targetEmail.From[0].Email
+				}
+				subj := ""
+				if targetEmail != nil {
+					subj = targetEmail.Subject
+				}
+
 				if len(recipients) > 0 && deliverableCount == 0 {
-					log.Printf("EmailSubmission/set: submission %q forbidden: no recipient is deliverable", clientKey)
+					log.Printf("[MAIL OUTBOUND FORBIDDEN] Account: %s From: <%s> To: %v Subject: %q (EmailId: %s, Reason: no recipient is deliverable, DeliveryStatus: %v)",
+						accountID, mailFrom, recipients, subj, emailID, deliveryStatus)
 					return "", fmt.Errorf("forbidden: no recipient is deliverable")
 				}
 
@@ -357,11 +408,13 @@ func handleEmailSubmissionSet(backend MailBackend, blobBackend BlobBackend, reso
 					DeliveryStatus: deliveryStatus,
 				})
 				if err != nil {
-					log.Printf("EmailSubmission/set: failed to create submission %q: %v", clientKey, err)
+					log.Printf("[MAIL OUTBOUND ERROR] Account: %s EmailId: %s: failed to create submission %q: %v", accountID, emailID, clientKey, err)
 					return "", err
 				}
-				log.Printf("EmailSubmission/set: created submission %s for email %s (recipients %v, deliveryStatus %v)",
-					sub.ID, emailID, recipients, deliveryStatus)
+				for rcpt, st := range deliveryStatus {
+					log.Printf("[MAIL OUTBOUND] Account: %s From: <%s> To: <%s> Subject: %q -> SubmissionId: %s EmailId: %s (Status: %s, SmtpReply: %q)",
+						accountID, mailFrom, rcpt, subj, sub.ID, emailID, st.Delivered, st.SmtpReply)
+				}
 				created[clientKey] = sub
 				recordCreationRefs(ctx, creationRefs, clientKey, sub.ID)
 

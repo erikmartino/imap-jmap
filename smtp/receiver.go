@@ -371,14 +371,21 @@ func (s *Session) Data(r io.Reader) error {
 		}
 
 		if s.backend.MailBackend != nil && email != nil && blobStored {
+			// Deliver into the recipient's INBOX. ParseMessageToEmail assumes the
+			// memory backend's "mb-inbox" id; resolve the real INBOX mailbox id by
+			// role so gateway backends (IMAP/SMTP) append to the correct folder.
+			if inboxID := jmap.InboxMailboxID(rcptCtx, s.backend.MailBackend); inboxID != "" {
+				email.MailboxIDs = map[jmap.Id]bool{inboxID: true}
+			}
 			created, err := s.backend.MailBackend.CreateEmail(rcptCtx, email)
 			if err != nil {
-				log.Printf("SMTP receiver error: failed to create email in backend for account %s: %v", targetAccountID, err)
+				log.Printf("[MAIL INBOUND ERROR] Failed to store email for account %s: %v", targetAccountID, err)
 				if firstFailure == nil {
 					firstFailure = err
 				}
 			} else {
-				log.Printf("SMTP receiver: stored email %s (account %s, blob %s, size %d bytes)", created.ID, targetAccountID, created.BlobID, created.Size)
+				log.Printf("[MAIL INBOUND] From: <%s> To: <%s> Subject: %q Size: %d bytes -> Account: %s EmailId: %s (Status: DELIVERED)",
+					s.from, strings.Join(s.to, ", "), email.Subject, len(data), targetAccountID, created.ID)
 				deliveredAny = true
 			}
 		} else if email != nil && !blobStored {
@@ -562,7 +569,7 @@ func (s *Session) Data(r io.Reader) error {
 		if firstFailure != nil {
 			reason = firstFailure.Error()
 		}
-		log.Printf("SMTP receiver error: rejecting DATA for recipients %v: %s", s.to, reason)
+		log.Printf("[MAIL INBOUND REJECTED] From: <%s> To: <%s> Size: %d bytes -> Reason: %s", s.from, strings.Join(s.to, ", "), len(data), reason)
 		return &smtp.SMTPError{
 			Code:         451,
 			EnhancedCode: smtp.EnhancedCode{4, 3, 0},

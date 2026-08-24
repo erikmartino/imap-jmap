@@ -3,8 +3,10 @@ package imapsmtp
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/emersion/go-imap/v2"
 	"imap-jmap/jmap"
@@ -129,6 +131,11 @@ func (b *IMAPSMTPBackend) GetEmails(ctx context.Context, ids []jmap.Id) ([]*jmap
 			em.BlobID = jmap.Id(emailID)
 			em.MailboxIDs = map[jmap.Id]bool{mbID: true}
 			em.Keywords = MapIMAPFlagsToKeywords(msg.Flags)
+			// The IMAP INTERNALDATE is the true received time; without it every
+			// message reports the fetch time and lists lose their chronological order.
+			if !msg.InternalDate.IsZero() {
+				em.ReceivedAt = msg.InternalDate.UTC().Format(time.RFC3339Nano)
+			}
 
 			// Thread ID fallback to Message-ID or Email ID
 			if len(em.MessageID) > 0 {
@@ -222,6 +229,9 @@ func (b *IMAPSMTPBackend) GetAllEmails(ctx context.Context) ([]*jmap.Email, erro
 			em.BlobID = jmap.Id(emailID)
 			em.MailboxIDs = map[jmap.Id]bool{mb.ID: true}
 			em.Keywords = MapIMAPFlagsToKeywords(msg.Flags)
+			if !msg.InternalDate.IsZero() {
+				em.ReceivedAt = msg.InternalDate.UTC().Format(time.RFC3339Nano)
+			}
 
 			if len(em.MessageID) > 0 {
 				em.ThreadID = jmap.Id(em.MessageID[0])
@@ -269,7 +279,10 @@ func (b *IMAPSMTPBackend) QueryEmails(ctx context.Context, filter map[string]any
 		}
 	}
 
-	var allMatchingIDs []jmap.Id
+	var allMatching []struct {
+		mbID jmap.Id
+		uid  uint32
+	}
 
 	for _, folderName := range targetFolders {
 		mbID := MailboxIDForName(folderName)
@@ -335,8 +348,80 @@ func (b *IMAPSMTPBackend) QueryEmails(ctx context.Context, filter map[string]any
 		}
 
 		for _, uid := range searchData.AllUIDs() {
-			allMatchingIDs = append(allMatchingIDs, EmailIDFor(mbID, uint32(uid)))
+			allMatching = append(allMatching, struct {
+				mbID jmap.Id
+				uid  uint32
+			}{mbID: mbID, uid: uint32(uid)})
 		}
+	}
+
+	allMatchingIDs := make([]jmap.Id, 0, len(allMatching))
+	for _, m := range allMatching {
+		allMatchingIDs = append(allMatchingIDs, EmailIDFor(m.mbID, m.uid))
+	}
+
+	// Honor a sort comparator on receivedAt (RFC 8621 Section 4.4.2). The
+	// IMAP SEARCH result is in UID order, which does not reflect the client's
+	// expected newest-first listing, so reorder by INTERNALDATE.
+	for _, comp := range comparators {
+		if comp.Property == "receivedAt" || comp.Property == "sentAt" {
+			recv := make(map[jmap.Id]time.Time)
+			for _, m := range allMatching {
+				var uidSet imap.UIDSet
+				uidSet.AddNum(imap.UID(m.uid))
+				folderName, err := NameForMailboxID(m.mbID)
+				if err != nil {
+					continue
+				}
+				if _, err := client.Select(folderName, nil).Wait(); err != nil {
+					continue
+				}
+				fetchCmd := client.Fetch(uidSet, &imap.FetchOptions{InternalDate: true})
+				msgs, err := fetchCmd.Collect()
+				if err != nil {
+					continue
+				}
+				for _, msg := range msgs {
+					if !msg.InternalDate.IsZero() {
+						recv[EmailIDFor(m.mbID, uint32(msg.UID))] = msg.InternalDate
+					}
+				}
+			}
+			sort.SliceStable(allMatching, func(i, j int) bool {
+				ti, oki := recv[EmailIDFor(allMatching[i].mbID, allMatching[i].uid)]
+				tj, okj := recv[EmailIDFor(allMatching[j].mbID, allMatching[j].uid)]
+				// IMAP INTERNALDATE has only second precision, so ties are broken
+				// by UID (monotonic with append order): newest append first.
+				uidCmp := func() bool {
+					if comp.IsAscending {
+						return allMatching[i].uid < allMatching[j].uid
+					}
+					return allMatching[i].uid > allMatching[j].uid
+				}
+				if !oki && !okj {
+					return uidCmp()
+				}
+				if !oki {
+					return !comp.IsAscending
+				}
+				if !okj {
+					return comp.IsAscending
+				}
+				if ti.Equal(tj) {
+					return uidCmp()
+				}
+				if comp.IsAscending {
+					return ti.Before(tj)
+				}
+				return ti.After(tj)
+			})
+			break
+		}
+	}
+
+	allMatchingIDs = make([]jmap.Id, 0, len(allMatching))
+	for _, m := range allMatching {
+		allMatchingIDs = append(allMatchingIDs, EmailIDFor(m.mbID, m.uid))
 	}
 
 	total := len(allMatchingIDs)

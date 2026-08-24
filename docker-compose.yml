@@ -20,6 +20,7 @@ services:
       - BACKEND_TYPE=imapsmtp
       - IMAP_SERVER=dovecot:143
       - SMTP_SERVER=smtp:25
+      - IMAP_BACKEND_PASSWORD=imap-jmap-backend-pass
       - SESSION_SECRET=imap-jmap-secret-session-key-32b!
     volumes:
       - ./certs:/certs:ro
@@ -58,18 +59,20 @@ services:
       dockerfile: docker/mock-ldap/Dockerfile
     container_name: ldap-server
     ports:
-      - "389:389"
+      - "4389:389"
     restart: unless-stopped
 
   dovecot:
-    image: dovecot/dovecot:latest-root
+    build:
+      context: .
+      dockerfile: docker/dovecot/Dockerfile
+    image: imap-jmap-dovecot:latest
     container_name: dovecot-imapd
     ports:
-      - "143:143"
-      - "993:993"
+      - "1143:143"
+      - "1993:993"
     volumes:
-      - ./docker/dovecot/dovecot-ldap.conf.ext:/etc/dovecot/dovecot-ldap.conf.ext:ro
-      - ./docker/dovecot/dovecot.conf:/etc/dovecot/conf.d/auth-ldap.conf:ro
+      - ./docker/dovecot/dovecot.conf:/etc/dovecot/dovecot.conf:ro
       - vmail-data:/srv/vmail
     depends_on:
       - ldap
@@ -94,7 +97,7 @@ services:
     container_name: smtp-server
     command: ["/mock-smtp"]
     ports:
-      - "25:25"
+      - "2525:25"
     environment:
       - SMTP_PORT=25
       - LDAP_HOST=ldap:389

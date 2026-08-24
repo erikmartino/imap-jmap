@@ -230,8 +230,26 @@ func SeedAccountSampleData(ctx context.Context, accountID string, mb jmap.MailBa
 
 	if mb != nil {
 		seedStandardMailboxes(accountCtx, mb)
+
+		// Resolve the real mailbox IDs by role. The memory backend keeps the
+		// hardcoded "mb-*" ids, while gateway backends (e.g. IMAP/SMTP) derive
+		// ids from the underlying folder names — so never assume a mailbox id
+		// here; look it up from the backend that actually owns the data.
+		roleIDs := make(map[string]jmap.Id)
+		if mbs, err := mb.GetAllMailboxes(accountCtx); err == nil {
+			for _, m := range mbs {
+				if m != nil && m.Role != nil && *m.Role != "" {
+					roleIDs[*m.Role] = m.ID
+				}
+			}
+		}
+		inboxID := roleIDs[jmap.RoleInbox]
+		sentID := roleIDs[jmap.RoleSent]
+		draftsID := roleIDs[jmap.RoleDrafts]
+		archiveID := roleIDs[jmap.RoleArchive]
+
 		emails, _ := mb.GetAllEmails(accountCtx)
-		if len(emails) == 0 {
+		if len(emails) == 0 && inboxID != "" {
 			p1 := "1"
 			s1 := "2026-08-01T11:59:00Z"
 			s2 := "2026-08-02T10:29:00Z"
@@ -245,7 +263,7 @@ func SeedAccountSampleData(ctx context.Context, accountID string, mb jmap.MailBa
 				Subject:       "Welcome to JMAP Server",
 				From:          []jmap.EmailAddress{{Name: "JMAP Admin", Email: "admin@example.com"}},
 				To:            []jmap.EmailAddress{{Name: userEmail, Email: userEmail}},
-				MailboxIDs:    map[jmap.Id]bool{"mb-inbox": true},
+				MailboxIDs:    map[jmap.Id]bool{inboxID: true},
 				Keywords:      map[string]bool{"$seen": false},
 				Size:          1024,
 				ReceivedAt:    "2026-08-01T12:00:00Z",
@@ -261,7 +279,7 @@ func SeedAccountSampleData(ctx context.Context, accountID string, mb jmap.MailBa
 				Subject:       "JMAP Core and Mail Specifications",
 				From:          []jmap.EmailAddress{{Name: "IETF JMAP Working Group", Email: "jmap-wg@ietf.example.org"}},
 				To:            []jmap.EmailAddress{{Name: userEmail, Email: userEmail}},
-				MailboxIDs:    map[jmap.Id]bool{"mb-inbox": true},
+				MailboxIDs:    map[jmap.Id]bool{inboxID: true},
 				Keywords:      map[string]bool{"$seen": true, "$flagged": true},
 				Size:          4096,
 				ReceivedAt:    "2026-08-02T10:30:00Z",
@@ -273,53 +291,59 @@ func SeedAccountSampleData(ctx context.Context, accountID string, mb jmap.MailBa
 			}
 			_, _ = mb.CreateEmail(accountCtx, stub2)
 
-			stubSent := &jmap.Email{
-				Subject:       "Re: Welcome to JMAP Server",
-				From:          []jmap.EmailAddress{{Name: userEmail, Email: userEmail}},
-				To:            []jmap.EmailAddress{{Name: "JMAP Admin", Email: "admin@example.com"}},
-				MailboxIDs:    map[jmap.Id]bool{"mb-sent": true},
-				Keywords:      map[string]bool{"$seen": true},
-				Size:          512,
-				ReceivedAt:    "2026-08-01T12:05:00Z",
-				SentAt:        &sSent,
-				Preview:       "Thank you! Glad to be using JMAP.",
-				BlobID:        "blob-stub-sent",
-				BodyStructure: jmap.EmailBodyPart{PartID: &p1, Type: "text/plain", Size: 34},
-				BodyValues:    map[string]jmap.EmailBodyValue{"1": {Value: "Thank you! Glad to be using JMAP."}},
+			if sentID != "" {
+				stubSent := &jmap.Email{
+					Subject:       "Re: Welcome to JMAP Server",
+					From:          []jmap.EmailAddress{{Name: userEmail, Email: userEmail}},
+					To:            []jmap.EmailAddress{{Name: "JMAP Admin", Email: "admin@example.com"}},
+					MailboxIDs:    map[jmap.Id]bool{sentID: true},
+					Keywords:      map[string]bool{"$seen": true},
+					Size:          512,
+					ReceivedAt:    "2026-08-01T12:05:00Z",
+					SentAt:        &sSent,
+					Preview:       "Thank you! Glad to be using JMAP.",
+					BlobID:        "blob-stub-sent",
+					BodyStructure: jmap.EmailBodyPart{PartID: &p1, Type: "text/plain", Size: 34},
+					BodyValues:    map[string]jmap.EmailBodyValue{"1": {Value: "Thank you! Glad to be using JMAP."}},
+				}
+				_, _ = mb.CreateEmail(accountCtx, stubSent)
 			}
-			_, _ = mb.CreateEmail(accountCtx, stubSent)
 
-			stubDraft := &jmap.Email{
-				Subject:       "Draft: High-Availability Cluster Deployment Plan",
-				From:          []jmap.EmailAddress{{Name: userEmail, Email: userEmail}},
-				To:            []jmap.EmailAddress{{Name: "DevOps Team", Email: "devops@example.com"}},
-				MailboxIDs:    map[jmap.Id]bool{"mb-drafts": true},
-				Keywords:      map[string]bool{"$draft": true},
-				Size:          1500,
-				ReceivedAt:    "2026-08-03T07:00:00Z",
-				SentAt:        &sDraft,
-				Preview:       "Initial draft outline for HA cluster deployment...",
-				BlobID:        "blob-stub-draft",
-				BodyStructure: jmap.EmailBodyPart{PartID: &p1, Type: "text/plain", Size: 48},
-				BodyValues:    map[string]jmap.EmailBodyValue{"1": {Value: "Initial draft outline for HA cluster deployment..."}},
+			if draftsID != "" {
+				stubDraft := &jmap.Email{
+					Subject:       "Draft: High-Availability Cluster Deployment Plan",
+					From:          []jmap.EmailAddress{{Name: userEmail, Email: userEmail}},
+					To:            []jmap.EmailAddress{{Name: "DevOps Team", Email: "devops@example.com"}},
+					MailboxIDs:    map[jmap.Id]bool{draftsID: true},
+					Keywords:      map[string]bool{"$draft": true},
+					Size:          1500,
+					ReceivedAt:    "2026-08-03T07:00:00Z",
+					SentAt:        &sDraft,
+					Preview:       "Initial draft outline for HA cluster deployment...",
+					BlobID:        "blob-stub-draft",
+					BodyStructure: jmap.EmailBodyPart{PartID: &p1, Type: "text/plain", Size: 48},
+					BodyValues:    map[string]jmap.EmailBodyValue{"1": {Value: "Initial draft outline for HA cluster deployment..."}},
+				}
+				_, _ = mb.CreateEmail(accountCtx, stubDraft)
 			}
-			_, _ = mb.CreateEmail(accountCtx, stubDraft)
 
-			stubArchive := &jmap.Email{
-				Subject:       "Welcome to your account",
-				From:          []jmap.EmailAddress{{Name: "System", Email: "system@example.com"}},
-				To:            []jmap.EmailAddress{{Name: userEmail, Email: userEmail}},
-				MailboxIDs:    map[jmap.Id]bool{"mb-archive": true},
-				Keywords:      map[string]bool{"$seen": true},
-				Size:          384,
-				ReceivedAt:    "2026-08-01T10:00:00Z",
-				SentAt:        &sArch,
-				Preview:       "Account setup completed successfully.",
-				BlobID:        "blob-stub-archive",
-				BodyStructure: jmap.EmailBodyPart{PartID: &p1, Type: "text/plain", Size: 37},
-				BodyValues:    map[string]jmap.EmailBodyValue{"1": {Value: "Account setup completed successfully."}},
+			if archiveID != "" {
+				stubArchive := &jmap.Email{
+					Subject:       "Welcome to your account",
+					From:          []jmap.EmailAddress{{Name: "System", Email: "system@example.com"}},
+					To:            []jmap.EmailAddress{{Name: userEmail, Email: userEmail}},
+					MailboxIDs:    map[jmap.Id]bool{archiveID: true},
+					Keywords:      map[string]bool{"$seen": true},
+					Size:          384,
+					ReceivedAt:    "2026-08-01T10:00:00Z",
+					SentAt:        &sArch,
+					Preview:       "Account setup completed successfully.",
+					BlobID:        "blob-stub-archive",
+					BodyStructure: jmap.EmailBodyPart{PartID: &p1, Type: "text/plain", Size: 37},
+					BodyValues:    map[string]jmap.EmailBodyValue{"1": {Value: "Account setup completed successfully."}},
+				}
+				_, _ = mb.CreateEmail(accountCtx, stubArchive)
 			}
-			_, _ = mb.CreateEmail(accountCtx, stubArchive)
 		}
 	}
 
