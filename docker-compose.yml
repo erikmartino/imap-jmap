@@ -77,14 +77,23 @@ services:
       - ldap
     restart: unless-stopped
 
-  radicale:
-    image: tomsquest/docker-radicale:latest
-    container_name: radicale-dav
+  nextcloud:
+    image: nextcloud:apache
+    container_name: nextcloud-server
     ports:
-      - "5232:5232"
+      - "8088:80"
+    environment:
+      - SQLITE_DATABASE=nextcloud
+      - NEXTCLOUD_ADMIN_USER=admin
+      - NEXTCLOUD_ADMIN_PASSWORD=admin
+      - NEXTCLOUD_TRUSTED_DOMAINS=localhost nextcloud 127.0.0.1 imap-jmap bulwark
+      - OVERWRITECLIURL=http://localhost:8088
+      - OVERWRITEHOST=localhost:8088
+      - OVERWRITEPROTOCOL=http
+      - TRUSTED_PROXIES=0.0.0.0/0 ::/0
+      - APACHE_DISABLE_REWRITE_IP=1
     volumes:
-      - ./docker/radicale/config:/config/config:ro
-      - radicale-data:/data
+      - nextcloud-data:/var/www/html
     depends_on:
       - ldap
     restart: unless-stopped
@@ -105,5 +114,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  radicale-data:
+  nextcloud-data:
   vmail-data:
