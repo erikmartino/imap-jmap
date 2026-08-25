@@ -389,7 +389,11 @@ func handleEmailSet(backend MailBackend, blobBackend BlobBackend) MethodHandler 
 
 				if len(em.TextBody) > 0 && em.TextBody[0].PartID != nil {
 					if bv, ok := em.BodyValues[*em.TextBody[0].PartID]; ok {
-						em.Preview = preview(bv.Value, 256)
+						if strings.EqualFold(em.TextBody[0].Type, "text/html") {
+							em.Preview = preview(stripHTMLTags(bv.Value), 256)
+						} else {
+							em.Preview = preview(bv.Value, 256)
+						}
 					}
 				} else if len(em.HTMLBody) > 0 && em.HTMLBody[0].PartID != nil {
 					if bv, ok := em.BodyValues[*em.HTMLBody[0].PartID]; ok {

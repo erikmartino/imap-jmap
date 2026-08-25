@@ -3,6 +3,7 @@ package imapsmtp
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/emersion/go-imap/v2"
@@ -120,49 +121,99 @@ func (b *IMAPSMTPBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map
 	var uidSet imap.UIDSet
 	uidSet.AddNum(imap.UID(uid))
 
-	// Update Keywords / Flags
-	if kwVal, ok := patch["keywords"]; ok {
-		if kwMap, ok := kwVal.(map[string]any); ok {
-			keywords := make(map[string]bool)
-			for k, v := range kwMap {
-				if bVal, ok := v.(bool); ok && bVal {
-					keywords[k] = true
+	// Update Keywords / Flags (supporting both full keywords object and JSON-pointer patches like keywords/$label:red)
+	var flagsToAdd []imap.Flag
+	var flagsToDel []imap.Flag
+	var flagsToSet []imap.Flag
+	hasFlagsSet := false
+
+	for path, val := range patch {
+		if path == "keywords" {
+			if kwMap, ok := val.(map[string]any); ok {
+				keywords := make(map[string]bool)
+				for k, v := range kwMap {
+					if bVal, ok := v.(bool); ok && bVal {
+						keywords[strings.ToLower(k)] = true
+					}
+				}
+				flagsToSet = MapKeywordsToIMAPFlags(keywords)
+				hasFlagsSet = true
+			}
+		} else if strings.HasPrefix(path, "keywords/") {
+			kw := strings.ToLower(strings.TrimPrefix(path, "keywords/"))
+			flag := mapJMAPKeywordToIMAPFlag(kw)
+			if val == nil {
+				flagsToDel = append(flagsToDel, flag)
+			} else if bVal, ok := val.(bool); ok {
+				if bVal {
+					flagsToAdd = append(flagsToAdd, flag)
+				} else {
+					flagsToDel = append(flagsToDel, flag)
 				}
 			}
-			newFlags := MapKeywordsToIMAPFlags(keywords)
+		}
+	}
+
+	if hasFlagsSet {
+		storeCmd := client.Store(uidSet, &imap.StoreFlags{
+			Op:     imap.StoreFlagsSet,
+			Flags:  flagsToSet,
+			Silent: true,
+		}, nil)
+		_, _ = storeCmd.Collect()
+	} else {
+		if len(flagsToAdd) > 0 {
 			storeCmd := client.Store(uidSet, &imap.StoreFlags{
-				Op:     imap.StoreFlagsSet,
-				Flags:  newFlags,
+				Op:     imap.StoreFlagsAdd,
+				Flags:  flagsToAdd,
+				Silent: true,
+			}, nil)
+			_, _ = storeCmd.Collect()
+		}
+		if len(flagsToDel) > 0 {
+			storeCmd := client.Store(uidSet, &imap.StoreFlags{
+				Op:     imap.StoreFlagsDel,
+				Flags:  flagsToDel,
 				Silent: true,
 			}, nil)
 			_, _ = storeCmd.Collect()
 		}
 	}
 
-	// Move / Mailbox update
+	// Move / Mailbox update (supporting both mailboxIds object and mailboxIds/... patches)
+	var targetMoveMbID jmap.Id
 	if mbVal, ok := patch["mailboxIds"]; ok {
 		if mbMap, ok := mbVal.(map[string]any); ok {
-			var newMbID jmap.Id
 			for k, v := range mbMap {
 				if bVal, ok := v.(bool); ok && bVal {
-					newMbID = jmap.Id(k)
+					targetMoveMbID = jmap.Id(k)
 					break
 				}
 			}
-			if newMbID != "" && newMbID != mbID {
-				newFolderName, err := NameForMailboxID(newMbID)
-				if err == nil {
-					// Copy to new mailbox, flag \Deleted in old mailbox, and expunge
-					if _, err := client.Copy(uidSet, newFolderName).Wait(); err == nil {
-						storeCmd := client.Store(uidSet, &imap.StoreFlags{
-							Op:     imap.StoreFlagsAdd,
-							Flags:  []imap.Flag{imap.FlagDeleted},
-							Silent: true,
-						}, nil)
-						_, _ = storeCmd.Collect()
-						_, _ = client.Expunge().Collect()
-					}
-				}
+		}
+	}
+	for path, val := range patch {
+		if strings.HasPrefix(path, "mailboxIds/") {
+			mbKey := jmap.Id(strings.TrimPrefix(path, "mailboxIds/"))
+			if bVal, ok := val.(bool); ok && bVal {
+				targetMoveMbID = mbKey
+				break
+			}
+		}
+	}
+
+	if targetMoveMbID != "" && targetMoveMbID != mbID {
+		newFolderName, err := NameForMailboxID(targetMoveMbID)
+		if err == nil {
+			// Copy to new mailbox, flag \Deleted in old mailbox, and expunge
+			if _, err := client.Copy(uidSet, newFolderName).Wait(); err == nil {
+				storeCmd := client.Store(uidSet, &imap.StoreFlags{
+					Op:     imap.StoreFlagsAdd,
+					Flags:  []imap.Flag{imap.FlagDeleted},
+					Silent: true,
+				}, nil)
+				_, _ = storeCmd.Collect()
+				_, _ = client.Expunge().Collect()
 			}
 		}
 	}

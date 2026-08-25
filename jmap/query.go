@@ -535,12 +535,17 @@ func emailSearchText(em *Email) string {
 	return sb.String()
 }
 
-func cleanQueryTerm(q string) string {
+// CleanQueryTerm strips leading/trailing whitespace, wildcards (*), and quotes from a search term.
+func CleanQueryTerm(q string) string {
 	return strings.Trim(strings.TrimSpace(q), "*\"'")
 }
 
+func cleanQueryTerm(q string) string {
+	return CleanQueryTerm(q)
+}
+
 func matchBody(em *Email, query string) bool {
-	q := strings.ToLower(cleanQueryTerm(query))
+	q := strings.ToLower(CleanQueryTerm(query))
 	if q == "" {
 		return true
 	}

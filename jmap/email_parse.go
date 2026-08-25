@@ -224,6 +224,8 @@ func ParseRFC822WithAccount(accountID string, raw []byte, blobBackend ...BlobBac
 	em.Attachments = attachments
 	em.HasAttachment = len(attachments) > 0
 
+	// RFC 8621 Section 4.1.4: If the message does not contain a text/html part,
+	// htmlBody describes the same parts as textBody; and vice versa.
 	if len(em.HTMLBody) == 0 && len(em.TextBody) > 0 {
 		em.HTMLBody = em.TextBody
 	} else if len(em.TextBody) == 0 && len(em.HTMLBody) > 0 {
@@ -232,7 +234,11 @@ func ParseRFC822WithAccount(accountID string, raw []byte, blobBackend ...BlobBac
 
 	if len(em.TextBody) > 0 && em.TextBody[0].PartID != nil {
 		if bv, ok := em.BodyValues[*em.TextBody[0].PartID]; ok {
-			em.Preview = preview(bv.Value, 256)
+			if strings.EqualFold(em.TextBody[0].Type, "text/html") {
+				em.Preview = preview(stripHTMLTags(bv.Value), 256)
+			} else {
+				em.Preview = preview(bv.Value, 256)
+			}
 		}
 	} else if len(em.HTMLBody) > 0 && em.HTMLBody[0].PartID != nil {
 		if bv, ok := em.BodyValues[*em.HTMLBody[0].PartID]; ok {
@@ -393,8 +399,8 @@ func extractBodyStructureParts(root *EmailBodyPart) (textBody []EmailBodyPart, h
 		return
 	}
 
-	textBody = extractTextBody(root, false)
-	htmlBody = extractHTMLBody(root, false)
+	textBody = extractTextBody(root)
+	htmlBody = extractHTMLBody(root)
 
 	if len(textBody) == 0 && len(htmlBody) > 0 {
 		textBody = htmlBody
@@ -435,9 +441,9 @@ func extractBodyStructureParts(root *EmailBodyPart) (textBody []EmailBodyPart, h
 		inHTML := inHTMLMap[pID]
 
 		isAtt := false
-		if p.Disposition != nil && *p.Disposition == "attachment" {
+		if p.Disposition != nil && strings.EqualFold(*p.Disposition, "attachment") {
 			isAtt = true
-		} else if p.Type == "text/plain" || p.Type == "text/html" {
+		} else if strings.EqualFold(p.Type, "text/plain") || strings.EqualFold(p.Type, "text/html") {
 			if !inText && !inHTML {
 				isAtt = true
 			}
@@ -456,112 +462,112 @@ func extractBodyStructureParts(root *EmailBodyPart) (textBody []EmailBodyPart, h
 	return
 }
 
-func extractTextBody(p *EmailBodyPart, isFallback bool) []EmailBodyPart {
+func extractTextBody(p *EmailBodyPart) []EmailBodyPart {
 	if p == nil {
 		return nil
 	}
 
-	if p.Type == "multipart/alternative" {
+	if strings.EqualFold(p.Type, "multipart/alternative") {
 		textChild := findAlternativeChild(p.SubParts, "text/plain")
 		if textChild != nil {
-			return extractTextBody(textChild, false)
-		}
-		htmlChild := findAlternativeChild(p.SubParts, "text/html")
-		if htmlChild != nil {
-			return extractTextBody(htmlChild, true)
+			return extractTextBody(textChild)
 		}
 		return nil
 	}
 
-	if p.Type == "multipart/related" {
+	if strings.EqualFold(p.Type, "multipart/related") {
 		if len(p.SubParts) > 0 {
-			return extractTextBody(&p.SubParts[0], isFallback)
+			return extractTextBody(&p.SubParts[0])
 		}
 		return nil
 	}
 
-	if strings.HasPrefix(p.Type, "multipart/") {
+	if strings.HasPrefix(strings.ToLower(p.Type), "multipart/") {
 		var out []EmailBodyPart
 		for i := range p.SubParts {
-			out = append(out, extractTextBody(&p.SubParts[i], isFallback)...)
+			out = append(out, extractTextBody(&p.SubParts[i])...)
 		}
 		return out
 	}
 
-	if p.Disposition != nil && *p.Disposition == "attachment" {
+	if p.Disposition != nil && strings.EqualFold(*p.Disposition, "attachment") {
 		return nil
 	}
 
-	if p.Type == "text/plain" {
+	if strings.EqualFold(p.Type, "text/plain") {
 		return []EmailBodyPart{*p}
 	}
-	if p.Type == "text/html" && isFallback {
+	if isInlineMedia(p.Type) {
 		return []EmailBodyPart{*p}
 	}
-	if strings.HasPrefix(p.Type, "image/") || strings.HasPrefix(p.Type, "audio/") || strings.HasPrefix(p.Type, "video/") {
+	if strings.EqualFold(p.Type, "text/html") {
 		return []EmailBodyPart{*p}
 	}
 
 	return nil
 }
 
-func extractHTMLBody(p *EmailBodyPart, isFallback bool) []EmailBodyPart {
+func extractHTMLBody(p *EmailBodyPart) []EmailBodyPart {
 	if p == nil {
 		return nil
 	}
 
-	if p.Type == "multipart/alternative" {
+	if strings.EqualFold(p.Type, "multipart/alternative") {
 		htmlChild := findAlternativeChild(p.SubParts, "text/html")
 		if htmlChild != nil {
-			return extractHTMLBody(htmlChild, false)
-		}
-		textChild := findAlternativeChild(p.SubParts, "text/plain")
-		if textChild != nil {
-			return extractHTMLBody(textChild, true)
+			return extractHTMLBody(htmlChild)
 		}
 		return nil
 	}
 
-	if p.Type == "multipart/related" {
+	if strings.EqualFold(p.Type, "multipart/related") {
 		if len(p.SubParts) > 0 {
-			return extractHTMLBody(&p.SubParts[0], isFallback)
+			return extractHTMLBody(&p.SubParts[0])
 		}
 		return nil
 	}
 
-	if strings.HasPrefix(p.Type, "multipart/") {
+	if strings.HasPrefix(strings.ToLower(p.Type), "multipart/") {
 		var out []EmailBodyPart
 		for i := range p.SubParts {
-			out = append(out, extractHTMLBody(&p.SubParts[i], isFallback)...)
+			out = append(out, extractHTMLBody(&p.SubParts[i])...)
 		}
 		return out
 	}
 
-	if p.Disposition != nil && *p.Disposition == "attachment" {
+	if p.Disposition != nil && strings.EqualFold(*p.Disposition, "attachment") {
 		return nil
 	}
 
-	if p.Type == "text/html" {
+	if strings.EqualFold(p.Type, "text/html") {
 		return []EmailBodyPart{*p}
 	}
-	if p.Type == "text/plain" {
+	if isInlineMedia(p.Type) {
 		return []EmailBodyPart{*p}
 	}
-	if strings.HasPrefix(p.Type, "image/") || strings.HasPrefix(p.Type, "audio/") || strings.HasPrefix(p.Type, "video/") {
+	if strings.EqualFold(p.Type, "text/plain") {
 		return []EmailBodyPart{*p}
 	}
 
 	return nil
+}
+
+func isInlineMedia(t string) bool {
+	t = strings.ToLower(t)
+	return strings.HasPrefix(t, "image/") || strings.HasPrefix(t, "audio/") || strings.HasPrefix(t, "video/")
 }
 
 func findAlternativeChild(subParts []EmailBodyPart, targetType string) *EmailBodyPart {
 	for i := range subParts {
 		p := &subParts[i]
-		if p.Type == targetType {
+		if strings.EqualFold(p.Type, targetType) {
 			return p
 		}
-		if strings.HasPrefix(p.Type, "multipart/") {
-			if hasPartType(p, targetType) {
+	}
+	for i := range subParts {
+		p := &subParts[i]
+		if strings.HasPrefix(strings.ToLower(p.Type), "multipart/") {
+			if findAlternativeChild(p.SubParts, targetType) != nil {
 				return p
 			}
 		}
@@ -570,7 +576,7 @@ func findAlternativeChild(subParts []EmailBodyPart, targetType string) *EmailBod
 }
 
 func hasPartType(p *EmailBodyPart, targetType string) bool {
-	if p.Type == targetType {
+	if strings.EqualFold(p.Type, targetType) {
 		return true
 	}
 	for i := range p.SubParts {
@@ -763,25 +769,138 @@ func FormatEmailRFC822(em *Email) []byte {
 		}
 	}
 
+	// Extract text/plain content
+	var textParts []string
+	for _, p := range em.TextBody {
+		if p.PartID != nil {
+			if bv, ok := em.BodyValues[*p.PartID]; ok {
+				textParts = append(textParts, bv.Value)
+			}
+		}
+	}
+
+	// Extract text/html content
+	var htmlParts []string
+	for _, p := range em.HTMLBody {
+		if p.PartID != nil {
+			if bv, ok := em.BodyValues[*p.PartID]; ok {
+				htmlParts = append(htmlParts, bv.Value)
+			}
+		}
+	}
+
+	// Fallback to BodyValues or BodyStructure if TextBody and HTMLBody are not explicitly populated
+	if len(textParts) == 0 && len(htmlParts) == 0 {
+		if em.BodyStructure.PartID != nil {
+			if bv, ok := em.BodyValues[*em.BodyStructure.PartID]; ok {
+				if strings.EqualFold(em.BodyStructure.Type, "text/html") {
+					htmlParts = append(htmlParts, bv.Value)
+				} else {
+					textParts = append(textParts, bv.Value)
+				}
+			}
+		} else {
+			for _, bv := range em.BodyValues {
+				if bv.Value != "" {
+					textParts = append(textParts, bv.Value)
+					break
+				}
+			}
+		}
+	}
+
+	textBody := strings.Join(textParts, "\n")
+	htmlBody := strings.Join(htmlParts, "\n")
+	hasText := len(textParts) > 0
+	hasHTML := len(htmlParts) > 0
+	hasAttachments := len(em.Attachments) > 0
+
 	mw, err := gomail.CreateWriter(&buf, h)
 	if err != nil {
 		return nil
 	}
 
-	bodyText := ""
-	for _, v := range em.BodyValues {
-		if v.Value != "" {
-			bodyText = v.Value
-			break
+	if hasText && hasHTML {
+		// multipart/alternative
+		iw, err := mw.CreateInline()
+		if err == nil {
+			var plainH gomail.InlineHeader
+			plainH.Set("Content-Type", "text/plain; charset=utf-8")
+			if pw, err := iw.CreatePart(plainH); err == nil {
+				_, _ = io.WriteString(pw, textBody)
+				_ = pw.Close()
+			}
+			var htmlH gomail.InlineHeader
+			htmlH.Set("Content-Type", "text/html; charset=utf-8")
+			if hw, err := iw.CreatePart(htmlH); err == nil {
+				_, _ = io.WriteString(hw, htmlBody)
+				_ = hw.Close()
+			}
+			_ = iw.Close()
+		}
+	} else if hasHTML {
+		// text/html only
+		if !hasAttachments {
+			var inlineH gomail.InlineHeader
+			inlineH.Set("Content-Type", "text/html; charset=utf-8")
+			if pw, err := mw.CreateSingleInline(inlineH); err == nil {
+				_, _ = io.WriteString(pw, htmlBody)
+				_ = pw.Close()
+			}
+		} else {
+			iw, err := mw.CreateInline()
+			if err == nil {
+				var htmlH gomail.InlineHeader
+				htmlH.Set("Content-Type", "text/html; charset=utf-8")
+				if hw, err := iw.CreatePart(htmlH); err == nil {
+					_, _ = io.WriteString(hw, htmlBody)
+					_ = hw.Close()
+				}
+				_ = iw.Close()
+			}
+		}
+	} else {
+		// text/plain only (or empty)
+		if !hasAttachments {
+			var inlineH gomail.InlineHeader
+			inlineH.Set("Content-Type", "text/plain; charset=utf-8")
+			if pw, err := mw.CreateSingleInline(inlineH); err == nil {
+				_, _ = io.WriteString(pw, textBody)
+				_ = pw.Close()
+			}
+		} else {
+			iw, err := mw.CreateInline()
+			if err == nil {
+				var plainH gomail.InlineHeader
+				plainH.Set("Content-Type", "text/plain; charset=utf-8")
+				if pw, err := iw.CreatePart(plainH); err == nil {
+					_, _ = io.WriteString(pw, textBody)
+					_ = pw.Close()
+				}
+				_ = iw.Close()
+			}
 		}
 	}
-	var inlineH gomail.InlineHeader
-	inlineH.Set("Content-Type", "text/plain; charset=utf-8")
-	pw, err := mw.CreateSingleInline(inlineH)
-	if err == nil {
-		_, _ = io.WriteString(pw, bodyText)
-		_ = pw.Close()
+
+	// Write attachments if any
+	for _, att := range em.Attachments {
+		var attH gomail.AttachmentHeader
+		if att.Name != nil && *att.Name != "" {
+			attH.SetFilename(*att.Name)
+		}
+		if att.Type != "" {
+			attH.Set("Content-Type", att.Type)
+		}
+		if aw, err := mw.CreateAttachment(attH); err == nil {
+			if att.PartID != nil {
+				if bv, ok := em.BodyValues[*att.PartID]; ok {
+					_, _ = io.WriteString(aw, bv.Value)
+				}
+			}
+			_ = aw.Close()
+		}
 	}
+
 	_ = mw.Close()
 	return buf.Bytes()
 }

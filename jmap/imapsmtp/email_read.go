@@ -44,8 +44,8 @@ func MapIMAPFlagsToKeywords(flags []imap.Flag) map[string]bool {
 		case imap.FlagAnswered:
 			keywords["$answered"] = true
 		default:
-			// Custom keyword
-			s := string(flag)
+			// Custom keyword (normalized to lowercase per RFC 8621 Section 4.2.2)
+			s := strings.ToLower(string(flag))
 			if s != "" && !strings.HasPrefix(s, "\\") {
 				keywords[s] = true
 			}
@@ -247,6 +247,241 @@ func (b *IMAPSMTPBackend) GetAllEmails(ctx context.Context) ([]*jmap.Email, erro
 }
 
 // QueryEmails searches emails based on JMAP filter criteria across mailboxes.
+// mapJMAPKeywordToIMAPFlag converts a JMAP keyword to its canonical IMAP flag.
+func mapJMAPKeywordToIMAPFlag(kw string) imap.Flag {
+	lower := strings.ToLower(strings.TrimSpace(kw))
+	switch lower {
+	case "$seen":
+		return imap.FlagSeen
+	case "$flagged":
+		return imap.FlagFlagged
+	case "$draft":
+		return imap.FlagDraft
+	case "$answered":
+		return imap.FlagAnswered
+	default:
+		return imap.Flag(lower)
+	}
+}
+
+// extractTargetFolders determines which IMAP folders to search given a JMAP filter.
+func extractTargetFolders(filter map[string]any, allFolders []string) []string {
+	if len(filter) == 0 {
+		return allFolders
+	}
+
+	// 1. Direct inMailbox constraint
+	if inMb, ok := filter["inMailbox"].(string); ok && inMb != "" {
+		if folderName, err := NameForMailboxID(jmap.Id(inMb)); err == nil {
+			return []string{folderName}
+		}
+	}
+
+	// 2. Direct inMailboxOtherThan exclusion
+	if otherRaw, ok := filter["inMailboxOtherThan"].([]any); ok && len(otherRaw) > 0 {
+		exclude := make(map[string]bool)
+		for _, v := range otherRaw {
+			if s, ok := v.(string); ok {
+				if folderName, err := NameForMailboxID(jmap.Id(s)); err == nil {
+					exclude[folderName] = true
+				}
+			}
+		}
+		var filtered []string
+		for _, f := range allFolders {
+			if !exclude[f] {
+				filtered = append(filtered, f)
+			}
+		}
+		return filtered
+	}
+
+	// 3. Recursive AND conditions
+	if opRaw, ok := filter["operator"].(string); ok && strings.EqualFold(opRaw, "AND") {
+		if condsRaw, ok := filter["conditions"].([]any); ok {
+			curr := allFolders
+			for _, cond := range condsRaw {
+				if condMap, ok := cond.(map[string]any); ok {
+					curr = extractTargetFolders(condMap, curr)
+				}
+			}
+			return curr
+		}
+	}
+
+	return allFolders
+}
+
+// buildNestedOr chains a slice of SearchCriteria into a nested binary OR tree per RFC 3501 Section 6.4.4.
+func buildNestedOr(crits []imap.SearchCriteria) *imap.SearchCriteria {
+	if len(crits) == 0 {
+		return &imap.SearchCriteria{}
+	}
+	if len(crits) == 1 {
+		return &crits[0]
+	}
+	if len(crits) == 2 {
+		return &imap.SearchCriteria{
+			Or: [][2]imap.SearchCriteria{{crits[0], crits[1]}},
+		}
+	}
+	sub := buildNestedOr(crits[1:])
+	return &imap.SearchCriteria{
+		Or: [][2]imap.SearchCriteria{{crits[0], *sub}},
+	}
+}
+
+// buildIMAPSearchCriteria converts a JMAP FilterCondition or FilterOperator into IMAP SearchCriteria.
+func buildIMAPSearchCriteria(filter map[string]any) *imap.SearchCriteria {
+	if len(filter) == 0 {
+		return &imap.SearchCriteria{}
+	}
+
+	crit := &imap.SearchCriteria{}
+
+	if opRaw, ok := filter["operator"].(string); ok {
+		condsRaw, ok := filter["conditions"].([]any)
+		if !ok || len(condsRaw) == 0 {
+			return crit
+		}
+
+		op := strings.ToUpper(opRaw)
+		switch op {
+		case "AND":
+			for _, condRaw := range condsRaw {
+				if condMap, ok := condRaw.(map[string]any); ok {
+					subCrit := buildIMAPSearchCriteria(condMap)
+					mergeSearchCriteria(crit, subCrit)
+				}
+			}
+			return crit
+		case "OR":
+			var subCrits []imap.SearchCriteria
+			for _, condRaw := range condsRaw {
+				if condMap, ok := condRaw.(map[string]any); ok {
+					subCrits = append(subCrits, *buildIMAPSearchCriteria(condMap))
+				}
+			}
+			return buildNestedOr(subCrits)
+		case "NOT":
+			for _, condRaw := range condsRaw {
+				if condMap, ok := condRaw.(map[string]any); ok {
+					subCrit := buildIMAPSearchCriteria(condMap)
+					crit.Not = append(crit.Not, *subCrit)
+				}
+			}
+			return crit
+		}
+	}
+
+	if kw, ok := filter["hasKeyword"].(string); ok && kw != "" {
+		crit.Flag = append(crit.Flag, mapJMAPKeywordToIMAPFlag(kw))
+	}
+	if notKw, ok := filter["notKeyword"].(string); ok && notKw != "" {
+		crit.NotFlag = append(crit.NotFlag, mapJMAPKeywordToIMAPFlag(notKw))
+	}
+	if text, ok := filter["text"].(string); ok && text != "" {
+		for _, f := range strings.Fields(text) {
+			clean := jmap.CleanQueryTerm(f)
+			if clean != "" {
+				crit.Text = append(crit.Text, clean)
+			}
+		}
+	}
+	if from, ok := filter["from"].(string); ok && from != "" {
+		clean := jmap.CleanQueryTerm(from)
+		if clean != "" {
+			crit.Header = append(crit.Header, imap.SearchCriteriaHeaderField{Key: "From", Value: clean})
+		}
+	}
+	if to, ok := filter["to"].(string); ok && to != "" {
+		clean := jmap.CleanQueryTerm(to)
+		if clean != "" {
+			crit.Header = append(crit.Header, imap.SearchCriteriaHeaderField{Key: "To", Value: clean})
+		}
+	}
+	if cc, ok := filter["cc"].(string); ok && cc != "" {
+		clean := jmap.CleanQueryTerm(cc)
+		if clean != "" {
+			crit.Header = append(crit.Header, imap.SearchCriteriaHeaderField{Key: "Cc", Value: clean})
+		}
+	}
+	if bcc, ok := filter["bcc"].(string); ok && bcc != "" {
+		clean := jmap.CleanQueryTerm(bcc)
+		if clean != "" {
+			crit.Header = append(crit.Header, imap.SearchCriteriaHeaderField{Key: "Bcc", Value: clean})
+		}
+	}
+	if subj, ok := filter["subject"].(string); ok && subj != "" {
+		clean := jmap.CleanQueryTerm(subj)
+		if clean != "" {
+			crit.Header = append(crit.Header, imap.SearchCriteriaHeaderField{Key: "Subject", Value: clean})
+		}
+	}
+	if body, ok := filter["body"].(string); ok && body != "" {
+		clean := jmap.CleanQueryTerm(body)
+		if clean != "" {
+			crit.Body = append(crit.Body, clean)
+		}
+	}
+	if hdrRaw, ok := filter["header"].([]any); ok && len(hdrRaw) > 0 {
+		hdrName, _ := hdrRaw[0].(string)
+		hdrVal := ""
+		if len(hdrRaw) > 1 {
+			hdrVal, _ = hdrRaw[1].(string)
+		}
+		if hdrName != "" {
+			crit.Header = append(crit.Header, imap.SearchCriteriaHeaderField{
+				Key:   hdrName,
+				Value: jmap.CleanQueryTerm(hdrVal),
+			})
+		}
+	}
+	if minSize, ok := filter["minSize"].(float64); ok {
+		crit.Larger = int64(minSize)
+	}
+	if maxSize, ok := filter["maxSize"].(float64); ok {
+		crit.Smaller = int64(maxSize)
+	}
+	if before, ok := filter["before"].(string); ok && before != "" {
+		if t, err := time.Parse(time.RFC3339, before); err == nil {
+			crit.Before = t
+		}
+	}
+	if after, ok := filter["after"].(string); ok && after != "" {
+		if t, err := time.Parse(time.RFC3339, after); err == nil {
+			crit.Since = t
+		}
+	}
+	return crit
+}
+
+func mergeSearchCriteria(dest, src *imap.SearchCriteria) {
+	if src == nil {
+		return
+	}
+	dest.Flag = append(dest.Flag, src.Flag...)
+	dest.NotFlag = append(dest.NotFlag, src.NotFlag...)
+	dest.Header = append(dest.Header, src.Header...)
+	dest.Body = append(dest.Body, src.Body...)
+	dest.Text = append(dest.Text, src.Text...)
+	dest.Not = append(dest.Not, src.Not...)
+	dest.Or = append(dest.Or, src.Or...)
+	if !src.Since.IsZero() {
+		dest.Since = src.Since
+	}
+	if !src.Before.IsZero() {
+		dest.Before = src.Before
+	}
+	if src.Larger > 0 {
+		dest.Larger = src.Larger
+	}
+	if src.Smaller > 0 {
+		dest.Smaller = src.Smaller
+	}
+}
+
+// QueryEmails searches emails based on JMAP filter criteria across mailboxes.
 func (b *IMAPSMTPBackend) QueryEmails(ctx context.Context, filter map[string]any, comparators []jmap.Comparator, position int, limit *uint64) ([]jmap.Id, int, error) {
 	client, err := b.pool.GetClientForContext(ctx)
 	if err != nil {
@@ -254,30 +489,21 @@ func (b *IMAPSMTPBackend) QueryEmails(ctx context.Context, filter map[string]any
 	}
 	defer b.pool.ReleaseClient(ctx, client)
 
-	var targetFolders []string
-
-	if filter != nil {
-		if inMb, ok := filter["inMailbox"].(string); ok && inMb != "" {
-			folderName, err := NameForMailboxID(jmap.Id(inMb))
-			if err == nil {
-				targetFolders = []string{folderName}
-			}
+	// List all mailboxes to establish available search scope
+	var allFolderNames []string
+	mailboxes, err := b.GetAllMailboxes(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	for _, mb := range mailboxes {
+		name, err := NameForMailboxID(mb.ID)
+		if err == nil {
+			allFolderNames = append(allFolderNames, name)
 		}
 	}
 
-	if len(targetFolders) == 0 {
-		// Cross-folder query: list all mailboxes
-		mailboxes, err := b.GetAllMailboxes(ctx)
-		if err != nil {
-			return nil, 0, err
-		}
-		for _, mb := range mailboxes {
-			name, err := NameForMailboxID(mb.ID)
-			if err == nil {
-				targetFolders = append(targetFolders, name)
-			}
-		}
-	}
+	targetFolders := extractTargetFolders(filter, allFolderNames)
+	searchCriteria := buildIMAPSearchCriteria(filter)
 
 	var allMatching []struct {
 		mbID jmap.Id
@@ -290,64 +516,6 @@ func (b *IMAPSMTPBackend) QueryEmails(ctx context.Context, filter map[string]any
 		selectData, err := selectCmd.Wait()
 		if err != nil || selectData.NumMessages == 0 {
 			continue
-		}
-
-		searchCriteria := &imap.SearchCriteria{}
-
-		// Apply basic search filters if present
-		if filter != nil {
-			if kw, ok := filter["hasKeyword"].(string); ok {
-				switch kw {
-				case "$seen":
-					searchCriteria.Flag = append(searchCriteria.Flag, imap.FlagSeen)
-				case "$flagged":
-					searchCriteria.Flag = append(searchCriteria.Flag, imap.FlagFlagged)
-				case "$draft":
-					searchCriteria.Flag = append(searchCriteria.Flag, imap.FlagDraft)
-				case "$answered":
-					searchCriteria.Flag = append(searchCriteria.Flag, imap.FlagAnswered)
-				default:
-					// Arbitrary keyword, e.g. a $tag/<name>[/<value>] tag. The
-					// keyword atom is also the IMAP keyword, so SEARCH KEYWORD
-					// applies directly.
-					searchCriteria.Flag = append(searchCriteria.Flag, imap.Flag(strings.ToLower(kw)))
-				}
-			}
-			if notKw, ok := filter["notKeyword"].(string); ok {
-				switch notKw {
-				case "$seen":
-					searchCriteria.NotFlag = append(searchCriteria.NotFlag, imap.FlagSeen)
-				case "$flagged":
-					searchCriteria.NotFlag = append(searchCriteria.NotFlag, imap.FlagFlagged)
-				case "$draft":
-					searchCriteria.NotFlag = append(searchCriteria.NotFlag, imap.FlagDraft)
-				case "$answered":
-					searchCriteria.NotFlag = append(searchCriteria.NotFlag, imap.FlagAnswered)
-				default:
-					searchCriteria.NotFlag = append(searchCriteria.NotFlag, imap.Flag(strings.ToLower(notKw)))
-				}
-			}
-			if text, ok := filter["text"].(string); ok && text != "" {
-				searchCriteria.Text = append(searchCriteria.Text, text)
-			}
-			if from, ok := filter["from"].(string); ok && from != "" {
-				searchCriteria.Header = append(searchCriteria.Header, imap.SearchCriteriaHeaderField{
-					Key:   "From",
-					Value: from,
-				})
-			}
-			if to, ok := filter["to"].(string); ok && to != "" {
-				searchCriteria.Header = append(searchCriteria.Header, imap.SearchCriteriaHeaderField{
-					Key:   "To",
-					Value: to,
-				})
-			}
-			if subj, ok := filter["subject"].(string); ok && subj != "" {
-				searchCriteria.Header = append(searchCriteria.Header, imap.SearchCriteriaHeaderField{
-					Key:   "Subject",
-					Value: subj,
-				})
-			}
 		}
 
 		searchCmd := client.UIDSearch(searchCriteria, nil)

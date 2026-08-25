@@ -14,12 +14,12 @@ import (
 func getTestTargetServers() (string, string) {
 	imapAddr := os.Getenv("TEST_IMAP_SERVER")
 	if imapAddr == "" {
-		imapAddr = "127.0.0.1:993"
+		imapAddr = "127.0.0.1:1143"
 	}
 
 	smtpAddr := os.Getenv("TEST_SMTP_SERVER")
 	if smtpAddr == "" {
-		smtpAddr = "127.0.0.1:25"
+		smtpAddr = "127.0.0.1:2525"
 	}
 	return imapAddr, smtpAddr
 }
@@ -307,4 +307,68 @@ func TestEmailSubmissionAndSMTP(t *testing.T) {
 
 	// Clean up created email
 	_, _ = be.DeleteEmail(ctx, createdEmail.ID)
+}
+
+func TestEmailQuerySearchWildcardsAndOperators(t *testing.T) {
+	imapAddr, smtpAddr := getTestTargetServers()
+	be := New(imapAddr, smtpAddr)
+	ctx := testContext()
+
+	inboxID := MailboxIDForName("INBOX")
+	part1 := "1"
+	uniqueSubj := fmt.Sprintf("SearchableSubject_%d", time.Now().UnixNano())
+	email := &jmap.Email{
+		MailboxIDs: map[jmap.Id]bool{inboxID: true},
+		From:       []jmap.EmailAddress{{Name: "Search Sender", Email: "searcher@example.com"}},
+		To:         []jmap.EmailAddress{{Name: "Recipient", Email: "recipient@example.com"}},
+		Subject:    uniqueSubj,
+		BodyValues: map[string]jmap.EmailBodyValue{
+			"1": {Value: "UniqueBodyKeyword search testing payload."},
+		},
+		TextBody: []jmap.EmailBodyPart{
+			{PartID: &part1, Type: "text/plain"},
+		},
+	}
+	created, err := be.CreateEmail(ctx, email)
+	if err != nil {
+		t.Fatalf("CreateEmail failed: %v", err)
+	}
+	defer func() { _, _ = be.DeleteEmail(ctx, created.ID) }()
+
+	// 1. Search with wildcard on subject: "SearchableSubject*"
+	ids, total, err := be.QueryEmails(ctx, map[string]any{
+		"subject": uniqueSubj + "*",
+	}, nil, 0, nil)
+	if err != nil {
+		t.Fatalf("QueryEmails subject wildcard failed: %v", err)
+	}
+	if total == 0 || len(ids) == 0 {
+		t.Errorf("expected to find email with wildcard subject %q, got 0", uniqueSubj+"*")
+	}
+
+	// 2. Search with wildcard on free text: "UniqueBodyKeyword*"
+	ids, total, err = be.QueryEmails(ctx, map[string]any{
+		"text": "UniqueBodyKeyword*",
+	}, nil, 0, nil)
+	if err != nil {
+		t.Fatalf("QueryEmails text wildcard failed: %v", err)
+	}
+	if total == 0 || len(ids) == 0 {
+		t.Errorf("expected to find email with wildcard text 'UniqueBodyKeyword*', got 0")
+	}
+
+	// 3. Search with OR operator
+	ids, total, err = be.QueryEmails(ctx, map[string]any{
+		"operator": "OR",
+		"conditions": []any{
+			map[string]any{"subject": "NonExistentSubject9999*"},
+			map[string]any{"text": "UniqueBodyKeyword*"},
+		},
+	}, nil, 0, nil)
+	if err != nil {
+		t.Fatalf("QueryEmails OR query failed: %v", err)
+	}
+	if total == 0 || len(ids) == 0 {
+		t.Errorf("expected to find email with OR operator containing matching branch, got 0")
+	}
 }

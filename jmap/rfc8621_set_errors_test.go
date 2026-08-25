@@ -305,8 +305,8 @@ func TestRFC8621_EmailCreateReconstructsBodyStructure(t *testing.T) {
 	if hb, _ := htmlEM["htmlBody"].([]any); len(hb) != 1 {
 		t.Errorf("expected htmlBody with 1 part, got %v", htmlEM["htmlBody"])
 	}
-	if htmlEM["preview"] != "<p>Hi</p>" {
-		t.Errorf("expected html preview to be the html body, got %q", htmlEM["preview"])
+	if htmlEM["preview"] != "Hi" {
+		t.Errorf("expected html preview to be stripped plain text 'Hi', got %q", htmlEM["preview"])
 	}
 }
 
