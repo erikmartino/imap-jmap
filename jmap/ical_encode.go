@@ -363,7 +363,13 @@ func writeVEVENT(sb *strings.Builder, ev *CalendarEvent, organizerEmail, onlyAtt
 		fmt.Fprintf(sb, "DESCRIPTION:%s\r\n", escapeICalText(ev.Description))
 	}
 	writeDateTimeProp(sb, "DTSTART", ev.Start, ev.TimeZone, ev.ShowWithoutTime)
-	if ev.Duration != "" {
+	if ev.ShowWithoutTime {
+		if ev.Duration != "" && !strings.Contains(ev.Duration, "T") {
+			fmt.Fprintf(sb, "DURATION:%s\r\n", ev.Duration)
+		} else {
+			fmt.Fprintf(sb, "DURATION:P1D\r\n")
+		}
+	} else if ev.Duration != "" {
 		fmt.Fprintf(sb, "DURATION:%s\r\n", ev.Duration)
 	}
 	if ev.RecurrenceID != "" {
@@ -437,6 +443,11 @@ func writeVEVENT(sb *strings.Builder, ev *CalendarEvent, organizerEmail, onlyAtt
 	for _, key := range sortedAlertKeys(ev.Alerts) {
 		writeAlarm(sb, ev.Alerts[key])
 	}
+}
+
+// EncodeCalDAVEvent builds a complete RFC 5545 / RFC 4791 VCALENDAR string for storing in CalDAV (no METHOD property).
+func EncodeCalDAVEvent(ev *CalendarEvent) string {
+	return encodeICalendar(ev, "", "", "", "")
 }
 
 // encodeICalendar builds a complete VCALENDAR (RFC 5545) carrying the event as a single

@@ -48,8 +48,11 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			if resp.StatusCode != http.StatusInternalServerError && resp.StatusCode != http.StatusServiceUnavailable && resp.StatusCode != 423 {
 				return resp, nil
 			}
-			resp.Body.Close()
-			continue
+			if attempt < 4 {
+				resp.Body.Close()
+				continue
+			}
+			return resp, nil
 		}
 	}
 	return resp, err

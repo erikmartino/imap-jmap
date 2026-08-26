@@ -629,6 +629,9 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		methodCallCtx := ContextWithAccountID(reqCtx, targetAccountID)
 		respName, respArgs := handler(methodCallCtx, resolvedArgs, call.ClientCallID)
 		normalizeSetResult(respName, respArgs)
+		if strings.Contains(call.Name, "Calendar") || strings.Contains(call.Name, "set") || respName == "error" {
+			log.Printf("[JMAP CALL] %s -> %s: reqArgs=%+v respArgs=%+v", call.Name, respName, resolvedArgs, respArgs)
+		}
 		respInv := Invocation{
 			Name:         respName,
 			Args:         respArgs,

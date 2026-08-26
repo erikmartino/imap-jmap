@@ -445,20 +445,11 @@ func (b *CalendarsBackend) CreateCalendarEvent(ctx context.Context, event *jmap.
 	calPath := fmt.Sprintf("calendars/%s/%s/", u, calID)
 	_ = calClient.Mkdir(ctx, calPath)
 
-	icsStr, bErr := jmap.BuildITIPRequest(event, u)
-	if bErr != nil {
-		icsStr = fmt.Sprintf("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//IMAP-JMAP//EN\r\nBEGIN:VEVENT\r\nUID:%s\r\nSUMMARY:%s\r\nDTSTART:%s\r\nDURATION:%s\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
-			event.UID, event.Title, event.Start, event.Duration)
-	}
-
+	icsStr := jmap.EncodeCalDAVEvent(event)
 	dec := ical.NewDecoder(strings.NewReader(icsStr))
 	calObj, decErr := dec.Decode()
 	if decErr != nil {
 		return nil, fmt.Errorf("failed to decode icalendar: %w", decErr)
-	}
-
-	if calObj != nil && calObj.Component != nil && calObj.Component.Props != nil {
-		calObj.Component.Props.Del("METHOD")
 	}
 
 	eventPath := fmt.Sprintf("calendars/%s/%s/%s.ics", u, calID, event.ID)
