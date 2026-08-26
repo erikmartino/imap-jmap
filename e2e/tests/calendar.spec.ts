@@ -79,6 +79,50 @@ test.describe('calendar (Bulwark UI ↔ imap-jmap over JMAP)', () => {
     await expect(page.getByText(title).first()).toBeVisible({ timeout: 20_000 });
   });
 
+  test('edits an existing calendar event through the UI and asserts the update', async ({ page }) => {
+    const acct = uniqueUser('cal-edit');
+    const jmap = await JMAPClient.connect(acct.username, acct.password);
+
+    await login(page, acct.username, acct.password);
+    await goToApp(page, '/en/calendar');
+
+    // 1. Create initial event via UI
+    await page.getByRole('button', { name: 'Create event' }).first().click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible({ timeout: 15_000 });
+    const initialTitle = `Initial Event ${Date.now()}`;
+    await dialog.getByPlaceholder('Title').fill(initialTitle);
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(dialog).toBeHidden({ timeout: 15_000 });
+
+    // Verify initial event is visible on grid
+    const eventElement = page.getByText(initialTitle).first();
+    await expect(eventElement).toBeVisible({ timeout: 20_000 });
+
+    // 2. Click the event to open the details dialog, then click "Edit event"
+    await eventElement.click();
+    await expect(page.getByRole('button', { name: 'Edit event' })).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('button', { name: 'Edit event' }).click();
+
+    // 3. Edit the title in the editor dialog and save
+    await expect(dialog.getByPlaceholder('Title')).toBeVisible({ timeout: 15_000 });
+    const updatedTitle = `Edited Event ${Date.now()}`;
+    await dialog.getByPlaceholder('Title').fill(updatedTitle);
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(dialog).toBeHidden({ timeout: 15_000 });
+
+    // 4. Verify updated title is displayed in the UI
+    await expect(page.getByText(updatedTitle).first()).toBeVisible({ timeout: 20_000 });
+
+    // 5. Verify the update persisted over the JMAP protocol
+    await expect
+      .poll(async () => (await jmap.queryEventIds({ text: updatedTitle })).length, { timeout: 20_000 })
+      .toBeGreaterThan(0);
+    const ids = await jmap.queryEventIds({ text: updatedTitle });
+    const [ev] = await jmap.getEvents(ids, ['title']);
+    expect(ev.title).toBe(updatedTitle);
+  });
+
   // ---- Protocol (the exact wire API the client uses) -----------------------
 
   test('CalendarEvent lifecycle over JMAP: create → query → get → update → destroy', async () => {
