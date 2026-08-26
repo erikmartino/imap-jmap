@@ -53,8 +53,12 @@ func icalDurationToISODuration(v string) string {
 	return strings.ReplaceAll(strings.TrimSpace(v), ",", "")
 }
 
-// icalDurationBetween computes an ISO 8601 duration from DTSTART to DTEND; on any parse
+// IcalDurationBetween computes an ISO 8601 duration from DTSTART to DTEND; on any parse
 // failure it returns an empty string so the caller falls back to the stored DURATION.
+func IcalDurationBetween(start, end string) string {
+	return icalDurationBetween(start, end)
+}
+
 func icalDurationBetween(start, end string) string {
 	sT, okS := parseRFC3339Time(start)
 	eT, okE := parseRFC3339Time(end)
@@ -108,9 +112,18 @@ func formatISODuration(d time.Duration) string {
 }
 
 // parseRFC3339Time parses an RFC 3339 timestamp, tolerating full timestamps,
-// local timestamps, and date-only values.
+// local timestamps, fractional seconds, and date-only values.
 func parseRFC3339Time(s string) (time.Time, bool) {
-	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04:05Z", "2006-01-02T15:04:05", "2006-01-02"} {
+	for _, layout := range []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02T15:04:05.999999999Z07:00",
+		"2006-01-02T15:04:05Z",
+		"2006-01-02T15:04:05.999999999",
+		"2006-01-02T15:04:05",
+		"2006-01-02T15:04",
+		"2006-01-02",
+	} {
 		if t, err := time.Parse(layout, s); err == nil {
 			return t, true
 		}

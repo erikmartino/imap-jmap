@@ -20,18 +20,32 @@ func parseLocalDateTimeBound(s string, loc *time.Location) (time.Time, bool) {
 		loc = time.UTC
 	}
 	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}, false
+	}
 	// Try parsing local time in location first when no Z/offset is present
 	if !strings.HasSuffix(s, "Z") && !strings.Contains(s, "+") && (!strings.Contains(s, "-") || strings.Count(s, "-") <= 2) {
-		for _, layout := range []string{"2006-01-02T15:04:05", "2006-01-02T15:04", "2006-01-02"} {
+		for _, layout := range []string{
+			"2006-01-02T15:04:05.999999999",
+			"2006-01-02T15:04:05",
+			"2006-01-02T15:04",
+			"2006-01-02",
+		} {
 			if t, err := time.ParseInLocation(layout, s, loc); err == nil {
 				return t, true
 			}
 		}
 	}
-	if t, err := time.Parse(time.RFC3339, s); err == nil {
-		return t, true
-	}
-	for _, layout := range []string{"2006-01-02T15:04:05", "2006-01-02T15:04", "2006-01-02"} {
+	for _, layout := range []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02T15:04:05.999999999Z07:00",
+		"2006-01-02T15:04:05Z",
+		"2006-01-02T15:04:05.999999999",
+		"2006-01-02T15:04:05",
+		"2006-01-02T15:04",
+		"2006-01-02",
+	} {
 		if t, err := time.ParseInLocation(layout, s, loc); err == nil {
 			return t, true
 		}
@@ -75,4 +89,32 @@ func parseISODuration(raw string) (time.Duration, bool) {
 		}
 	}
 	return total, true
+}
+
+func computeUTCStart(start, timeZone string) string {
+	if start == "" {
+		return ""
+	}
+	loc := loadLocation(timeZone)
+	if t, ok := parseLocalDateTimeBound(start, loc); ok {
+		return t.UTC().Format("2006-01-02T15:04:05Z")
+	}
+	return ""
+}
+
+func computeUTCEnd(start, duration, timeZone string) string {
+	if start == "" {
+		return ""
+	}
+	loc := loadLocation(timeZone)
+	if t, ok := parseLocalDateTimeBound(start, loc); ok {
+		dur := 1 * time.Hour
+		if duration != "" {
+			if d, ok := parseISODuration(duration); ok {
+				dur = d
+			}
+		}
+		return t.Add(dur).UTC().Format("2006-01-02T15:04:05Z")
+	}
+	return ""
 }

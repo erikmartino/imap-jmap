@@ -308,7 +308,7 @@ func setCalendarEventField(ev *jmap.CalendarEvent, path string, val any) {
 		if s, ok := val.(string); ok && s != "" {
 			ev.Type = s
 		}
-	case "calendarId":
+	case "calendarId", "calendar":
 		if val == nil {
 			ev.CalendarIDs = nil
 			return
@@ -329,6 +329,10 @@ func setCalendarEventField(ev *jmap.CalendarEvent, path string, val any) {
 		if s, ok := val.(string); ok {
 			ev.Title = s
 		}
+	case "summary":
+		if s, ok := val.(string); ok && s != "" && ev.Title == "" {
+			ev.Title = s
+		}
 	case "description":
 		if val == nil {
 			ev.Description = ""
@@ -339,7 +343,7 @@ func setCalendarEventField(ev *jmap.CalendarEvent, path string, val any) {
 		}
 	case "start":
 		if s, ok := val.(string); ok {
-			ev.Start = s
+			ev.Start = strings.TrimSuffix(s, "Z")
 		}
 	case "duration":
 		if val == nil {
@@ -349,13 +353,21 @@ func setCalendarEventField(ev *jmap.CalendarEvent, path string, val any) {
 		if s, ok := val.(string); ok {
 			ev.Duration = s
 		}
+	case "end":
+		if s, ok := val.(string); ok && s != "" && ev.Start != "" {
+			ev.Duration = jmap.IcalDurationBetween(ev.Start, s)
+		}
 	case "timeZone":
 		if val == nil {
-			ev.TimeZone = ""
+			ev.TimeZone = "Etc/UTC"
 			return
 		}
 		if s, ok := val.(string); ok {
 			ev.TimeZone = s
+		}
+	case "allDay":
+		if b, ok := val.(bool); ok {
+			ev.ShowWithoutTime = b
 		}
 	case "locations":
 		if val == nil {

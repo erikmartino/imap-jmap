@@ -132,16 +132,43 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, r
 				if sendSchedulingMessages && mailBackend == nil {
 					return "", SetError{Type: "noSupportedScheduleMethods", Description: "no supported schedule methods available for scheduling"}
 				}
-				if err := validateCalendarEventMap(resolvedMap); err != nil {
+				cleanMap := sanitizeEventMap(resolvedMap)
+				if err := validateCalendarEventMap(cleanMap); err != nil {
 					return "", err
 				}
-				evBytes, _ := json.Marshal(resolvedMap)
+				evBytes, _ := json.Marshal(cleanMap)
 				var ev CalendarEvent
 				_ = json.Unmarshal(evBytes, &ev)
+
+				if ev.Type == "" {
+					ev.Type = "Event"
+				}
+				if ev.TimeZone == "" {
+					ev.TimeZone = "Etc/UTC"
+				}
+				if ev.Duration == "" {
+					ev.Duration = "PT1H"
+				}
+				ev.Start = strings.TrimSuffix(ev.Start, "Z")
 
 				createdEv, err := backend.CreateCalendarEvent(ctx, &ev)
 				if err != nil {
 					return "", err
+				}
+				if createdEv != nil {
+					if createdEv.Type == "" {
+						createdEv.Type = "Event"
+					}
+					if createdEv.TimeZone == "" {
+						createdEv.TimeZone = "Etc/UTC"
+					}
+					if createdEv.UTCStart == "" {
+						createdEv.UTCStart = computeUTCStart(createdEv.Start, createdEv.TimeZone)
+					}
+					if createdEv.UTCEnd == "" {
+						createdEv.UTCEnd = computeUTCEnd(createdEv.Start, createdEv.Duration, createdEv.TimeZone)
+					}
+					createdEv.Start = strings.TrimSuffix(createdEv.Start, "Z")
 				}
 				created[creationID] = createdEv
 				recordCreationRefs(ctx, creationRefs, creationID, createdEv.ID)
@@ -168,7 +195,8 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, r
 		if updateRaw, ok := args["update"].(map[string]any); ok {
 			for idStr, patchRaw := range updateRaw {
 				rawPatch, _ := patchRaw.(map[string]any)
-				patch := resolvePatchCreationRefs(rawPatch, creationRefs)
+				cleanPatch := sanitizeEventMap(rawPatch)
+				patch := resolvePatchCreationRefs(cleanPatch, creationRefs)
 				resolvedID := resolveCreationID(idStr, creationRefs)
 				if sendSchedulingMessages && mailBackend == nil {
 					notUpdated[string(resolvedID)] = SetError{Type: "noSupportedScheduleMethods", Description: "no supported schedule methods available for scheduling"}
@@ -593,20 +621,86 @@ func validateCalendarEventFilter(filter map[string]any) (errType, errMsg string)
 }
 
 var validCalendarEventProperties = map[string]bool{
-	"@type": true, "type": true, "id": true, "calendarIds": true, "calendarId": true,
-	"title": true, "description": true, "descriptionContentType": true, "showWithoutTime": true,
-	"start": true, "utcStart": true, "utcEnd": true, "duration": true, "timeZone": true,
+	"@type": true, "type": true, "id": true, "calendarIds": true, "calendarId": true, "calendar": true,
+	"title": true, "summary": true, "description": true, "descriptionContentType": true, "showWithoutTime": true, "allDay": true,
+	"start": true, "end": true, "utcStart": true, "utcEnd": true, "duration": true, "timeZone": true,
 	"locations": true, "location": true, "virtualLocations": true, "links": true, "locale": true,
 	"categories": true, "color": true, "status": true, "freeBusyStatus": true, "privacy": true,
 	"hideAttendees": true, "priority": true, "replyTo": true, "sentBy": true, "requestStatus": true,
 	"useDefaultAlerts": true, "localizations": true, "timeZones": true, "participants": true,
+	"attendees": true, "organizer": true, "rrule": true,
 	"recurrenceRules": true, "recurrenceId": true, "recurrenceIdTimeZone": true,
-	"excludedRecurrenceRules": true, "recurrenceOverrides": true, "excluded": true, "alerts": true,
+	"excludedRecurrenceRules": true, "recurrenceOverrides": true, "excluded": true, "alerts": true, "alarms": true, "reminders": true, "reminder": true,
 	"relatedTo": true, "prodId": true, "sequence": true, "method": true, "due": true,
 	"estimatedDuration": true, "percentComplete": true, "progress": true, "progressUpdated": true,
 	"entries": true, "source": true, "created": true, "updated": true, "uid": true, "keywords": true,
 	"isDraft": true, "blobId": true, "baseObjectId": true, "comments": true, "contact": true,
 	"features": true, "attachments": true,
+}
+
+func sanitizeEventMap(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+	cleaned := make(map[string]any, len(m))
+	for k, v := range m {
+		cleanKey := strings.TrimPrefix(k, "/")
+		cleaned[cleanKey] = v
+	}
+
+	// 1. calendarId / calendar -> calendarIds
+	if cid, ok := cleaned["calendarId"].(string); ok && cid != "" {
+		if cids, hasCids := cleaned["calendarIds"].(map[string]any); !hasCids || len(cids) == 0 {
+			cleaned["calendarIds"] = map[string]bool{cid: true}
+		}
+	} else if cid, ok := cleaned["calendar"].(string); ok && cid != "" {
+		if cids, hasCids := cleaned["calendarIds"].(map[string]any); !hasCids || len(cids) == 0 {
+			cleaned["calendarIds"] = map[string]bool{cid: true}
+		}
+	}
+
+	// 2. allDay -> showWithoutTime
+	if allDay, ok := cleaned["allDay"].(bool); ok {
+		cleaned["showWithoutTime"] = allDay
+	}
+
+	// 3. summary -> title
+	if title, ok := cleaned["title"].(string); !ok || title == "" {
+		if sum, okS := cleaned["summary"].(string); okS && sum != "" {
+			cleaned["title"] = sum
+		}
+	}
+
+	// 4. end / utcEnd -> duration
+	if dur, ok := cleaned["duration"].(string); !ok || dur == "" {
+		start, _ := cleaned["start"].(string)
+		end, _ := cleaned["end"].(string)
+		if end == "" {
+			end, _ = cleaned["utcEnd"].(string)
+		}
+		if start != "" && end != "" {
+			cleaned["duration"] = icalDurationBetween(start, end)
+		}
+	}
+
+	// 5. Default timeZone to Etc/UTC if empty
+	if tz, ok := cleaned["timeZone"].(string); !ok || tz == "" {
+		cleaned["timeZone"] = "Etc/UTC"
+	}
+
+	// 6. location string -> locations map
+	if locStr, ok := cleaned["location"].(string); ok && locStr != "" {
+		if locs, hasLocs := cleaned["locations"].(map[string]any); !hasLocs || len(locs) == 0 {
+			cleaned["locations"] = map[string]any{
+				"loc-1": map[string]any{
+					"@type": "Location",
+					"name":  locStr,
+				},
+			}
+		}
+	}
+
+	return cleaned
 }
 
 func validateCalendarEventMap(m map[string]any) error {

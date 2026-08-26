@@ -297,3 +297,71 @@ func TestCalendarEvent_UTCTimezoneDefaultAndDrag(t *testing.T) {
 	}
 }
 
+func TestCalendarEvent_BulwarkEventCreationAndCompatibility(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	using := []string{jmap.CoreCapabilityURI, jmap.CalendarsCapabilityURI}
+
+	// 1. Create an event using Bulwark-style form payload: calendarId (string), summary, allDay, end, and leading slash keys
+	createReq := []any{
+		[]any{"CalendarEvent/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"c1": map[string]any{
+					"/calendarId": "cal-default",
+					"/summary":    "Dentist Appointment",
+					"/start":      "2026-10-15T14:00:00",
+					"/end":        "2026-10-15T15:30:00",
+					"/allDay":     false,
+					"/location":   "Dental Clinic, Main St",
+				},
+			},
+		}, "call-1"},
+	}
+
+	createResp := postJMAP(t, ts.URL, using, createReq)
+	created, ok := createResp.MethodResponses[0].Args["created"].(map[string]any)
+	if !ok || created["c1"] == nil {
+		t.Fatalf("create failed: %+v", createResp.MethodResponses[0].Args)
+	}
+	evData := created["c1"].(map[string]any)
+	evID := evData["id"].(string)
+
+	if evData["title"] != "Dentist Appointment" {
+		t.Errorf("expected title 'Dentist Appointment', got %v", evData["title"])
+	}
+	if evData["duration"] != "PT1H30M" {
+		t.Errorf("expected duration 'PT1H30M', got %v", evData["duration"])
+	}
+	if evData["utcStart"] != "2026-10-15T14:00:00Z" {
+		t.Errorf("expected utcStart '2026-10-15T14:00:00Z', got %v", evData["utcStart"])
+	}
+	if evData["utcEnd"] != "2026-10-15T15:30:00Z" {
+		t.Errorf("expected utcEnd '2026-10-15T15:30:00Z', got %v", evData["utcEnd"])
+	}
+
+	// 2. Fetch and verify locations and fields
+	getReq := []any{
+		[]any{"CalendarEvent/get", map[string]any{
+			"accountId": "primary",
+			"ids":       []string{evID},
+		}, "call-2"},
+	}
+	getResp := postJMAP(t, ts.URL, using, getReq)
+	list := getResp.MethodResponses[0].Args["list"].([]any)
+	if len(list) == 0 {
+		t.Fatalf("event not found: %+v", getResp.MethodResponses[0].Args)
+	}
+	got := list[0].(map[string]any)
+	if got["title"] != "Dentist Appointment" {
+		t.Errorf("expected title 'Dentist Appointment', got %v", got["title"])
+	}
+	locs, okLoc := got["locations"].(map[string]any)
+	if !okLoc || len(locs) == 0 {
+		t.Errorf("expected locations to be set from location string, got %+v", got["locations"])
+	}
+}
+
+

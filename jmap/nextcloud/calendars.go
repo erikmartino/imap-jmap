@@ -555,6 +555,22 @@ func applyEventPatch(ev *jmap.CalendarEvent, patch map[string]any) error {
 		}
 	}
 
+	if allDay, ok := m["allDay"].(bool); ok {
+		updatedEv.ShowWithoutTime = allDay
+	}
+	if sum, ok := m["summary"].(string); ok && sum != "" && updatedEv.Title == "" {
+		updatedEv.Title = sum
+	}
+	if end, ok := m["end"].(string); ok && end != "" {
+		if updatedEv.Start != "" {
+			updatedEv.Duration = jmap.IcalDurationBetween(updatedEv.Start, end)
+		}
+	}
+	if updatedEv.TimeZone == "" {
+		updatedEv.TimeZone = "Etc/UTC"
+	}
+	updatedEv.Start = strings.TrimSuffix(updatedEv.Start, "Z")
+
 	*ev = updatedEv
 	return nil
 }
