@@ -25,6 +25,7 @@ import (
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/imapsmtp"
 	"imap-jmap/jmap/memory"
+	"imap-jmap/jmap/nextcloud"
 	"imap-jmap/smtp"
 
 )
@@ -135,13 +136,31 @@ func main() {
 		blobBackend = memBlobBackend
 	}
 
-	memCalBackend := memory.NewMemoryCalendarsBackend()
-	memContactsBackend := memory.NewMemoryContactsBackend()
+	nextcloudURL := os.Getenv("NEXTCLOUD_URL")
+	if nextcloudURL == "" && backendType == "imapsmtp" {
+		nextcloudURL = "http://nextcloud:80"
+	}
+
+	var calBackend jmap.CalendarsBackend
+	var contactsBackend jmap.ContactsBackend
+	var fileNodeBackend jmap.FileNodeBackend
+
+	if nextcloudURL != "" {
+		log.Printf("Initializing Nextcloud Backend at %s (CalDAV, CardDAV, WebDAV)", nextcloudURL)
+		ncClient := nextcloud.NewClient(nextcloudURL)
+		calBackend = nextcloud.NewCalendarsBackend(ncClient)
+		contactsBackend = nextcloud.NewContactsBackend(ncClient)
+		fileNodeBackend = nextcloud.NewFileNodeBackend(ncClient)
+	} else {
+		calBackend = memory.NewMemoryCalendarsBackend()
+		contactsBackend = memory.NewMemoryContactsBackend()
+		fileNodeBackend = memory.NewMemoryFileNodeBackend()
+	}
+
 	memSieveBackend := memory.NewMemorySieveBackend()
 	memIMAPBackend := memory.NewMemoryIMAPAccessBackend()
-	memFileNodeBackend := memory.NewMemoryFileNodeBackend()
 	devAuthBackend := memory.NewMemoryAuthBackend()
-	devAuthBackend.SetBackends(mailBackend, blobBackend, memCalBackend, memContactsBackend, memFileNodeBackend)
+	devAuthBackend.SetBackends(mailBackend, blobBackend, calBackend, contactsBackend, fileNodeBackend)
 
 	var authBackend jmap.AuthBackend = devAuthBackend
 	if backendType == "imapsmtp" {
@@ -189,7 +208,7 @@ func main() {
 				accountCtx := jmap.ContextWithAccountID(context.Background(), accountID)
 				accountCtx = jmap.ContextWithSubject(accountCtx, subject)
 				accountCtx = jmap.ContextWithCredentials(accountCtx, subject, subject)
-				memory.SeedAccountSampleData(accountCtx, accountID, mailBackend, blobBackend, memCalBackend, memContactsBackend, memFileNodeBackend)
+				memory.SeedAccountSampleData(accountCtx, accountID, mailBackend, blobBackend, calBackend, contactsBackend, fileNodeBackend)
 			},
 		}
 	}
@@ -206,11 +225,11 @@ func main() {
 		session,
 		jmap.WithMailBackend(mailBackend),
 		jmap.WithBlobBackend(blobBackend),
-		jmap.WithCalendarsBackend(memCalBackend),
-		jmap.WithContactsBackend(memContactsBackend),
+		jmap.WithCalendarsBackend(calBackend),
+		jmap.WithContactsBackend(contactsBackend),
 		jmap.WithSieveBackend(memSieveBackend),
 		jmap.WithIMAPAccessBackend(memIMAPBackend),
-		jmap.WithFileNodeBackend(memFileNodeBackend),
+		jmap.WithFileNodeBackend(fileNodeBackend),
 		jmap.WithAuthBackend(authBackend),
 		jmap.WithAccountResolver(accountResolver),
 		jmap.WithAllowedRecipients(allowedSlice),
@@ -221,12 +240,18 @@ func main() {
 		mb.SetBroadcaster(server.Broadcaster)
 	}
 
-	memCalBackend.SetBroadcaster(server.Broadcaster)
-	memContactsBackend.SetBroadcaster(server.Broadcaster)
+	if cb, ok := calBackend.(interface{ SetBroadcaster(*jmap.Broadcaster) }); ok {
+		cb.SetBroadcaster(server.Broadcaster)
+	}
+	if cb, ok := contactsBackend.(interface{ SetBroadcaster(*jmap.Broadcaster) }); ok {
+		cb.SetBroadcaster(server.Broadcaster)
+	}
 	memSieveBackend.SetBroadcaster(server.Broadcaster)
-	memFileNodeBackend.SetBroadcaster(server.Broadcaster)
+	if fb, ok := fileNodeBackend.(interface{ SetBroadcaster(*jmap.Broadcaster) }); ok {
+		fb.SetBroadcaster(server.Broadcaster)
+	}
 
-	smtpServer := smtp.NewServer(smtpAddr, mailBackend, blobBackend, memCalBackend,
+	smtpServer := smtp.NewServer(smtpAddr, mailBackend, blobBackend, calBackend,
 		smtp.WithAccountResolver(accountResolver),
 		smtp.WithSenderVerifier(smtp.NewSPFDKIMDMARCVerifier()),
 	)
@@ -238,11 +263,11 @@ func main() {
 	}()
 
 	// RFC 6409 Section 3.1: message submission is a distinct transport (port
-	// 587) that requires SMTP-AUTH (RFC 6409 Section 7) and binds the envelope
+	// 587) requires SMTP-AUTH (RFC 6409 Section 7) and binds the envelope
 	// sender to the authenticated identity (RFC 6409 Section 6.1). The submission
 	// boundary is trusted (SEC-4) so iTIP scheduling messages from an
 	// authenticated client are applied without DNS sender authentication.
-	submissionServer := smtp.NewServer(submissionAddr, mailBackend, blobBackend, memCalBackend,
+	submissionServer := smtp.NewServer(submissionAddr, mailBackend, blobBackend, calBackend,
 		smtp.WithAccountResolver(accountResolver),
 		smtp.WithTransportMode(smtp.TransportModeSubmission),
 		smtp.WithAuthenticator(smtp.NewAuthBackendAuthenticator(authBackend)),
@@ -255,7 +280,7 @@ func main() {
 		}
 	}()
 
-	davServer := dav.NewServer(memCalBackend, memContactsBackend)
+	davServer := dav.NewServer(calBackend, contactsBackend)
 	httpMux := http.NewServeMux()
 	httpMux.Handle("/caldav/", davServer.CalDAVHandler)
 	httpMux.Handle("/carddav/", davServer.CardDAVHandler)

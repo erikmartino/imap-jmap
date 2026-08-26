@@ -205,6 +205,7 @@ func localAccountCtx(resolver AccountResolver, addr string) (context.Context, bo
 	}
 	ctx := ContextWithAccountID(context.Background(), acctID)
 	ctx = ContextWithSubject(ctx, addr)
+	ctx = ContextWithCredentials(ctx, addr, addr)
 	return ctx, true
 }
 

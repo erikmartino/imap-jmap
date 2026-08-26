@@ -3,6 +3,7 @@ package imapsmtp
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"testing"
@@ -24,6 +25,15 @@ func getTestTargetServers() (string, string) {
 	return imapAddr, smtpAddr
 }
 
+func isIMAPReachable(addr string) bool {
+	conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
 func testContext() context.Context {
 	ctx := context.Background()
 	ctx = jmap.ContextWithSubject(ctx, "user@example.com")
@@ -34,6 +44,9 @@ func testContext() context.Context {
 
 func TestClientPool_DovecotContainerConnection(t *testing.T) {
 	imapAddr, _ := getTestTargetServers()
+	if !isIMAPReachable(imapAddr) {
+		t.Skip("IMAP server is not reachable at " + imapAddr)
+	}
 
 	pool := NewClientPool(imapAddr)
 	ctx := context.Background()
@@ -47,6 +60,9 @@ func TestClientPool_DovecotContainerConnection(t *testing.T) {
 
 func TestIMAPAuthBackend_SessionTokenFlow(t *testing.T) {
 	imapAddr, _ := getTestTargetServers()
+	if !isIMAPReachable(imapAddr) {
+		t.Skip("IMAP server is not reachable at " + imapAddr)
+	}
 	pool := NewClientPool(imapAddr)
 	authBackend := NewAuthBackend(pool, "test-secret-key-12345")
 
@@ -88,6 +104,9 @@ func TestIMAPAuthBackend_SessionTokenFlow(t *testing.T) {
 
 func TestMailboxLifecycle(t *testing.T) {
 	imapAddr, smtpAddr := getTestTargetServers()
+	if !isIMAPReachable(imapAddr) {
+		t.Skip("IMAP server is not reachable at " + imapAddr)
+	}
 	be := New(imapAddr, smtpAddr)
 	ctx := testContext()
 
@@ -144,6 +163,9 @@ func TestMailboxLifecycle(t *testing.T) {
 
 func TestCompositeStateAndChanges(t *testing.T) {
 	imapAddr, smtpAddr := getTestTargetServers()
+	if !isIMAPReachable(imapAddr) {
+		t.Skip("IMAP server is not reachable at " + imapAddr)
+	}
 	be := New(imapAddr, smtpAddr)
 	ctx := testContext()
 
@@ -174,6 +196,9 @@ func TestCompositeStateAndChanges(t *testing.T) {
 
 func TestEmailLifecycleAndFlags(t *testing.T) {
 	imapAddr, smtpAddr := getTestTargetServers()
+	if !isIMAPReachable(imapAddr) {
+		t.Skip("IMAP server is not reachable at " + imapAddr)
+	}
 	be := New(imapAddr, smtpAddr)
 	ctx := testContext()
 
@@ -247,6 +272,9 @@ func TestEmailLifecycleAndFlags(t *testing.T) {
 
 func TestBlobStorage(t *testing.T) {
 	imapAddr, smtpAddr := getTestTargetServers()
+	if !isIMAPReachable(imapAddr) {
+		t.Skip("IMAP server is not reachable at " + imapAddr)
+	}
 	be := New(imapAddr, smtpAddr)
 	ctx := testContext()
 
@@ -267,6 +295,9 @@ func TestBlobStorage(t *testing.T) {
 
 func TestEmailSubmissionAndSMTP(t *testing.T) {
 	imapAddr, smtpAddr := getTestTargetServers()
+	if !isIMAPReachable(imapAddr) {
+		t.Skip("IMAP server is not reachable at " + imapAddr)
+	}
 	be := New(imapAddr, smtpAddr)
 	ctx := testContext()
 
@@ -311,6 +342,9 @@ func TestEmailSubmissionAndSMTP(t *testing.T) {
 
 func TestEmailQuerySearchWildcardsAndOperators(t *testing.T) {
 	imapAddr, smtpAddr := getTestTargetServers()
+	if !isIMAPReachable(imapAddr) {
+		t.Skip("IMAP server is not reachable at " + imapAddr)
+	}
 	be := New(imapAddr, smtpAddr)
 	ctx := testContext()
 

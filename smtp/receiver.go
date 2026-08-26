@@ -334,8 +334,14 @@ func (s *Session) Data(r io.Reader) error {
 	var authOK bool
 	var authReason string
 	for targetAccountID := range targetAccountIDs {
+		rcptSubject, ok := jmap.SubjectForAccountID(targetAccountID)
+		if !ok || rcptSubject == "" {
+			rcptSubject = targetAccountID
+		}
 		rcptCtx := jmap.ContextWithAccountID(context.Background(), targetAccountID)
-		log.Printf("SMTP receiver: delivering message to account %s", targetAccountID)
+		rcptCtx = jmap.ContextWithSubject(rcptCtx, rcptSubject)
+		rcptCtx = jmap.ContextWithCredentials(rcptCtx, rcptSubject, rcptSubject)
+		log.Printf("SMTP receiver: delivering message to account %s (%s)", targetAccountID, rcptSubject)
 
 		var blobID jmap.Id = "blob-unknown"
 		blobStored := false

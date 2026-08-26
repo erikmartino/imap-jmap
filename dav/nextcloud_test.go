@@ -2,6 +2,7 @@ package dav_test
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -27,13 +28,56 @@ func isNextcloudReachable(baseURL string) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
+type testRetryTransport struct {
+	base http.RoundTripper
+}
+
+func (t *testRetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	var resp *http.Response
+	var err error
+	var bodyBytes []byte
+	if req.Body != nil {
+		bodyBytes, _ = io.ReadAll(req.Body)
+	}
+
+	for attempt := 0; attempt < 5; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(50*(1<<attempt)) * time.Millisecond)
+		}
+		reqCopy := req.Clone(req.Context())
+		if bodyBytes != nil {
+			reqCopy.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		}
+		base := t.base
+		if base == nil {
+			base = http.DefaultTransport
+		}
+		resp, err = base.RoundTrip(reqCopy)
+		if err == nil && resp != nil {
+			if resp.StatusCode != http.StatusInternalServerError && resp.StatusCode != http.StatusServiceUnavailable && resp.StatusCode != 423 {
+				return resp, nil
+			}
+			resp.Body.Close()
+			continue
+		}
+	}
+	return resp, err
+}
+
+func newTestHTTPClient() *http.Client {
+	return &http.Client{
+		Transport: &testRetryTransport{base: http.DefaultTransport},
+		Timeout:   15 * time.Second,
+	}
+}
+
 func TestNextcloud_CalDAVIntegration(t *testing.T) {
 	baseURL := getNextcloudBaseURL()
 	if !isNextcloudReachable(baseURL) {
 		t.Skip("Nextcloud server is not reachable at " + baseURL)
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := newTestHTTPClient()
 	user := "user@example.com"
 	pass := "user@example.com"
 
@@ -60,7 +104,7 @@ func TestNextcloud_CalDAVIntegration(t *testing.T) {
 	}
 
 	// 2. PUT event
-	eventUID := "nc-cal-test-uid-12345"
+	eventUID := fmt.Sprintf("nc-cal-test-uid-%d", time.Now().UnixNano())
 	eventURL := baseURL + "/remote.php/dav/calendars/" + user + "/personal/" + eventUID + ".ics"
 	icsPayload := "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Test//EN\r\nBEGIN:VEVENT\r\nUID:" + eventUID + "\r\nSUMMARY:Nextcloud Integration Meeting\r\nDESCRIPTION:Testing CalDAV on Nextcloud\r\nDTSTART:20261201T100000Z\r\nDURATION:PT1H\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
 
@@ -72,9 +116,9 @@ func TestNextcloud_CalDAVIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PUT %s failed: %v", eventURL, err)
 	}
-	defer putResp.Body.Close()
+	putBody, _ := io.ReadAll(putResp.Body)
 	if putResp.StatusCode != http.StatusCreated && putResp.StatusCode != http.StatusNoContent && putResp.StatusCode != http.StatusOK {
-		t.Fatalf("PUT event returned HTTP %d", putResp.StatusCode)
+		t.Fatalf("PUT event returned HTTP %d: %s", putResp.StatusCode, string(putBody))
 	}
 
 	// 3. GET event
@@ -112,7 +156,7 @@ func TestNextcloud_CardDAVIntegration(t *testing.T) {
 		t.Skip("Nextcloud server is not reachable at " + baseURL)
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := newTestHTTPClient()
 	user := "user@example.com"
 	pass := "user@example.com"
 
@@ -139,7 +183,7 @@ func TestNextcloud_CardDAVIntegration(t *testing.T) {
 	}
 
 	// 2. PUT vCard contact
-	cardUID := "nc-card-test-uid-67890"
+	cardUID := fmt.Sprintf("nc-card-test-uid-%d", time.Now().UnixNano())
 	cardURL := baseURL + "/remote.php/dav/addressbooks/users/" + user + "/contacts/" + cardUID + ".vcf"
 	vcfPayload := "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:" + cardUID + "\r\nFN:Alice Nextcloud\r\nN:Nextcloud;Alice;;;\r\nEMAIL;TYPE=INTERNET;TYPE=HOME:alice.nc@example.com\r\nTEL;TYPE=CELL:+15551234567\r\nEND:VCARD\r\n"
 
@@ -191,12 +235,12 @@ func TestNextcloud_WebDAVFileStorageIntegration(t *testing.T) {
 		t.Skip("Nextcloud server is not reachable at " + baseURL)
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := newTestHTTPClient()
 	user := "user@example.com"
 	pass := "user@example.com"
 
 	// 1. Upload file via WebDAV PUT
-	fileName := "test-integration-file.txt"
+	fileName := fmt.Sprintf("test-integration-file-%d.txt", time.Now().UnixNano())
 	fileURL := baseURL + "/remote.php/dav/files/" + user + "/" + fileName
 	content := []byte("Hello Nextcloud WebDAV Storage Integration Testing!")
 

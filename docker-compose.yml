@@ -21,12 +21,14 @@ services:
       - IMAP_SERVER=dovecot:143
       - SMTP_SERVER=smtp:25
       - SESSION_SECRET=imap-jmap-secret-session-key-32b!
+      - NEXTCLOUD_URL=http://nextcloud:80
     volumes:
       - ./certs:/certs
     depends_on:
       - dovecot
       - smtp
       - ldap
+      - nextcloud
     restart: unless-stopped
 
   bulwark:
