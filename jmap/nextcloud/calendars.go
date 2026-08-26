@@ -370,11 +370,25 @@ func (b *CalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmap.Id)
 				masterID := jmap.Id(parts[0])
 				recID := parts[1]
 				if master, okMaster := b.eventsCache[u][masterID]; okMaster {
+					if master.Excluded != nil && master.Excluded[recID] {
+						notFound = append(notFound, id)
+						continue
+					}
+					if override, okOv := master.RecurrenceOverrides[recID]; okOv {
+						if ex, _ := override["excluded"].(bool); ex {
+							notFound = append(notFound, id)
+							continue
+						}
+					}
 					inst := *master
 					inst.ID = id
 					inst.Start = recID
 					inst.RecurrenceID = recID
 					inst.RecurrenceRules = nil
+					inst.ExcludedRecurrenceRules = nil
+					if override, okOv := master.RecurrenceOverrides[recID]; okOv {
+						_ = applyEventPatch(&inst, override)
+					}
 					list = append(list, &inst)
 				} else {
 					notFound = append(notFound, id)
@@ -504,7 +518,8 @@ func applyEventPatch(ev *jmap.CalendarEvent, patch map[string]any) error {
 	}
 
 	for path, val := range patch {
-		parts := strings.Split(path, "/")
+		cleanPath := strings.TrimPrefix(path, "/")
+		parts := strings.Split(cleanPath, "/")
 		setNestedMapValue(m, parts, val)
 	}
 
@@ -524,8 +539,20 @@ func applyEventPatch(ev *jmap.CalendarEvent, patch map[string]any) error {
 	if updatedEv.UID == "" {
 		updatedEv.UID = origUID
 	}
+
+	if cid, ok := m["calendarId"].(string); ok && cid != "" {
+		if updatedEv.CalendarIDs == nil {
+			updatedEv.CalendarIDs = make(map[jmap.Id]bool)
+		}
+		updatedEv.CalendarIDs[jmap.Id(cid)] = true
+	}
+
 	if len(updatedEv.CalendarIDs) == 0 {
-		updatedEv.CalendarIDs = origCalIDs
+		if _, hasCalIds := m["calendarIds"]; !hasCalIds {
+			if _, hasCalId := m["calendarId"]; !hasCalId {
+				updatedEv.CalendarIDs = origCalIDs
+			}
+		}
 	}
 
 	*ev = updatedEv
@@ -533,20 +560,88 @@ func applyEventPatch(ev *jmap.CalendarEvent, patch map[string]any) error {
 }
 
 func (b *CalendarsBackend) UpdateCalendarEvent(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.CalendarEvent, error) {
+	if strings.Contains(string(id), "#") {
+		parts := strings.SplitN(string(id), "#", 2)
+		masterID := jmap.Id(parts[0])
+		recID := parts[1]
+		masters, _, err := b.GetCalendarEvents(ctx, []jmap.Id{masterID})
+		if err != nil || len(masters) == 0 {
+			return nil, fmt.Errorf("master event %s not found", masterID)
+		}
+		master := masters[0]
+		if master.RecurrenceOverrides == nil {
+			master.RecurrenceOverrides = make(map[string]map[string]any)
+		}
+		overridePatch, exists := master.RecurrenceOverrides[recID]
+		if !exists || overridePatch == nil {
+			overridePatch = make(map[string]any)
+		}
+		for k, v := range patch {
+			overridePatch[strings.TrimPrefix(k, "/")] = v
+		}
+		master.RecurrenceOverrides[recID] = overridePatch
+		master.Sequence++
+		master.Updated = time.Now().UTC().Format(time.RFC3339)
+		return b.CreateCalendarEvent(ctx, master)
+	}
+
 	events, _, err := b.GetCalendarEvents(ctx, []jmap.Id{id})
 	if err != nil || len(events) == 0 {
 		return nil, fmt.Errorf("event %s not found", id)
 	}
 	ev := events[0]
+	oldCalID := ""
+	for cid := range ev.CalendarIDs {
+		oldCalID = string(cid)
+		break
+	}
+
 	if err := applyEventPatch(ev, patch); err != nil {
 		return nil, err
 	}
 	ev.Sequence++
+	ev.Updated = time.Now().UTC().Format(time.RFC3339)
+
+	newCalID := ""
+	for cid := range ev.CalendarIDs {
+		newCalID = string(cid)
+		break
+	}
+	if oldCalID != "" && newCalID != "" && oldCalID != newCalID {
+		calClient, u, cErr := b.client.CalDAV(ctx)
+		if cErr == nil {
+			oldPath := fmt.Sprintf("calendars/%s/%s/%s.ics", u, oldCalID, id)
+			_ = calClient.RemoveAll(ctx, oldPath)
+		}
+	}
 
 	return b.CreateCalendarEvent(ctx, ev)
 }
 
 func (b *CalendarsBackend) DeleteCalendarEvent(ctx context.Context, id jmap.Id) (bool, error) {
+	if strings.Contains(string(id), "#") {
+		parts := strings.SplitN(string(id), "#", 2)
+		masterID := jmap.Id(parts[0])
+		recID := parts[1]
+		masters, _, err := b.GetCalendarEvents(ctx, []jmap.Id{masterID})
+		if err == nil && len(masters) > 0 {
+			master := masters[0]
+			if master.RecurrenceOverrides == nil {
+				master.RecurrenceOverrides = make(map[string]map[string]any)
+			}
+			if master.Excluded == nil {
+				master.Excluded = make(map[string]bool)
+			}
+			master.Excluded[recID] = true
+			master.RecurrenceOverrides[recID] = map[string]any{"excluded": true}
+			master.Sequence++
+			master.Updated = time.Now().UTC().Format(time.RFC3339)
+			_, _ = b.CreateCalendarEvent(ctx, master)
+			return true, nil
+		}
+		return false, nil
+	}
+
 	calClient, u, err := b.client.CalDAV(ctx)
 	if err != nil {
 		return false, err

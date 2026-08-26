@@ -587,25 +587,27 @@ func validateCalendarEventFilter(filter map[string]any) (errType, errMsg string)
 }
 
 var validCalendarEventProperties = map[string]bool{
-	"@type": true, "id": true, "calendarIds": true, "title": true, "description": true,
-	"descriptionContentType": true, "showWithoutTime": true, "start": true, "duration": true,
-	"timeZone": true, "locations": true, "location": true, "virtualLocations": true,
-	"links": true, "locale": true, "categories": true, "color": true, "status": true,
-	"freeBusyStatus": true, "privacy": true, "hideAttendees": true, "priority": true, "replyTo": true,
-	"sentBy": true, "requestStatus": true, "useDefaultAlerts": true, "localizations": true,
-	"timeZones": true, "participants": true, "recurrenceRules": true, "recurrenceId": true,
-	"recurrenceIdTimeZone": true, "excludedRecurrenceRules": true, "recurrenceOverrides": true,
-	"excluded": true, "alerts": true, "relatedTo": true, "prodId": true, "sequence": true,
-	"method": true, "due": true, "estimatedDuration": true, "percentComplete": true,
-	"progress": true, "progressUpdated": true, "entries": true, "source": true,
-	"created": true, "updated": true, "uid": true, "keywords": true,
+	"@type": true, "type": true, "id": true, "calendarIds": true, "calendarId": true,
+	"title": true, "description": true, "descriptionContentType": true, "showWithoutTime": true,
+	"start": true, "utcStart": true, "utcEnd": true, "duration": true, "timeZone": true,
+	"locations": true, "location": true, "virtualLocations": true, "links": true, "locale": true,
+	"categories": true, "color": true, "status": true, "freeBusyStatus": true, "privacy": true,
+	"hideAttendees": true, "priority": true, "replyTo": true, "sentBy": true, "requestStatus": true,
+	"useDefaultAlerts": true, "localizations": true, "timeZones": true, "participants": true,
+	"recurrenceRules": true, "recurrenceId": true, "recurrenceIdTimeZone": true,
+	"excludedRecurrenceRules": true, "recurrenceOverrides": true, "excluded": true, "alerts": true,
+	"relatedTo": true, "prodId": true, "sequence": true, "method": true, "due": true,
+	"estimatedDuration": true, "percentComplete": true, "progress": true, "progressUpdated": true,
+	"entries": true, "source": true, "created": true, "updated": true, "uid": true, "keywords": true,
+	"isDraft": true, "blobId": true, "baseObjectId": true, "comments": true, "contact": true,
+	"features": true, "attachments": true,
 }
 
 func validateCalendarEventMap(m map[string]any) error {
 	for k, v := range m {
-		baseKey := k
-		if strings.Contains(k, "/") {
-			baseKey = strings.Split(k, "/")[0]
+		baseKey := strings.TrimPrefix(k, "/")
+		if strings.Contains(baseKey, "/") {
+			baseKey = strings.Split(baseKey, "/")[0]
 		}
 		if !validCalendarEventProperties[baseKey] {
 			return SetError{
@@ -620,35 +622,35 @@ func validateCalendarEventMap(m map[string]any) error {
 			// are confirmed/tentative/cancelled. JSCalendar Tasks track state via "progress"
 			// (Section 5.2.5), not "status", so the Task states must not be accepted here.
 			if s, ok := v.(string); ok && s != "" {
-				switch s {
-				case "confirmed", "tentative", "cancelled":
+				switch strings.ToLower(s) {
+				case "confirmed", "tentative", "cancelled", "canceled":
 				default:
-					return SetError{Type: "invalidProperties", Description: "invalid status value: " + s, Properties: []string{"status"}}
+					return SetError{Type: "invalidProperties", Description: "invalid status value: " + s, Properties: []string{k}}
 				}
 			}
 		case "privacy":
 			if s, ok := v.(string); ok && s != "" {
-				switch s {
-				case "public", "private", "secret":
+				switch strings.ToLower(s) {
+				case "public", "private", "secret", "confidential":
 				default:
-					return SetError{Type: "invalidProperties", Description: "invalid privacy value: " + s, Properties: []string{"privacy"}}
+					return SetError{Type: "invalidProperties", Description: "invalid privacy value: " + s, Properties: []string{k}}
 				}
 			}
 		case "freeBusyStatus":
 			if s, ok := v.(string); ok && s != "" {
-				switch s {
-				case "free", "busy", "tentative":
+				switch strings.ToLower(s) {
+				case "free", "busy", "tentative", "opaque", "transparent":
 				default:
-					return SetError{Type: "invalidProperties", Description: "invalid freeBusyStatus value: " + s, Properties: []string{"freeBusyStatus"}}
+					return SetError{Type: "invalidProperties", Description: "invalid freeBusyStatus value: " + s, Properties: []string{k}}
 				}
 			}
 		case "progress":
 			// JSCalendar Task progress (RFC 8984 Section 5.2.5).
 			if s, ok := v.(string); ok && s != "" {
-				switch s {
-				case "needs-action", "in-process", "completed", "failed", "pending", "cancelled":
+				switch strings.ToLower(s) {
+				case "needs-action", "in-process", "completed", "failed", "pending", "cancelled", "canceled":
 				default:
-					return SetError{Type: "invalidProperties", Description: "invalid progress value: " + s, Properties: []string{"progress"}}
+					return SetError{Type: "invalidProperties", Description: "invalid progress value: " + s, Properties: []string{k}}
 				}
 			}
 		}

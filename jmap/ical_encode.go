@@ -1,6 +1,7 @@
 package jmap
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -453,6 +454,25 @@ func encodeICalendar(ev *CalendarEvent, method, organizerEmail, onlyAttendee, st
 	sb.WriteString("BEGIN:VEVENT\r\n")
 	writeVEVENT(&sb, ev, organizerEmail, onlyAttendee, statusOverride)
 	sb.WriteString("END:VEVENT\r\n")
+
+	// Emit any non-excluded recurrence overrides as additional VEVENT components
+	for recurrenceID, override := range ev.RecurrenceOverrides {
+		if excluded, _ := override["excluded"].(bool); excluded {
+			continue
+		}
+		ovEv := *ev
+		ovEv.RecurrenceRules = nil
+		ovEv.ExcludedRecurrenceRules = nil
+		ovEv.RecurrenceID = recurrenceID
+		if ovBytes, err := json.Marshal(override); err == nil {
+			_ = json.Unmarshal(ovBytes, &ovEv)
+		}
+
+		sb.WriteString("BEGIN:VEVENT\r\n")
+		writeVEVENT(&sb, &ovEv, organizerEmail, onlyAttendee, statusOverride)
+		sb.WriteString("END:VEVENT\r\n")
+	}
+
 	sb.WriteString("END:VCALENDAR\r\n")
 	return sb.String()
 }

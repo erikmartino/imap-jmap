@@ -44,6 +44,36 @@ func (b *MemoryCalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jm
 	for _, id := range ids {
 		if ev, ok := us.events[id]; ok {
 			list = append(list, ev)
+		} else if strings.Contains(string(id), "#") {
+			parts := strings.SplitN(string(id), "#", 2)
+			masterID := jmap.Id(parts[0])
+			recID := parts[1]
+			if master, okMaster := us.events[masterID]; okMaster {
+				if master.Excluded != nil && master.Excluded[recID] {
+					notFound = append(notFound, id)
+					continue
+				}
+				if override, okOv := master.RecurrenceOverrides[recID]; okOv {
+					if ex, _ := override["excluded"].(bool); ex {
+						notFound = append(notFound, id)
+						continue
+					}
+				}
+				inst := *master
+				inst.ID = id
+				inst.Start = recID
+				inst.RecurrenceID = recID
+				inst.RecurrenceRules = nil
+				inst.ExcludedRecurrenceRules = nil
+				if override, okOv := master.RecurrenceOverrides[recID]; okOv {
+					for k, v := range override {
+						setCalendarEventField(&inst, k, v)
+					}
+				}
+				list = append(list, &inst)
+			} else {
+				notFound = append(notFound, id)
+			}
 		} else {
 			notFound = append(notFound, id)
 		}
@@ -108,8 +138,118 @@ func (b *MemoryCalendarsBackend) CreateCalendarEvent(ctx context.Context, ev *jm
 
 // setCalendarEventField applies a single RFC 8984 CalendarEvent patch path.
 func setCalendarEventField(ev *jmap.CalendarEvent, path string, val any) {
+	path = strings.TrimPrefix(path, "/")
 	if strings.Contains(path, "/") {
 		parts := strings.Split(path, "/")
+		if len(parts) == 2 {
+			switch parts[0] {
+			case "calendarIds":
+				if ev.CalendarIDs == nil {
+					ev.CalendarIDs = make(map[jmap.Id]bool)
+				}
+				if val == nil || val == false {
+					delete(ev.CalendarIDs, jmap.Id(parts[1]))
+				} else {
+					ev.CalendarIDs[jmap.Id(parts[1])] = true
+				}
+				return
+			case "keywords":
+				if ev.Keywords == nil {
+					ev.Keywords = make(map[string]bool)
+				}
+				if val == nil || val == false {
+					delete(ev.Keywords, parts[1])
+				} else {
+					ev.Keywords[parts[1]] = true
+				}
+				return
+			case "categories":
+				if ev.Categories == nil {
+					ev.Categories = make(map[string]bool)
+				}
+				if val == nil || val == false {
+					delete(ev.Categories, parts[1])
+				} else {
+					ev.Categories[parts[1]] = true
+				}
+				return
+			case "excluded":
+				if ev.Excluded == nil {
+					ev.Excluded = make(map[string]bool)
+				}
+				if val == nil || val == false {
+					delete(ev.Excluded, parts[1])
+				} else {
+					ev.Excluded[parts[1]] = true
+				}
+				return
+			case "participants":
+				if ev.Participants == nil {
+					ev.Participants = make(map[string]*jmap.JSCalendarParticipant)
+				}
+				if val == nil {
+					delete(ev.Participants, parts[1])
+				} else {
+					var p jmap.JSCalendarParticipant
+					if err := decodeJSONField(val, &p); err == nil {
+						ev.Participants[parts[1]] = &p
+					}
+				}
+				return
+			case "locations":
+				if ev.Locations == nil {
+					ev.Locations = make(map[string]*jmap.JSCalendarLocation)
+				}
+				if val == nil {
+					delete(ev.Locations, parts[1])
+				} else {
+					var loc jmap.JSCalendarLocation
+					if err := decodeJSONField(val, &loc); err == nil {
+						ev.Locations[parts[1]] = &loc
+					}
+				}
+				return
+			case "alerts":
+				if ev.Alerts == nil {
+					ev.Alerts = make(map[string]*jmap.JSCalendarAlert)
+				}
+				if val == nil {
+					delete(ev.Alerts, parts[1])
+				} else {
+					var al jmap.JSCalendarAlert
+					if err := decodeJSONField(val, &al); err == nil {
+						ev.Alerts[parts[1]] = &al
+					}
+				}
+				return
+			case "links":
+				if ev.Links == nil {
+					ev.Links = make(map[string]*jmap.JSCalendarLink)
+				}
+				if val == nil {
+					delete(ev.Links, parts[1])
+				} else {
+					var lnk jmap.JSCalendarLink
+					if err := decodeJSONField(val, &lnk); err == nil {
+						ev.Links[parts[1]] = &lnk
+					}
+				}
+				return
+			case "recurrenceOverrides":
+				if ev.RecurrenceOverrides == nil {
+					ev.RecurrenceOverrides = make(map[string]map[string]any)
+				}
+				if val == nil {
+					delete(ev.RecurrenceOverrides, parts[1])
+				} else {
+					var ov map[string]any
+					if err := decodeJSONField(val, &ov); err == nil {
+						ev.RecurrenceOverrides[parts[1]] = ov
+					}
+				}
+				return
+			}
+		}
 		if len(parts) >= 3 {
 			switch parts[0] {
 			case "participants":
@@ -167,6 +307,23 @@ func setCalendarEventField(ev *jmap.CalendarEvent, path string, val any) {
 	case "@type", "type":
 		if s, ok := val.(string); ok && s != "" {
 			ev.Type = s
+		}
+	case "calendarId":
+		if val == nil {
+			ev.CalendarIDs = nil
+			return
+		}
+		if s, ok := val.(string); ok && s != "" {
+			ev.CalendarIDs = map[jmap.Id]bool{jmap.Id(s): true}
+		}
+	case "calendarIds":
+		if val == nil {
+			ev.CalendarIDs = nil
+			return
+		}
+		var m map[jmap.Id]bool
+		if err := decodeJSONField(val, &m); err == nil {
+			ev.CalendarIDs = m
 		}
 	case "title":
 		if s, ok := val.(string); ok {
@@ -535,6 +692,28 @@ func (b *MemoryCalendarsBackend) UpdateCalendarEvent(ctx context.Context, id jma
 
 	ev, ok := us.events[id]
 	if !ok {
+		if strings.Contains(string(id), "#") {
+			parts := strings.SplitN(string(id), "#", 2)
+			masterID := jmap.Id(parts[0])
+			recID := parts[1]
+			if master, okMaster := us.events[masterID]; okMaster {
+				if master.RecurrenceOverrides == nil {
+					master.RecurrenceOverrides = make(map[string]map[string]any)
+				}
+				overridePatch, exists := master.RecurrenceOverrides[recID]
+				if !exists || overridePatch == nil {
+					overridePatch = make(map[string]any)
+				}
+				for k, v := range patch {
+					overridePatch[strings.TrimPrefix(k, "/")] = v
+				}
+				master.RecurrenceOverrides[recID] = overridePatch
+				master.Sequence++
+				master.Updated = time.Now().UTC().Format(time.RFC3339)
+				b.recordChange(ctx, us.eventState, masterID, "update", "CalendarEvent")
+				return master, nil
+			}
+		}
 		return nil, fmt.Errorf("calendar event not found: %s", id)
 	}
 
@@ -550,6 +729,26 @@ func (b *MemoryCalendarsBackend) DeleteCalendarEvent(ctx context.Context, id jma
 	b.mu.Lock()
 	us := b.getStoreLocked(ctx)
 	defer b.mu.Unlock()
+
+	if strings.Contains(string(id), "#") {
+		parts := strings.SplitN(string(id), "#", 2)
+		masterID := jmap.Id(parts[0])
+		recID := parts[1]
+		if master, okMaster := us.events[masterID]; okMaster {
+			if master.RecurrenceOverrides == nil {
+				master.RecurrenceOverrides = make(map[string]map[string]any)
+			}
+			if master.Excluded == nil {
+				master.Excluded = make(map[string]bool)
+			}
+			master.Excluded[recID] = true
+			master.RecurrenceOverrides[recID] = map[string]any{"excluded": true}
+			master.Sequence++
+			master.Updated = time.Now().UTC().Format(time.RFC3339)
+			b.recordChange(ctx, us.eventState, masterID, "update", "CalendarEvent")
+			return true, nil
+		}
+	}
 
 	if _, ok := us.events[id]; !ok {
 		return false, nil
