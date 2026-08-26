@@ -93,13 +93,13 @@ func writeDateTimeProp(sb *strings.Builder, name, value, timeZone string, allDay
 		return
 	}
 	compact := icalCompactDateTime(value)
+	cleanCompact := strings.TrimSuffix(compact, "Z")
 	switch {
-	case strings.HasSuffix(compact, "Z"):
-		fmt.Fprintf(sb, "%s:%s\r\n", name, compact)
 	case timeZone != "" && timeZone != "Etc/UTC" && timeZone != "UTC":
-		fmt.Fprintf(sb, "%s;TZID=%s:%s\r\n", name, timeZone, compact)
+		fmt.Fprintf(sb, "%s;TZID=%s:%s\r\n", name, timeZone, cleanCompact)
 	default:
-		fmt.Fprintf(sb, "%s:%s\r\n", name, compact)
+		// Default to UTC with Z suffix per RFC 5545 Section 3.3.5
+		fmt.Fprintf(sb, "%s:%sZ\r\n", name, cleanCompact)
 	}
 }
 

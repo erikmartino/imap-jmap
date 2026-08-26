@@ -1,113 +1,16 @@
 package jmap
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/emersion/go-ical"
 )
-
-// icalComponent is a parsed iCalendar (RFC 5545) component with its properties and
-// nested components, used by ParseICalendar to convert iCalendar data to JSCalendar.
-type icalComponent struct {
-	name       string
-	properties []icalProperty
-	children   []*icalComponent
-}
-
-// icalProperty is a single unfolded iCalendar property line (RFC 5545 Section 3.1):
-// name, parameters (e.g. "TZID=Europe/Paris", "CN=Joe", "VALUE=DATE"), and the value.
-type icalProperty struct {
-	name   string
-	params map[string]string
-	value  string
-}
-
-// icalParamValue extracts a parameter value, unwrapping surrounding double quotes.
-func icalParamValue(params map[string]string, name string) string {
-	v := params[name]
-	return strings.Trim(v, `"`)
-}
-
-// parseICalComponent parses the unfolded lines of an iCalendar stream between a
-// BEGIN:<name> line and its matching END:<name> line, returning the component and
-// the index of the line after the END line.
-func parseICalComponent(lines []string, start int) (*icalComponent, int) {
-	if start >= len(lines) {
-		return nil, start
-	}
-	comp := &icalComponent{}
-	for i := start; i < len(lines); i++ {
-		line := strings.TrimSpace(lines[i])
-		if line == "" {
-			continue
-		}
-		if strings.HasPrefix(line, "BEGIN:") {
-			child, next := parseICalComponent(lines, i+1)
-			if child != nil {
-				comp.children = append(comp.children, child)
-			}
-			i = next - 1
-			continue
-		}
-		if strings.HasPrefix(line, "END:") {
-			comp.name = strings.ToUpper(strings.TrimSpace(strings.TrimPrefix(line, "END:")))
-			return comp, i + 1
-		}
-		prop, ok := parseICalProperty(line)
-		if ok {
-			comp.properties = append(comp.properties, prop)
-		}
-	}
-	return comp, len(lines)
-}
-
-// parseICalProperty parses a single property line into name, parameters, and value.
-func parseICalProperty(line string) (icalProperty, bool) {
-	idx := strings.IndexByte(line, ':')
-	if idx <= 0 {
-		return icalProperty{}, false
-	}
-	head := line[:idx]
-	value := line[idx+1:]
-	name := head
-	params := make(map[string]string)
-	if semi := strings.IndexByte(head, ';'); semi >= 0 {
-		name = head[:semi]
-		for _, paramPart := range strings.Split(head[semi+1:], ";") {
-			paramPart = strings.TrimSpace(paramPart)
-			if paramPart == "" {
-				continue
-			}
-			if eq := strings.IndexByte(paramPart, '='); eq >= 0 {
-				pName := strings.ToUpper(strings.TrimSpace(paramPart[:eq]))
-				pVal := strings.TrimSpace(paramPart[eq+1:])
-				params[pName] = pVal
-			} else {
-				params[strings.ToUpper(paramPart)] = ""
-			}
-		}
-	}
-	return icalProperty{name: strings.ToUpper(name), params: params, value: value}, true
-}
-
-// unfoldICalLines unfolds RFC 5545 Section 3.1 continuation lines: a line beginning
-// with a space or horizontal tab is a continuation of the previous logical line.
-func unfoldICalLines(data []byte) []string {
-	raw := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
-	lines := make([]string, 0, len(raw))
-	for _, line := range raw {
-		line = strings.TrimSuffix(line, "\r")
-		if (strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")) && len(lines) > 0 {
-			lines[len(lines)-1] += line[1:]
-			continue
-		}
-		lines = append(lines, line)
-	}
-	return lines
-}
 
 // icalTimeToRFC3339 converts an iCalendar date/date-time value (RFC 5545 Section 3.3.4/3.3.5)
 // into an RFC 3339 string. Date-only values ("20260825") map to "2026-08-25". Local (floating)
@@ -162,37 +65,57 @@ func icalDurationBetween(start, end string) string {
 	if d == 0 {
 		return ""
 	}
-	secs := int64(d.Seconds())
-	if secs%60 != 0 {
-		return fmt.Sprintf("PT%dS", secs)
-	}
-	mins := secs / 60
-	if mins%60 != 0 {
-		return fmt.Sprintf("PT%dM", mins)
-	}
-	hours := mins / 60
-	if hours%24 != 0 {
-		return fmt.Sprintf("PT%dH", hours)
-	}
-	days := hours / 24
-	if days%7 != 0 {
-		return fmt.Sprintf("P%dD", days)
-	}
-	return fmt.Sprintf("P%dW", days/7)
+	return formatISODuration(d)
 }
 
-// parseRFC3339Time parses an RFC 3339 timestamp, tolerating both full timestamps and
-// date-only values.
+func formatISODuration(d time.Duration) string {
+	if d == 0 {
+		return "PT0S"
+	}
+	totalSecs := int64(d.Seconds())
+	days := totalSecs / 86400
+	remSecs := totalSecs % 86400
+	hours := remSecs / 3600
+	remSecs = remSecs % 3600
+	mins := remSecs / 60
+	secs := remSecs % 60
+
+	if days > 0 && hours == 0 && mins == 0 && secs == 0 {
+		if days%7 == 0 {
+			return fmt.Sprintf("P%dW", days/7)
+		}
+		return fmt.Sprintf("P%dD", days)
+	}
+
+	var sb strings.Builder
+	sb.WriteString("P")
+	if days > 0 {
+		fmt.Fprintf(&sb, "%dD", days)
+	}
+	if hours > 0 || mins > 0 || secs > 0 {
+		sb.WriteString("T")
+		if hours > 0 {
+			fmt.Fprintf(&sb, "%dH", hours)
+		}
+		if mins > 0 {
+			fmt.Fprintf(&sb, "%dM", mins)
+		}
+		if secs > 0 {
+			fmt.Fprintf(&sb, "%dS", secs)
+		}
+	}
+	return sb.String()
+}
+
+// parseRFC3339Time parses an RFC 3339 timestamp, tolerating full timestamps,
+// local timestamps, and date-only values.
 func parseRFC3339Time(s string) (time.Time, bool) {
-	t, err := time.Parse(time.RFC3339, s)
-	if err == nil {
-		return t, true
+	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04:05Z", "2006-01-02T15:04:05", "2006-01-02"} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, true
+		}
 	}
-	t, err = time.Parse("2006-01-02", s)
-	if err != nil {
-		return time.Time{}, false
-	}
-	return t, true
+	return time.Time{}, false
 }
 
 // parseRecurrenceRule converts an RFC 5545 RRULE value into a JSCalendar
@@ -304,16 +227,13 @@ func icalParticipantKey(addr string) string {
 	return addr
 }
 
-// parseICalAttendee converts an ATTENDEE property line into a JSCalendar participant,
-// mapping ROLE, PARTSTAT, CUTYPE, RSVP, and DELEGATED-TO/FROM / MEMBER parameters
-// (RFC 5545 Section 3.8.4.1) back to their JSCalendar equivalents (RFC 8984 Section 4.4.6).
-func parseICalAttendee(prop icalProperty, role string) *JSCalendarParticipant {
+// parseGoICalAttendee converts an ATTENDEE property into a JSCalendar participant.
+func parseGoICalAttendee(prop ical.Prop, role string) *JSCalendarParticipant {
 	p := &JSCalendarParticipant{
 		Type:  "Participant",
-		Email: icalParticipantKey(prop.value),
+		Email: icalParticipantKey(prop.Value),
 	}
-	// ROLE parameter overrides the caller's default role.
-	switch strings.ToUpper(icalParamValue(prop.params, "ROLE")) {
+	switch strings.ToUpper(prop.Params.Get("ROLE")) {
 	case "CHAIR":
 		role = "chair"
 	case "OPT-PARTICIPANT":
@@ -324,10 +244,10 @@ func parseICalAttendee(prop icalProperty, role string) *JSCalendarParticipant {
 		role = "attendee"
 	}
 	p.Roles = map[string]bool{role: true}
-	if cn := icalParamValue(prop.params, "CN"); cn != "" {
+	if cn := prop.Params.Get("CN"); cn != "" {
 		p.Name = cn
 	}
-	switch partStat := strings.ToUpper(icalParamValue(prop.params, "PARTSTAT")); partStat {
+	switch partStat := strings.ToUpper(prop.Params.Get("PARTSTAT")); partStat {
 	case "ACCEPTED":
 		p.ParticipationStatus = "accepted"
 	case "DECLINED":
@@ -339,7 +259,7 @@ func parseICalAttendee(prop icalProperty, role string) *JSCalendarParticipant {
 	case "COMPLETED", "NEEDS-ACTION":
 		p.ParticipationStatus = "needs-action"
 	}
-	switch cutype := strings.ToUpper(icalParamValue(prop.params, "CUTYPE")); cutype {
+	switch cutype := strings.ToUpper(prop.Params.Get("CUTYPE")); cutype {
 	case "GROUP":
 		p.Kind = "group"
 	case "RESOURCE":
@@ -347,16 +267,16 @@ func parseICalAttendee(prop icalProperty, role string) *JSCalendarParticipant {
 	case "ROOM":
 		p.Kind = "location"
 	}
-	if strings.EqualFold(icalParamValue(prop.params, "RSVP"), "TRUE") {
+	if strings.EqualFold(prop.Params.Get("RSVP"), "TRUE") {
 		p.ExpectReply = true
 	}
-	if to := icalParamValue(prop.params, "DELEGATED-TO"); to != "" {
+	if to := prop.Params.Get("DELEGATED-TO"); to != "" {
 		p.DelegatedTo = map[string]bool{icalParticipantKey(to): true}
 	}
-	if from := icalParamValue(prop.params, "DELEGATED-FROM"); from != "" {
+	if from := prop.Params.Get("DELEGATED-FROM"); from != "" {
 		p.DelegatedFrom = map[string]bool{icalParticipantKey(from): true}
 	}
-	if member := icalParamValue(prop.params, "MEMBER"); member != "" {
+	if member := prop.Params.Get("MEMBER"); member != "" {
 		p.MemberOf = map[string]bool{icalParticipantKey(member): true}
 	}
 	p.Role = role
@@ -365,59 +285,36 @@ func parseICalAttendee(prop icalProperty, role string) *JSCalendarParticipant {
 }
 
 // ParseICalendar parses an iCalendar (RFC 5545) data stream into JSCalendar
-// CalendarEvent objects, following the conversion described by
-// draft-ietf-calext-jscalendar-icalendar for the properties a calendar client needs.
-// It returns an error when the stream is not a valid VCALENDAR or contains no VEVENT.
+// CalendarEvent objects using github.com/emersion/go-ical, following the conversion
+// described by draft-ietf-calext-jscalendar-icalendar for the properties a calendar client needs.
 func ParseICalendar(data []byte) ([]*CalendarEvent, error) {
-	lines := unfoldICalLines(data)
-	if len(lines) == 0 {
-		return nil, fmt.Errorf("empty iCalendar data")
-	}
-
-	cal, next := parseICalComponent(lines, 0)
-	if cal == nil {
-		return nil, fmt.Errorf("not a valid iCalendar stream: missing BEGIN:VCALENDAR")
-	}
-	// The root component is anonymous when the stream begins with BEGIN:VCALENDAR;
-	// accept either the root itself or a direct child named VCALENDAR.
-	if cal.name != "VCALENDAR" {
-		found := false
-		for _, child := range cal.children {
-			if child.name == "VCALENDAR" {
-				cal = child
-				found = true
-				break
-			}
-		}
-		if !found {
-			return nil, fmt.Errorf("not a valid iCalendar stream: missing BEGIN:VCALENDAR")
-		}
+	dec := ical.NewDecoder(bytes.NewReader(data))
+	cal, err := dec.Decode()
+	if err != nil {
+		return nil, fmt.Errorf("not a valid iCalendar stream: %w", err)
 	}
 
 	var method, prodID string
-	for _, p := range cal.properties {
-		switch p.name {
-		case "METHOD":
-			method = strings.ToLower(p.value)
-		case "PRODID":
-			prodID = p.value
-		}
+	if prop := cal.Props.Get(ical.PropMethod); prop != nil {
+		method = strings.ToLower(prop.Value)
+	}
+	if prop := cal.Props.Get(ical.PropProductID); prop != nil {
+		prodID = prop.Value
 	}
 
 	var events []*CalendarEvent
-	var walk func(comp *icalComponent)
-	walk = func(comp *icalComponent) {
-		for _, child := range comp.children {
-			if child.name == "VEVENT" {
-				if ev := icalEventToCalendarEvent(child, method, prodID); ev != nil {
+	var walk func(comp *ical.Component)
+	walk = func(comp *ical.Component) {
+		for _, child := range comp.Children {
+			if child.Name == ical.CompEvent {
+				if ev := icalComponentToCalendarEvent(child, method, prodID); ev != nil {
 					events = append(events, ev)
 				}
 			}
 			walk(child)
 		}
 	}
-	walk(cal)
-	_ = next
+	walk(cal.Component)
 
 	if len(events) == 0 {
 		return nil, fmt.Errorf("iCalendar stream contains no VEVENT components")
@@ -425,8 +322,8 @@ func ParseICalendar(data []byte) ([]*CalendarEvent, error) {
 	return events, nil
 }
 
-// icalEventToCalendarEvent converts a parsed VEVENT component into a CalendarEvent.
-func icalEventToCalendarEvent(comp *icalComponent, method, prodID string) *CalendarEvent {
+// icalComponentToCalendarEvent converts a parsed VEVENT component into a CalendarEvent.
+func icalComponentToCalendarEvent(comp *ical.Component, method, prodID string) *CalendarEvent {
 	ev := &CalendarEvent{
 		Type:                   "Event",
 		DescriptionContentType: "text/plain",
@@ -435,172 +332,189 @@ func icalEventToCalendarEvent(comp *icalComponent, method, prodID string) *Calen
 	}
 
 	var start, end string
-	var startDateOnly bool
 
-	for _, p := range comp.properties {
-		switch p.name {
-		case "UID":
-			ev.UID = strings.TrimSpace(p.value)
-		case "SUMMARY":
-			ev.Title = unescapeICalText(p.value)
-		case "DESCRIPTION":
-			ev.Description = unescapeICalText(p.value)
-		case "DTSTART":
-			start = icalTimeToRFC3339(p.value, false)
-			startDateOnly = strings.EqualFold(icalParamValue(p.params, "VALUE"), "DATE")
-			if startDateOnly {
-				start = icalTimeToRFC3339(p.value, true)
-				ev.ShowWithoutTime = true
-			}
-			ev.Start = start
-			if tz := icalParamValue(p.params, "TZID"); tz != "" {
-				ev.TimeZone = tz
-			}
-		case "DTEND":
-			end = icalTimeToRFC3339(p.value, strings.EqualFold(icalParamValue(p.params, "VALUE"), "DATE"))
-		case "DURATION":
-			ev.Duration = icalDurationToISODuration(p.value)
-		case "STATUS":
-			switch strings.ToUpper(p.value) {
-			case "CONFIRMED":
-				ev.Status = "confirmed"
-			case "TENTATIVE":
-				ev.Status = "tentative"
-			case "CANCELLED", "CANCELED":
-				ev.Status = "cancelled"
-			}
-		case "TRANSP":
-			if strings.EqualFold(p.value, "TRANSPARENT") {
-				ev.FreeBusyStatus = "free"
-			} else {
-				ev.FreeBusyStatus = "busy"
-			}
-		case "CLASS":
-			switch strings.ToUpper(p.value) {
-			case "PRIVATE":
-				ev.Privacy = "private"
-			case "CONFIDENTIAL":
-				ev.Privacy = "secret"
-			default:
-				ev.Privacy = "public"
-			}
-		case "LOCATION":
-			if p.value != "" {
-				if ev.Locations == nil {
-					ev.Locations = make(map[string]*JSCalendarLocation)
+	for name, propList := range comp.Props {
+		for _, p := range propList {
+			switch strings.ToUpper(name) {
+			case ical.PropUID:
+				ev.UID = strings.TrimSpace(p.Value)
+			case ical.PropSummary:
+				if text, err := p.Text(); err == nil {
+					ev.Title = text
+				} else {
+					ev.Title = unescapeICalText(p.Value)
 				}
-				name := unescapeICalText(p.value)
-				hash := sha256.Sum256([]byte(name))
-				key := hex.EncodeToString(hash[:])[:40]
-				ev.Locations[key] = &JSCalendarLocation{
-					Type: "Location",
-					Name: name,
+			case ical.PropDescription:
+				if text, err := p.Text(); err == nil {
+					ev.Description = text
+				} else {
+					ev.Description = unescapeICalText(p.Value)
 				}
-			}
-		case "GEO":
-			if idx := strings.IndexByte(p.value, ';'); idx > 0 {
-				ev.Locations = ensureLocations(ev.Locations)
-				if len(ev.Locations) > 0 {
-					for _, loc := range ev.Locations {
-						loc.Coordinates = p.value
+			case ical.PropDateTimeStart:
+				rawVal := strings.TrimSpace(p.Value)
+				tzID := p.Params.Get("TZID")
+				startDateOnly := strings.EqualFold(p.Params.Get("VALUE"), "DATE")
+				if startDateOnly {
+					start = icalTimeToRFC3339(rawVal, true)
+					ev.ShowWithoutTime = true
+				} else {
+					start = icalTimeToRFC3339(rawVal, false)
+				}
+				ev.Start = start
+				if tzID != "" {
+					ev.TimeZone = tzID
+				} else if strings.HasSuffix(rawVal, "Z") {
+					ev.TimeZone = "Etc/UTC"
+				}
+			case ical.PropDateTimeEnd:
+				rawVal := strings.TrimSpace(p.Value)
+				dateOnly := strings.EqualFold(p.Params.Get("VALUE"), "DATE")
+				end = icalTimeToRFC3339(rawVal, dateOnly)
+			case ical.PropDuration:
+				if dur, err := p.Duration(); err == nil && dur > 0 {
+					ev.Duration = formatISODuration(dur)
+				} else {
+					ev.Duration = icalDurationToISODuration(p.Value)
+				}
+			case ical.PropStatus:
+				switch strings.ToUpper(strings.TrimSpace(p.Value)) {
+				case "CONFIRMED":
+					ev.Status = "confirmed"
+				case "TENTATIVE":
+					ev.Status = "tentative"
+				case "CANCELLED", "CANCELED":
+					ev.Status = "cancelled"
+				}
+			case "TRANSP":
+				if strings.EqualFold(strings.TrimSpace(p.Value), "TRANSPARENT") {
+					ev.FreeBusyStatus = "free"
+				} else {
+					ev.FreeBusyStatus = "busy"
+				}
+			case ical.PropClass:
+				switch strings.ToUpper(strings.TrimSpace(p.Value)) {
+				case "PRIVATE":
+					ev.Privacy = "private"
+				case "CONFIDENTIAL":
+					ev.Privacy = "secret"
+				default:
+					ev.Privacy = "public"
+				}
+			case ical.PropLocation:
+				if p.Value != "" {
+					locName, err := p.Text()
+					if err != nil {
+						locName = unescapeICalText(p.Value)
+					}
+					if ev.Locations == nil {
+						ev.Locations = make(map[string]*JSCalendarLocation)
+					}
+					hash := sha256.Sum256([]byte(locName))
+					key := hex.EncodeToString(hash[:])[:40]
+					ev.Locations[key] = &JSCalendarLocation{
+						Type: "Location",
+						Name: locName,
 					}
 				}
-			}
-		case "ORGANIZER":
-			email := icalParticipantKey(p.value)
-			if email == "" {
-				continue
-			}
-			if ev.Participants == nil {
-				ev.Participants = make(map[string]*JSCalendarParticipant)
-			}
-			participant := &JSCalendarParticipant{
-				Type:  "Participant",
-				Email: email,
-				Roles: map[string]bool{"owner": true},
-				Role:  "owner",
-			}
-			if cn := icalParamValue(p.params, "CN"); cn != "" {
-				participant.Name = cn
-			}
-			ev.Participants[email] = participant
-		case "ATTENDEE":
-			email := icalParticipantKey(p.value)
-			if email == "" {
-				continue
-			}
-			if ev.Participants == nil {
-				ev.Participants = make(map[string]*JSCalendarParticipant)
-			}
-			ev.Participants[email] = parseICalAttendee(p, "attendee")
-		case "RRULE":
-			if rule := parseRecurrenceRule(p.value); rule != nil && rule.Frequency != "" {
-				ev.RecurrenceRules = append(ev.RecurrenceRules, rule)
-			}
-		case "EXRULE":
-			if rule := parseRecurrenceRule(p.value); rule != nil && rule.Frequency != "" {
-				ev.ExcludedRecurrenceRules = append(ev.ExcludedRecurrenceRules, rule)
-			}
-		case "PRIORITY":
-			if n, err := strconv.ParseUint(strings.TrimSpace(p.value), 10, 32); err == nil {
-				ev.Priority = uint32(n)
-			}
-		case "COLOR":
-			ev.Color = strings.TrimSpace(p.value)
-		case "ATTACH":
-			if p.value != "" {
-				if ev.Links == nil {
-					ev.Links = make(map[string]*JSCalendarLink)
+			case "GEO":
+				if idx := strings.IndexByte(p.Value, ';'); idx > 0 {
+					ev.Locations = ensureLocations(ev.Locations)
+					for _, loc := range ev.Locations {
+						loc.Coordinates = p.Value
+					}
 				}
-				hash := sha256.Sum256([]byte(p.value))
-				key := hex.EncodeToString(hash[:])[:40]
-				ev.Links[key] = &JSCalendarLink{Type: "Link", Href: p.value}
-			}
-		case "EXDATE":
-			for _, ex := range strings.Split(p.value, ",") {
-				if ex = strings.TrimSpace(ex); ex == "" {
-					continue
+			case ical.PropOrganizer:
+				email := icalParticipantKey(p.Value)
+				if email != "" {
+					if ev.Participants == nil {
+						ev.Participants = make(map[string]*JSCalendarParticipant)
+					}
+					participant := &JSCalendarParticipant{
+						Type:  "Participant",
+						Email: email,
+						Roles: map[string]bool{"owner": true},
+						Role:  "owner",
+					}
+					if cn := p.Params.Get("CN"); cn != "" {
+						participant.Name = cn
+					}
+					ev.Participants[email] = participant
 				}
-				dateOnly := strings.EqualFold(icalParamValue(p.params, "VALUE"), "DATE")
-				if ev.Excluded == nil {
-					ev.Excluded = make(map[string]bool)
+			case ical.PropAttendee:
+				email := icalParticipantKey(p.Value)
+				if email != "" {
+					if ev.Participants == nil {
+						ev.Participants = make(map[string]*JSCalendarParticipant)
+					}
+					ev.Participants[email] = parseGoICalAttendee(p, "attendee")
 				}
-				ev.Excluded[icalTimeToRFC3339(ex, dateOnly)] = true
-			}
-		case "RECURRENCE-ID":
-			dateOnly := strings.EqualFold(icalParamValue(p.params, "VALUE"), "DATE")
-			ev.RecurrenceID = icalTimeToRFC3339(p.value, dateOnly)
-		case "CATEGORIES":
-			if ev.Categories == nil {
-				ev.Categories = make(map[string]bool)
-			}
-			for _, cat := range strings.Split(p.value, ",") {
-				if cat = strings.TrimSpace(unescapeICalText(cat)); cat != "" {
-					ev.Categories[cat] = true
+			case ical.PropRecurrenceRule:
+				if rule := parseRecurrenceRule(p.Value); rule != nil && rule.Frequency != "" {
+					ev.RecurrenceRules = append(ev.RecurrenceRules, rule)
 				}
-			}
-		case "SEQUENCE":
-			if n, err := strconv.ParseUint(strings.TrimSpace(p.value), 10, 32); err == nil {
-				ev.Sequence = uint32(n)
-			}
-		case "CREATED":
-			ev.Created = icalTimeToRFC3339(p.value, false)
-		case "LAST-MODIFIED":
-			ev.Updated = icalTimeToRFC3339(p.value, false)
-		case "DTSTAMP":
-			if ev.Updated == "" {
-				ev.Updated = icalTimeToRFC3339(p.value, false)
+			case "EXRULE":
+				if rule := parseRecurrenceRule(p.Value); rule != nil && rule.Frequency != "" {
+					ev.ExcludedRecurrenceRules = append(ev.ExcludedRecurrenceRules, rule)
+				}
+			case ical.PropPriority:
+				if n, err := strconv.ParseUint(strings.TrimSpace(p.Value), 10, 32); err == nil {
+					ev.Priority = uint32(n)
+				}
+			case "COLOR":
+				ev.Color = strings.TrimSpace(p.Value)
+			case "ATTACH":
+				if p.Value != "" {
+					if ev.Links == nil {
+						ev.Links = make(map[string]*JSCalendarLink)
+					}
+					hash := sha256.Sum256([]byte(p.Value))
+					key := hex.EncodeToString(hash[:])[:40]
+					ev.Links[key] = &JSCalendarLink{Type: "Link", Href: p.Value}
+				}
+			case ical.PropExceptionDates:
+				for _, ex := range strings.Split(p.Value, ",") {
+					if ex = strings.TrimSpace(ex); ex == "" {
+						continue
+					}
+					dateOnly := strings.EqualFold(p.Params.Get("VALUE"), "DATE")
+					if ev.Excluded == nil {
+						ev.Excluded = make(map[string]bool)
+					}
+					ev.Excluded[icalTimeToRFC3339(ex, dateOnly)] = true
+				}
+			case ical.PropRecurrenceID:
+				dateOnly := strings.EqualFold(p.Params.Get("VALUE"), "DATE")
+				ev.RecurrenceID = icalTimeToRFC3339(p.Value, dateOnly)
+			case ical.PropCategories:
+				if ev.Categories == nil {
+					ev.Categories = make(map[string]bool)
+				}
+				for _, cat := range strings.Split(p.Value, ",") {
+					if cat = strings.TrimSpace(unescapeICalText(cat)); cat != "" {
+						ev.Categories[cat] = true
+					}
+				}
+			case ical.PropSequence:
+				if n, err := strconv.ParseUint(strings.TrimSpace(p.Value), 10, 32); err == nil {
+					ev.Sequence = uint32(n)
+				}
+			case ical.PropCreated:
+				ev.Created = icalTimeToRFC3339(p.Value, false)
+			case ical.PropLastModified:
+				ev.Updated = icalTimeToRFC3339(p.Value, false)
+			case ical.PropDateTimeStamp:
+				if ev.Updated == "" {
+					ev.Updated = icalTimeToRFC3339(p.Value, false)
+				}
 			}
 		}
 	}
 
-	// VALARM sub-components become JSCalendar alerts (RFC 5545 Section 3.6.6 →
-	// RFC 8984 Section 4.5.2).
-	for i, child := range comp.children {
-		if child.name != "VALARM" {
+	for i, child := range comp.Children {
+		if child.Name != ical.CompAlarm {
 			continue
 		}
-		if alert := parseVAlarm(child); alert != nil {
+		if alert := parseGoICalAlarm(child); alert != nil {
 			if ev.Alerts == nil {
 				ev.Alerts = make(map[string]*JSCalendarAlert)
 			}
@@ -620,34 +534,38 @@ func icalEventToCalendarEvent(comp *icalComponent, method, prodID string) *Calen
 	return ev
 }
 
-// parseVAlarm converts a VALARM component into a JSCalendar Alert (RFC 8984 Section 4.5.2),
-// mapping ACTION, TRIGGER (relative offset or absolute DATE-TIME, with RELATED=END), and
-// DESCRIPTION.
-func parseVAlarm(comp *icalComponent) *JSCalendarAlert {
+// parseGoICalAlarm converts a VALARM component into a JSCalendar Alert.
+func parseGoICalAlarm(comp *ical.Component) *JSCalendarAlert {
 	alert := &JSCalendarAlert{Type: "Alert", Action: "display"}
-	for _, p := range comp.properties {
-		switch p.name {
-		case "ACTION":
-			if strings.EqualFold(p.value, "EMAIL") {
-				alert.Action = "email"
-			} else {
-				alert.Action = "display"
-			}
-		case "TRIGGER":
-			if strings.EqualFold(icalParamValue(p.params, "VALUE"), "DATE-TIME") {
-				alert.Trigger = map[string]any{
-					"@type": "AbsoluteTrigger",
-					"when":  icalTimeToRFC3339(p.value, false),
+	for name, props := range comp.Props {
+		for _, p := range props {
+			switch strings.ToUpper(name) {
+			case ical.PropAction:
+				if strings.EqualFold(p.Value, "EMAIL") {
+					alert.Action = "email"
+				} else {
+					alert.Action = "display"
 				}
-			} else {
-				trigger := map[string]any{"@type": "OffsetTrigger", "offset": strings.TrimSpace(p.value)}
-				if strings.EqualFold(icalParamValue(p.params, "RELATED"), "END") {
-					trigger["relativeTo"] = "end"
+			case ical.PropTrigger:
+				if strings.EqualFold(p.Params.Get("VALUE"), "DATE-TIME") {
+					alert.Trigger = map[string]any{
+						"@type": "AbsoluteTrigger",
+						"when":  icalTimeToRFC3339(p.Value, false),
+					}
+				} else {
+					trigger := map[string]any{"@type": "OffsetTrigger", "offset": strings.TrimSpace(p.Value)}
+					if strings.EqualFold(p.Params.Get("RELATED"), "END") {
+						trigger["relativeTo"] = "end"
+					}
+					alert.Trigger = trigger
 				}
-				alert.Trigger = trigger
+			case ical.PropDescription:
+				if text, err := p.Text(); err == nil {
+					alert.Description = text
+				} else {
+					alert.Description = unescapeICalText(p.Value)
+				}
 			}
-		case "DESCRIPTION":
-			alert.Description = unescapeICalText(p.value)
 		}
 	}
 	return alert

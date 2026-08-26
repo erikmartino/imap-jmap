@@ -214,3 +214,86 @@ func TestCalendarEvent_RecurrenceInstanceUpdateAndDestroy(t *testing.T) {
 		t.Fatalf("expected instance to be destroyed, got: %+v", delResp.MethodResponses[0].Args)
 	}
 }
+
+// TestCalendarEvent_UTCTimezoneDefaultAndDrag verifies that when an event without an explicit
+// timezone is created and subsequently dragged/updated, timeZone defaults to Etc/UTC and utcStart
+// matches the start instant exactly without arbitrary timezone shifts.
+func TestCalendarEvent_UTCTimezoneDefaultAndDrag(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	using := []string{jmap.CoreCapabilityURI, jmap.CalendarsCapabilityURI}
+
+	// 1. Create event with floating/unspecified timeZone
+	createReq := []any{
+		[]any{"CalendarEvent/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"e1": map[string]any{
+					"title":       "Team Standup",
+					"start":       "2026-09-01T14:00:00",
+					"duration":    "PT1H",
+					"calendarIds": map[string]any{"cal-default": true},
+				},
+			},
+		}, "call-1"},
+	}
+
+	createResp := postJMAP(t, ts.URL, using, createReq)
+	created := createResp.MethodResponses[0].Args["created"].(map[string]any)
+	if created["e1"] == nil {
+		t.Fatalf("create failed: %+v", createResp.MethodResponses[0].Args)
+	}
+	evID := created["e1"].(map[string]any)["id"].(string)
+
+	// 2. Fetch event: verify timeZone defaults to Etc/UTC and utcStart is 14:00:00Z
+	getReq := []any{
+		[]any{"CalendarEvent/get", map[string]any{
+			"accountId": "primary",
+			"ids":       []string{evID},
+		}, "call-2"},
+	}
+	getResp := postJMAP(t, ts.URL, using, getReq)
+	ev := getResp.MethodResponses[0].Args["list"].([]any)[0].(map[string]any)
+	if ev["timeZone"] != "Etc/UTC" {
+		t.Errorf("expected timeZone Etc/UTC, got %v", ev["timeZone"])
+	}
+	if ev["utcStart"] != "2026-09-01T14:00:00Z" {
+		t.Errorf("expected utcStart 2026-09-01T14:00:00Z, got %v", ev["utcStart"])
+	}
+	if ev["utcEnd"] != "2026-09-01T15:00:00Z" {
+		t.Errorf("expected utcEnd 2026-09-01T15:00:00Z, got %v", ev["utcEnd"])
+	}
+
+	// 3. Drag event to 16:00:00 (simulate Bulwark update without timezone parameter)
+	updateReq := []any{
+		[]any{"CalendarEvent/set", map[string]any{
+			"accountId": "primary",
+			"update": map[string]any{
+				evID: map[string]any{
+					"start": "2026-09-01T16:00:00",
+				},
+			},
+		}, "call-3"},
+	}
+	updateResp := postJMAP(t, ts.URL, using, updateReq)
+	notUpdated, _ := updateResp.MethodResponses[0].Args["notUpdated"].(map[string]any)
+	if len(notUpdated) > 0 {
+		t.Fatalf("drag update failed: %+v", notUpdated)
+	}
+
+	// 4. Fetch updated event: verify start is 16:00:00 and utcStart is 16:00:00Z (no offset shift)
+	getResp2 := postJMAP(t, ts.URL, using, getReq)
+	ev2 := getResp2.MethodResponses[0].Args["list"].([]any)[0].(map[string]any)
+	if ev2["start"] != "2026-09-01T16:00:00" {
+		t.Errorf("expected start 2026-09-01T16:00:00, got %v", ev2["start"])
+	}
+	if ev2["utcStart"] != "2026-09-01T16:00:00Z" {
+		t.Errorf("expected utcStart 2026-09-01T16:00:00Z, got %v", ev2["utcStart"])
+	}
+	if ev2["utcEnd"] != "2026-09-01T17:00:00Z" {
+		t.Errorf("expected utcEnd 2026-09-01T17:00:00Z, got %v", ev2["utcEnd"])
+	}
+}
+

@@ -6,7 +6,7 @@ import (
 )
 
 func loadLocation(tz string) *time.Location {
-	if tz == "" {
+	if tz == "" || tz == "UTC" || tz == "Etc/UTC" {
 		return time.UTC
 	}
 	if loc, err := time.LoadLocation(tz); err == nil {
@@ -16,10 +16,22 @@ func loadLocation(tz string) *time.Location {
 }
 
 func parseLocalDateTimeBound(s string, loc *time.Location) (time.Time, bool) {
+	if loc == nil {
+		loc = time.UTC
+	}
+	s = strings.TrimSpace(s)
+	// Try parsing local time in location first when no Z/offset is present
+	if !strings.HasSuffix(s, "Z") && !strings.Contains(s, "+") && (!strings.Contains(s, "-") || strings.Count(s, "-") <= 2) {
+		for _, layout := range []string{"2006-01-02T15:04:05", "2006-01-02T15:04", "2006-01-02"} {
+			if t, err := time.ParseInLocation(layout, s, loc); err == nil {
+				return t, true
+			}
+		}
+	}
 	if t, err := time.Parse(time.RFC3339, s); err == nil {
 		return t, true
 	}
-	for _, layout := range []string{"2006-01-02T15:04:05", "2006-01-02"} {
+	for _, layout := range []string{"2006-01-02T15:04:05", "2006-01-02T15:04", "2006-01-02"} {
 		if t, err := time.ParseInLocation(layout, s, loc); err == nil {
 			return t, true
 		}

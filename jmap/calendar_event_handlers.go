@@ -50,6 +50,9 @@ func handleCalendarEventGet(backend CalendarsBackend) MethodHandler {
 				continue
 			}
 			clone := *ev
+			if clone.TimeZone == "" || clone.TimeZone == "UTC" {
+				clone.TimeZone = "Etc/UTC"
+			}
 			if clone.Start != "" {
 				loc := loadLocation(clone.TimeZone)
 				if t, ok := parseLocalDateTimeBound(clone.Start, loc); ok {
@@ -61,6 +64,9 @@ func handleCalendarEventGet(backend CalendarsBackend) MethodHandler {
 						}
 					}
 					clone.UTCEnd = t.Add(dur).UTC().Format("2006-01-02T15:04:05Z")
+				}
+				if strings.HasSuffix(clone.Start, "Z") {
+					clone.Start = strings.TrimSuffix(clone.Start, "Z")
 				}
 			}
 			filteredList = append(filteredList, &clone)
