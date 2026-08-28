@@ -28,7 +28,10 @@ type CalendarsBackend struct {
 	identityStates     map[string]int
 	notificationStates map[string]int
 
+	calsCache          map[string][]*jmap.Calendar
+	calsCacheTime      map[string]time.Time
 	eventsCache        map[string]map[jmap.Id]*jmap.CalendarEvent
+	eventsCacheTime    map[string]time.Time
 	identitiesCache    map[string]map[jmap.Id]*jmap.ParticipantIdentity
 	notificationsCache map[string]map[jmap.Id]*jmap.CalendarEventNotification
 }
@@ -43,7 +46,10 @@ func NewCalendarsBackend(client *Client) *CalendarsBackend {
 		eventStates:        make(map[string]int),
 		identityStates:     make(map[string]int),
 		notificationStates: make(map[string]int),
+		calsCache:          make(map[string][]*jmap.Calendar),
+		calsCacheTime:      make(map[string]time.Time),
 		eventsCache:        make(map[string]map[jmap.Id]*jmap.CalendarEvent),
+		eventsCacheTime:    make(map[string]time.Time),
 		identitiesCache:    make(map[string]map[jmap.Id]*jmap.ParticipantIdentity),
 		notificationsCache: make(map[string]map[jmap.Id]*jmap.CalendarEventNotification),
 	}
@@ -99,7 +105,46 @@ func (b *CalendarsBackend) GetAllCalendars(ctx context.Context) ([]*jmap.Calenda
 	return list, err
 }
 
+func filterCalendars(list []*jmap.Calendar, ids []jmap.Id) ([]*jmap.Calendar, []jmap.Id, error) {
+	if len(ids) == 0 {
+		return list, []jmap.Id{}, nil
+	}
+	idMap := make(map[jmap.Id]bool, len(ids))
+	for _, id := range ids {
+		idMap[id] = true
+	}
+	var filtered []*jmap.Calendar
+	foundMap := make(map[jmap.Id]bool, len(list))
+	for _, c := range list {
+		if idMap[c.ID] {
+			filtered = append(filtered, c)
+			foundMap[c.ID] = true
+		}
+	}
+	var notFound []jmap.Id
+	for _, id := range ids {
+		if !foundMap[id] {
+			notFound = append(notFound, id)
+		}
+	}
+	if notFound == nil {
+		notFound = []jmap.Id{}
+	}
+	return filtered, notFound, nil
+}
+
 func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmap.Id) ([]*jmap.Calendar, []jmap.Id, error) {
+	u := b.user(ctx)
+
+	b.mu.RLock()
+	cachedCals, hasCached := b.calsCache[u]
+	cacheAge := time.Since(b.calsCacheTime[u])
+	b.mu.RUnlock()
+
+	if hasCached && len(cachedCals) > 0 && cacheAge < 10*time.Second {
+		return filterCalendars(cachedCals, ids)
+	}
+
 	calClient, u, err := b.client.CalDAV(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -117,22 +162,17 @@ func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmap.Id) ([]*
 			SortOrder: 0,
 			MyRights:  jmap.FullCalendarRights(),
 		}
-		return []*jmap.Calendar{defaultCal}, nil, nil
+		b.mu.Lock()
+		b.calsCache[u] = []*jmap.Calendar{defaultCal}
+		b.calsCacheTime[u] = time.Now()
+		b.mu.Unlock()
+		return filterCalendars([]*jmap.Calendar{defaultCal}, ids)
 	}
 
 	var list []*jmap.Calendar
-	idMap := make(map[jmap.Id]bool)
-	for _, id := range ids {
-		idMap[id] = true
-	}
-
 	for _, c := range calList {
 		calID := path.Base(strings.TrimRight(c.Path, "/"))
 		if calID == "inbox" || calID == "outbox" || calID == "trashbin" {
-			continue
-		}
-
-		if len(ids) > 0 && !idMap[jmap.Id(calID)] {
 			continue
 		}
 
@@ -163,20 +203,12 @@ func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmap.Id) ([]*
 		})
 	}
 
-	var notFound []jmap.Id
-	if len(ids) > 0 {
-		foundMap := make(map[jmap.Id]bool)
-		for _, c := range list {
-			foundMap[c.ID] = true
-		}
-		for _, id := range ids {
-			if !foundMap[id] {
-				notFound = append(notFound, id)
-			}
-		}
-	}
+	b.mu.Lock()
+	b.calsCache[u] = list
+	b.calsCacheTime[u] = time.Now()
+	b.mu.Unlock()
 
-	return list, notFound, nil
+	return filterCalendars(list, ids)
 }
 
 func (b *CalendarsBackend) CreateCalendar(ctx context.Context, cal *jmap.Calendar) (*jmap.Calendar, error) {
@@ -196,6 +228,10 @@ func (b *CalendarsBackend) CreateCalendar(ctx context.Context, cal *jmap.Calenda
 	_ = calClient.Mkdir(ctx, calPath)
 
 	b.mu.Lock()
+	if b.calsCache[u] != nil {
+		b.calsCache[u] = append(b.calsCache[u], cal)
+	}
+	b.calsCacheTime[u] = time.Now()
 	b.calStates[u]++
 	st := strconv.Itoa(b.calStates[u])
 	b.mu.Unlock()
@@ -207,6 +243,7 @@ func (b *CalendarsBackend) CreateCalendar(ctx context.Context, cal *jmap.Calenda
 func (b *CalendarsBackend) UpdateCalendar(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.Calendar, error) {
 	u := b.user(ctx)
 	b.mu.Lock()
+	b.calsCacheTime[u] = time.Time{}
 	b.calStates[u]++
 	st := strconv.Itoa(b.calStates[u])
 	b.mu.Unlock()
@@ -231,6 +268,16 @@ func (b *CalendarsBackend) DeleteCalendar(ctx context.Context, id jmap.Id) (bool
 	_ = calClient.RemoveAll(ctx, calPath)
 
 	b.mu.Lock()
+	if b.calsCache[u] != nil {
+		var filtered []*jmap.Calendar
+		for _, c := range b.calsCache[u] {
+			if c.ID != id {
+				filtered = append(filtered, c)
+			}
+		}
+		b.calsCache[u] = filtered
+	}
+	b.calsCacheTime[u] = time.Now()
 	b.calStates[u]++
 	st := strconv.Itoa(b.calStates[u])
 	b.mu.Unlock()
@@ -286,75 +333,10 @@ func (b *CalendarsBackend) GetAllCalendarEvents(ctx context.Context) ([]*jmap.Ca
 	return evs, err
 }
 
-func (b *CalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmap.Id) ([]*jmap.CalendarEvent, []jmap.Id, error) {
-	calClient, u, err := b.client.CalDAV(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	b.mu.Lock()
-	if b.eventsCache[u] == nil {
-		b.eventsCache[u] = make(map[jmap.Id]*jmap.CalendarEvent)
-	}
-	b.mu.Unlock()
-
-	cals, _, _ := b.GetCalendars(ctx, nil)
-	idMap := make(map[jmap.Id]bool)
-	for _, id := range ids {
-		if strings.Contains(string(id), "#") {
-			parts := strings.SplitN(string(id), "#", 2)
-			idMap[jmap.Id(parts[0])] = true
-		} else {
-			idMap[id] = true
-		}
-	}
-
-	for _, cal := range cals {
-		calPath := fmt.Sprintf("calendars/%s/%s/", u, cal.ID)
-		fis, fErr := calClient.ReadDir(ctx, calPath, false)
-		if fErr != nil {
-			continue
-		}
-
-		for _, fi := range fis {
-			name := path.Base(fi.Path)
-			if !strings.HasSuffix(name, ".ics") {
-				continue
-			}
-
-			rawID := strings.TrimSuffix(name, ".ics")
-			evID := jmap.Id(rawID)
-
-			if len(ids) > 0 && !idMap[evID] {
-				continue
-			}
-
-			itemPath := calPath + name
-			calObj, gErr := calClient.GetCalendarObject(ctx, itemPath)
-			if gErr != nil || calObj == nil || calObj.Data == nil {
-				continue
-			}
-
-			var buf bytes.Buffer
-			_ = ical.NewEncoder(&buf).Encode(calObj.Data)
-
-			parsedList, pErr := jmap.ParseICalendar(buf.Bytes())
-			if pErr == nil && len(parsedList) > 0 {
-				ev := parsedList[0]
-				ev.ID = evID
-				if ev.CalendarIDs == nil {
-					ev.CalendarIDs = make(map[jmap.Id]bool)
-				}
-				ev.CalendarIDs[cal.ID] = true
-
-				b.mu.Lock()
-				b.eventsCache[u][evID] = ev
-				b.mu.Unlock()
-			}
-		}
-	}
-
+func (b *CalendarsBackend) buildEventResponseFromCache(u string, ids []jmap.Id) ([]*jmap.CalendarEvent, []jmap.Id) {
 	b.mu.RLock()
+	defer b.mu.RUnlock()
+
 	var list []*jmap.CalendarEvent
 	var notFound []jmap.Id
 	if len(ids) == 0 {
@@ -398,8 +380,105 @@ func (b *CalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmap.Id)
 			}
 		}
 	}
+	if notFound == nil {
+		notFound = []jmap.Id{}
+	}
+	return list, notFound
+}
+
+func (b *CalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmap.Id) ([]*jmap.CalendarEvent, []jmap.Id, error) {
+	u := b.user(ctx)
+
+	b.mu.RLock()
+	cache := b.eventsCache[u]
+	cacheAge := time.Since(b.eventsCacheTime[u])
 	b.mu.RUnlock()
 
+	// Check if all requested IDs can be satisfied immediately from cache
+	canServeFromCache := false
+	if cache != nil {
+		if len(ids) == 0 && cacheAge < 5*time.Second {
+			canServeFromCache = true
+		} else if len(ids) > 0 {
+			canServeFromCache = true
+			for _, id := range ids {
+				masterID := id
+				if strings.Contains(string(id), "#") {
+					parts := strings.SplitN(string(id), "#", 2)
+					masterID = jmap.Id(parts[0])
+				}
+				if _, ok := cache[masterID]; !ok {
+					canServeFromCache = false
+					break
+				}
+			}
+		}
+	}
+
+	if canServeFromCache {
+		list, notFound := b.buildEventResponseFromCache(u, ids)
+		return list, notFound, nil
+	}
+
+	calClient, u, err := b.client.CalDAV(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	b.mu.Lock()
+	if b.eventsCache[u] == nil {
+		b.eventsCache[u] = make(map[jmap.Id]*jmap.CalendarEvent)
+	}
+	b.mu.Unlock()
+
+	cals, _, _ := b.GetCalendars(ctx, nil)
+
+	for _, cal := range cals {
+		calPath := fmt.Sprintf("calendars/%s/%s/", u, cal.ID)
+		fis, fErr := calClient.ReadDir(ctx, calPath, false)
+		if fErr != nil {
+			continue
+		}
+
+		for _, fi := range fis {
+			name := path.Base(fi.Path)
+			if !strings.HasSuffix(name, ".ics") {
+				continue
+			}
+
+			rawID := strings.TrimSuffix(name, ".ics")
+			evID := jmap.Id(rawID)
+
+			itemPath := calPath + name
+			calObj, gErr := calClient.GetCalendarObject(ctx, itemPath)
+			if gErr != nil || calObj == nil || calObj.Data == nil {
+				continue
+			}
+
+			var buf bytes.Buffer
+			_ = ical.NewEncoder(&buf).Encode(calObj.Data)
+
+			parsedList, pErr := jmap.ParseICalendar(buf.Bytes())
+			if pErr == nil && len(parsedList) > 0 {
+				ev := parsedList[0]
+				ev.ID = evID
+				if ev.CalendarIDs == nil {
+					ev.CalendarIDs = make(map[jmap.Id]bool)
+				}
+				ev.CalendarIDs[cal.ID] = true
+
+				b.mu.Lock()
+				b.eventsCache[u][evID] = ev
+				b.mu.Unlock()
+			}
+		}
+	}
+
+	b.mu.Lock()
+	b.eventsCacheTime[u] = time.Now()
+	b.mu.Unlock()
+
+	list, notFound := b.buildEventResponseFromCache(u, ids)
 	return list, notFound, nil
 }
 
@@ -465,6 +544,7 @@ func (b *CalendarsBackend) CreateCalendarEvent(ctx context.Context, event *jmap.
 		b.eventsCache[u] = make(map[jmap.Id]*jmap.CalendarEvent)
 	}
 	b.eventsCache[u][event.ID] = event
+	b.eventsCacheTime[u] = time.Now()
 	b.eventStates[u]++
 	st := strconv.Itoa(b.eventStates[u])
 	b.mu.Unlock()
@@ -702,6 +782,7 @@ func (b *CalendarsBackend) DeleteCalendarEvent(ctx context.Context, id jmap.Id) 
 	if b.eventsCache[u] != nil {
 		delete(b.eventsCache[u], id)
 	}
+	b.eventsCacheTime[u] = time.Now()
 	b.eventStates[u]++
 	st := strconv.Itoa(b.eventStates[u])
 	b.mu.Unlock()
