@@ -147,6 +147,17 @@ func nameToVCard(card map[string]any, language, altID string) []vcardField {
 
 	full := strField(name, "full")
 	comps := nameComponents(name)
+	if len(comps) == 0 && full != "" {
+		parts := strings.Fields(full)
+		if len(parts) == 1 {
+			comps = []nameComponent{{kind: "given", value: parts[0]}}
+		} else if len(parts) >= 2 {
+			comps = []nameComponent{
+				{kind: "given", value: parts[0]},
+				{kind: "surname", value: strings.Join(parts[1:], " ")},
+			}
+		}
+	}
 	switch {
 	case full != "":
 		fields = append(fields, vcardField{Name: "FN", Params: params, Value: full})

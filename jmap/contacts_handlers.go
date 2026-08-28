@@ -233,6 +233,40 @@ func handleCardGet(backend ContactsBackend) MethodHandler {
 		if err != nil || list == nil {
 			list = []*Card{}
 		}
+		for _, card := range list {
+			if card == nil {
+				continue
+			}
+			if card.Type == "" {
+				card.Type = "Card"
+			}
+			if card.Version == "" {
+				card.Version = "1.0"
+			}
+			if card.Name != nil {
+				if len(card.Name.Components) == 0 && card.Name.Full != "" {
+					parts := strings.Fields(card.Name.Full)
+					if len(parts) == 1 {
+						card.Name.Components = []*JSContactNameComponent{
+							{Value: parts[0], Kind: "given"},
+						}
+					} else if len(parts) >= 2 {
+						card.Name.Components = []*JSContactNameComponent{
+							{Value: parts[0], Kind: "given"},
+							{Value: strings.Join(parts[1:], " "), Kind: "surname"},
+						}
+					}
+				} else if card.Name.Full == "" && len(card.Name.Components) > 0 {
+					var compVals []string
+					for _, c := range card.Name.Components {
+						if c != nil && c.Value != "" {
+							compVals = append(compVals, c.Value)
+						}
+					}
+					card.Name.Full = strings.Join(compVals, " ")
+				}
+			}
+		}
 		if notFound == nil {
 			notFound = []Id{}
 		}

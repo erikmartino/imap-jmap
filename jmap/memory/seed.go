@@ -371,9 +371,17 @@ func SeedAccountSampleData(ctx context.Context, accountID string, mb jmap.MailBa
 			card1 := &jmap.Card{
 				ID:             "card-seed-1",
 				AddressBookIDs: map[jmap.Id]bool{"ab-default": true},
+				Type:           "Card",
+				Version:        "1.0",
 				Kind:           "individual",
-				Name:           &jmap.JSContactName{Full: "Alice Smith"},
-				Emails:         map[string]*jmap.JSContactEmailAddress{"e1": {Address: "alice@example.com"}},
+				Name: &jmap.JSContactName{
+					Full: "Alice Smith",
+					Components: []*jmap.JSContactNameComponent{
+						{Value: "Alice", Kind: "given"},
+						{Value: "Smith", Kind: "surname"},
+					},
+				},
+				Emails: map[string]*jmap.JSContactEmailAddress{"e1": {Address: "alice@example.com"}},
 			}
 			_, _ = contactsB.CreateCard(accountCtx, card1)
 		}

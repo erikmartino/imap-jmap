@@ -275,10 +275,36 @@ func applyNames(out map[string]any, card vcard.Card) {
 		name := nameFromGroup(g)
 		if g.base {
 			if name != nil {
+				if _, hasComps := name["components"]; !hasComps && g.fn != nil && g.fn.Value != "" {
+					fnVal := strings.TrimSpace(g.fn.Value)
+					parts := strings.Fields(fnVal)
+					if len(parts) == 1 {
+						name["components"] = []any{map[string]any{"kind": "given", "value": parts[0]}}
+					} else if len(parts) >= 2 {
+						name["components"] = []any{
+							map[string]any{"kind": "given", "value": parts[0]},
+							map[string]any{"kind": "surname", "value": strings.Join(parts[1:], " ")},
+						}
+					}
+				}
+				if _, hasFull := name["full"]; !hasFull && g.fn != nil {
+					name["full"] = g.fn.Value
+				}
 				out["name"] = name
 			} else if g.fn != nil {
-				// Only FN, no N: still a name with a full value.
-				out["name"] = map[string]any{"full": g.fn.Value}
+				// Only FN, no N: populate full and derive components.
+				fnVal := strings.TrimSpace(g.fn.Value)
+				nameObj := map[string]any{"full": fnVal}
+				parts := strings.Fields(fnVal)
+				if len(parts) == 1 {
+					nameObj["components"] = []any{map[string]any{"kind": "given", "value": parts[0]}}
+				} else if len(parts) >= 2 {
+					nameObj["components"] = []any{
+						map[string]any{"kind": "given", "value": parts[0]},
+						map[string]any{"kind": "surname", "value": strings.Join(parts[1:], " ")},
+					}
+				}
+				out["name"] = nameObj
 			}
 			continue
 		}
@@ -329,8 +355,23 @@ func nameFromGroup(g *nameGroup) map[string]any {
 		obj := map[string]any{"kind": c.kind, "value": c.value}
 		orderedComps = append(orderedComps, obj)
 	}
+	if len(orderedComps) == 0 && g.fn != nil && g.fn.Value != "" {
+		fnVal := strings.TrimSpace(g.fn.Value)
+		parts := strings.Fields(fnVal)
+		if len(parts) == 1 {
+			orderedComps = append(orderedComps, map[string]any{"kind": "given", "value": parts[0]})
+		} else if len(parts) >= 2 {
+			orderedComps = append(orderedComps,
+				map[string]any{"kind": "given", "value": parts[0]},
+				map[string]any{"kind": "surname", "value": strings.Join(parts[1:], " ")},
+			)
+		}
+	}
 	if len(orderedComps) > 0 {
 		name["components"] = orderedComps
+	}
+	if g.fn != nil && g.fn.Value != "" {
+		name["full"] = g.fn.Value
 	}
 
 	if parsed.sortAs != nil {
