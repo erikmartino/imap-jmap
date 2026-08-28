@@ -23,7 +23,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		}
 
 		// Unauthenticated endpoints.
-		if strings.HasSuffix(r.URL.Path, "/jmap/login") || r.URL.Path == "/version" || r.URL.Path == "/" {
+		if strings.HasSuffix(r.URL.Path, "/jmap/login") || r.URL.Path == "/version" || r.URL.Path == "/" || (strings.HasPrefix(r.URL.Path, "/.well-known/") && !strings.HasSuffix(r.URL.Path, "/.well-known/jmap")) {
 			next.ServeHTTP(w, r)
 			return
 		}

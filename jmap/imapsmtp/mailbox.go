@@ -56,6 +56,10 @@ func DetectRole(name string, attrs []imap.MailboxAttr) string {
 		return "junk"
 	case strings.Contains(lower, "archive"):
 		return "archive"
+	case strings.Contains(lower, "outbox"):
+		return "outbox"
+	case strings.Contains(lower, "template"):
+		return "templates"
 	default:
 		return ""
 	}
@@ -136,6 +140,9 @@ func (b *IMAPSMTPBackend) GetAllMailboxes(ctx context.Context) ([]*jmap.Mailbox,
 			rolePtr = &role
 		}
 
+		mayRename := !strings.EqualFold(name, "INBOX")
+		mayDelete := !strings.EqualFold(name, "INBOX")
+
 		mb := &jmap.Mailbox{
 			ID:            mbID,
 			Name:          dispName,
@@ -145,6 +152,18 @@ func (b *IMAPSMTPBackend) GetAllMailboxes(ctx context.Context) ([]*jmap.Mailbox,
 			UnreadEmails:  unread,
 			TotalThreads:  total,
 			UnreadThreads: unread,
+			MyRights: jmap.MailboxRights{
+				MayReadItems:   !hasNoSelect,
+				MayAddItems:    !hasNoSelect,
+				MayRemoveItems: !hasNoSelect,
+				MaySetSeen:     !hasNoSelect,
+				MaySetKeywords: !hasNoSelect,
+				MayCreateChild: true,
+				MayRename:      mayRename,
+				MayDelete:      mayDelete,
+				MaySubmit:      true,
+				MayAdmin:       true,
+			},
 			IsSubscribed:  true,
 		}
 		result = append(result, mb)

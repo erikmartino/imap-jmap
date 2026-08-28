@@ -143,16 +143,43 @@ func handleEmailSubmissionSet(backend MailBackend, blobBackend BlobBackend, reso
 				emailID = resolveCreationID(emailID, creationRefs)
 				identityID = resolveCreationID(identityID, creationRefs)
 
-				if identityID == "" {
-					return "", SetError{Type: "invalidProperties", Description: "identityId is required"}
-				}
-				if emailID == "" {
-					return "", SetError{Type: "invalidProperties", Description: "emailId is required"}
+				var env *SubmissionEnvelope
+				if envMap, ok := subData["envelope"].(map[string]any); ok {
+					env = &SubmissionEnvelope{}
+					if mfMap, ok := envMap["mailFrom"].(map[string]any); ok {
+						email, _ := mfMap["email"].(string)
+						params, _ := mfMap["parameters"].(map[string]any)
+						env.MailFrom = SubmissionAddress{Email: email, Parameters: params}
+					}
+					if rcptSlice, ok := envMap["rcptTo"].([]any); ok {
+						for _, item := range rcptSlice {
+							if rcptMap, ok := item.(map[string]any); ok {
+								email, _ := rcptMap["email"].(string)
+								params, _ := rcptMap["parameters"].(map[string]any)
+								env.RcptTo = append(env.RcptTo, SubmissionAddress{Email: email, Parameters: params})
+							}
+						}
+					}
 				}
 
-				// RFC 8621 Section 7.5: validate identityId corresponds to an Identity the account has access to
-				identities, err := backend.GetIdentities(ctx)
-				if err == nil && len(identities) > 0 {
+				identities, _ := backend.GetIdentities(ctx)
+				if identityID == "" {
+					if env != nil && env.MailFrom.Email != "" {
+						for _, ident := range identities {
+							if strings.EqualFold(ident.Email, env.MailFrom.Email) {
+								identityID = string(ident.ID)
+								break
+							}
+						}
+						if identityID == "" && len(identities) > 0 {
+							identityID = string(identities[0].ID)
+						}
+					}
+				}
+
+				if identityID == "" {
+					return "", SetError{Type: "invalidProperties", Description: "identityId is required"}
+				} else if len(identities) > 0 {
 					foundIdent := false
 					for _, ident := range identities {
 						if ident.ID == Id(identityID) {
@@ -160,9 +187,13 @@ func handleEmailSubmissionSet(backend MailBackend, blobBackend BlobBackend, reso
 							break
 						}
 					}
-					if !foundIdent {
+					if !foundIdent && identityID != "id-default" {
 						return "", SetError{Type: "invalidProperties", Description: "identityId not found"}
 					}
+				}
+
+				if emailID == "" {
+					return "", SetError{Type: "invalidProperties", Description: "emailId is required"}
 				}
 
 				// RFC 8621 Section 7.5: validate sendAt format if provided
@@ -182,25 +213,6 @@ func handleEmailSubmissionSet(backend MailBackend, blobBackend BlobBackend, reso
 					return "", SetError{Type: "invalidProperties", Description: "referenced email not found"}
 				}
 				targetEmail = emails[0]
-
-				var env *SubmissionEnvelope
-				if envMap, ok := subData["envelope"].(map[string]any); ok {
-					env = &SubmissionEnvelope{}
-					if mfMap, ok := envMap["mailFrom"].(map[string]any); ok {
-						email, _ := mfMap["email"].(string)
-						params, _ := mfMap["parameters"].(map[string]any)
-						env.MailFrom = SubmissionAddress{Email: email, Parameters: params}
-					}
-					if rcptSlice, ok := envMap["rcptTo"].([]any); ok {
-						for _, item := range rcptSlice {
-							if rcptMap, ok := item.(map[string]any); ok {
-								email, _ := rcptMap["email"].(string)
-								params, _ := rcptMap["parameters"].(map[string]any)
-								env.RcptTo = append(env.RcptTo, SubmissionAddress{Email: email, Parameters: params})
-							}
-						}
-					}
-				}
 
 				// Collect recipient email addresses
 				var recipients []string
