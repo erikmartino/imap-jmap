@@ -28,20 +28,55 @@ func NewMemoryPrincipalsBackend() *MemoryPrincipalsBackend {
 		state:      1,
 	}
 
-	// Seed default user principal
-	defaultAccID := jmap.AccountIDForSubject("user@example.com")
-	defaultPrincipal := &jmap.Principal{
-		ID:                 "p-primary",
-		Type:               "individual",
-		Name:               "User Example",
-		Description:        "Primary user principal",
-		Email:              "user@example.com",
-		CalendarAddress:    "mailto:user@example.com",
-		MayGetAvailability: true,
-		MayShareWith:       true,
-		AccountIDs:         map[string]bool{defaultAccID: true},
+	// Seed users
+	users := []struct {
+		id, name, email string
+	}{
+		{"p-primary", "User Example", "user@example.com"},
+		{"p-alice", "Alice Smith", "alice@example.com"},
+		{"p-bob", "Bob Jones", "bob@example.com"},
+		{"p-carol", "Carol Danvers", "carol@example.com"},
 	}
-	b.principals[defaultPrincipal.ID] = defaultPrincipal
+	for _, u := range users {
+		accID := jmap.AccountIDForSubject(u.email)
+		b.principals[jmap.Id(u.id)] = &jmap.Principal{
+			ID:                 jmap.Id(u.id),
+			Type:               "individual",
+			Name:               u.name,
+			Email:              u.email,
+			CalendarAddress:    "mailto:" + u.email,
+			MayGetAvailability: true,
+			MayShareWith:       true,
+			AccountIDs:         map[string]bool{accID: true},
+		}
+	}
+
+	// Seed groups
+	groups := []struct {
+		id, name, email, desc string
+		members               []string
+	}{
+		{"p-team", "Engineering Team", "team@example.com", "Engineering department group", []string{"p-primary", "p-alice", "p-bob"}},
+		{"p-all", "All Staff", "all@example.com", "All company staff group", []string{"p-primary", "p-alice", "p-bob", "p-carol"}},
+		{"p-marketing", "Marketing Group", "marketing@example.com", "Marketing department group", []string{"p-carol"}},
+	}
+	for _, g := range groups {
+		membersMap := make(map[string]bool)
+		for _, m := range g.members {
+			membersMap[m] = true
+		}
+		b.principals[jmap.Id(g.id)] = &jmap.Principal{
+			ID:                 jmap.Id(g.id),
+			Type:               "group",
+			Name:               g.name,
+			Email:              g.email,
+			Description:        g.desc,
+			CalendarAddress:    "mailto:" + g.email,
+			Members:            membersMap,
+			MayGetAvailability: true,
+			MayShareWith:       true,
+		}
+	}
 
 	return b
 }
@@ -71,7 +106,43 @@ func (b *MemoryPrincipalsBackend) PrincipalChanges(ctx context.Context, sinceSta
 	return created, []jmap.Id{}, []jmap.Id{}, newState, false
 }
 
+func (b *MemoryPrincipalsBackend) ensurePrincipalForContext(ctx context.Context) {
+	subject, ok := jmap.SubjectFromContext(ctx)
+	if !ok || subject == "" {
+		return
+	}
+	accID, _ := jmap.AccountIDFromContext(ctx)
+	if accID == "" {
+		accID = jmap.AccountIDForSubject(subject)
+	}
+	for _, p := range b.principals {
+		if p.Email == subject || (p.AccountIDs != nil && p.AccountIDs[accID]) {
+			return
+		}
+	}
+	name := subject
+	if parts := strings.Split(subject, "@"); len(parts) > 0 {
+		name = strings.Title(strings.ReplaceAll(parts[0], ".", " "))
+	}
+	id := jmap.Id(fmt.Sprintf("p-%d", len(b.principals)+1))
+	p := &jmap.Principal{
+		ID:                 id,
+		Type:               "individual",
+		Name:               name,
+		Email:              subject,
+		CalendarAddress:    "mailto:" + subject,
+		MayGetAvailability: true,
+		MayShareWith:       true,
+		AccountIDs:         map[string]bool{accID: true},
+	}
+	b.principals[id] = p
+}
+
 func (b *MemoryPrincipalsBackend) GetPrincipals(ctx context.Context, ids []jmap.Id) (list []*jmap.Principal, notFound []jmap.Id, err error) {
+	b.mu.Lock()
+	b.ensurePrincipalForContext(ctx)
+	b.mu.Unlock()
+
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -87,6 +158,10 @@ func (b *MemoryPrincipalsBackend) GetPrincipals(ctx context.Context, ids []jmap.
 }
 
 func (b *MemoryPrincipalsBackend) GetAllPrincipals(ctx context.Context) ([]*jmap.Principal, error) {
+	b.mu.Lock()
+	b.ensurePrincipalForContext(ctx)
+	b.mu.Unlock()
+
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -155,14 +230,16 @@ func (b *MemoryPrincipalsBackend) DeletePrincipal(ctx context.Context, id jmap.I
 }
 
 func (b *MemoryPrincipalsBackend) QueryPrincipals(ctx context.Context, filter map[string]any, position int, limit *uint64) (ids []jmap.Id, total int, err error) {
+	b.mu.Lock()
+	b.ensurePrincipalForContext(ctx)
+	b.mu.Unlock()
+
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
 	var matched []jmap.Id
-	emailFilter, _ := filter["email"].(string)
-
 	for id, p := range b.principals {
-		if emailFilter != "" && p.Email != emailFilter {
+		if !jmap.MatchPrincipal(p, filter) {
 			continue
 		}
 		matched = append(matched, id)

@@ -260,6 +260,42 @@ test.describe('calendar (Bulwark UI ↔ imap-jmap over JMAP)', () => {
     await expect(dialog).toBeHidden({ timeout: 15_000 });
   });
 
+  test('opens calendar share dialog, lists users and groups, and shares with Alice Smith', async ({ page }) => {
+    const acct = uniqueUser('cal-share-test');
+    await login(page, acct.username, acct.password);
+    await goToApp(page, '/en/calendar');
+
+    const personalCal = page.getByText('Personal Calendar').first();
+    await expect(personalCal).toBeVisible({ timeout: 20_000 });
+    await personalCal.click({ button: 'right' });
+
+    const shareItem = page.getByRole('menuitem', { name: 'Share calendar' });
+    await expect(shareItem).toBeVisible({ timeout: 15_000 });
+    await shareItem.click();
+
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible({ timeout: 15_000 });
+
+    const addBtn = dialog.getByRole('button', { name: 'Add person or group' });
+    await expect(addBtn).toBeVisible({ timeout: 15_000 });
+    await addBtn.click();
+
+    // Verify groups and users are listed
+    await expect(dialog.getByText('All Staff')).toBeVisible({ timeout: 10_000 });
+    await expect(dialog.getByText('Engineering Team')).toBeVisible({ timeout: 10_000 });
+    await expect(dialog.getByText('Alice Smith')).toBeVisible({ timeout: 10_000 });
+
+    // Select Alice Smith to share with
+    await dialog.getByText('Alice Smith').first().click();
+
+    // Verify Alice is added to share list in dialog
+    await expect(dialog.locator('li', { hasText: 'Alice Smith' })).toBeVisible({ timeout: 10_000 });
+
+    // Close dialog
+    await dialog.getByRole('button', { name: 'Close' }).last().click();
+    await expect(dialog).toBeHidden({ timeout: 15_000 });
+  });
+
   // ---- Protocol (the exact wire API the client uses) -----------------------
 
   test('CalendarEvent lifecycle over JMAP: create → query → get → update → destroy', async () => {

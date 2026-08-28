@@ -160,6 +160,8 @@ func main() {
 
 	memSieveBackend := memory.NewMemorySieveBackend()
 	memIMAPBackend := memory.NewMemoryIMAPAccessBackend()
+	memPrincipalsBackend := memory.NewMemoryPrincipalsBackend()
+	memPrincipalsBackend.SetCalendarsBackend(calBackend)
 	devAuthBackend := memory.NewMemoryAuthBackend()
 	devAuthBackend.SetBackends(mailBackend, blobBackend, calBackend, contactsBackend, fileNodeBackend)
 
@@ -231,6 +233,7 @@ func main() {
 		jmap.WithSieveBackend(memSieveBackend),
 		jmap.WithIMAPAccessBackend(memIMAPBackend),
 		jmap.WithFileNodeBackend(fileNodeBackend),
+		jmap.WithPrincipalsBackend(memPrincipalsBackend),
 		jmap.WithAuthBackend(authBackend),
 		jmap.WithAccountResolver(accountResolver),
 		jmap.WithAllowedRecipients(allowedSlice),
