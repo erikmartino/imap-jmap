@@ -665,6 +665,7 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		// Email/set (onSuccessUpdateEmail / onSuccessDestroyEmail), whose response MUST
 		// follow the EmailSubmission/set response with the same client call id.
 		for _, extra := range drainResponseSpill(reqCtx) {
+			normalizeSetResult(extra.Name, extra.Args)
 			responses = append(responses, extra)
 		}
 	}

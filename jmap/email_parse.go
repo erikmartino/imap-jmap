@@ -675,7 +675,7 @@ func parseRFC822Simple(raw []byte) (*Email, error) {
 		Attachments: []EmailBodyPart{},
 		ReceivedAt:  now,
 		BodyValues:  map[string]EmailBodyValue{"1": {Value: bodyStr}},
-		Preview:     preview(bodyStr, 256),
+		Preview:     preview(stripHTMLTags(bodyStr), 256),
 	}
 
 	em.BodyStructure = EmailBodyPart{

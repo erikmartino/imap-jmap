@@ -145,6 +145,27 @@ func formatEmailGet(em *Email, props []string, parsedHeaderProps []*ParsedHeader
 	}
 
 	if props == nil {
+		from := em.From
+		if from == nil {
+			from = []EmailAddress{}
+		}
+		to := em.To
+		if to == nil {
+			to = []EmailAddress{}
+		}
+		cc := em.CC
+		if cc == nil {
+			cc = []EmailAddress{}
+		}
+		bcc := em.BCC
+		if bcc == nil {
+			bcc = []EmailAddress{}
+		}
+		replyTo := em.ReplyTo
+		if replyTo == nil {
+			replyTo = []EmailAddress{}
+		}
+
 		out := map[string]any{
 			"id":            em.ID,
 			"blobId":        em.BlobID,
@@ -157,11 +178,11 @@ func formatEmailGet(em *Email, props []string, parsedHeaderProps []*ParsedHeader
 			"inReplyTo":     em.InReplyTo,
 			"references":    em.References,
 			"sender":        em.Sender,
-			"from":          em.From,
-			"to":            em.To,
-			"cc":            em.CC,
-			"bcc":           em.BCC,
-			"replyTo":       em.ReplyTo,
+			"from":          from,
+			"to":            to,
+			"cc":            cc,
+			"bcc":           bcc,
+			"replyTo":       replyTo,
 			"subject":       em.Subject,
 			"sentAt":        em.SentAt,
 			"textBody":      filteredTextBody,
@@ -223,15 +244,35 @@ func formatEmailGet(em *Email, props []string, parsedHeaderProps []*ParsedHeader
 		case "sender":
 			out["sender"] = em.Sender
 		case "from":
-			out["from"] = em.From
+			if em.From == nil {
+				out["from"] = []EmailAddress{}
+			} else {
+				out["from"] = em.From
+			}
 		case "to":
-			out["to"] = em.To
+			if em.To == nil {
+				out["to"] = []EmailAddress{}
+			} else {
+				out["to"] = em.To
+			}
 		case "cc":
-			out["cc"] = em.CC
+			if em.CC == nil {
+				out["cc"] = []EmailAddress{}
+			} else {
+				out["cc"] = em.CC
+			}
 		case "bcc":
-			out["bcc"] = em.BCC
+			if em.BCC == nil {
+				out["bcc"] = []EmailAddress{}
+			} else {
+				out["bcc"] = em.BCC
+			}
 		case "replyTo":
-			out["replyTo"] = em.ReplyTo
+			if em.ReplyTo == nil {
+				out["replyTo"] = []EmailAddress{}
+			} else {
+				out["replyTo"] = em.ReplyTo
+			}
 		case "subject":
 			out["subject"] = em.Subject
 		case "sentAt":

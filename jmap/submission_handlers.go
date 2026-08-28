@@ -412,11 +412,28 @@ func handleEmailSubmissionSet(backend MailBackend, blobBackend BlobBackend, reso
 					return "", fmt.Errorf("forbidden: no recipient is deliverable")
 				}
 
+				threadID := Id(emailID)
+				if targetEmail != nil && targetEmail.ThreadID != "" {
+					threadID = targetEmail.ThreadID
+				}
+				if sendAt == "" {
+					sendAt = time.Now().UTC().Format(time.RFC3339)
+				}
+
+				undoStatus := "final"
+				if sendAt != "" {
+					if t, err := time.Parse(time.RFC3339, sendAt); err == nil && t.After(time.Now()) {
+						undoStatus = "pending"
+					}
+				}
+
 				sub, err := backend.CreateSubmission(ctx, &EmailSubmission{
 					IdentityID:     Id(identityID),
 					EmailID:        Id(emailID),
+					ThreadID:       threadID,
 					Envelope:       env,
 					SendAt:         sendAt,
+					UndoStatus:     undoStatus,
 					DeliveryStatus: deliveryStatus,
 				})
 				if err != nil {
