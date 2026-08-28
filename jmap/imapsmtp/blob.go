@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -176,8 +175,8 @@ func (b *IMAPSMTPBackend) GetBlob(ctx context.Context, accountID, blobID string)
 		return blob, true, nil
 	}
 
-	// Check if blobID is an Email ID format (<mbID>:<uid>)
-	if strings.Contains(blobID, ":") {
+	// Check if blobID is an Email ID format (<mbID>-<uid> or <mbID>:<uid>)
+	if _, _, err := ParseEmailID(jmap.Id(blobID)); err == nil {
 		emails, notFound, err := b.GetEmails(ctx, []jmap.Id{jmap.Id(blobID)})
 		if err == nil && len(emails) > 0 && len(notFound) == 0 {
 			raw := jmap.FormatEmailRFC822(emails[0])

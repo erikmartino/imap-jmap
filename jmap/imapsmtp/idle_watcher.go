@@ -27,11 +27,21 @@ func (b *IMAPSMTPBackend) ensureIdleWatcher(accountID string, creds jmap.AuthCre
 
 	go func() {
 		for {
+			if b.ctx.Err() != nil {
+				return
+			}
 			err := b.runIdleLoop(accountID, creds)
+			if b.ctx.Err() != nil {
+				return
+			}
 			if err != nil {
 				slog.Debug("IMAP IDLE watcher connection disconnected, reconnecting in 3s", "accountID", accountID, "error", err)
 			}
-			time.Sleep(3 * time.Second)
+			select {
+			case <-b.ctx.Done():
+				return
+			case <-time.After(3 * time.Second):
+			}
 		}
 	}()
 }
@@ -112,6 +122,12 @@ func (b *IMAPSMTPBackend) runIdleLoop(accountID string, creds jmap.AuthCredentia
 		keepaliveTimer := time.NewTimer(15 * time.Minute)
 
 		select {
+		case <-b.ctx.Done():
+			_ = idleCmd.Close()
+			_ = idleCmd.Wait()
+			keepaliveTimer.Stop()
+			return nil
+
 		case <-notifyCh:
 			// Drain any coalesced notification events
 			for len(notifyCh) > 0 {

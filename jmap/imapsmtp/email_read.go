@@ -489,7 +489,7 @@ func buildIMAPSearchCriteria(filter map[string]any) *imap.SearchCriteria {
 	}
 	if before, ok := filter["before"].(string); ok && before != "" {
 		if t, err := time.Parse(time.RFC3339, before); err == nil {
-			crit.Before = t
+			crit.Before = t.AddDate(0, 0, 1)
 		}
 	}
 	if after, ok := filter["after"].(string); ok && after != "" {
@@ -549,6 +549,18 @@ func (b *IMAPSMTPBackend) QueryEmails(ctx context.Context, filter map[string]any
 	targetFolders := extractTargetFolders(filter, allFolderNames)
 	searchCriteria := buildIMAPSearchCriteria(filter)
 
+	var beforeTime, afterTime *time.Time
+	if bStr, ok := filter["before"].(string); ok && bStr != "" {
+		if t, err := time.Parse(time.RFC3339, bStr); err == nil {
+			beforeTime = &t
+		}
+	}
+	if aStr, ok := filter["after"].(string); ok && aStr != "" {
+		if t, err := time.Parse(time.RFC3339, aStr); err == nil {
+			afterTime = &t
+		}
+	}
+
 	var allMatching []struct {
 		mbID jmap.Id
 		uid  uint32
@@ -574,11 +586,17 @@ func (b *IMAPSMTPBackend) QueryEmails(ctx context.Context, filter map[string]any
 			for _, u := range uids {
 				uidSet.AddNum(u)
 			}
-			fetchCmd := client.Fetch(uidSet, &imap.FetchOptions{Envelope: true, UID: true})
+			fetchCmd := client.Fetch(uidSet, &imap.FetchOptions{Envelope: true, UID: true, InternalDate: true})
 			msgs, err := fetchCmd.Collect()
 			if err == nil {
 				for _, msg := range msgs {
 					if msg.Envelope != nil && strings.HasPrefix(msg.Envelope.Subject, blobStagingMarker) {
+						continue
+					}
+					if beforeTime != nil && !msg.InternalDate.IsZero() && !msg.InternalDate.Before(*beforeTime) {
+						continue
+					}
+					if afterTime != nil && !msg.InternalDate.IsZero() && !msg.InternalDate.After(*afterTime) {
 						continue
 					}
 					allMatching = append(allMatching, struct {

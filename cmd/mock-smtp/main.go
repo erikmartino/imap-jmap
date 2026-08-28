@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/emersion/go-sasl"
 	"github.com/emersion/go-smtp"
@@ -121,9 +122,9 @@ func authenticateLDAP(ldapHost, username, password string) error {
 }
 
 func deliverLMTP(recipient, from string, data []byte) {
-	conn, err := net.Dial("tcp", "dovecot:24")
+	conn, err := net.DialTimeout("tcp", "imap-jmap:1025", 2*time.Second)
 	if err != nil {
-		conn, err = net.Dial("tcp", "imap-jmap:1025")
+		conn, err = net.DialTimeout("tcp", "dovecot:24", 500*time.Millisecond)
 		if err != nil {
 			log.Printf("[MockSMTP] Internal delivery skipped (no active LMTP/SMTP listener): %v", err)
 			return
@@ -133,18 +134,22 @@ func deliverLMTP(recipient, from string, data []byte) {
 
 	client, err := netsmtp.NewClient(conn, "profundo.dk")
 	if err != nil {
+		log.Printf("[MockSMTP] SMTP client handshake failed: %v", err)
 		return
 	}
 	defer client.Quit()
 
 	if err := client.Mail(from); err != nil {
+		log.Printf("[MockSMTP] SMTP MAIL failed: %v", err)
 		return
 	}
 	if err := client.Rcpt(recipient); err != nil {
+		log.Printf("[MockSMTP] SMTP RCPT failed: %v", err)
 		return
 	}
 	w, err := client.Data()
 	if err != nil {
+		log.Printf("[MockSMTP] SMTP DATA failed: %v", err)
 		return
 	}
 	w.Write(data)

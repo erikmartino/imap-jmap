@@ -45,6 +45,23 @@ func TestStructuredEMLParsing(t *testing.T) {
 	}
 }
 
+func TestSwaksMessageParsing(t *testing.T) {
+	raw := []byte("Date: Fri, 28 Aug 2026 17:25:20 +0200\r\n" +
+		"To: a@example.com\r\n" +
+		"From: sender@example.com\r\n" +
+		"Subject: Push test to a@example.com\r\n" +
+		"\r\n" +
+		"Testing real-time push to open inbox.\r\n")
+	em, err := parseRFC822(raw)
+	if err != nil {
+		t.Fatalf("parseRFC822 failed: %v", err)
+	}
+	t.Logf("Subject: %s", em.Subject)
+	t.Logf("Preview: %s", em.Preview)
+	t.Logf("TextBody: %+v", em.TextBody)
+	t.Logf("BodyValues: %+v", em.BodyValues)
+}
+
 func TestRichTextEmailFormatAndParseRoundTrip(t *testing.T) {
 	part1 := "1"
 	part2 := "2"

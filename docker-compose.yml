@@ -134,7 +134,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: smtp-server
-    command: ["/mock-smtp"]
+    entrypoint: ["/mock-smtp"]
     ports:
       - "2525:25"
     environment:

@@ -15,6 +15,9 @@ type IMAPSMTPBackend struct {
 	smtpHost string
 	pool     *ClientPool
 
+	ctx    context.Context
+	cancel context.CancelFunc
+
 	broadcaster *jmap.Broadcaster
 
 	accountsMu     sync.Mutex
@@ -36,15 +39,29 @@ var _ jmap.BlobBackend = (*IMAPSMTPBackend)(nil)
 
 // New creates a new IMAP/SMTP gateway backend.
 func New(imapHost, smtpHost string) *IMAPSMTPBackend {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &IMAPSMTPBackend{
 		imapHost:       imapHost,
 		smtpHost:       smtpHost,
 		pool:           NewClientPoolWithSMTP(imapHost, smtpHost),
+		ctx:            ctx,
+		cancel:         cancel,
 		activeAccounts: make(map[string]jmap.AuthCredentials),
 		idleWatchers:   make(map[string]bool),
 		lastStates:     make(map[string]string),
 		lastSweep:      make(map[string]time.Time),
 	}
+}
+
+// Close releases all resources, idle watchers, and connection pools.
+func (b *IMAPSMTPBackend) Close() error {
+	if b.cancel != nil {
+		b.cancel()
+	}
+	if b.pool != nil {
+		b.pool.Close()
+	}
+	return nil
 }
 
 // SetBroadcaster attaches a Broadcaster for push notifications and starts the background IMAP poller.
