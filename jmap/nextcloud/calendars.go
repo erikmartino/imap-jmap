@@ -419,6 +419,9 @@ func (b *CalendarsBackend) CreateCalendarEvent(ctx context.Context, event *jmap.
 		event.UID = string(event.ID)
 	}
 
+	// Ensure user's calendars are discovered and initialized in Nextcloud
+	cals, _, _ := b.GetCalendars(ctx, nil)
+
 	calID := ""
 	if len(event.CalendarIDs) > 0 {
 		for cid := range event.CalendarIDs {
@@ -429,7 +432,6 @@ func (b *CalendarsBackend) CreateCalendarEvent(ctx context.Context, event *jmap.
 		}
 	}
 	if calID == "" {
-		cals, _, _ := b.GetCalendars(ctx, nil)
 		if len(cals) > 0 {
 			calID = string(cals[0].ID)
 		} else {

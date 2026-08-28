@@ -117,7 +117,7 @@ func handleCalendarEventChanges(backend CalendarsBackend) MethodHandler {
 	}
 }
 
-func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, resolver AccountResolver) MethodHandler {
+func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, principalsBackend PrincipalsBackend, resolver AccountResolver) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		oldState := backend.CalendarEventState(ctx)
@@ -186,7 +186,15 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, r
 				// REQUEST to every participant except the calendar owner
 				// (draft-ietf-jmap-calendars-27 Section 5.9.2.1).
 				if sendSchedulingMessages && mailBackend != nil {
-					dispatchITIPRequests(ctx, mailBackend, backend, resolver, createdEv, "Invitation: ", accountID)
+					orgEmail := organizerAddress(createdEv)
+					if orgEmail == "" {
+						if subj, ok := SubjectFromContext(ctx); ok && subj != "" {
+							orgEmail = subj
+						} else if subj, ok := SubjectForAccountID(accountID); ok && subj != "" {
+							orgEmail = subj
+						}
+					}
+					dispatchITIPRequests(ctx, mailBackend, backend, principalsBackend, resolver, createdEv, "Invitation: ", orgEmail)
 				}
 				// A scheduling change (iTIP dispatch) is recorded as a CalendarEventNotification
 				// (Section 7): the event data after creation.
@@ -253,8 +261,16 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, r
 					// REPLY to the organizer (Section 5.9.2.3); any other change is a
 					// re-invitation REQUEST to the attendees (Section 5.9.2.1).
 					if sendSchedulingMessages && mailBackend != nil && updatedEv != nil {
+						orgEmail := organizerAddress(updatedEv)
+						if orgEmail == "" {
+							if subj, ok := SubjectFromContext(ctx); ok && subj != "" {
+								orgEmail = subj
+							} else if subj, ok := SubjectForAccountID(accountID); ok && subj != "" {
+								orgEmail = subj
+							}
+						}
 						if !dispatchITIPRepliesForPatch(ctx, mailBackend, backend, resolver, updatedEv, patch) {
-							dispatchITIPRequests(ctx, mailBackend, backend, resolver, updatedEv, "Updated Invitation: ", accountID)
+							dispatchITIPRequests(ctx, mailBackend, backend, principalsBackend, resolver, updatedEv, "Updated Invitation: ", orgEmail)
 						}
 					}
 				}
@@ -287,7 +303,15 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, r
 						// CANCEL to every participant except the calendar owner when the
 						// event is destroyed (draft-ietf-jmap-calendars-27 Section 5.9.2.2).
 						if mailBackend != nil && len(events) > 0 && events[0] != nil {
-							dispatchITIPCancels(ctx, mailBackend, backend, resolver, events[0], accountID)
+							orgEmail := organizerAddress(events[0])
+							if orgEmail == "" {
+								if subj, ok := SubjectFromContext(ctx); ok && subj != "" {
+									orgEmail = subj
+								} else if subj, ok := SubjectForAccountID(accountID); ok && subj != "" {
+									orgEmail = subj
+								}
+							}
+							dispatchITIPCancels(ctx, mailBackend, backend, principalsBackend, resolver, events[0], orgEmail)
 						}
 					}
 				}

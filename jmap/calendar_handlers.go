@@ -7,7 +7,7 @@ import (
 )
 
 // RegisterCalendarHandlers registers JMAP for Calendars & JSCalendar method handlers into MethodRegistry.
-func RegisterCalendarHandlers(r *MethodRegistry, backend CalendarsBackend, mailBackend MailBackend, blobBackend BlobBackend, resolver AccountResolver) {
+func RegisterCalendarHandlers(r *MethodRegistry, backend CalendarsBackend, mailBackend MailBackend, principalsBackend PrincipalsBackend, blobBackend BlobBackend, resolver AccountResolver) {
 	if backend == nil {
 		return
 	}
@@ -18,7 +18,7 @@ func RegisterCalendarHandlers(r *MethodRegistry, backend CalendarsBackend, mailB
 
 	r.Register("CalendarEvent/get", handleCalendarEventGet(backend))
 	r.Register("CalendarEvent/changes", handleCalendarEventChanges(backend))
-	r.Register("CalendarEvent/set", handleCalendarEventSet(backend, mailBackend, resolver))
+	r.Register("CalendarEvent/set", handleCalendarEventSet(backend, mailBackend, principalsBackend, resolver))
 	r.Register("CalendarEvent/query", handleCalendarEventQuery(backend))
 	r.Register("CalendarEvent/queryChanges", handleCalendarEventQueryChanges(backend))
 	r.Register("CalendarEvent/copy", handleCalendarEventCopy(backend))

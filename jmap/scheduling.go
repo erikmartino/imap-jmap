@@ -127,16 +127,27 @@ func eventForRecipient(ev *CalendarEvent, recipientKey string) *CalendarEvent {
 // sendSchedulingEmail persists an iMIP email (RFC 6047) carrying an iTIP body part
 // and submits it. The body part's Content-Type method parameter matches the
 // iCalendar METHOD (RFC 6047 Section 2.4).
-func sendSchedulingEmail(ctx context.Context, mailBackend MailBackend, subject, toAddr, ics, method string) error {
+func sendSchedulingEmail(ctx context.Context, mailBackend MailBackend, subject, fromAddr, toAddr, ics, method string) error {
 	if mailBackend == nil || toAddr == "" || ics == "" {
 		return fmt.Errorf("missing mailBackend, toAddr, or ics data")
 	}
+	if fromAddr == "" {
+		fromAddr = "calendar@example.com"
+	}
+	p1 := "1"
 	email := &Email{
 		Subject: subject,
+		From:    []EmailAddress{{Email: fromAddr}},
 		To:      []EmailAddress{{Email: toAddr}},
+		BodyStructure: EmailBodyPart{
+			PartID: &p1,
+			Type:   "text/calendar; method=" + method,
+			Size:   uint64(len(ics)),
+		},
 		TextBody: []EmailBodyPart{{
-			Type: "text/calendar; method=" + method,
-			Size: uint64(len(ics)),
+			PartID: &p1,
+			Type:   "text/calendar; method=" + method,
+			Size:   uint64(len(ics)),
 		}},
 		BodyValues: map[string]EmailBodyValue{
 			"1": {Value: ics},
@@ -149,6 +160,10 @@ func sendSchedulingEmail(ctx context.Context, mailBackend MailBackend, subject, 
 	_, err = mailBackend.CreateSubmission(ctx, &EmailSubmission{
 		EmailID:  saved.ID,
 		ThreadID: saved.ThreadID,
+		Envelope: &SubmissionEnvelope{
+			MailFrom: SubmissionAddress{Email: fromAddr},
+			RcptTo:   []SubmissionAddress{{Email: toAddr}},
+		},
 	})
 	return err
 }
@@ -290,22 +305,69 @@ func deliverCancelLocal(calBackend CalendarsBackend, resolver AccountResolver, e
 	return err == nil
 }
 
+// expandGroupRecipients expands any group recipient into individual member addresses
+// when PrincipalsBackend is available.
+func expandGroupRecipients(ctx context.Context, principalsBackend PrincipalsBackend, recipients map[string]string) map[string]string {
+	if principalsBackend == nil || len(recipients) == 0 {
+		return recipients
+	}
+	allPrincipals, err := principalsBackend.GetAllPrincipals(ctx)
+	if err != nil || len(allPrincipals) == 0 {
+		return recipients
+	}
+
+	principalByID := make(map[Id]*Principal, len(allPrincipals))
+	principalByEmail := make(map[string]*Principal, len(allPrincipals))
+	for _, p := range allPrincipals {
+		if p != nil {
+			principalByID[p.ID] = p
+			if p.Email != "" {
+				principalByEmail[normalizeCalendarAddress(p.Email)] = p
+			}
+		}
+	}
+
+	expanded := make(map[string]string)
+	for key, addr := range recipients {
+		normAddr := normalizeCalendarAddress(addr)
+		p, isPrincipal := principalByEmail[normAddr]
+		if !isPrincipal {
+			p = principalByID[Id(key)]
+		}
+
+		if p != nil && p.Type == "group" && len(p.Members) > 0 {
+			for memberID := range p.Members {
+				if member, ok := principalByID[Id(memberID)]; ok && member != nil && member.Email != "" {
+					expanded[string(member.ID)] = normalizeCalendarAddress(member.Email)
+				}
+			}
+		} else {
+			expanded[key] = addr
+		}
+	}
+	return expanded
+}
+
 // dispatchITIPRequests sends a METHOD:REQUEST to every scheduling recipient of the event
 // (draft-ietf-jmap-calendars-27 Section 5.9.2.1): the calendar owner/organizer is never a
 // recipient, and hideAttendees is honoured. Recipients local to this server also receive
 // the event directly in their calendar (same-server iTIP delivery); external recipients
 // get an iMIP email. It also records the per-participant scheduleStatus (SEC-7 / RFC 6638 Section 3.2.14).
-func dispatchITIPRequests(ctx context.Context, mailBackend MailBackend, calBackend CalendarsBackend, resolver AccountResolver, ev *CalendarEvent, subjectPrefix, organizerEmail string) {
+func dispatchITIPRequests(ctx context.Context, mailBackend MailBackend, calBackend CalendarsBackend, principalsBackend PrincipalsBackend, resolver AccountResolver, ev *CalendarEvent, subjectPrefix, organizerEmail string) {
 	if ev == nil {
 		return
 	}
+	if organizerEmail == "" {
+		organizerEmail = organizerAddress(ev)
+	}
+	recipients := expandGroupRecipients(ctx, principalsBackend, schedulingRecipients(ev))
 	statusPatches := make(map[string]any)
-	for key, addr := range schedulingRecipients(ev) {
+	for key, addr := range recipients {
 		deliveredLocal := deliverRequestLocal(calBackend, resolver, ev, key, addr)
 		sentEmail := false
 		if mailBackend != nil {
 			if reqICS, err := BuildITIPRequest(eventForRecipient(ev, key), organizerEmail); err == nil {
-				if err := sendSchedulingEmail(ctx, mailBackend, subjectPrefix+ev.Title, addr, reqICS, "REQUEST"); err == nil {
+				if err := sendSchedulingEmail(ctx, mailBackend, subjectPrefix+ev.Title, organizerEmail, addr, reqICS, "REQUEST"); err == nil {
 					sentEmail = true
 				}
 			}
@@ -333,15 +395,19 @@ func dispatchITIPRequests(ctx context.Context, mailBackend MailBackend, calBacke
 // dispatchITIPCancels sends a METHOD:CANCEL to every scheduling recipient of the event
 // (draft-ietf-jmap-calendars-27 Section 5.9.2.2), cancelling local recipients' copies and
 // emailing external recipients.
-func dispatchITIPCancels(ctx context.Context, mailBackend MailBackend, calBackend CalendarsBackend, resolver AccountResolver, ev *CalendarEvent, organizerEmail string) {
+func dispatchITIPCancels(ctx context.Context, mailBackend MailBackend, calBackend CalendarsBackend, principalsBackend PrincipalsBackend, resolver AccountResolver, ev *CalendarEvent, organizerEmail string) {
 	if ev == nil {
 		return
 	}
+	if organizerEmail == "" {
+		organizerEmail = organizerAddress(ev)
+	}
+	recipients := expandGroupRecipients(ctx, principalsBackend, schedulingRecipients(ev))
 	cancelICS, icsErr := BuildITIPCancel(ev, organizerEmail)
-	for _, addr := range schedulingRecipients(ev) {
+	for _, addr := range recipients {
 		deliverCancelLocal(calBackend, resolver, ev, addr)
 		if mailBackend != nil && icsErr == nil {
-			_ = sendSchedulingEmail(ctx, mailBackend, "Cancelled: "+ev.Title, addr, cancelICS, "CANCEL")
+			_ = sendSchedulingEmail(ctx, mailBackend, "Cancelled: "+ev.Title, organizerEmail, addr, cancelICS, "CANCEL")
 		}
 	}
 }
@@ -395,7 +461,7 @@ func dispatchITIPRepliesForPatch(ctx context.Context, mailBackend MailBackend, c
 			patch["participants/"+partKey+"/scheduleStatus"] = "2.0;delivered"
 		} else if mailBackend != nil {
 			if replyICS, err := BuildITIPReply(ev, attendee, status); err == nil {
-				if err := sendSchedulingEmail(ctx, mailBackend, "Re: "+ev.Title, organizer, replyICS, "REPLY"); err == nil {
+				if err := sendSchedulingEmail(ctx, mailBackend, "Re: "+ev.Title, attendee, organizer, replyICS, "REPLY"); err == nil {
 					patch["participants/"+partKey+"/scheduleStatus"] = "1.1;sent"
 				} else {
 					patch["participants/"+partKey+"/scheduleStatus"] = "5.1;failed"

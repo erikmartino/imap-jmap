@@ -145,23 +145,26 @@ func main() {
 	var calBackend jmap.CalendarsBackend
 	var contactsBackend jmap.ContactsBackend
 	var fileNodeBackend jmap.FileNodeBackend
+	var principalsBackend jmap.PrincipalsBackend
 
 	if nextcloudURL != "" {
-		log.Printf("Initializing Nextcloud Backend at %s (CalDAV, CardDAV, WebDAV)", nextcloudURL)
+		log.Printf("Initializing Nextcloud Backend at %s (CalDAV, CardDAV, WebDAV, OCS)", nextcloudURL)
 		ncClient := nextcloud.NewClient(nextcloudURL)
 		calBackend = nextcloud.NewCalendarsBackend(ncClient)
 		contactsBackend = nextcloud.NewContactsBackend(ncClient)
 		fileNodeBackend = nextcloud.NewFileNodeBackend(ncClient)
+		principalsBackend = nextcloud.NewPrincipalsBackend(ncClient, calBackend)
 	} else {
 		calBackend = memory.NewMemoryCalendarsBackend()
 		contactsBackend = memory.NewMemoryContactsBackend()
 		fileNodeBackend = memory.NewMemoryFileNodeBackend()
+		memPrincipals := memory.NewMemoryPrincipalsBackend()
+		memPrincipals.SetCalendarsBackend(calBackend)
+		principalsBackend = memPrincipals
 	}
 
 	memSieveBackend := memory.NewMemorySieveBackend()
 	memIMAPBackend := memory.NewMemoryIMAPAccessBackend()
-	memPrincipalsBackend := memory.NewMemoryPrincipalsBackend()
-	memPrincipalsBackend.SetCalendarsBackend(calBackend)
 	devAuthBackend := memory.NewMemoryAuthBackend()
 	devAuthBackend.SetBackends(mailBackend, blobBackend, calBackend, contactsBackend, fileNodeBackend)
 
@@ -212,6 +215,9 @@ func main() {
 				accountCtx = jmap.ContextWithSubject(accountCtx, subject)
 				accountCtx = jmap.ContextWithCredentials(accountCtx, subject, subject)
 				memory.SeedAccountSampleData(accountCtx, accountID, mailBackend, blobBackend, calBackend, contactsBackend, fileNodeBackend)
+				if ncPb, ok := principalsBackend.(*nextcloud.PrincipalsBackend); ok {
+					_ = ncPb.EnsureUser(accountCtx, subject, subject)
+				}
 			},
 		}
 	}
@@ -233,7 +239,7 @@ func main() {
 		jmap.WithSieveBackend(memSieveBackend),
 		jmap.WithIMAPAccessBackend(memIMAPBackend),
 		jmap.WithFileNodeBackend(fileNodeBackend),
-		jmap.WithPrincipalsBackend(memPrincipalsBackend),
+		jmap.WithPrincipalsBackend(principalsBackend),
 		jmap.WithAuthBackend(authBackend),
 		jmap.WithAccountResolver(accountResolver),
 		jmap.WithAllowedRecipients(allowedSlice),
@@ -253,6 +259,9 @@ func main() {
 	memSieveBackend.SetBroadcaster(server.Broadcaster)
 	if fb, ok := fileNodeBackend.(interface{ SetBroadcaster(*jmap.Broadcaster) }); ok {
 		fb.SetBroadcaster(server.Broadcaster)
+	}
+	if pb, ok := principalsBackend.(interface{ SetBroadcaster(*jmap.Broadcaster) }); ok {
+		pb.SetBroadcaster(server.Broadcaster)
 	}
 
 	smtpServer := smtp.NewServer(smtpAddr, mailBackend, blobBackend, calBackend,

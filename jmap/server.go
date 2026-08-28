@@ -188,7 +188,7 @@ func NewServer(session *Session, opts ...Option) *Server {
 	RegisterBlobHandlers(s.MethodRegistry, s.BlobBackend, refs)
 	RegisterQuotaHandlers(s.MethodRegistry, s.MailBackend)
 	RegisterContactsHandlers(s.MethodRegistry, s.ContactsBackend)
-	RegisterCalendarHandlers(s.MethodRegistry, s.CalendarsBackend, s.MailBackend, s.BlobBackend, s.AccountResolver)
+	RegisterCalendarHandlers(s.MethodRegistry, s.CalendarsBackend, s.MailBackend, s.PrincipalsBackend, s.BlobBackend, s.AccountResolver)
 	RegisterSieveHandlers(s.MethodRegistry, s.SieveBackend)
 	if s.IMAPAccessBackend != nil {
 		RegisterIMAPAccessHandlers(s.MethodRegistry, s.IMAPAccessBackend)
