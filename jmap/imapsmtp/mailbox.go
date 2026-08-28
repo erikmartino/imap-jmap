@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"path"
+	"sort"
 	"strings"
 
 	"github.com/emersion/go-imap/v2"
@@ -143,11 +144,34 @@ func (b *IMAPSMTPBackend) GetAllMailboxes(ctx context.Context) ([]*jmap.Mailbox,
 		mayRename := !strings.EqualFold(name, "INBOX")
 		mayDelete := !strings.EqualFold(name, "INBOX")
 
+		sortOrder := uint64(100)
+		if role != "" {
+			switch role {
+			case "inbox":
+				sortOrder = 10
+			case "drafts":
+				sortOrder = 20
+			case "sent":
+				sortOrder = 30
+			case "archive":
+				sortOrder = 40
+			case "trash":
+				sortOrder = 50
+			case "junk":
+				sortOrder = 60
+			case "outbox":
+				sortOrder = 70
+			case "templates":
+				sortOrder = 80
+			}
+		}
+
 		mb := &jmap.Mailbox{
 			ID:            mbID,
 			Name:          dispName,
 			ParentID:      parentID,
 			Role:          rolePtr,
+			SortOrder:     sortOrder,
 			TotalEmails:   total,
 			UnreadEmails:  unread,
 			TotalThreads:  total,
@@ -168,6 +192,13 @@ func (b *IMAPSMTPBackend) GetAllMailboxes(ctx context.Context) ([]*jmap.Mailbox,
 		}
 		result = append(result, mb)
 	}
+
+	sort.SliceStable(result, func(i, j int) bool {
+		if result[i].SortOrder != result[j].SortOrder {
+			return result[i].SortOrder < result[j].SortOrder
+		}
+		return strings.ToLower(result[i].Name) < strings.ToLower(result[j].Name)
+	})
 
 	return result, nil
 }
