@@ -118,6 +118,7 @@ func (b *IMAPSMTPBackend) GetCurrentCompositeState(ctx context.Context) (*Compos
 
 // State returns the composite state for the account.
 func (b *IMAPSMTPBackend) State(ctx context.Context) string {
+	b.RecordAccount(ctx)
 	cs, err := b.GetCurrentCompositeState(ctx)
 	if err != nil {
 		return "1"

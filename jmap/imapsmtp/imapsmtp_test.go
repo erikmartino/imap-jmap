@@ -406,3 +406,55 @@ func TestEmailQuerySearchWildcardsAndOperators(t *testing.T) {
 		t.Errorf("expected to find email with OR operator containing matching branch, got 0")
 	}
 }
+
+func TestIMAPIdlePushNotification(t *testing.T) {
+	imapAddr, smtpAddr := getTestTargetServers()
+	if !isIMAPReachable(imapAddr) {
+		t.Skip("IMAP server is not reachable at " + imapAddr)
+	}
+
+	be := New(imapAddr, smtpAddr)
+	defer be.Pool().Close()
+
+	broadcaster := jmap.NewBroadcaster()
+	be.SetBroadcaster(broadcaster)
+
+	ch := broadcaster.Subscribe()
+	defer broadcaster.Unsubscribe(ch)
+
+	ctx := testContext()
+	be.RecordAccount(ctx)
+
+	// Trigger an email creation
+	inboxID := MailboxIDForName("INBOX")
+	_, err := be.CreateEmail(ctx, &jmap.Email{
+		MailboxIDs: map[jmap.Id]bool{inboxID: true},
+		Subject:    "Push Test Message",
+		TextBody: []jmap.EmailBodyPart{
+			{
+				PartID: stringPtr("1"),
+				Type:   "text/plain",
+			},
+		},
+		BodyValues: map[string]jmap.EmailBodyValue{
+			"1": {Value: "Push test content"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateEmail failed: %v", err)
+	}
+
+	accountID := jmap.AccountIDForSubject("user@example.com")
+	select {
+	case sc := <-ch:
+		if sc == nil || sc.Changed[accountID] == nil || sc.Changed[accountID]["Email"] == "" {
+			t.Errorf("expected StateChange with Email state for %s, got: %+v", accountID, sc)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for push StateChange notification")
+	}
+}
+
+func stringPtr(s string) *string {
+	return &s
+}

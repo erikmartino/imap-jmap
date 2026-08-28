@@ -217,3 +217,20 @@ func TestInlineMediaAndAttachmentDistinction(t *testing.T) {
 		t.Errorf("expected 1 attachment part (partId 3), got %v", attParts)
 	}
 }
+
+func TestPreviewStripping(t *testing.T) {
+	rawHTML := `<div>pong<br><br></div><cite style="text-align: left;display: block;">On Aug 28, 2026 4:59 PM, from &lt;a@example.com&gt;</cite><blockquote style="margin-left:8px;margin-right:8px;padding-left:12px;padding-right:12px;border-left:5px solid #eee;"><div>ping</div></blockquote>`
+	expected := "pong On Aug 28, 2026 4:59 PM, from <a@example.com> ping"
+
+	got := preview(rawHTML, 256)
+	if got != expected {
+		t.Errorf("expected preview %q, got %q", expected, got)
+	}
+
+	styleHTML := `<style>body { font-size: 14px; }</style><p>Hello <b>World</b>&nbsp;!</p>`
+	expectedStyle := "Hello World !"
+	gotStyle := preview(styleHTML, 256)
+	if gotStyle != expectedStyle {
+		t.Errorf("expected preview %q, got %q", expectedStyle, gotStyle)
+	}
+}

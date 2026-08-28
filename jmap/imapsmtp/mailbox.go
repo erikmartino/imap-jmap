@@ -68,6 +68,7 @@ func DetectRole(name string, attrs []imap.MailboxAttr) string {
 
 // GetAllMailboxes retrieves all mailboxes from upstream IMAP.
 func (b *IMAPSMTPBackend) GetAllMailboxes(ctx context.Context) ([]*jmap.Mailbox, error) {
+	b.RecordAccount(ctx)
 	// Clean up the account's own [JMAP-BLOB:] staging messages in Drafts (lazy,
 	// rate-limited). This runs on the authenticated user's request, so it only
 	// ever touches that user's folder.
@@ -250,6 +251,7 @@ func (b *IMAPSMTPBackend) CreateMailbox(ctx context.Context, mb *jmap.Mailbox) (
 
 	mb.ID = MailboxIDForName(folderName)
 	mb.IsSubscribed = true
+	b.publishStateChange(ctx)
 	return mb, nil
 }
 
@@ -274,6 +276,7 @@ func (b *IMAPSMTPBackend) UpdateMailbox(ctx context.Context, id jmap.Id, patch m
 		}
 	}
 
+	b.publishStateChange(ctx)
 	return &jmap.Mailbox{
 		ID:           MailboxIDForName(newName),
 		Name:         newName,
@@ -298,5 +301,6 @@ func (b *IMAPSMTPBackend) DeleteMailbox(ctx context.Context, id jmap.Id, onDestr
 		return false, fmt.Errorf("failed to delete IMAP mailbox %s: %w", folderName, err)
 	}
 
+	b.publishStateChange(ctx)
 	return true, nil
 }

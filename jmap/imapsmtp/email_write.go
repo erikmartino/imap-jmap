@@ -100,6 +100,7 @@ func (b *IMAPSMTPBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jma
 			em.ThreadID = emailID
 		}
 	}
+	b.publishStateChange(ctx)
 	return em, nil
 }
 
@@ -227,6 +228,7 @@ func (b *IMAPSMTPBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map
 
 	// Fetch updated message
 	emails, _, err := b.GetEmails(ctx, []jmap.Id{id})
+	b.publishStateChange(ctx)
 	if err == nil && len(emails) > 0 {
 		return emails[0], nil
 	}
@@ -272,5 +274,6 @@ func (b *IMAPSMTPBackend) DeleteEmail(ctx context.Context, id jmap.Id) (bool, er
 		return false, fmt.Errorf("failed to expunge deleted email: %w", err)
 	}
 
+	b.publishStateChange(ctx)
 	return true, nil
 }

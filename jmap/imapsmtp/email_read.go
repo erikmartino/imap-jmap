@@ -85,6 +85,7 @@ func MapIMAPFlagsToKeywords(flags []imap.Flag) map[string]bool {
 
 // GetEmails fetches the requested emails by ID.
 func (b *IMAPSMTPBackend) GetEmails(ctx context.Context, ids []jmap.Id) ([]*jmap.Email, []jmap.Id, error) {
+	b.RecordAccount(ctx)
 	client, err := b.pool.GetClientForContext(ctx)
 	if err != nil {
 		return nil, ids, err

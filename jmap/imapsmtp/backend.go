@@ -2,6 +2,7 @@ package imapsmtp
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -13,6 +14,14 @@ type IMAPSMTPBackend struct {
 	imapHost string
 	smtpHost string
 	pool     *ClientPool
+
+	broadcaster *jmap.Broadcaster
+
+	accountsMu     sync.Mutex
+	activeAccounts map[string]jmap.AuthCredentials
+	idleWatchers   map[string]bool
+	lastStates     map[string]string
+	pollerStarted  bool
 
 	// lastSweep tracks when blob staging was last swept per account so the lazy
 	// sweep on read paths runs at most every blobStagingSweepInterval. The sweep
@@ -28,11 +37,113 @@ var _ jmap.BlobBackend = (*IMAPSMTPBackend)(nil)
 // New creates a new IMAP/SMTP gateway backend.
 func New(imapHost, smtpHost string) *IMAPSMTPBackend {
 	return &IMAPSMTPBackend{
-		imapHost:  imapHost,
-		smtpHost:  smtpHost,
-		pool:      NewClientPoolWithSMTP(imapHost, smtpHost),
-		lastSweep: make(map[string]time.Time),
+		imapHost:       imapHost,
+		smtpHost:       smtpHost,
+		pool:           NewClientPoolWithSMTP(imapHost, smtpHost),
+		activeAccounts: make(map[string]jmap.AuthCredentials),
+		idleWatchers:   make(map[string]bool),
+		lastStates:     make(map[string]string),
+		lastSweep:      make(map[string]time.Time),
 	}
+}
+
+// SetBroadcaster attaches a Broadcaster for push notifications and starts the background IMAP poller.
+func (b *IMAPSMTPBackend) SetBroadcaster(bc *jmap.Broadcaster) {
+	b.broadcaster = bc
+	b.startBackgroundPoller()
+}
+
+func (b *IMAPSMTPBackend) RecordAccount(ctx context.Context) {
+	if b.broadcaster == nil {
+		return
+	}
+	accountID, ok := jmap.AccountIDFromContext(ctx)
+	if !ok || accountID == "" {
+		return
+	}
+	creds, ok := jmap.CredentialsFromContext(ctx)
+	if !ok || creds.Username == "" {
+		if subj, ok := jmap.SubjectFromContext(ctx); ok && subj != "" {
+			creds = jmap.AuthCredentials{Username: subj, Password: subj}
+		} else if sub, ok := jmap.SubjectForAccountID(accountID); ok && sub != "" {
+			creds = jmap.AuthCredentials{Username: sub, Password: sub}
+		}
+	}
+	if creds.Username == "" {
+		return
+	}
+	b.accountsMu.Lock()
+	b.activeAccounts[accountID] = creds
+	b.accountsMu.Unlock()
+
+	// Ensure active IMAP IDLE (RFC 2177) connection for real-time upstream push
+	b.ensureIdleWatcher(accountID, creds)
+}
+
+func (b *IMAPSMTPBackend) publishStateChange(ctx context.Context) {
+	if b.broadcaster == nil {
+		return
+	}
+	accountID, ok := jmap.AccountIDFromContext(ctx)
+	if !ok || accountID == "" {
+		return
+	}
+	b.RecordAccount(ctx)
+	state := b.EmailState(ctx)
+	b.broadcaster.PublishStateChange(accountID, "Email", state)
+	b.broadcaster.PublishStateChange(accountID, "Mailbox", b.MailboxState(ctx))
+	b.broadcaster.PublishStateChange(accountID, "Thread", b.ThreadState(ctx))
+}
+
+func (b *IMAPSMTPBackend) startBackgroundPoller() {
+	b.accountsMu.Lock()
+	if b.pollerStarted {
+		b.accountsMu.Unlock()
+		return
+	}
+	b.pollerStarted = true
+	b.accountsMu.Unlock()
+
+	go func() {
+		ticker := time.NewTicker(1500 * time.Millisecond)
+		defer ticker.Stop()
+		for range ticker.C {
+			if b.broadcaster == nil {
+				continue
+			}
+			b.accountsMu.Lock()
+			accounts := make(map[string]jmap.AuthCredentials, len(b.activeAccounts))
+			for k, v := range b.activeAccounts {
+				accounts[k] = v
+			}
+			b.accountsMu.Unlock()
+
+			for accountID, creds := range accounts {
+				ctx := jmap.ContextWithAccountID(context.Background(), accountID)
+				ctx = jmap.ContextWithCredentials(ctx, creds.Username, creds.Password)
+				ctx = jmap.ContextWithSubject(ctx, creds.Username)
+
+				cs, err := b.GetCurrentCompositeState(ctx)
+				if err != nil {
+					continue
+				}
+				token := cs.Encode()
+
+				b.accountsMu.Lock()
+				last := b.lastStates[accountID]
+				changed := last != "" && last != token
+				b.lastStates[accountID] = token
+				b.accountsMu.Unlock()
+
+				if changed {
+					slog.Debug("IMAP background change detected", "accountID", accountID, "newState", token)
+					b.broadcaster.PublishStateChange(accountID, "Email", token)
+					b.broadcaster.PublishStateChange(accountID, "Mailbox", token)
+					b.broadcaster.PublishStateChange(accountID, "Thread", token)
+				}
+			}
+		}
+	}()
 }
 
 // Pool returns the underlying ClientPool.

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"html"
 	"io"
 	"mime"
 	"net/mail"
@@ -234,15 +235,11 @@ func ParseRFC822WithAccount(accountID string, raw []byte, blobBackend ...BlobBac
 
 	if len(em.TextBody) > 0 && em.TextBody[0].PartID != nil {
 		if bv, ok := em.BodyValues[*em.TextBody[0].PartID]; ok {
-			if strings.EqualFold(em.TextBody[0].Type, "text/html") {
-				em.Preview = preview(stripHTMLTags(bv.Value), 256)
-			} else {
-				em.Preview = preview(bv.Value, 256)
-			}
+			em.Preview = preview(bv.Value, 256)
 		}
 	} else if len(em.HTMLBody) > 0 && em.HTMLBody[0].PartID != nil {
 		if bv, ok := em.BodyValues[*em.HTMLBody[0].PartID]; ok {
-			em.Preview = preview(stripHTMLTags(bv.Value), 256)
+			em.Preview = preview(bv.Value, 256)
 		}
 	}
 
@@ -601,12 +598,39 @@ func convertMailAddresses(addrs []*mail.Address) []EmailAddress {
 func stripHTMLTags(s string) string {
 	var b strings.Builder
 	inTag := false
-	for _, r := range s {
+	inStyle := false
+	inScript := false
+	var tagBuf strings.Builder
+
+	runes := []rune(s)
+	n := len(runes)
+
+	for i := 0; i < n; i++ {
+		r := runes[i]
 		if r == '<' {
 			inTag = true
+			tagBuf.Reset()
+			tagBuf.WriteRune(r)
 		} else if r == '>' {
 			inTag = false
-		} else if !inTag {
+			tagBuf.WriteRune(r)
+			tag := strings.ToLower(tagBuf.String())
+			if strings.HasPrefix(tag, "<style") {
+				inStyle = true
+			} else if strings.HasPrefix(tag, "</style") {
+				inStyle = false
+			} else if strings.HasPrefix(tag, "<script") {
+				inScript = true
+			} else if strings.HasPrefix(tag, "</script") {
+				inScript = false
+			} else if strings.HasPrefix(tag, "<br") || strings.HasPrefix(tag, "<p") || strings.HasPrefix(tag, "</p") || strings.HasPrefix(tag, "<div") || strings.HasPrefix(tag, "</div") {
+				if !inStyle && !inScript {
+					b.WriteRune(' ')
+				}
+			}
+		} else if inTag {
+			tagBuf.WriteRune(r)
+		} else if !inStyle && !inScript {
 			b.WriteRune(r)
 		}
 	}
@@ -931,11 +955,16 @@ func parseAddressList(v string) []EmailAddress {
 	return out
 }
 
-// preview returns a single-line snippet of the body, truncated to max runes.
+// preview returns a single-line snippet of the body, stripped of HTML tags and entities,
+// with all whitespace sequences collapsed to a single space per RFC 8621 Section 4.1.1.
 func preview(body string, max int) string {
-	s := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(body, "\r\n", " "), "\n", " "))
-	if len(s) > max {
-		return s[:max]
+	stripped := stripHTMLTags(body)
+	unescaped := html.UnescapeString(stripped)
+	fields := strings.Fields(unescaped)
+	s := strings.Join(fields, " ")
+	runes := []rune(s)
+	if len(runes) > max {
+		return string(runes[:max])
 	}
 	return s
 }

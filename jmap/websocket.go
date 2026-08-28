@@ -3,6 +3,7 @@ package jmap
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/coder/websocket"
@@ -13,21 +14,25 @@ import (
 // processes JMAP Request objects, WebSocketPushEnable / WebSocketPushDisable
 // messages, and sends Response / StateChange objects back to the client.
 func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
-	// Upgrade to WebSocket, negotiating "jmap" subprotocol per RFC 8887 Section 4.2.
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		Subprotocols:   []string{"jmap"},
 		OriginPatterns: []string{"*"},
 	})
 	if err != nil {
+		slog.Debug("WebSocket handshake failed", "remote", r.RemoteAddr, "error", err)
 		return
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
-	// Verify negotiated subprotocol per RFC 8887 Section 4.2.
 	if conn.Subprotocol() != "jmap" {
+		slog.Warn("WebSocket subprotocol mismatch", "remote", r.RemoteAddr, "negotiated", conn.Subprotocol())
 		conn.Close(websocket.StatusPolicyViolation, "Only the 'jmap' subprotocol is supported")
 		return
 	}
+
+	user, _ := SubjectFromContext(r.Context())
+	accountID, _ := AccountIDFromContext(r.Context())
+	slog.Info("WebSocket client connected", "remote", r.RemoteAddr, "user", user, "accountId", accountID, "subprotocol", conn.Subprotocol())
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
@@ -48,7 +53,7 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 				outSC := sc
 				if len(pushTypes) > 0 {
 					filtered := make(map[string]map[string]string)
-					for accountID, types := range sc.Changed {
+					for acctID, types := range sc.Changed {
 						filteredTypes := make(map[string]string)
 						for typeName, state := range types {
 							for _, wanted := range pushTypes {
@@ -59,7 +64,7 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 							}
 						}
 						if len(filteredTypes) > 0 {
-							filtered[accountID] = filteredTypes
+							filtered[acctID] = filteredTypes
 						}
 					}
 					if len(filtered) == 0 {
@@ -75,7 +80,9 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 				if err != nil {
 					continue
 				}
+				slog.Debug("WebSocket push StateChange", "remote", r.RemoteAddr, "user", user, "payload", string(msg))
 				if wErr := conn.Write(ctx, websocket.MessageText, msg); wErr != nil {
+					slog.Debug("WebSocket push write error", "remote", r.RemoteAddr, "error", wErr)
 					return
 				}
 			}
@@ -85,7 +92,7 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	for {
 		msgType, data, err := conn.Read(ctx)
 		if err != nil {
-			// Connection closed or context cancelled — clean up push subscription.
+			slog.Info("WebSocket client disconnected", "remote", r.RemoteAddr, "user", user, "error", err)
 			if pushCh != nil {
 				s.Broadcaster.Unsubscribe(pushCh)
 			}
@@ -102,6 +109,7 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			Type string `json:"@type"`
 		}
 		if err := json.Unmarshal(data, &typeProbe); err != nil {
+			slog.Debug("WebSocket invalid JSON message", "remote", r.RemoteAddr, "error", err)
 			writeWSError(ctx, conn, "", ErrorInvalidJSON, "The message could not be parsed as valid JSON.")
 			continue
 		}
@@ -114,6 +122,7 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 				DataTypes []string `json:"dataTypes"`
 			}
 			_ = json.Unmarshal(data, &pushEnable)
+			slog.Debug("WebSocket push enabled", "remote", r.RemoteAddr, "user", user, "dataTypes", pushEnable.DataTypes)
 
 			// Unsubscribe previous push subscription if any.
 			if pushCh != nil {
@@ -127,6 +136,7 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 		case "WebSocketPushDisable":
 			// RFC 8887 Section 4.3.5.3: disable push notifications.
+			slog.Debug("WebSocket push disabled", "remote", r.RemoteAddr, "user", user)
 			pushEnabled = false
 			if pushCh != nil {
 				s.Broadcaster.Unsubscribe(pushCh)
@@ -135,6 +145,7 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 		default:
 			// RFC 8887 Section 4.3.2: treat as a JMAP Request object.
+			slog.Debug("WebSocket JMAP Request received", "remote", r.RemoteAddr, "user", user, "payload", string(data))
 			var req struct {
 				RequestID   string            `json:"id"`
 				Using       []string          `json:"using"`
@@ -211,6 +222,7 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 				resp["createdIds"] = refs.Snapshot()
 			}
 			msg, _ := json.Marshal(resp)
+			slog.Debug("WebSocket JMAP Response sent", "remote", r.RemoteAddr, "user", user, "payload", string(msg))
 			if err := conn.Write(ctx, websocket.MessageText, msg); err != nil {
 				if pushCh != nil {
 					s.Broadcaster.Unsubscribe(pushCh)
