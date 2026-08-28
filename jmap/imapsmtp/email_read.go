@@ -126,6 +126,9 @@ func (b *IMAPSMTPBackend) GetEmails(ctx context.Context, ids []jmap.Id) ([]*jmap
 			if err != nil {
 				continue
 			}
+			if strings.HasPrefix(em.Subject, blobStagingMarker) {
+				continue
+			}
 
 			em.ID = emailID
 			em.BlobID = jmap.Id(emailID)
@@ -135,6 +138,10 @@ func (b *IMAPSMTPBackend) GetEmails(ctx context.Context, ids []jmap.Id) ([]*jmap
 			// message reports the fetch time and lists lose their chronological order.
 			if !msg.InternalDate.IsZero() {
 				em.ReceivedAt = msg.InternalDate.UTC().Format(time.RFC3339Nano)
+			}
+			if em.SentAt == nil && em.ReceivedAt != "" {
+				s := em.ReceivedAt
+				em.SentAt = &s
 			}
 
 			// Thread ID fallback to Message-ID or Email ID
@@ -224,6 +231,9 @@ func (b *IMAPSMTPBackend) GetAllEmails(ctx context.Context) ([]*jmap.Email, erro
 			if err != nil {
 				continue
 			}
+			if strings.HasPrefix(em.Subject, blobStagingMarker) {
+				continue
+			}
 
 			em.ID = emailID
 			em.BlobID = jmap.Id(emailID)
@@ -231,6 +241,10 @@ func (b *IMAPSMTPBackend) GetAllEmails(ctx context.Context) ([]*jmap.Email, erro
 			em.Keywords = MapIMAPFlagsToKeywords(msg.Flags)
 			if !msg.InternalDate.IsZero() {
 				em.ReceivedAt = msg.InternalDate.UTC().Format(time.RFC3339Nano)
+			}
+			if em.SentAt == nil && em.ReceivedAt != "" {
+				s := em.ReceivedAt
+				em.SentAt = &s
 			}
 
 			if len(em.MessageID) > 0 {
@@ -524,11 +538,32 @@ func (b *IMAPSMTPBackend) QueryEmails(ctx context.Context, filter map[string]any
 			continue
 		}
 
-		for _, uid := range searchData.AllUIDs() {
-			allMatching = append(allMatching, struct {
-				mbID jmap.Id
-				uid  uint32
-			}{mbID: mbID, uid: uint32(uid)})
+		uids := searchData.AllUIDs()
+		if len(uids) > 0 {
+			var uidSet imap.UIDSet
+			for _, u := range uids {
+				uidSet.AddNum(u)
+			}
+			fetchCmd := client.Fetch(uidSet, &imap.FetchOptions{Envelope: true, UID: true})
+			msgs, err := fetchCmd.Collect()
+			if err == nil {
+				for _, msg := range msgs {
+					if msg.Envelope != nil && strings.HasPrefix(msg.Envelope.Subject, blobStagingMarker) {
+						continue
+					}
+					allMatching = append(allMatching, struct {
+						mbID jmap.Id
+						uid  uint32
+					}{mbID: mbID, uid: uint32(msg.UID)})
+				}
+			} else {
+				for _, uid := range uids {
+					allMatching = append(allMatching, struct {
+						mbID jmap.Id
+						uid  uint32
+					}{mbID: mbID, uid: uint32(uid)})
+				}
+			}
 		}
 	}
 
