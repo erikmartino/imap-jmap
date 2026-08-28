@@ -2,6 +2,8 @@ package imapsmtp
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"sort"
 	"strconv"
@@ -13,21 +15,48 @@ import (
 )
 
 // EmailIDFor constructs a composite JMAP Email ID from a Mailbox ID and an IMAP UID.
+// Per RFC 8620 Section 1.2, Ids MUST only contain characters [a-zA-Z0-9_-].
 func EmailIDFor(mbID jmap.Id, uid uint32) jmap.Id {
-	return jmap.Id(fmt.Sprintf("%s:%d", mbID, uid))
+	return jmap.Id(fmt.Sprintf("%s-%d", mbID, uid))
 }
 
 // ParseEmailID deconstructs a JMAP Email ID into its Mailbox ID and IMAP UID.
 func ParseEmailID(id jmap.Id) (jmap.Id, uint32, error) {
-	parts := strings.Split(string(id), ":")
-	if len(parts) != 2 {
+	s := string(id)
+	lastIdx := strings.LastIndex(s, "-")
+	if lastIdx == -1 {
+		// Backwards-compatible fallback for colon if encountered
+		lastIdx = strings.LastIndex(s, ":")
+	}
+	if lastIdx == -1 {
 		return "", 0, fmt.Errorf("invalid email id format: %s", id)
 	}
-	uid, err := strconv.ParseUint(parts[1], 10, 32)
+	uidStr := s[lastIdx+1:]
+	uid, err := strconv.ParseUint(uidStr, 10, 32)
 	if err != nil {
 		return "", 0, fmt.Errorf("invalid uid in email id: %w", err)
 	}
-	return jmap.Id(parts[0]), uint32(uid), nil
+	return jmap.Id(s[:lastIdx]), uint32(uid), nil
+}
+
+// ThreadIDFor generates a valid RFC 8620 JMAP Id for a thread from a Message-ID.
+func ThreadIDFor(messageID string, fallback jmap.Id) jmap.Id {
+	cleaned := strings.Trim(messageID, "<>")
+	if cleaned == "" {
+		return fallback
+	}
+	valid := true
+	for _, r := range cleaned {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_') {
+			valid = false
+			break
+		}
+	}
+	if valid && len(cleaned) <= 255 {
+		return jmap.Id(cleaned)
+	}
+	h := sha256.Sum256([]byte(cleaned))
+	return jmap.Id("t-" + base64.RawURLEncoding.EncodeToString(h[:16]))
 }
 
 // MapIMAPFlagsToKeywords converts IMAP flags to standard JMAP keywords.
@@ -146,7 +175,7 @@ func (b *IMAPSMTPBackend) GetEmails(ctx context.Context, ids []jmap.Id) ([]*jmap
 
 			// Thread ID fallback to Message-ID or Email ID
 			if len(em.MessageID) > 0 {
-				em.ThreadID = jmap.Id(em.MessageID[0])
+				em.ThreadID = ThreadIDFor(em.MessageID[0], emailID)
 			} else {
 				em.ThreadID = emailID
 			}
@@ -248,7 +277,7 @@ func (b *IMAPSMTPBackend) GetAllEmails(ctx context.Context) ([]*jmap.Email, erro
 			}
 
 			if len(em.MessageID) > 0 {
-				em.ThreadID = jmap.Id(em.MessageID[0])
+				em.ThreadID = ThreadIDFor(em.MessageID[0], emailID)
 			} else {
 				em.ThreadID = emailID
 			}

@@ -95,7 +95,7 @@ func (b *IMAPSMTPBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jma
 	em.ReceivedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	if em.ThreadID == "" {
 		if len(em.MessageID) > 0 {
-			em.ThreadID = jmap.Id(em.MessageID[0])
+			em.ThreadID = ThreadIDFor(em.MessageID[0], emailID)
 		} else {
 			em.ThreadID = emailID
 		}
