@@ -59,6 +59,19 @@ services:
       - DOMAIN_REDIRECT_URL=http://localhost:3333
       - WEB_OIDC_CLIENT_ID=teammail-web
       - PLATFORM=other
+    command:
+      - /bin/sh
+      - -c
+      - |
+        cat <<EOF > /usr/share/nginx/html/assets/env.file
+        SERVER_URL=$${SERVER_URL:-https://localhost:8443}
+        DOMAIN_REDIRECT_URL=$${DOMAIN_REDIRECT_URL:-http://localhost:3333}
+        WEB_OIDC_CLIENT_ID=$${WEB_OIDC_CLIENT_ID:-teammail-web}
+        OIDC_SCOPES=openid,profile,email,offline_access
+        PLATFORM=other
+        EOF
+        gzip -k -r -f /usr/share/nginx/html/
+        nginx -g 'daemon off;'
     depends_on:
       - imap-jmap
     restart: unless-stopped
