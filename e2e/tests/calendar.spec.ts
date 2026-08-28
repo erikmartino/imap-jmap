@@ -280,13 +280,22 @@ test.describe('calendar (Bulwark UI ↔ imap-jmap over JMAP)', () => {
     await expect(addBtn).toBeVisible({ timeout: 15_000 });
     await addBtn.click();
 
-    // Verify groups and users are listed
-    await expect(dialog.getByText('All Staff')).toBeVisible({ timeout: 10_000 });
-    await expect(dialog.getByText('Engineering Team')).toBeVisible({ timeout: 10_000 });
-    await expect(dialog.getByText('Alice Smith')).toBeVisible({ timeout: 10_000 });
-
-    // Select Alice Smith to share with
-    await dialog.getByText('Alice Smith').first().click();
+    // Verify groups and users are listed in the share picker
+    const searchInput = dialog.getByPlaceholder(/search/i).or(dialog.locator('input[type="text"]')).first();
+    if (await searchInput.isVisible()) {
+      await searchInput.fill('All Staff');
+      await expect(dialog.getByText('All Staff').first()).toBeVisible({ timeout: 10_000 });
+      await searchInput.fill('Engineering Team');
+      await expect(dialog.getByText('Engineering Team').first()).toBeVisible({ timeout: 10_000 });
+      await searchInput.fill('Alice');
+      await expect(dialog.getByText('Alice Smith').first()).toBeVisible({ timeout: 10_000 });
+      await dialog.getByText('Alice Smith').first().click();
+    } else {
+      await expect(dialog.getByText('All Staff').first()).toBeVisible({ timeout: 10_000 });
+      await expect(dialog.getByText('Engineering Team').first()).toBeVisible({ timeout: 10_000 });
+      await expect(dialog.getByText('Alice Smith').first()).toBeVisible({ timeout: 10_000 });
+      await dialog.getByText('Alice Smith').first().click();
+    }
 
     // Verify Alice is added to share list in dialog
     await expect(dialog.locator('li', { hasText: 'Alice Smith' })).toBeVisible({ timeout: 10_000 });

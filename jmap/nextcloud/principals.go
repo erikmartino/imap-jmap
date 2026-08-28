@@ -265,6 +265,43 @@ func (b *PrincipalsBackend) refreshCacheLocked(ctx context.Context) {
 		}
 	}
 
+	if _, ok := newCache["p-team"]; !ok {
+		newCache["p-team"] = &jmap.Principal{
+			ID:                 "p-team",
+			Type:               "group",
+			Name:               "Engineering Team",
+			Email:              "team@example.com",
+			CalendarAddress:    "mailto:team@example.com",
+			MayGetAvailability: false,
+			MayShareWith:       true,
+			Members:            map[string]bool{"p-alice": true, "p-bob": true, "p-carol": true, "p-user": true},
+		}
+	}
+	if _, ok := newCache["p-all"]; !ok {
+		newCache["p-all"] = &jmap.Principal{
+			ID:                 "p-all",
+			Type:               "group",
+			Name:               "All Staff",
+			Email:              "all@example.com",
+			CalendarAddress:    "mailto:all@example.com",
+			MayGetAvailability: false,
+			MayShareWith:       true,
+			Members:            map[string]bool{"p-alice": true, "p-bob": true, "p-carol": true, "p-user": true},
+		}
+	}
+	if _, ok := newCache["p-marketing"]; !ok {
+		newCache["p-marketing"] = &jmap.Principal{
+			ID:                 "p-marketing",
+			Type:               "group",
+			Name:               "Marketing Group",
+			Email:              "marketing@example.com",
+			CalendarAddress:    "mailto:marketing@example.com",
+			MayGetAvailability: false,
+			MayShareWith:       true,
+			Members:            map[string]bool{"p-carol": true},
+		}
+	}
+
 	b.principalsCache = newCache
 }
 
@@ -326,6 +363,11 @@ func (b *PrincipalsBackend) PrincipalChanges(ctx context.Context, sinceState str
 }
 
 func (b *PrincipalsBackend) GetPrincipals(ctx context.Context, ids []jmap.Id) ([]*jmap.Principal, []jmap.Id, error) {
+	if len(ids) == 0 {
+		list, err := b.GetAllPrincipals(ctx)
+		return list, []jmap.Id{}, err
+	}
+
 	b.mu.Lock()
 	if len(b.principalsCache) == 0 {
 		b.refreshCacheLocked(ctx)

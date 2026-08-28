@@ -49,6 +49,20 @@ services:
       - imap-jmap
     restart: unless-stopped
 
+  twake:
+    image: linagora/tmail-web:latest
+    container_name: twake-webmail
+    ports:
+      - "3333:80"
+    environment:
+      - SERVER_URL=https://localhost:8443
+      - DOMAIN_REDIRECT_URL=http://localhost:3333
+      - WEB_OIDC_CLIENT_ID=teammail-web
+      - PLATFORM=other
+    depends_on:
+      - imap-jmap
+    restart: unless-stopped
+
   stalwart:
     image: stalwartlabs/stalwart:latest
     container_name: stalwart-mail

@@ -324,7 +324,7 @@ func (c *Client) GetGroups(ctx context.Context) ([]string, error) {
 
 // GetGroupMembers lists members in a group in Nextcloud.
 func (c *Client) GetGroupMembers(ctx context.Context, groupid string) ([]string, error) {
-	endpoint := fmt.Sprintf("/ocs/v1.php/cloud/groups/%s?format=json", url.PathEscape(groupid))
+	endpoint := fmt.Sprintf("/ocs/v1.php/cloud/groups/%s/users?format=json", url.PathEscape(groupid))
 	respBytes, err := c.adminRequest(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
