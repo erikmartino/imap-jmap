@@ -59,8 +59,11 @@ func main() {
 		defaultHost = "0.0.0.0"
 	}
 
-	defaultSMTPPort := os.Getenv("SMTP_PORT")
+	defaultSMTPPort := os.Getenv("SMTP_LISTEN_PORT")
 	if defaultSMTPPort == "" {
+		defaultSMTPPort = os.Getenv("SMTP_PORT")
+	}
+	if defaultSMTPPort == "" || strings.HasPrefix(defaultSMTPPort, "tcp://") {
 		defaultSMTPPort = "1025"
 	}
 
