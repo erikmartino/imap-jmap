@@ -204,7 +204,7 @@ type JSContactPersonalInfo struct {
 type Card struct {
 	ID                  Id                                     `json:"id"`
 	AddressBookIDs      map[Id]bool                            `json:"addressBookIds"`
-	Type                string                                 `json:"@type"` // Always "Card"
+	Type                string                                 `json:"@type,omitempty"` // Always "Card"
 	Kind                string                                 `json:"kind,omitempty"`
 	Version             string                                 `json:"version,omitempty"`
 	Uid                 string                                 `json:"uid,omitempty"`

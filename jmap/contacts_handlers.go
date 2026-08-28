@@ -297,6 +297,12 @@ func handleCardSet(backend ContactsBackend) MethodHandler {
 				cardBytes, _ := json.Marshal(resolvedMap)
 				var card Card
 				_ = json.Unmarshal(cardBytes, &card)
+				if card.Type == "" {
+					card.Type = "Card"
+				}
+				if card.Version == "" {
+					card.Version = "1.0"
+				}
 
 				createdCard, err := backend.CreateCard(ctx, &card)
 				if err != nil {

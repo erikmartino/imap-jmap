@@ -365,6 +365,12 @@ func (b *ContactsBackend) CreateCard(ctx context.Context, card *jmap.Card) (*jma
 	if card.Uid == "" {
 		card.Uid = string(card.ID)
 	}
+	if card.Type == "" {
+		card.Type = "Card"
+	}
+	if card.Version == "" {
+		card.Version = "1.0"
+	}
 
 	abID := ""
 	if len(card.AddressBookIDs) > 0 {

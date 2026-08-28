@@ -272,14 +272,21 @@ func deriveFullName(name map[string]any, comps []nameComponent) string {
 	}
 	var parts []string
 	sep := ""
+	hasCustomSep := false
 	for _, comp := range comps {
 		if comp.kind == "separator" {
 			sep = comp.value
+			hasCustomSep = true
 			continue
 		}
 		if len(parts) > 0 {
-			parts = append(parts, sep)
+			if hasCustomSep {
+				parts = append(parts, sep)
+			} else {
+				parts = append(parts, defaultSep)
+			}
 			sep = ""
+			hasCustomSep = false
 		}
 		parts = append(parts, comp.value)
 	}

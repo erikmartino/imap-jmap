@@ -148,3 +148,27 @@ func TestSmokeFromVCard(t *testing.T) {
 		})
 	}
 }
+
+func TestRoundtripCard(t *testing.T) {
+	cardJSON := `{"id":"card-123","addressBookIds":{"contacts":true},"@type":"","name":{"components":[{"kind":"given","value":"E2E579553"},{"kind":"surname","value":"Tester"}],"isOrdered":true},"emails":{"e0":{"address":"e2e579553@example.com"}},"uid":"urn:uuid:09a03b99-ddcd-464c-94f5-a0f65eee2886"}`
+	vcf, err := ToVCard(jc(t, cardJSON))
+	if err != nil {
+		t.Fatalf("ToVCard failed: %v", err)
+	}
+	if !strings.Contains(unfoldedVCard(vcf), "FN;DERIVED=TRUE:E2E579553 Tester") {
+		t.Errorf("expected 'FN;DERIVED=TRUE:E2E579553 Tester', got:\n%s", vcf)
+	}
+	if !strings.Contains(unfoldedVCard(vcf), "EMAIL;PROP-ID=e0:e2e579553@example.com") {
+		t.Errorf("expected EMAIL in vcard, got:\n%s", vcf)
+	}
+	out, err := FromVCard(vcf)
+	if err != nil {
+		t.Fatalf("FromVCard failed: %v", err)
+	}
+	want := jc(t, `{"emails":{"e0":{"address":"e2e579553@example.com"}},"name":{"components":[{"kind":"given","value":"E2E579553"},{"kind":"surname","value":"Tester"}],"isOrdered":true}}`)
+	b, _ := json.Marshal(out)
+	actual := jc(t, string(b))
+	if !containsJSON(actual, want) {
+		t.Errorf("roundtrip mismatch: want %v, got %v", want, actual)
+	}
+}

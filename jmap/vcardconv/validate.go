@@ -113,7 +113,7 @@ var propSchema = map[string]map[string]string{
 // invalid; unknown and vendor-specific properties are preserved. The
 // localizations patches must not address missing intermediate objects.
 func ValidateCard(card map[string]any) error {
-	if t, ok := card["@type"].(string); ok && t != "Card" {
+	if t, ok := card["@type"].(string); ok && t != "" && t != "Card" {
 		return &ValidationError{Path: "@type", Reason: "must be \"Card\""}
 	}
 	return validateObject(card, "Card", "")
