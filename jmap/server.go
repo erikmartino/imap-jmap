@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -265,7 +265,13 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		sw := &statusLoggingResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 		next.ServeHTTP(sw, r)
 		hasAuth := r.Header.Get("Authorization") != ""
-		log.Printf("HTTP %s %s -> %d | Origin: %q | HasAuth: %t", r.Method, r.URL.Path, sw.statusCode, r.Header.Get("Origin"), hasAuth)
+		slog.Debug("HTTP request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", sw.statusCode,
+			"origin", r.Header.Get("Origin"),
+			"hasAuth", hasAuth,
+		)
 	})
 }
 
@@ -381,10 +387,13 @@ func (s *Server) handleWellKnownJMAP(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet, http.MethodHead:
+		sess := s.sessionForRequest(r)
+		sessBytes, _ := json.Marshal(sess)
+		slog.Debug("JMAP Session Response", "remote", r.RemoteAddr, "payload", string(sessBytes))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		if r.Method == http.MethodGet {
-			_ = json.NewEncoder(w).Encode(s.sessionForRequest(r))
+			_, _ = w.Write(sessBytes)
 		}
 	default:
 		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
@@ -464,6 +473,8 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		s.writeRequestError(w, http.StatusBadRequest, ErrorInvalidJSON, "Cannot read request body")
 		return
 	}
+
+	slog.Debug("JMAP Request Body", "remote", r.RemoteAddr, "payload", string(bodyBytes))
 
 	var rawMap map[string]any
 	if err := json.Unmarshal(bodyBytes, &rawMap); err != nil {
@@ -636,9 +647,12 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		methodCallCtx := ContextWithAccountID(reqCtx, targetAccountID)
 		respName, respArgs := handler(methodCallCtx, resolvedArgs, call.ClientCallID)
 		normalizeSetResult(respName, respArgs)
-		if strings.Contains(call.Name, "Calendar") || strings.Contains(call.Name, "set") || respName == "error" {
-			log.Printf("[JMAP CALL] %s -> %s: reqArgs=%+v respArgs=%+v", call.Name, respName, resolvedArgs, respArgs)
-		}
+		slog.Debug("JMAP invocation",
+			"method", call.Name,
+			"response", respName,
+			"reqArgs", resolvedArgs,
+			"respArgs", respArgs,
+		)
 		respInv := Invocation{
 			Name:         respName,
 			Args:         respArgs,
@@ -664,9 +678,16 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		resp.CreatedIds = refs.Snapshot()
 	}
 
+	respBytes, err := json.Marshal(resp)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	slog.Debug("JMAP Response Body", "remote", r.RemoteAddr, "payload", string(respBytes))
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(resp)
+	_, _ = w.Write(respBytes)
 }
 
 // normalizeSetResult applies RFC 8620 Section 5.3 to every set-family method response:

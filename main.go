@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"log/slog"
 	"math/big"
 	"net"
 	"net/http"
@@ -32,6 +33,22 @@ import (
 )
 
 func main() {
+	logLevelStr := strings.ToLower(os.Getenv("LOG_LEVEL"))
+	var lvl slog.Level
+	switch logLevelStr {
+	case "info":
+		lvl = slog.LevelInfo
+	case "warn", "warning":
+		lvl = slog.LevelWarn
+	case "error":
+		lvl = slog.LevelError
+	default:
+		lvl = slog.LevelDebug
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: lvl,
+	})))
+
 	defaultPort := os.Getenv("PORT")
 	if defaultPort == "" {
 		defaultPort = "8080"
