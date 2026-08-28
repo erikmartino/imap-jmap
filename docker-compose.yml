@@ -101,6 +101,7 @@ services:
     ports:
       - "1143:143"
       - "1993:993"
+      - "12345:12345"
     volumes:
       - ./docker/dovecot/dovecot.conf:/etc/dovecot/dovecot.conf:ro
       - vmail-data:/srv/vmail
@@ -130,18 +131,23 @@ services:
     restart: unless-stopped
 
   smtp:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: boky/postfix:latest
     container_name: smtp-server
-    entrypoint: ["/mock-smtp"]
     ports:
       - "2525:25"
+      - "1587:587"
     environment:
-      - SMTP_PORT=25
-      - LDAP_HOST=ldap:389
+      - ALLOWED_SENDER_DOMAINS=example.com example.org profundo.dk localhost
+      - POSTFIX_virtual_mailbox_domains=example.com, example.org, profundo.dk, localhost
+      - POSTFIX_virtual_transport=lmtp:dovecot:24
+      - POSTFIX_mynetworks=127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+      - POSTFIX_smtpd_sasl_auth_enable=yes
+      - POSTFIX_smtpd_sasl_type=dovecot
+      - POSTFIX_smtpd_sasl_path=inet:dovecot:12345
+      - POSTFIX_smtpd_relay_restrictions=permit_mynetworks, permit_sasl_authenticated, reject_unauth_destination
+      - POSTFIX_smtpd_recipient_restrictions=permit_mynetworks, permit_sasl_authenticated, reject_unauth_destination
     depends_on:
-      - ldap
+      - dovecot
     restart: unless-stopped
 
 volumes:
