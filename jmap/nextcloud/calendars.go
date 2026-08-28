@@ -557,6 +557,36 @@ func applyEventPatch(ev *jmap.CalendarEvent, patch map[string]any) error {
 			updatedEv.Duration = jmap.IcalDurationBetween(updatedEv.Start, end)
 		}
 	}
+	if rrule, hasRrule := m["recurrenceRule"]; hasRrule {
+		if rrule == nil {
+			updatedEv.RecurrenceRules = nil
+			updatedEv.RecurrenceRule = nil
+		} else if rruleBytes, err := json.Marshal(rrule); err == nil {
+			var r jmap.JSCalendarRecurrenceRule
+			if err := json.Unmarshal(rruleBytes, &r); err == nil {
+				updatedEv.RecurrenceRule = &r
+				updatedEv.RecurrenceRules = []*jmap.JSCalendarRecurrenceRule{&r}
+			}
+		}
+	}
+	if exrule, hasExrule := m["excludedRecurrenceRule"]; hasExrule {
+		if exrule == nil {
+			updatedEv.ExcludedRecurrenceRules = nil
+			updatedEv.ExcludedRecurrenceRule = nil
+		} else if exruleBytes, err := json.Marshal(exrule); err == nil {
+			var r jmap.JSCalendarRecurrenceRule
+			if err := json.Unmarshal(exruleBytes, &r); err == nil {
+				updatedEv.ExcludedRecurrenceRule = &r
+				updatedEv.ExcludedRecurrenceRules = []*jmap.JSCalendarRecurrenceRule{&r}
+			}
+		}
+	}
+	if len(updatedEv.RecurrenceRules) > 0 && updatedEv.RecurrenceRule == nil {
+		updatedEv.RecurrenceRule = updatedEv.RecurrenceRules[0]
+	}
+	if len(updatedEv.ExcludedRecurrenceRules) > 0 && updatedEv.ExcludedRecurrenceRule == nil {
+		updatedEv.ExcludedRecurrenceRule = updatedEv.ExcludedRecurrenceRules[0]
+	}
 	if updatedEv.TimeZone == "" {
 		updatedEv.TimeZone = "Etc/UTC"
 	}

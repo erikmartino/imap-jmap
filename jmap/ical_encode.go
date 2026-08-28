@@ -375,9 +375,19 @@ func writeVEVENT(sb *strings.Builder, ev *CalendarEvent, organizerEmail, onlyAtt
 	if ev.RecurrenceID != "" {
 		writeDateTimeProp(sb, "RECURRENCE-ID", ev.RecurrenceID, ev.RecurrenceIDTimeZone, ev.ShowWithoutTime)
 	}
+	if len(ev.RecurrenceRules) == 0 && ev.RecurrenceRule != nil {
+		if v := buildRRULE(ev.RecurrenceRule); v != "" {
+			fmt.Fprintf(sb, "RRULE:%s\r\n", v)
+		}
+	}
 	for _, rule := range ev.RecurrenceRules {
 		if v := buildRRULE(rule); v != "" {
 			fmt.Fprintf(sb, "RRULE:%s\r\n", v)
+		}
+	}
+	if len(ev.ExcludedRecurrenceRules) == 0 && ev.ExcludedRecurrenceRule != nil {
+		if v := buildRRULE(ev.ExcludedRecurrenceRule); v != "" {
+			fmt.Fprintf(sb, "EXRULE:%s\r\n", v)
 		}
 	}
 	for _, rule := range ev.ExcludedRecurrenceRules {

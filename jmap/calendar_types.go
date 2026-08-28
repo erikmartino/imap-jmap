@@ -314,27 +314,34 @@ type CalendarEvent struct {
 	UseDefaultAlerts        bool                                  `json:"useDefaultAlerts"`
 	Localizations           map[string]map[string]any             `json:"localizations,omitempty"`
 	TimeZones               map[string]*JSCalendarTimeZone        `json:"timeZones,omitempty"`
-	Participants            map[string]*JSCalendarParticipant     `json:"participants,omitempty"`
-	RecurrenceRules         []*JSCalendarRecurrenceRule           `json:"recurrenceRules,omitempty"`
-	RecurrenceID            string                                `json:"recurrenceId,omitempty"`
-	RecurrenceIDTimeZone    string                                `json:"recurrenceIdTimeZone,omitempty"`
-	ExcludedRecurrenceRules []*JSCalendarRecurrenceRule           `json:"excludedRecurrenceRules,omitempty"`
-	RecurrenceOverrides     map[string]map[string]any             `json:"recurrenceOverrides,omitempty"`
-	Excluded                map[string]bool                       `json:"excluded,omitempty"`
-	Alerts                  map[string]*JSCalendarAlert           `json:"alerts,omitempty"`
-	RelatedTo               map[string]*JSCalendarRelation        `json:"relatedTo,omitempty"`
-	ProdID                  string                                `json:"prodId,omitempty"`
-	Sequence                uint32                                `json:"sequence,omitempty"`
-	Method                  string                                `json:"method,omitempty"`
-	Due                     string                                `json:"due,omitempty"`
-	EstimatedDuration       string                                `json:"estimatedDuration,omitempty"`
-	PercentComplete         uint32                                `json:"percentComplete,omitempty"`
-	Progress                string                                `json:"progress,omitempty"`
-	ProgressUpdated         string                                `json:"progressUpdated,omitempty"`
-	Entries                 map[string]map[string]any             `json:"entries,omitempty"`
-	Source                  string                                `json:"source,omitempty"`
-	Created                 string                                `json:"created,omitempty"`
-	Updated                 string                                `json:"updated,omitempty"`
-	UID                     string                                `json:"uid,omitempty"`
-	Keywords                map[string]bool                       `json:"keywords,omitempty"`
+	Participants              map[string]*JSCalendarParticipant     `json:"participants,omitempty"`
+	OrganizerCalendarAddress  string                                `json:"organizerCalendarAddress,omitempty"`
+	MayInviteSelf             bool                                  `json:"mayInviteSelf,omitempty"`
+	MayInviteOthers           bool                                  `json:"mayInviteOthers,omitempty"`
+	RecurrenceRule            *JSCalendarRecurrenceRule             `json:"recurrenceRule,omitempty"`
+	RecurrenceRules           []*JSCalendarRecurrenceRule           `json:"recurrenceRules,omitempty"`
+	RecurrenceID              string                                `json:"recurrenceId,omitempty"`
+	RecurrenceIDTimeZone      string                                `json:"recurrenceIdTimeZone,omitempty"`
+	ExcludedRecurrenceRule    *JSCalendarRecurrenceRule             `json:"excludedRecurrenceRule,omitempty"`
+	ExcludedRecurrenceRules   []*JSCalendarRecurrenceRule           `json:"excludedRecurrenceRules,omitempty"`
+	RecurrenceOverrides       map[string]map[string]any             `json:"recurrenceOverrides,omitempty"`
+	Excluded                  map[string]bool                       `json:"excluded,omitempty"`
+	Alerts                    map[string]*JSCalendarAlert           `json:"alerts,omitempty"`
+	RelatedTo                 map[string]*JSCalendarRelation        `json:"relatedTo,omitempty"`
+	ProdID                    string                                `json:"prodId,omitempty"`
+	Sequence                  uint32                                `json:"sequence,omitempty"`
+	Method                    string                                `json:"method,omitempty"`
+	Due                       string                                `json:"due,omitempty"`
+	EstimatedDuration         string                                `json:"estimatedDuration,omitempty"`
+	PercentComplete           uint32                                `json:"percentComplete,omitempty"`
+	Progress                  string                                `json:"progress,omitempty"`
+	ProgressUpdated           string                                `json:"progressUpdated,omitempty"`
+	Entries                   map[string]map[string]any             `json:"entries,omitempty"`
+	Source                    string                                `json:"source,omitempty"`
+	Created                   string                                `json:"created,omitempty"`
+	Updated                   string                                `json:"updated,omitempty"`
+	UID                       string                                `json:"uid,omitempty"`
+	Keywords                  map[string]bool                       `json:"keywords,omitempty"`
+	IsDraft                   bool                                  `json:"isDraft,omitempty"`
+	IsOrigin                  bool                                  `json:"isOrigin,omitempty"`
 }

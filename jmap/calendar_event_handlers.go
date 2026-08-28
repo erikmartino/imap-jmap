@@ -69,6 +69,16 @@ func handleCalendarEventGet(backend CalendarsBackend) MethodHandler {
 					clone.Start = strings.TrimSuffix(clone.Start, "Z")
 				}
 			}
+			if len(clone.RecurrenceRules) > 0 && clone.RecurrenceRule == nil {
+				clone.RecurrenceRule = clone.RecurrenceRules[0]
+			} else if clone.RecurrenceRule != nil && len(clone.RecurrenceRules) == 0 {
+				clone.RecurrenceRules = []*JSCalendarRecurrenceRule{clone.RecurrenceRule}
+			}
+			if len(clone.ExcludedRecurrenceRules) > 0 && clone.ExcludedRecurrenceRule == nil {
+				clone.ExcludedRecurrenceRule = clone.ExcludedRecurrenceRules[0]
+			} else if clone.ExcludedRecurrenceRule != nil && len(clone.ExcludedRecurrenceRules) == 0 {
+				clone.ExcludedRecurrenceRules = []*JSCalendarRecurrenceRule{clone.ExcludedRecurrenceRule}
+			}
 			filteredList = append(filteredList, &clone)
 		}
 
@@ -628,13 +638,13 @@ var validCalendarEventProperties = map[string]bool{
 	"categories": true, "color": true, "status": true, "freeBusyStatus": true, "privacy": true,
 	"hideAttendees": true, "priority": true, "replyTo": true, "sentBy": true, "requestStatus": true,
 	"useDefaultAlerts": true, "localizations": true, "timeZones": true, "participants": true,
-	"attendees": true, "organizer": true, "rrule": true,
-	"recurrenceRules": true, "recurrenceId": true, "recurrenceIdTimeZone": true,
-	"excludedRecurrenceRules": true, "recurrenceOverrides": true, "excluded": true, "alerts": true, "alarms": true, "reminders": true, "reminder": true,
+	"attendees": true, "organizer": true, "organizerCalendarAddress": true, "rrule": true,
+	"recurrenceRule": true, "recurrenceRules": true, "recurrenceId": true, "recurrenceIdTimeZone": true,
+	"excludedRecurrenceRule": true, "excludedRecurrenceRules": true, "recurrenceOverrides": true, "excluded": true, "alerts": true, "alarms": true, "reminders": true, "reminder": true,
 	"relatedTo": true, "prodId": true, "sequence": true, "method": true, "due": true,
 	"estimatedDuration": true, "percentComplete": true, "progress": true, "progressUpdated": true,
 	"entries": true, "source": true, "created": true, "updated": true, "uid": true, "keywords": true,
-	"isDraft": true, "blobId": true, "baseObjectId": true, "comments": true, "contact": true,
+	"isDraft": true, "isOrigin": true, "mayInviteSelf": true, "mayInviteOthers": true, "blobId": true, "baseObjectId": true, "comments": true, "contact": true,
 	"features": true, "attachments": true,
 }
 
@@ -697,6 +707,22 @@ func sanitizeEventMap(m map[string]any) map[string]any {
 					"name":  locStr,
 				},
 			}
+		}
+	}
+
+	// 7. recurrenceRule -> recurrenceRules
+	if rrule, hasRrule := cleaned["recurrenceRule"]; hasRrule {
+		if rrule == nil {
+			cleaned["recurrenceRules"] = nil
+		} else if rruleMap, ok := rrule.(map[string]any); ok {
+			cleaned["recurrenceRules"] = []any{rruleMap}
+		}
+	}
+	if exrule, hasExrule := cleaned["excludedRecurrenceRule"]; hasExrule {
+		if exrule == nil {
+			cleaned["excludedRecurrenceRules"] = nil
+		} else if exruleMap, ok := exrule.(map[string]any); ok {
+			cleaned["excludedRecurrenceRules"] = []any{exruleMap}
 		}
 	}
 

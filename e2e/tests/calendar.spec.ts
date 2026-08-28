@@ -123,6 +123,143 @@ test.describe('calendar (Bulwark UI ↔ imap-jmap over JMAP)', () => {
     expect(ev.title).toBe(updatedTitle);
   });
 
+  test('clicks predefined calendar entry, updates its start time, asserts over API, navigates away and revalidates in UI', async ({ page }) => {
+    const acct = uniqueUser('cal-start-time');
+    const jmap = await JMAPClient.connect(acct.username, acct.password);
+
+    // 1. Create a predefined calendar entry for today so it is present in the current view
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    const dateStr = `${yyyy}-${mm}-${dd}`;
+    const initialStart = `${dateStr}T10:00:00`;
+    const newStartTime = '14:30';
+    const expectedStart = `${dateStr}T${newStartTime}:00`;
+    const title = `Predefined Meeting ${Date.now()}`;
+
+    const eventId = await jmap.createEvent({
+      title,
+      start: initialStart,
+      duration: 'PT1H',
+    });
+
+    // 2. Log in and go into the calendar
+    await login(page, acct.username, acct.password);
+    await goToApp(page, '/en/calendar');
+
+    // 3. Click the predefined calendar entry and set a new start time on it
+    const eventElement = page.getByText(title).first();
+    await expect(eventElement).toBeVisible({ timeout: 20_000 });
+    await eventElement.click();
+
+    await expect(page.getByRole('button', { name: 'Edit event' })).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('button', { name: 'Edit event' }).click();
+
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible({ timeout: 15_000 });
+    const startTimeInput = dialog.locator('input[type="time"]').first();
+    await startTimeInput.fill(newStartTime);
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(dialog).toBeHidden({ timeout: 15_000 });
+    await expect(page.getByText('Event updated').first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Failed to update event')).toBeHidden();
+
+    // 4. Check using API that the start time is as expected
+    await expect
+      .poll(async () => {
+        const [ev] = await jmap.getEvents([eventId], ['start']);
+        return ev?.start;
+      }, { timeout: 20_000 })
+      .toContain(newStartTime);
+
+    const [updatedEv] = await jmap.getEvents([eventId], ['start', 'title']);
+    expect(updatedEv.title).toBe(title);
+    expect(updatedEv.start).toBe(expectedStart);
+
+    // 5. Go out of the calendar and inside again
+    await goToApp(page, '/en/contacts');
+    await goToApp(page, '/en/calendar');
+
+    // 6. Validate the updated event and start time in the calendar UI
+    const reloadedEvent = page.getByText(title).first();
+    await expect(reloadedEvent).toBeVisible({ timeout: 20_000 });
+    await reloadedEvent.click();
+    await expect(page.getByRole('button', { name: 'Edit event' })).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('button', { name: 'Edit event' }).click();
+    await expect(dialog).toBeVisible({ timeout: 15_000 });
+    await expect(dialog.locator('input[type="time"]').first()).toHaveValue(newStartTime);
+    await dialog.getByRole('button', { name: 'Cancel' }).first().click();
+    await expect(dialog).toBeHidden({ timeout: 15_000 });
+  });
+
+  test('edits an existing event to be recurring with reminders and verifies via API and UI', async ({ page }) => {
+    const acct = uniqueUser('cal-recur-edit');
+    const jmap = await JMAPClient.connect(acct.username, acct.password);
+
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    const dateStr = `${yyyy}-${mm}-${dd}`;
+    const initialStart = `${dateStr}T11:00:00`;
+    const title = `Weekly Standup ${Date.now()}`;
+
+    const eventId = await jmap.createEvent({
+      title,
+      start: initialStart,
+      duration: 'PT30M',
+    });
+
+    await login(page, acct.username, acct.password);
+    await goToApp(page, '/en/calendar');
+
+    // Open event editor
+    const eventElem = page.getByText(title).first();
+    await expect(eventElem).toBeVisible({ timeout: 20_000 });
+    await eventElem.click();
+    await expect(page.getByRole('button', { name: 'Edit event' })).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('button', { name: 'Edit event' }).click();
+
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible({ timeout: 15_000 });
+
+    // Select weekly recurrence and add a reminder
+    await dialog.locator('select').nth(1).selectOption('weekly');
+    await dialog.getByRole('button', { name: 'Add reminder' }).click();
+
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(dialog).toBeHidden({ timeout: 15_000 });
+    await expect(page.getByText('Event updated').first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Failed to update event')).toBeHidden();
+
+    // Verify over JMAP API
+    await expect
+      .poll(async () => {
+        const [ev] = await jmap.getEvents([eventId], ['recurrenceRule', 'recurrenceRules', 'alerts']);
+        return ev?.recurrenceRule?.frequency || ev?.recurrenceRules?.[0]?.frequency;
+      }, { timeout: 20_000 })
+      .toBe('weekly');
+
+    const [ev] = await jmap.getEvents([eventId], ['recurrenceRule', 'recurrenceRules', 'alerts']);
+    expect(ev.recurrenceRule?.frequency || ev.recurrenceRules?.[0]?.frequency).toBe('weekly');
+    expect(Object.keys(ev.alerts || {}).length).toBeGreaterThan(0);
+
+    // Reload and check UI
+    await goToApp(page, '/en/contacts');
+    await goToApp(page, '/en/calendar');
+
+    const reloaded = page.getByText(title).first();
+    await expect(reloaded).toBeVisible({ timeout: 20_000 });
+    await reloaded.click();
+    await expect(page.getByRole('button', { name: 'Edit event' })).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('button', { name: 'Edit event' }).click();
+    await expect(dialog).toBeVisible({ timeout: 15_000 });
+    await expect(dialog.locator('select').nth(1)).toHaveValue('weekly');
+    await dialog.getByRole('button', { name: 'Cancel' }).first().click();
+    await expect(dialog).toBeHidden({ timeout: 15_000 });
+  });
+
   // ---- Protocol (the exact wire API the client uses) -----------------------
 
   test('CalendarEvent lifecycle over JMAP: create → query → get → update → destroy', async () => {

@@ -209,6 +209,19 @@ func setCalendarEventField(ev *jmap.CalendarEvent, path string, val any) {
 					}
 				}
 				return
+			case "virtualLocations":
+				if ev.VirtualLocations == nil {
+					ev.VirtualLocations = make(map[string]*jmap.JSCalendarVirtualLocation)
+				}
+				if val == nil {
+					delete(ev.VirtualLocations, parts[1])
+				} else {
+					var vl jmap.JSCalendarVirtualLocation
+					if err := decodeJSONField(val, &vl); err == nil {
+						ev.VirtualLocations[parts[1]] = &vl
+					}
+				}
+				return
 			case "alerts":
 				if ev.Alerts == nil {
 					ev.Alerts = make(map[string]*jmap.JSCalendarAlert)
@@ -390,6 +403,27 @@ func setCalendarEventField(ev *jmap.CalendarEvent, path string, val any) {
 			}
 			ev.Locations["loc-1"] = &loc
 		}
+	case "virtualLocations":
+		if val == nil {
+			ev.VirtualLocations = nil
+			return
+		}
+		var m map[string]*jmap.JSCalendarVirtualLocation
+		if err := decodeJSONField(val, &m); err == nil {
+			ev.VirtualLocations = m
+		}
+	case "useDefaultAlerts":
+		if b, ok := val.(bool); ok {
+			ev.UseDefaultAlerts = b
+		}
+	case "color":
+		if val == nil {
+			ev.Color = ""
+			return
+		}
+		if s, ok := val.(string); ok {
+			ev.Color = s
+		}
 	case "status":
 		if s, ok := val.(string); ok {
 			ev.Status = s
@@ -427,14 +461,81 @@ func setCalendarEventField(ev *jmap.CalendarEvent, path string, val any) {
 		if err := decodeJSONField(val, &m); err == nil {
 			ev.Participants = m
 		}
+	case "organizerCalendarAddress":
+		if val == nil {
+			ev.OrganizerCalendarAddress = ""
+			return
+		}
+		if s, ok := val.(string); ok {
+			ev.OrganizerCalendarAddress = s
+		}
+	case "mayInviteSelf":
+		if b, ok := val.(bool); ok {
+			ev.MayInviteSelf = b
+		}
+	case "mayInviteOthers":
+		if b, ok := val.(bool); ok {
+			ev.MayInviteOthers = b
+		}
+	case "isDraft":
+		if b, ok := val.(bool); ok {
+			ev.IsDraft = b
+		}
+	case "isOrigin":
+		if b, ok := val.(bool); ok {
+			ev.IsOrigin = b
+		}
+	case "recurrenceRule":
+		if val == nil {
+			ev.RecurrenceRule = nil
+			ev.RecurrenceRules = nil
+			return
+		}
+		var rule jmap.JSCalendarRecurrenceRule
+		if err := decodeJSONField(val, &rule); err == nil {
+			ev.RecurrenceRule = &rule
+			ev.RecurrenceRules = []*jmap.JSCalendarRecurrenceRule{&rule}
+		}
 	case "recurrenceRules":
 		if val == nil {
 			ev.RecurrenceRules = nil
+			ev.RecurrenceRule = nil
 			return
 		}
 		var rules []*jmap.JSCalendarRecurrenceRule
 		if err := decodeJSONField(val, &rules); err == nil {
 			ev.RecurrenceRules = rules
+			if len(rules) > 0 {
+				ev.RecurrenceRule = rules[0]
+			} else {
+				ev.RecurrenceRule = nil
+			}
+		}
+	case "excludedRecurrenceRule":
+		if val == nil {
+			ev.ExcludedRecurrenceRule = nil
+			ev.ExcludedRecurrenceRules = nil
+			return
+		}
+		var rule jmap.JSCalendarRecurrenceRule
+		if err := decodeJSONField(val, &rule); err == nil {
+			ev.ExcludedRecurrenceRule = &rule
+			ev.ExcludedRecurrenceRules = []*jmap.JSCalendarRecurrenceRule{&rule}
+		}
+	case "excludedRecurrenceRules":
+		if val == nil {
+			ev.ExcludedRecurrenceRules = nil
+			ev.ExcludedRecurrenceRule = nil
+			return
+		}
+		var rules []*jmap.JSCalendarRecurrenceRule
+		if err := decodeJSONField(val, &rules); err == nil {
+			ev.ExcludedRecurrenceRules = rules
+			if len(rules) > 0 {
+				ev.ExcludedRecurrenceRule = rules[0]
+			} else {
+				ev.ExcludedRecurrenceRule = nil
+			}
 		}
 	case "alerts":
 		if val == nil {
@@ -520,14 +621,6 @@ func setCalendarEventField(ev *jmap.CalendarEvent, path string, val any) {
 		if err := decodeJSONField(val, &m); err == nil {
 			ev.Categories = m
 		}
-	case "color":
-		if val == nil {
-			ev.Color = ""
-			return
-		}
-		if s, ok := val.(string); ok {
-			ev.Color = s
-		}
 	case "priority":
 		if val == nil {
 			ev.Priority = 0
@@ -560,14 +653,6 @@ func setCalendarEventField(ev *jmap.CalendarEvent, path string, val any) {
 		}
 		if s, ok := val.(string); ok {
 			ev.RequestStatus = s
-		}
-	case "useDefaultAlerts":
-		if val == nil {
-			ev.UseDefaultAlerts = false
-			return
-		}
-		if b, ok := val.(bool); ok {
-			ev.UseDefaultAlerts = b
 		}
 	case "localizations":
 		if val == nil {
@@ -602,15 +687,6 @@ func setCalendarEventField(ev *jmap.CalendarEvent, path string, val any) {
 		}
 		if s, ok := val.(string); ok {
 			ev.RecurrenceIDTimeZone = s
-		}
-	case "excludedRecurrenceRules":
-		if val == nil {
-			ev.ExcludedRecurrenceRules = nil
-			return
-		}
-		var rules []*jmap.JSCalendarRecurrenceRule
-		if err := decodeJSONField(val, &rules); err == nil {
-			ev.ExcludedRecurrenceRules = rules
 		}
 	case "recurrenceOverrides":
 		if val == nil {

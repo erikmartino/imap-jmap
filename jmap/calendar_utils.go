@@ -3,6 +3,7 @@ package jmap
 import (
 	"strings"
 	"time"
+	_ "time/tzdata"
 )
 
 func loadLocation(tz string) *time.Location {

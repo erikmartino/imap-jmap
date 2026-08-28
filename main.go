@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	_ "time/tzdata"
 
 	"imap-jmap/dav"
 	"imap-jmap/jmap"
