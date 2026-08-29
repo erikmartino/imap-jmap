@@ -446,12 +446,12 @@ func (b *CalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmap.Id)
 	cacheAge := time.Since(b.eventsCacheTime[u])
 	b.mu.RUnlock()
 
-	// Check if all requested IDs can be satisfied immediately from cache
+	// Check if all requested IDs can be satisfied immediately from cache within TTL
 	canServeFromCache := false
-	if cache != nil {
-		if len(ids) == 0 && cacheAge < 5*time.Second {
+	if cache != nil && cacheAge < 5*time.Second {
+		if len(ids) == 0 {
 			canServeFromCache = true
-		} else if len(ids) > 0 {
+		} else {
 			canServeFromCache = true
 			for _, id := range ids {
 				masterID := id
