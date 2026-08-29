@@ -160,8 +160,11 @@ func (b *CalendarsBackend) GetAllCalendars(ctx context.Context) ([]*jmap.Calenda
 }
 
 func filterCalendars(list []*jmap.Calendar, ids []jmap.Id) ([]*jmap.Calendar, []jmap.Id, error) {
-	if len(ids) == 0 {
+	if ids == nil {
 		return list, []jmap.Id{}, nil
+	}
+	if len(ids) == 0 {
+		return []*jmap.Calendar{}, []jmap.Id{}, nil
 	}
 	idMap := make(map[jmap.Id]bool, len(ids))
 	for _, id := range ids {
@@ -458,10 +461,13 @@ func (b *CalendarsBackend) buildEventResponseFromCache(u string, ids []jmap.Id) 
 
 	var list []*jmap.CalendarEvent
 	var notFound []jmap.Id
-	if len(ids) == 0 {
+	if ids == nil {
 		for _, ev := range b.eventsCache[u] {
 			list = append(list, ev)
 		}
+	} else if len(ids) == 0 {
+		list = []*jmap.CalendarEvent{}
+		notFound = []jmap.Id{}
 	} else {
 		for _, id := range ids {
 			if ev, ok := b.eventsCache[u][id]; ok {
@@ -516,8 +522,10 @@ func (b *CalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmap.Id)
 	// Check if all requested IDs can be satisfied immediately from cache within TTL
 	canServeFromCache := false
 	if cache != nil && cacheAge < 5*time.Second {
-		if len(ids) == 0 {
+		if ids == nil {
 			canServeFromCache = true
+		} else if len(ids) == 0 {
+			canServeFromCache = cacheAge < 2*time.Second
 		} else {
 			canServeFromCache = true
 			for _, id := range ids {
