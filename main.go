@@ -188,13 +188,14 @@ func main() {
 	devAuthBackend := memory.NewMemoryAuthBackend()
 	devAuthBackend.SetBackends(mailBackend, blobBackend, calBackend, contactsBackend, fileNodeBackend)
 
+	secretKey := os.Getenv("SESSION_SECRET")
+	if secretKey == "" {
+		secretKey = "imap-jmap-secret-session-key-32b!"
+	}
+
 	var authBackend jmap.AuthBackend = devAuthBackend
 	if backendType == "imapsmtp" {
 		if gw, ok := mailBackend.(*imapsmtp.IMAPSMTPBackend); ok {
-			secretKey := os.Getenv("SESSION_SECRET")
-			if secretKey == "" {
-				secretKey = "imap-jmap-secret-session-key-32b!"
-			}
 			authBackend = imapsmtp.NewAuthBackend(gw.Pool(), secretKey)
 		}
 	}
@@ -212,6 +213,7 @@ func main() {
 		oidcBackend, err := jmap.NewOIDCAuthBackend(jmap.OIDCConfig{
 			Issuer:          *oidcIssuer,
 			JWKSURL:         *oidcJWKSURL,
+			SecretKey:       secretKey,
 			FallbackBackend: oidcFallback,
 		})
 		if err != nil {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -9,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"imap-jmap/jmap"
 )
 
 func TestOIDCServerDiscoveryAndJWKS(t *testing.T) {
@@ -203,6 +206,23 @@ func TestOIDCServerFullPKCEFlow(t *testing.T) {
 	}
 	if idToken == "" {
 		t.Errorf("id_token missing in token response")
+	}
+
+	// Verify that jmap.OIDCAuthBackend can extract the user's password from id_token
+	oidcBackend, err := jmap.NewOIDCAuthBackend(jmap.OIDCConfig{
+		Issuer:    srv.Issuer,
+		SecretKey: "imap-jmap-secret-session-key-32b!",
+	})
+	if err != nil {
+		t.Fatalf("Failed to create OIDCAuthBackend: %v", err)
+	}
+
+	extUser, extPass, okExt := oidcBackend.ExtractCredentials(context.Background(), idToken)
+	if !okExt {
+		t.Fatalf("OIDCAuthBackend failed to extract credentials from id_token")
+	}
+	if extUser != "erik@profundo.dk" || extPass != "erik" {
+		t.Errorf("Extracted credentials mismatch: got (%s, %s), want (erik@profundo.dk, erik)", extUser, extPass)
 	}
 
 	// 7. GET /oauth/userinfo with Bearer token

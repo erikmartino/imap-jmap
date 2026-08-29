@@ -3,6 +3,8 @@ package jmap
 import (
 	"context"
 	"crypto"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/sha512"
@@ -18,11 +20,12 @@ import (
 )
 
 // OIDCAuthBackend implements AuthBackend by validating OAuth 2.0 / OpenID Connect Bearer JWT tokens
-// issued by an identity provider (such as Keycloak).
+// issued by an identity provider (such as Keycloak or mock-ldap).
 type OIDCAuthBackend struct {
 	issuer          string
 	jwksURL         string
 	clientID        string
+	encSecretKey    []byte
 	fallbackBackend AuthBackend
 	mu              sync.RWMutex
 	keys            map[string]*rsa.PublicKey
@@ -30,11 +33,15 @@ type OIDCAuthBackend struct {
 	httpClient      *http.Client
 }
 
+var _ AuthBackend = (*OIDCAuthBackend)(nil)
+var _ TokenCredentialsExtractor = (*OIDCAuthBackend)(nil)
+
 // OIDCConfig holds initialization parameters for OIDCAuthBackend.
 type OIDCConfig struct {
 	Issuer          string       // e.g. "https://auth.profundo.dk/realms/master"
 	JWKSURL         string       // e.g. "https://auth.profundo.dk/realms/master/protocol/openid-connect/certs" (optional, auto-discovered if empty)
 	ClientID        string       // Optional client ID / audience check
+	SecretKey       string       // Symmetric key for decrypting enc_sec credentials payload (optional)
 	FallbackBackend AuthBackend  // Optional fallback AuthBackend (e.g. MemoryAuthBackend for Basic auth / dev)
 	HTTPClient      *http.Client // Optional custom HTTP client
 }
@@ -50,12 +57,18 @@ func NewOIDCAuthBackend(cfg OIDCConfig) (*OIDCAuthBackend, error) {
 	}
 	jwksURL := cfg.JWKSURL
 	if jwksURL == "" {
-		jwksURL = strings.TrimRight(cfg.Issuer, "/") + "/protocol/openid-connect/certs"
+		jwksURL = strings.TrimRight(cfg.Issuer, "/") + "/oauth/keys"
+	}
+	var encKey []byte
+	if cfg.SecretKey != "" {
+		h := sha256.Sum256([]byte(cfg.SecretKey))
+		encKey = h[:]
 	}
 	return &OIDCAuthBackend{
 		issuer:          strings.TrimRight(cfg.Issuer, "/"),
 		jwksURL:         jwksURL,
 		clientID:        cfg.ClientID,
+		encSecretKey:    encKey,
 		fallbackBackend: cfg.FallbackBackend,
 		keys:            make(map[string]*rsa.PublicKey),
 		httpClient:      client,
@@ -102,6 +115,83 @@ func (o *OIDCAuthBackend) ValidateToken(ctx context.Context, token string) (stri
 	}
 
 	return "", "", fmt.Errorf("invalid OIDC token: %w", err)
+}
+
+// ExtractCredentials decrypts upstream username and password from the OIDC token's enc_sec claim,
+// or delegates to the fallback backend if configured.
+func (o *OIDCAuthBackend) ExtractCredentials(ctx context.Context, token string) (string, string, bool) {
+	if extractor, ok := o.fallbackBackend.(TokenCredentialsExtractor); ok {
+		if u, p, okExt := extractor.ExtractCredentials(ctx, token); okExt {
+			return u, p, true
+		}
+	}
+
+	if len(o.encSecretKey) == 0 {
+		return "", "", false
+	}
+
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return "", "", false
+	}
+
+	claimsBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", "", false
+	}
+
+	var claims struct {
+		EncSec string `json:"enc_sec"`
+	}
+	if err := json.Unmarshal(claimsBytes, &claims); err != nil || claims.EncSec == "" {
+		return "", "", false
+	}
+
+	return DecryptCredentialsPayload(claims.EncSec, o.encSecretKey)
+}
+
+// DecryptCredentialsPayload decrypts an AES-GCM base64 encoded credential string.
+func DecryptCredentialsPayload(cipherBase64 string, secretKey []byte) (string, string, bool) {
+	ciphertext, err := base64.RawURLEncoding.DecodeString(cipherBase64)
+	if err != nil {
+		return "", "", false
+	}
+
+	block, err := aes.NewCipher(secretKey)
+	if err != nil {
+		return "", "", false
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", "", false
+	}
+
+	nonceSize := gcm.NonceSize()
+	if len(ciphertext) < nonceSize {
+		return "", "", false
+	}
+
+	nonce, encrypted := ciphertext[:nonceSize], ciphertext[nonceSize:]
+	plaintext, err := gcm.Open(nil, nonce, encrypted, nil)
+	if err != nil {
+		return "", "", false
+	}
+
+	var payload struct {
+		Username  string `json:"u"`
+		Password  string `json:"p"`
+		ExpiresAt int64  `json:"exp"`
+	}
+	if err := json.Unmarshal(plaintext, &payload); err != nil {
+		return "", "", false
+	}
+
+	if payload.ExpiresAt > 0 && time.Now().Unix() > payload.ExpiresAt {
+		return "", "", false
+	}
+
+	return payload.Username, payload.Password, true
 }
 
 type jwtHeader struct {

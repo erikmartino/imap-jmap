@@ -2,6 +2,8 @@ package main
 
 import (
 	"crypto"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -10,9 +12,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +27,7 @@ import (
 type AuthCode struct {
 	Code                string
 	Username            string
+	Password            string
 	ClientID            string
 	RedirectURI         string
 	CodeChallenge       string
@@ -34,6 +39,7 @@ type AuthCode struct {
 type Session struct {
 	SessionID string
 	Username  string
+	Password  string
 	ExpiresAt time.Time
 }
 
@@ -68,6 +74,7 @@ type OIDCServer struct {
 	PrivateKey          *rsa.PrivateKey
 	PublicKey           *rsa.PublicKey
 	KeyID               string
+	encSecretKey        []byte
 	sessions            map[string]Session
 	authCodes           map[string]AuthCode
 	accessTokens        map[string]TokenData
@@ -86,12 +93,19 @@ func NewOIDCServer(issuer string, domain string) (*OIDCServer, error) {
 		domain = "profundo.dk"
 	}
 
+	secretKey := os.Getenv("SESSION_SECRET")
+	if secretKey == "" {
+		secretKey = "imap-jmap-secret-session-key-32b!"
+	}
+	h := sha256.Sum256([]byte(secretKey))
+
 	srv := &OIDCServer{
 		Issuer:       issuer,
 		Domain:       domain,
 		PrivateKey:   privKey,
 		PublicKey:    &privKey.PublicKey,
 		KeyID:        "mock-ldap-key-1",
+		encSecretKey: h[:],
 		sessions:     make(map[string]Session),
 		authCodes:    make(map[string]AuthCode),
 		accessTokens: make(map[string]TokenData),
@@ -223,7 +237,7 @@ func (s *OIDCServer) handleAuth(w http.ResponseWriter, r *http.Request) {
 			s.mu.RUnlock()
 
 			if ok && session.ExpiresAt.After(time.Now()) {
-				s.issueAuthCodeAndRedirect(w, r, session.Username, clientID, redirectURI, state, codeChallenge, codeChallengeMethod, scope)
+				s.issueAuthCodeAndRedirect(w, r, session.Username, session.Password, clientID, redirectURI, state, codeChallenge, codeChallengeMethod, scope)
 				return
 			}
 		}
@@ -254,6 +268,7 @@ func (s *OIDCServer) handleAuth(w http.ResponseWriter, r *http.Request) {
 			s.sessions[sessionID] = Session{
 				SessionID: sessionID,
 				Username:  fullUser,
+				Password:  password,
 				ExpiresAt: time.Now().Add(30 * 24 * time.Hour),
 			}
 			s.mu.Unlock()
@@ -268,17 +283,18 @@ func (s *OIDCServer) handleAuth(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 
-		s.issueAuthCodeAndRedirect(w, r, fullUser, clientID, redirectURI, state, codeChallenge, codeChallengeMethod, scope)
+		s.issueAuthCodeAndRedirect(w, r, fullUser, password, clientID, redirectURI, state, codeChallenge, codeChallengeMethod, scope)
 	}
 }
 
-func (s *OIDCServer) issueAuthCodeAndRedirect(w http.ResponseWriter, r *http.Request, username, clientID, redirectURI, state, codeChallenge, codeChallengeMethod, scope string) {
+func (s *OIDCServer) issueAuthCodeAndRedirect(w http.ResponseWriter, r *http.Request, username, password, clientID, redirectURI, state, codeChallenge, codeChallengeMethod, scope string) {
 	code := generateRandomToken(32)
 
 	s.mu.Lock()
 	s.authCodes[code] = AuthCode{
 		Code:                code,
 		Username:            username,
+		Password:            password,
 		ClientID:            clientID,
 		RedirectURI:         redirectURI,
 		CodeChallenge:       codeChallenge,
@@ -392,6 +408,8 @@ func (s *OIDCServer) handleToken(w http.ResponseWriter, r *http.Request) {
 	username := authCode.Username
 	cleanName := strings.Split(username, "@")[0]
 
+	encSec, _ := EncryptCredentialsPayload(username, authCode.Password, s.encSecretKey)
+
 	// Create ID Token claims
 	idClaims := map[string]any{
 		"iss":                issuer,
@@ -404,6 +422,7 @@ func (s *OIDCServer) handleToken(w http.ResponseWriter, r *http.Request) {
 		"email_verified":     true,
 		"name":               cleanName,
 		"preferred_username": cleanName,
+		"enc_sec":            encSec,
 	}
 
 	idToken, err := s.signJWT(idClaims)
@@ -959,4 +978,42 @@ func (s *OIDCServer) renderLoginForm(w http.ResponseWriter, errMsg, clientID, re
 		"CodeChallengeMethod": codeChallengeMethod,
 		"Scope":               scope,
 	})
+}
+
+func EncryptCredentialsPayload(username, password string, secretKey []byte) (string, error) {
+	if len(secretKey) == 0 || password == "" {
+		return "", nil
+	}
+	payload := struct {
+		Username  string `json:"u"`
+		Password  string `json:"p"`
+		ExpiresAt int64  `json:"exp"`
+	}{
+		Username:  username,
+		Password:  password,
+		ExpiresAt: time.Now().Add(30 * 24 * time.Hour).Unix(),
+	}
+
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+
+	block, err := aes.NewCipher(secretKey)
+	if err != nil {
+		return "", err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
+	}
+
+	ciphertext := gcm.Seal(nonce, nonce, payloadBytes, nil)
+	return base64.RawURLEncoding.EncodeToString(ciphertext), nil
 }
