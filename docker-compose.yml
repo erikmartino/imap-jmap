@@ -85,15 +85,18 @@ services:
     ports:
       - "3334:80"
     environment:
+      - SSO_BASE_URL=http://localhost:8089
+      - SSO_CLIENT_ID=twake-calendar
+      - SSO_REDIRECT_URI=http://localhost:3334/callback
+      - SSO_SCOPE=openid profile email
       - CALENDAR_BASE_URL=http://localhost:3334
       - DAV_BASE_URL=http://localhost:8088/remote.php/dav
       - MAIL_SPA_URL=http://localhost:3333
       - DEBUG=false
       - LANG=en
-    volumes:
-      - ./docker/twake-calendar/appList.js:/usr/share/nginx/html/appList.js:ro
     depends_on:
       - nextcloud
+      - ldap
     restart: unless-stopped
 
   stalwart:
@@ -108,8 +111,13 @@ services:
       context: .
       dockerfile: docker/mock-ldap/Dockerfile
     container_name: ldap-server
+    environment:
+      - OIDC_ISSUER=http://localhost:8089
+      - OIDC_DOMAIN=example.com
+      - HTTP_LISTEN_PORT=8080
     ports:
       - "4389:389"
+      - "8089:8080"
     restart: unless-stopped
 
   dovecot:

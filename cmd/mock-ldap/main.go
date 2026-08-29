@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -28,7 +30,19 @@ func main() {
 		port = "389"
 	}
 
+	httpPort := os.Getenv("HTTP_LISTEN_PORT")
+	if httpPort == "" {
+		httpPort = os.Getenv("PORT")
+	}
+	if httpPort == "" {
+		httpPort = "8080"
+	}
 
+	issuer := os.Getenv("OIDC_ISSUER")
+	domain := os.Getenv("OIDC_DOMAIN")
+	if domain == "" {
+		domain = "profundo.dk"
+	}
 
 	server := ldapserver.NewServer()
 	// No read deadline: closing an idle connection here makes Dovecot's LDAP
@@ -53,10 +67,33 @@ func main() {
 		}
 	}()
 
+	oidcSrv, err := NewOIDCServer(issuer, domain)
+	if err != nil {
+		log.Fatalf("Failed to initialize OIDC server: %v", err)
+	}
+
+	httpAddr := "0.0.0.0:" + httpPort
+	log.Printf("Starting Mock LDAP OIDC server on http://%s (Issuer: %s) ...", httpAddr, issuer)
+
+	httpServer := &http.Server{
+		Addr:    httpAddr,
+		Handler: oidcSrv.Handler(),
+	}
+
+	go func() {
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("HTTP OIDC server error: %v", err)
+		}
+	}()
+
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
-	log.Println("Shutting down Mock LDAP server.")
+	log.Println("Shutting down Mock LDAP and OIDC servers.")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = httpServer.Shutdown(ctx)
 	server.Stop()
 }
 

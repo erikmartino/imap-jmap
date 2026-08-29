@@ -6,6 +6,13 @@ mkdir -p /etc/nginx/conf.d
 # Generate .env.js at runtime only if missing or writable
 if [ ! -f /usr/share/nginx/html/.env.js ] || [ -w /usr/share/nginx/html/.env.js ]; then
   cat <<EOF > /usr/share/nginx/html/.env.js 2>/dev/null || true
+var SSO_BASE_URL = '${SSO_BASE_URL:-https://auth.profundo.dk}';
+var SSO_CLIENT_ID = '${SSO_CLIENT_ID:-twake-calendar}';
+var SSO_SCOPE = '${SSO_SCOPE:-openid profile email}';
+var SSO_REDIRECT_URI = '${SSO_REDIRECT_URI:-https://calendar.profundo.dk/callback}';
+var SSO_RESPONSE_TYPE = '${SSO_RESPONSE_TYPE:-code}';
+var SSO_CODE_CHALLENGE_METHOD = '${SSO_CODE_CHALLENGE_METHOD:-S256}';
+var SSO_POST_LOGOUT_REDIRECT = '${SSO_POST_LOGOUT_REDIRECT:-https://calendar.profundo.dk?logout=1}';
 var CALENDAR_BASE_URL = '${CALENDAR_BASE_URL:-http://localhost:3334}';
 var DAV_BASE_URL = '${DAV_BASE_URL:-http://localhost:8088/remote.php/dav}';
 var MAIL_SPA_URL = '${MAIL_SPA_URL:-http://localhost:3333}';
@@ -44,9 +51,9 @@ fi
 
 # Apply cache-busting query strings in index.html to bust intermediary/browser caches
 if [ -w /usr/share/nginx/html/index.html ]; then
-  sed -i 's|/appList\.js[^"]*|/appList.js?v=3|g' /usr/share/nginx/html/index.html 2>/dev/null || true
-  sed -i 's|/\.env\.js[^"]*|/.env.js?v=3|g' /usr/share/nginx/html/index.html 2>/dev/null || true
-  sed -i 's|/version\.js[^"]*|/version.js?v=3|g' /usr/share/nginx/html/index.html 2>/dev/null || true
+  sed -i 's|/appList\.js[^"]*|/appList.js?v=4|g' /usr/share/nginx/html/index.html 2>/dev/null || true
+  sed -i 's|/\.env\.js[^"]*|/.env.js?v=4|g' /usr/share/nginx/html/index.html 2>/dev/null || true
+  sed -i 's|/version\.js[^"]*|/version.js?v=4|g' /usr/share/nginx/html/index.html 2>/dev/null || true
   # Regenerate gzipped index.html if gzip exists
   if command -v gzip >/dev/null 2>&1; then
     gzip -k -f /usr/share/nginx/html/index.html 2>/dev/null || true

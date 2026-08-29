@@ -7,6 +7,6 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /mock-ldap ./cmd/mock-ldap
 
 FROM alpine:latest
-EXPOSE 389
+EXPOSE 389 8080
 COPY --from=builder /mock-ldap /mock-ldap
 ENTRYPOINT ["/mock-ldap"]
