@@ -10,6 +10,24 @@ import (
 	"strings"
 )
 
+func decodeBase64OrRaw(s string) ([]byte, error) {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "Basic ")
+	if b, err := base64.StdEncoding.DecodeString(s); err == nil {
+		return b, nil
+	}
+	if b, err := base64.RawStdEncoding.DecodeString(s); err == nil {
+		return b, nil
+	}
+	if b, err := base64.URLEncoding.DecodeString(s); err == nil {
+		return b, nil
+	}
+	if b, err := base64.RawURLEncoding.DecodeString(s); err == nil {
+		return b, nil
+	}
+	return nil, errors.New("invalid base64")
+}
+
 // authMiddleware wraps an http.Handler, enforcing webmail authentication per RFC 8620 Section 8.2.
 // It accepts credentials either via:
 //   - Authorization: Bearer <token> header (standard, RFC 6750 Section 2.1)
@@ -78,7 +96,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 				}
 			}
 		} else if queryToken != "" {
-			// RFC 6750 Section 2.3: token in URI query (required for browser SSE and WebSocket).
+			// 1. Try Bearer/OIDC token validation (RFC 6750 Section 2.3).
 			accountID, subject, authErr = s.AuthBackend.ValidateToken(r.Context(), queryToken)
 			authed = authErr == nil
 			if authed {
@@ -89,12 +107,8 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 					}
 				}
 			} else {
-				// Also support Basic auth credentials passed in query (e.g. Basic <base64>, base64(user:pass), or user:pass)
-				raw := strings.TrimPrefix(queryToken, "Basic ")
-				decoded, decErr := base64.StdEncoding.DecodeString(raw)
-				if decErr != nil {
-					decoded, decErr = base64.URLEncoding.DecodeString(raw)
-				}
+				// 2. Try Basic auth credentials passed in query param (e.g. Basic <base64>, base64(user:pass), or user:pass)
+				decoded, decErr := decodeBase64OrRaw(queryToken)
 				var userPass string
 				if decErr == nil && strings.Contains(string(decoded), ":") {
 					userPass = string(decoded)
@@ -112,6 +126,8 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 						credPassword = password
 						authed = true
 						authErr = nil
+					} else {
+						authErr = valErr
 					}
 				}
 			}
