@@ -69,7 +69,7 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	username := extractUsername(bindDN)
 
 	// Accept admin bind or strict username == password authentication
-	if bindDN == "cn=admin,dc=example,dc=org" || (username != "" && password == username) {
+	if strings.HasPrefix(strings.ToLower(bindDN), "cn=admin") || (username != "" && password == username) {
 		log.Printf("[MockLDAP] Bind SUCCESS for %s", username)
 		w.Write(ldapserver.NewBindResponse(ldapserver.LDAPResultSuccess))
 		return
@@ -92,8 +92,14 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		username = "user@example.com"
 	}
 
-
-	entryDN := fmt.Sprintf("uid=%s,ou=users,dc=example,dc=org", username)
+	baseDN := string(r.BaseObject())
+	if baseDN == "" || !strings.Contains(baseDN, "dc=") {
+		baseDN = "ou=users,dc=profundo,dc=dk"
+	}
+	entryDN := fmt.Sprintf("uid=%s,%s", username, baseDN)
+	if !strings.Contains(entryDN, "ou=") {
+		entryDN = fmt.Sprintf("uid=%s,ou=users,dc=profundo,dc=dk", username)
+	}
 	e := ldapserver.NewSearchResultEntry(entryDN)
 	e.AddAttribute("objectClass", message.AttributeValue("inetOrgPerson"), message.AttributeValue("posixAccount"), message.AttributeValue("top"))
 	e.AddAttribute("uid", message.AttributeValue(username))

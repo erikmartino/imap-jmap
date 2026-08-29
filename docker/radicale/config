@@ -4,8 +4,8 @@ hosts = 0.0.0.0:5232
 [auth]
 type = ldap
 ldap_uri = ldap://ldap:389
-ldap_base = ou=users,dc=example,dc=org
-ldap_reader_dn = cn=admin,dc=example,dc=org
+ldap_base = ou=users,dc=profundo,dc=dk
+ldap_reader_dn = cn=admin,dc=profundo,dc=dk
 ldap_secret = admin
 ldap_filter = (|(uid={0})(mail={0}))
 
