@@ -101,13 +101,20 @@ func (o *OIDCAuthBackend) ValidateCredentials(ctx context.Context, username, pas
 }
 
 func (o *OIDCAuthBackend) ValidateToken(ctx context.Context, token string) (string, string, error) {
-	// First try OIDC JWT validation
+	// 1. Check if it's a direct AES-GCM encrypted Bearer token
+	if len(o.encSecretKey) > 0 {
+		if u, _, ok := DecryptCredentialsPayload(token, o.encSecretKey); ok && u != "" {
+			return AccountIDForSubject(u), u, nil
+		}
+	}
+
+	// 2. Try OIDC JWT validation
 	accountID, subject, err := o.validateJWT(ctx, token)
 	if err == nil {
 		return accountID, subject, nil
 	}
 
-	// Fall back if fallbackBackend is set (e.g. for development tokens or Basic auth tokens)
+	// 3. Fall back if fallbackBackend is set (e.g. for development tokens or Basic auth tokens)
 	if o.fallbackBackend != nil {
 		if fbAccountID, fbSubject, fbErr := o.fallbackBackend.ValidateToken(ctx, token); fbErr == nil {
 			return fbAccountID, fbSubject, nil
@@ -117,7 +124,8 @@ func (o *OIDCAuthBackend) ValidateToken(ctx context.Context, token string) (stri
 	return "", "", fmt.Errorf("invalid OIDC token: %w", err)
 }
 
-// ExtractCredentials decrypts upstream username and password from the OIDC token's enc_sec claim,
+// ExtractCredentials decrypts upstream username and password from the Bearer token
+// (either directly from an AES-GCM bearer token or from the OIDC JWT enc_sec claim),
 // or delegates to the fallback backend if configured.
 func (o *OIDCAuthBackend) ExtractCredentials(ctx context.Context, token string) (string, string, bool) {
 	if extractor, ok := o.fallbackBackend.(TokenCredentialsExtractor); ok {
@@ -130,24 +138,26 @@ func (o *OIDCAuthBackend) ExtractCredentials(ctx context.Context, token string) 
 		return "", "", false
 	}
 
+	// 1. Check if token itself is an AES-GCM encrypted bearer token
+	if u, p, ok := DecryptCredentialsPayload(token, o.encSecretKey); ok {
+		return u, p, true
+	}
+
+	// 2. Check if token is a 3-part JWT containing enc_sec claim
 	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
-		return "", "", false
+	if len(parts) == 3 {
+		claimsBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+		if err == nil {
+			var claims struct {
+				EncSec string `json:"enc_sec"`
+			}
+			if err := json.Unmarshal(claimsBytes, &claims); err == nil && claims.EncSec != "" {
+				return DecryptCredentialsPayload(claims.EncSec, o.encSecretKey)
+			}
+		}
 	}
 
-	claimsBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return "", "", false
-	}
-
-	var claims struct {
-		EncSec string `json:"enc_sec"`
-	}
-	if err := json.Unmarshal(claimsBytes, &claims); err != nil || claims.EncSec == "" {
-		return "", "", false
-	}
-
-	return DecryptCredentialsPayload(claims.EncSec, o.encSecretKey)
+	return "", "", false
 }
 
 // DecryptCredentialsPayload decrypts an AES-GCM base64 encoded credential string.

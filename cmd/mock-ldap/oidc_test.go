@@ -208,7 +208,6 @@ func TestOIDCServerFullPKCEFlow(t *testing.T) {
 		t.Errorf("id_token missing in token response")
 	}
 
-	// Verify that jmap.OIDCAuthBackend can extract the user's password from id_token
 	oidcBackend, err := jmap.NewOIDCAuthBackend(jmap.OIDCConfig{
 		Issuer:    srv.Issuer,
 		SecretKey: "imap-jmap-secret-session-key-32b!",
@@ -217,6 +216,16 @@ func TestOIDCServerFullPKCEFlow(t *testing.T) {
 		t.Fatalf("Failed to create OIDCAuthBackend: %v", err)
 	}
 
+	// Verify that jmap.OIDCAuthBackend can extract the user's password from Bearer access_token
+	extUserBearer, extPassBearer, okBearer := oidcBackend.ExtractCredentials(context.Background(), accessToken)
+	if !okBearer {
+		t.Fatalf("OIDCAuthBackend failed to extract credentials from access_token (Bearer token)")
+	}
+	if extUserBearer != "erik@profundo.dk" || extPassBearer != "erik" {
+		t.Errorf("Bearer token extracted credentials mismatch: got (%s, %s), want (erik@profundo.dk, erik)", extUserBearer, extPassBearer)
+	}
+
+	// Verify that jmap.OIDCAuthBackend can also extract the user's password from id_token
 	extUser, extPass, okExt := oidcBackend.ExtractCredentials(context.Background(), idToken)
 	if !okExt {
 		t.Fatalf("OIDCAuthBackend failed to extract credentials from id_token")

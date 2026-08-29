@@ -432,7 +432,11 @@ func (s *OIDCServer) handleToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accessToken := generateRandomToken(32)
+	accessToken := encSec
+	if accessToken == "" {
+		accessToken = generateRandomToken(32)
+	}
+
 	s.mu.Lock()
 	s.accessTokens[accessToken] = TokenData{
 		Token:     accessToken,
