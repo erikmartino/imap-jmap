@@ -65,6 +65,7 @@ func (s *Server) HandleEventSource(w http.ResponseWriter, r *http.Request) {
 	}
 
 	principalAccountID, _ := AccountIDFromContext(r.Context())
+	subject, _ := SubjectFromContext(r.Context())
 	ctx := r.Context()
 	for {
 		select {
@@ -86,8 +87,13 @@ func (s *Server) HandleEventSource(w http.ResponseWriter, r *http.Request) {
 			// Filter event by authenticated accountID and requested types
 			filteredChanged := make(map[string]map[string]string)
 			for accID, typeMap := range stateEvt.Changed {
-				if principalAccountID != "" && accID != principalAccountID {
+				match := (principalAccountID == "") || (accID == principalAccountID) || (AccountIDForSubject(accID) == principalAccountID) || (subject != "" && accID == subject)
+				if !match {
 					continue
+				}
+				targetAccID := accID
+				if principalAccountID != "" {
+					targetAccID = principalAccountID
 				}
 				filteredMap := make(map[string]string)
 				for tName, token := range typeMap {
@@ -96,7 +102,12 @@ func (s *Server) HandleEventSource(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 				if len(filteredMap) > 0 {
-					filteredChanged[accID] = filteredMap
+					if filteredChanged[targetAccID] == nil {
+						filteredChanged[targetAccID] = make(map[string]string)
+					}
+					for k, v := range filteredMap {
+						filteredChanged[targetAccID][k] = v
+					}
 				}
 			}
 			if len(filteredChanged) == 0 {

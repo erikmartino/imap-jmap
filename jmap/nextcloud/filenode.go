@@ -39,12 +39,16 @@ func (b *FileNodeBackend) SetBroadcaster(bc *jmap.Broadcaster) {
 	b.broadcaster = bc
 }
 
-func (b *FileNodeBackend) emitStateChange(accountID, typeName, newState string) {
+func (b *FileNodeBackend) emitStateChange(u, typeName, newState string) {
 	b.mu.RLock()
 	bc := b.broadcaster
 	b.mu.RUnlock()
 	if bc != nil {
+		accountID := jmap.AccountIDForSubject(u)
 		bc.PublishStateChange(accountID, typeName, newState)
+		if accountID != u {
+			bc.PublishStateChange(u, typeName, newState)
+		}
 	}
 }
 
