@@ -1,56 +1,114 @@
-name: Build and Push Docker Image
+name: Build and Push Docker Images
 
 on:
   push:
     branches: [ main ]
     tags: [ 'v*.*.*' ]
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 'Service to build and push'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - imap-jmap
+          - mock-ldap
+          - twake-calendar
+      tag_version:
+        description: 'Manual version tag (leave empty for 1.<run_number>.<run_attempt>)'
+        required: false
+        default: ''
+        type: string
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build-and-push:
-    name: Build and Push Image
+    name: Build & Push ${{ matrix.name }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: imap-jmap
+            image: ${{ github.repository }}
+            dockerfile: Dockerfile
+            context: .
+          - name: mock-ldap
+            image: ${{ github.repository_owner }}/mock-ldap
+            dockerfile: docker/mock-ldap/Dockerfile
+            context: .
+          - name: twake-calendar
+            image: ${{ github.repository_owner }}/twake-calendar
+            dockerfile: docker/twake-calendar/Dockerfile
+            context: .
 
     steps:
+      - name: Skip check
+        id: check
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.service }}" != "all" ] && [ "${{ github.event.inputs.service }}" != "${{ matrix.name }}" ]; then
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          else
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Checkout Code
+        if: steps.check.outputs.should_run == 'true'
         uses: actions/checkout@v4
 
       - name: Log in to GitHub Container Registry
+        if: steps.check.outputs.should_run == 'true'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set Version Variable
+        if: steps.check.outputs.should_run == 'true'
+        id: vars
+        run: |
+          if [ -n "${{ github.event.inputs.tag_version }}" ]; then
+            VERSION="${{ github.event.inputs.tag_version }}"
+          else
+            VERSION="1.${{ github.run_number }}.${{ github.run_attempt }}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "build_time=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+
       - name: Extract Docker metadata
+        if: steps.check.outputs.should_run == 'true'
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ matrix.image }}
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=1.${{ github.run_number }}.${{ github.run_attempt }}
+            type=raw,value=${{ steps.vars.outputs.version }}
             type=sha,format=short
 
-      - name: Set Build Variables
-        id: vars
-        run: |
-          echo "version=1.${{ github.run_number }}.${{ github.run_attempt }}" >> $GITHUB_OUTPUT
-          echo "build_time=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+      - name: Set up Docker Buildx
+        if: steps.check.outputs.should_run == 'true'
+        uses: docker/setup-buildx-action@v3
 
       - name: Build and Push Docker Image
+        if: steps.check.outputs.should_run == 'true'
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           build-args: |
             VERSION=${{ steps.vars.outputs.version }}
             COMMIT=${{ github.sha }}
