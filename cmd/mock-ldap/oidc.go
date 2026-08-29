@@ -51,6 +51,15 @@ type TokenData struct {
 	ExpiresAt time.Time
 }
 
+type RefreshTokenData struct {
+	Token     string
+	Username  string
+	Password  string
+	ClientID  string
+	Scope     string
+	ExpiresAt time.Time
+}
+
 type StoredItem struct {
 	Href   string `json:"href"`
 	ETag   string `json:"etag"`
@@ -78,6 +87,7 @@ type OIDCServer struct {
 	sessions            map[string]Session
 	authCodes           map[string]AuthCode
 	accessTokens        map[string]TokenData
+	refreshTokens       map[string]RefreshTokenData
 	calendars           map[string]*StoredCalendar
 	mu                  sync.RWMutex
 	ValidateCredentials func(username, password string) bool
@@ -100,16 +110,17 @@ func NewOIDCServer(issuer string, domain string) (*OIDCServer, error) {
 	h := sha256.Sum256([]byte(secretKey))
 
 	srv := &OIDCServer{
-		Issuer:       issuer,
-		Domain:       domain,
-		PrivateKey:   privKey,
-		PublicKey:    &privKey.PublicKey,
-		KeyID:        "mock-ldap-key-1",
-		encSecretKey: h[:],
-		sessions:     make(map[string]Session),
-		authCodes:    make(map[string]AuthCode),
-		accessTokens: make(map[string]TokenData),
-		calendars:    make(map[string]*StoredCalendar),
+		Issuer:        issuer,
+		Domain:        domain,
+		PrivateKey:    privKey,
+		PublicKey:     &privKey.PublicKey,
+		KeyID:         "mock-ldap-key-1",
+		encSecretKey:  h[:],
+		sessions:      make(map[string]Session),
+		authCodes:     make(map[string]AuthCode),
+		accessTokens:  make(map[string]TokenData),
+		refreshTokens: make(map[string]RefreshTokenData),
+		calendars:     make(map[string]*StoredCalendar),
 		ValidateCredentials: func(username, password string) bool {
 			// Accept admin bind or standard username == password
 			if (username == "admin" || username == "admin@"+domain) && (password == "admin" || password == "admin123") {
@@ -183,6 +194,7 @@ func (s *OIDCServer) handleOpenIDConfiguration(w http.ResponseWriter, r *http.Re
 		"jwks_uri":                              issuer + "/oauth/keys",
 		"end_session_endpoint":                  issuer + "/oauth/logout",
 		"response_types_supported":              []string{"code"},
+		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
 		"subject_types_supported":               []string{"public"},
 		"id_token_signing_alg_values_supported": []string{"RS256"},
 		"scopes_supported":                      []string{"openid", "profile", "email", "offline_access"},
@@ -329,11 +341,85 @@ func (s *OIDCServer) handleToken(w http.ResponseWriter, r *http.Request) {
 	codeVerifier := r.FormValue("code_verifier")
 	clientID := r.FormValue("client_id")
 
+	if grantType == "refresh_token" {
+		refreshToken := r.FormValue("refresh_token")
+		s.mu.Lock()
+		rtData, ok := s.refreshTokens[refreshToken]
+		s.mu.Unlock()
+
+		if !ok || rtData.ExpiresAt.Before(time.Now()) {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"error":             "invalid_grant",
+				"error_description": "Refresh token is invalid or expired",
+			})
+			return
+		}
+
+		issuer := s.getIssuer(r)
+		now := time.Now()
+		exp := now.Add(24 * time.Hour)
+		username := rtData.Username
+		cleanName := strings.Split(username, "@")[0]
+
+		encSec, _ := EncryptCredentialsPayload(username, rtData.Password, s.encSecretKey)
+
+		idClaims := map[string]any{
+			"iss":                issuer,
+			"sub":                username,
+			"aud":                rtData.ClientID,
+			"exp":                exp.Unix(),
+			"iat":                now.Unix(),
+			"auth_time":          now.Unix(),
+			"email":              username,
+			"email_verified":     true,
+			"name":               cleanName,
+			"preferred_username": cleanName,
+			"enc_sec":            encSec,
+		}
+
+		idToken, err := s.signJWT(idClaims)
+		if err != nil {
+			log.Printf("[OIDC] Failed to sign ID Token on refresh: %v", err)
+			http.Error(w, "Failed to issue token", http.StatusInternalServerError)
+			return
+		}
+
+		accessToken := encSec
+		if accessToken == "" {
+			accessToken = generateRandomToken(32)
+		}
+
+		s.mu.Lock()
+		s.accessTokens[accessToken] = TokenData{
+			Token:     accessToken,
+			Username:  username,
+			ClientID:  rtData.ClientID,
+			Scope:     rtData.Scope,
+			ExpiresAt: exp,
+		}
+		s.mu.Unlock()
+
+		resp := map[string]any{
+			"access_token":  accessToken,
+			"token_type":    "Bearer",
+			"expires_in":    86400,
+			"id_token":      idToken,
+			"refresh_token": refreshToken,
+			"scope":         rtData.Scope,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(resp)
+		return
+	}
+
 	if grantType != "authorization_code" {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{
 			"error":             "unsupported_grant_type",
-			"error_description": "Only authorization_code grant type is supported",
+			"error_description": "Supported grant types: authorization_code, refresh_token",
 		})
 		return
 	}
@@ -437,6 +523,8 @@ func (s *OIDCServer) handleToken(w http.ResponseWriter, r *http.Request) {
 		accessToken = generateRandomToken(32)
 	}
 
+	refreshToken := generateRandomToken(32)
+
 	s.mu.Lock()
 	s.accessTokens[accessToken] = TokenData{
 		Token:     accessToken,
@@ -445,14 +533,23 @@ func (s *OIDCServer) handleToken(w http.ResponseWriter, r *http.Request) {
 		Scope:     authCode.Scope,
 		ExpiresAt: exp,
 	}
+	s.refreshTokens[refreshToken] = RefreshTokenData{
+		Token:     refreshToken,
+		Username:  username,
+		Password:  authCode.Password,
+		ClientID:  clientID,
+		Scope:     authCode.Scope,
+		ExpiresAt: now.Add(30 * 24 * time.Hour),
+	}
 	s.mu.Unlock()
 
 	resp := map[string]any{
-		"access_token": accessToken,
-		"token_type":   "Bearer",
-		"expires_in":   86400,
-		"id_token":     idToken,
-		"scope":        authCode.Scope,
+		"access_token":  accessToken,
+		"token_type":    "Bearer",
+		"expires_in":    86400,
+		"id_token":      idToken,
+		"refresh_token": refreshToken,
+		"scope":         authCode.Scope,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

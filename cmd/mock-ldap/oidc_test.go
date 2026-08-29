@@ -302,4 +302,42 @@ func TestOIDCServerFullPKCEFlow(t *testing.T) {
 	if rec.Code != http.StatusFound {
 		t.Fatalf("Remember-me session should redirect with 302, got %d", rec.Code)
 	}
+
+	// 11. Test Token Renewal: POST /oauth/token with grant_type=refresh_token
+	refreshToken, _ := tokenResp["refresh_token"].(string)
+	if refreshToken == "" {
+		t.Fatalf("Expected refresh_token in token response")
+	}
+
+	refreshForm := url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {refreshToken},
+		"client_id":     {clientID},
+	}
+	req = httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader(refreshForm.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Refresh token request returned %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var renewedTokenResp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &renewedTokenResp); err != nil {
+		t.Fatalf("Failed to parse renewed token response: %v", err)
+	}
+
+	renewedAccessToken, _ := renewedTokenResp["access_token"].(string)
+	if renewedAccessToken == "" {
+		t.Errorf("Renewed access_token is empty")
+	}
+
+	extRenewedUser, extRenewedPass, okRenewed := oidcBackend.ExtractCredentials(context.Background(), renewedAccessToken)
+	if !okRenewed {
+		t.Fatalf("Failed to extract credentials from renewed access_token")
+	}
+	if extRenewedUser != "erik@profundo.dk" || extRenewedPass != "erik" {
+		t.Errorf("Renewed token credentials mismatch: got (%s, %s), want (erik@profundo.dk, erik)", extRenewedUser, extRenewedPass)
+	}
 }
