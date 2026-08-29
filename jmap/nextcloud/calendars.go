@@ -3,9 +3,12 @@ package nextcloud
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,6 +32,9 @@ type CalendarsBackend struct {
 	identityStates     map[string]int
 	notificationStates map[string]int
 
+	calsFingerprint    map[string]string
+	eventsFingerprint  map[string]string
+
 	calsCache          map[string][]*jmap.Calendar
 	calPaths           map[string]map[jmap.Id]string
 	calsCacheTime      map[string]time.Time
@@ -48,6 +54,8 @@ func NewCalendarsBackend(client *Client) *CalendarsBackend {
 		eventStates:        make(map[string]int),
 		identityStates:     make(map[string]int),
 		notificationStates: make(map[string]int),
+		calsFingerprint:    make(map[string]string),
+		eventsFingerprint:  make(map[string]string),
 		calsCache:          make(map[string][]*jmap.Calendar),
 		calPaths:           make(map[string]map[jmap.Id]string),
 		calsCacheTime:      make(map[string]time.Time),
@@ -77,6 +85,36 @@ func (b *CalendarsBackend) emitStateChange(u, typeName, newState string) {
 	}
 }
 
+func eventFingerprint(ev *jmap.CalendarEvent) string {
+	if ev == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s|%s|%s|%s|%s|%s|%d|%v", ev.ID, ev.Title, ev.Start, ev.Duration, ev.Updated, ev.Description, ev.Sequence, ev.CalendarIDs)
+}
+
+func eventsMapFingerprint(m map[jmap.Id]*jmap.CalendarEvent) string {
+	ids := make([]string, 0, len(m))
+	for id := range m {
+		ids = append(ids, string(id))
+	}
+	sort.Strings(ids)
+	h := sha256.New()
+	for _, id := range ids {
+		fmt.Fprintf(h, "%s:%s;", id, eventFingerprint(m[jmap.Id(id)]))
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func calsListFingerprint(cals []*jmap.Calendar) string {
+	h := sha256.New()
+	for _, c := range cals {
+		if c != nil {
+			fmt.Fprintf(h, "%s:%s:%t;", c.ID, c.Name, c.IsVisible)
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
 func (b *CalendarsBackend) user(ctx context.Context) string {
 	u, _ := b.client.getUserAndPass(ctx)
 	return u
@@ -84,9 +122,18 @@ func (b *CalendarsBackend) user(ctx context.Context) string {
 
 // CalendarState
 func (b *CalendarsBackend) CalendarState(ctx context.Context) string {
+	u := b.user(ctx)
+	b.mu.RLock()
+	cacheAge := time.Since(b.calsCacheTime[u])
+	hasCache := b.calsCache[u] != nil
+	b.mu.RUnlock()
+
+	if !hasCache || cacheAge > 5*time.Second {
+		_, _, _ = b.GetCalendars(ctx, nil)
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	u := b.user(ctx)
 	st, ok := b.calStates[u]
 	if !ok {
 		st = 1
@@ -173,7 +220,7 @@ func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmap.Id) ([]*
 	cacheAge := time.Since(b.calsCacheTime[u])
 	b.mu.RUnlock()
 
-	if hasCached && len(cachedCals) > 0 && cacheAge < 10*time.Second {
+	if hasCached && len(cachedCals) > 0 && cacheAge < 5*time.Second {
 		return filterCalendars(cachedCals, ids)
 	}
 
@@ -251,8 +298,15 @@ func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmap.Id) ([]*
 	for k, v := range pathMap {
 		b.calPaths[u][k] = v
 	}
+	newFp := calsListFingerprint(list)
+	oldFp := b.calsFingerprint[u]
+	b.calsFingerprint[u] = newFp
 	b.calsCache[u] = list
 	b.calsCacheTime[u] = time.Now()
+	if oldFp != "" && oldFp != newFp {
+		b.calStates[u]++
+		b.emitStateChange(u, "Calendar", strconv.Itoa(b.calStates[u]))
+	}
 	b.mu.Unlock()
 
 	return filterCalendars(list, ids)
@@ -361,9 +415,18 @@ func (b *CalendarsBackend) CalendarHasEvents(ctx context.Context, id jmap.Id) (b
 
 // CalendarEventState
 func (b *CalendarsBackend) CalendarEventState(ctx context.Context) string {
+	u := b.user(ctx)
+	b.mu.RLock()
+	cacheAge := time.Since(b.eventsCacheTime[u])
+	hasCache := b.eventsCache[u] != nil
+	b.mu.RUnlock()
+
+	if !hasCache || cacheAge > 3*time.Second {
+		_, _, _ = b.GetCalendarEvents(ctx, nil)
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	u := b.user(ctx)
 	st, ok := b.eventStates[u]
 	if !ok {
 		st = 1
@@ -481,15 +544,10 @@ func (b *CalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmap.Id)
 		return nil, nil, err
 	}
 
-	b.mu.Lock()
-	if b.eventsCache[u] == nil {
-		b.eventsCache[u] = make(map[jmap.Id]*jmap.CalendarEvent)
-	}
-	b.mu.Unlock()
-
 	cals, _, _ := b.GetCalendars(ctx, nil)
 	homeSet := b.getCalendarHomeSet(ctx, calClient, u)
 
+	freshMap := make(map[jmap.Id]*jmap.CalendarEvent)
 	for _, cal := range cals {
 		calPath := b.getCalPath(u, cal.ID, homeSet)
 		fis, fErr := calClient.ReadDir(ctx, calPath, false)
@@ -523,16 +581,21 @@ func (b *CalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmap.Id)
 					ev.CalendarIDs = make(map[jmap.Id]bool)
 				}
 				ev.CalendarIDs[cal.ID] = true
-
-				b.mu.Lock()
-				b.eventsCache[u][evID] = ev
-				b.mu.Unlock()
+				freshMap[evID] = ev
 			}
 		}
 	}
 
 	b.mu.Lock()
+	newFp := eventsMapFingerprint(freshMap)
+	oldFp := b.eventsFingerprint[u]
+	b.eventsFingerprint[u] = newFp
+	b.eventsCache[u] = freshMap
 	b.eventsCacheTime[u] = time.Now()
+	if oldFp != "" && oldFp != newFp {
+		b.eventStates[u]++
+		b.emitStateChange(u, "CalendarEvent", strconv.Itoa(b.eventStates[u]))
+	}
 	b.mu.Unlock()
 
 	list, notFound := b.buildEventResponseFromCache(u, ids)
