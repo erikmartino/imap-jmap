@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
 type AuthCode struct {
@@ -100,6 +102,8 @@ func (s *OIDCServer) Handler() http.Handler {
 	mux.HandleFunc("/oauth/logout", s.handleLogout)
 	mux.HandleFunc("/api/user", s.handleOpenPaaSUser)
 	mux.HandleFunc("/api/configurations", s.handleOpenPaaSConfigurations)
+	mux.HandleFunc("/ws/ticket", s.handleWebSocketTicket)
+	mux.HandleFunc("/ws", s.handleWebSocket)
 
 	return s.corsMiddleware(mux)
 }
@@ -514,6 +518,59 @@ func (s *OIDCServer) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(`<!DOCTYPE html><html><head><title>Logged Out</title><style>body{font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f5f5f5;}</style></head><body><div style="background:#fff;padding:32px;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,0.1);text-align:center;"><h2>You have been logged out</h2><p>You may close this window or return to the application.</p></div></body></html>`))
+}
+
+func (s *OIDCServer) handleWebSocketTicket(w http.ResponseWriter, r *http.Request) {
+	authHeader := r.Header.Get("Authorization")
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+	if token == "" {
+		token = r.URL.Query().Get("access_token")
+	}
+
+	s.mu.RLock()
+	data, ok := s.accessTokens[token]
+	s.mu.RUnlock()
+
+	username := data.Username
+	if !ok || username == "" {
+		username = "user@" + s.Domain
+	}
+
+	ticket := map[string]any{
+		"clientAddress": r.RemoteAddr,
+		"value":         generateRandomToken(32),
+		"generatedOn":   time.Now().UTC().Format(time.RFC3339),
+		"validUntil":    time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339),
+		"username":      username,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(ticket)
+}
+
+func (s *OIDCServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		InsecureSkipVerify: true,
+		OriginPatterns:     []string{"*"},
+	})
+	if err != nil {
+		log.Printf("[OIDC/WS] WebSocket accept failed: %v", err)
+		return
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "bye")
+
+	ctx := r.Context()
+	for {
+		typ, msg, err := conn.Read(ctx)
+		if err != nil {
+			break
+		}
+		if typ == websocket.MessageText {
+			if strings.Contains(string(msg), "ping") {
+				_ = conn.Write(ctx, websocket.MessageText, []byte(`{"type":"pong"}`))
+			}
+		}
+	}
 }
 
 func (s *OIDCServer) signJWT(claims map[string]any) (string, error) {

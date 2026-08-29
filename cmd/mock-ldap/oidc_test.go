@@ -227,6 +227,24 @@ func TestOIDCServerFullPKCEFlow(t *testing.T) {
 		t.Errorf("Unexpected userinfo email: %v", userInfo["email"])
 	}
 
+	// 8. POST /ws/ticket with Bearer token
+	req = httptest.NewRequest(http.MethodPost, "/ws/ticket", nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /ws/ticket returned %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var ticket map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &ticket); err != nil {
+		t.Fatalf("Failed to parse ticket: %v", err)
+	}
+	if ticket["value"] == "" || ticket["username"] != "erik@profundo.dk" {
+		t.Errorf("Invalid ticket response: %v", ticket)
+	}
+
 	// 8. Test Remember Me: With session cookie, GET /oauth/auth should immediately redirect without form
 	req = httptest.NewRequest(http.MethodGet, "/oauth/auth?client_id="+clientID+"&redirect_uri="+url.QueryEscape(redirectURI)+"&state="+state+"&code_challenge="+codeChallenge+"&code_challenge_method=S256", nil)
 	req.AddCookie(sessionCookie)
