@@ -209,6 +209,8 @@ func main() {
 		if strings.EqualFold(os.Getenv("AUTH_DEV_FALLBACK"), "true") {
 			oidcFallback = devAuthBackend
 			log.Printf("WARNING: AUTH_DEV_FALLBACK=true — development username==password credentials are enabled alongside OIDC. Do not use in production.")
+		} else if backendType == "imapsmtp" {
+			oidcFallback = authBackend
 		}
 		oidcBackend, err := jmap.NewOIDCAuthBackend(jmap.OIDCConfig{
 			Issuer:          *oidcIssuer,
