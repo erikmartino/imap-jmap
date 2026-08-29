@@ -18,13 +18,19 @@ func handleCalendarEventGet(backend CalendarsBackend) MethodHandler {
 		var err error
 
 		if hasIDs {
-			ids := make([]Id, 0, len(idsRaw))
-			for _, item := range idsRaw {
-				if idStr, ok := item.(string); ok {
-					ids = append(ids, Id(idStr))
+			if len(idsRaw) == 0 {
+				list = []*CalendarEvent{}
+				notFound = []Id{}
+				_ = backend.CalendarEventState(ctx)
+			} else {
+				ids := make([]Id, 0, len(idsRaw))
+				for _, item := range idsRaw {
+					if idStr, ok := item.(string); ok {
+						ids = append(ids, Id(idStr))
+					}
 				}
+				list, notFound, err = backend.GetCalendarEvents(ctx, ids)
 			}
-			list, notFound, err = backend.GetCalendarEvents(ctx, ids)
 		} else {
 			list, err = backend.GetAllCalendarEvents(ctx)
 		}

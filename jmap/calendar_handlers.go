@@ -48,13 +48,19 @@ func handleCalendarGet(backend CalendarsBackend) MethodHandler {
 		var err error
 
 		if hasIDs {
-			ids := make([]Id, 0, len(idsRaw))
-			for _, item := range idsRaw {
-				if idStr, ok := item.(string); ok {
-					ids = append(ids, Id(idStr))
+			if len(idsRaw) == 0 {
+				list = []*Calendar{}
+				notFound = []Id{}
+				_ = backend.CalendarState(ctx)
+			} else {
+				ids := make([]Id, 0, len(idsRaw))
+				for _, item := range idsRaw {
+					if idStr, ok := item.(string); ok {
+						ids = append(ids, Id(idStr))
+					}
 				}
+				list, notFound, err = backend.GetCalendars(ctx, ids)
 			}
-			list, notFound, err = backend.GetCalendars(ctx, ids)
 		} else {
 			list, err = backend.GetAllCalendars(ctx)
 		}
