@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/emersion/go-ical"
+	"github.com/emersion/go-webdav/caldav"
 
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/memory"
@@ -29,6 +30,7 @@ type CalendarsBackend struct {
 	notificationStates map[string]int
 
 	calsCache          map[string][]*jmap.Calendar
+	calPaths           map[string]map[jmap.Id]string
 	calsCacheTime      map[string]time.Time
 	eventsCache        map[string]map[jmap.Id]*jmap.CalendarEvent
 	eventsCacheTime    map[string]time.Time
@@ -47,6 +49,7 @@ func NewCalendarsBackend(client *Client) *CalendarsBackend {
 		identityStates:     make(map[string]int),
 		notificationStates: make(map[string]int),
 		calsCache:          make(map[string][]*jmap.Calendar),
+		calPaths:           make(map[string]map[jmap.Id]string),
 		calsCacheTime:      make(map[string]time.Time),
 		eventsCache:        make(map[string]map[jmap.Id]*jmap.CalendarEvent),
 		eventsCacheTime:    make(map[string]time.Time),
@@ -133,6 +136,31 @@ func filterCalendars(list []*jmap.Calendar, ids []jmap.Id) ([]*jmap.Calendar, []
 	return filtered, notFound, nil
 }
 
+func (b *CalendarsBackend) getCalendarHomeSet(ctx context.Context, calClient *caldav.Client, u string) string {
+	principal, err := calClient.FindCurrentUserPrincipal(ctx)
+	if err == nil && principal != "" {
+		homeSet, err := calClient.FindCalendarHomeSet(ctx, principal)
+		if err == nil && homeSet != "" {
+			return homeSet
+		}
+	}
+	return "calendars/" + u + "/"
+}
+
+func (b *CalendarsBackend) getCalPath(u string, cid jmap.Id, homeSet string) string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if b.calPaths[u] != nil {
+		if p, ok := b.calPaths[u][cid]; ok && p != "" {
+			return p
+		}
+	}
+	if homeSet != "" {
+		return strings.TrimRight(homeSet, "/") + "/" + string(cid) + "/"
+	}
+	return "calendars/" + u + "/" + string(cid) + "/"
+}
+
 func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmap.Id) ([]*jmap.Calendar, []jmap.Id, error) {
 	u := b.user(ctx)
 
@@ -150,7 +178,7 @@ func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmap.Id) ([]*
 		return nil, nil, err
 	}
 
-	homeSet := "calendars/" + u + "/"
+	homeSet := b.getCalendarHomeSet(ctx, calClient, u)
 	calList, err := calClient.FindCalendars(ctx, homeSet)
 	if err != nil {
 		// Fallback default personal calendar
@@ -163,6 +191,10 @@ func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmap.Id) ([]*
 			MyRights:  jmap.FullCalendarRights(),
 		}
 		b.mu.Lock()
+		if b.calPaths[u] == nil {
+			b.calPaths[u] = make(map[jmap.Id]string)
+		}
+		b.calPaths[u]["personal"] = strings.TrimRight(homeSet, "/") + "/personal/"
 		b.calsCache[u] = []*jmap.Calendar{defaultCal}
 		b.calsCacheTime[u] = time.Now()
 		b.mu.Unlock()
@@ -170,6 +202,7 @@ func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmap.Id) ([]*
 	}
 
 	var list []*jmap.Calendar
+	pathMap := make(map[jmap.Id]string)
 	for _, c := range calList {
 		calID := path.Base(strings.TrimRight(c.Path, "/"))
 		if calID == "inbox" || calID == "outbox" || calID == "trashbin" {
@@ -182,8 +215,10 @@ func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmap.Id) ([]*
 		}
 
 		isDefault := calID == "personal" || strings.EqualFold(name, "Personal") || strings.EqualFold(name, "Personal Calendar")
+		cid := jmap.Id(calID)
+		pathMap[cid] = c.Path
 		list = append(list, &jmap.Calendar{
-			ID:        jmap.Id(calID),
+			ID:        cid,
 			Name:      name,
 			IsVisible: true,
 			IsDefault: isDefault,
@@ -193,8 +228,10 @@ func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmap.Id) ([]*
 	}
 
 	if len(list) == 0 {
+		cid := jmap.Id("personal")
+		pathMap[cid] = strings.TrimRight(homeSet, "/") + "/personal/"
 		list = append(list, &jmap.Calendar{
-			ID:        jmap.Id("personal"),
+			ID:        cid,
 			Name:      "Personal Calendar",
 			IsVisible: true,
 			IsDefault: true,
@@ -204,6 +241,12 @@ func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmap.Id) ([]*
 	}
 
 	b.mu.Lock()
+	if b.calPaths[u] == nil {
+		b.calPaths[u] = make(map[jmap.Id]string)
+	}
+	for k, v := range pathMap {
+		b.calPaths[u][k] = v
+	}
 	b.calsCache[u] = list
 	b.calsCacheTime[u] = time.Now()
 	b.mu.Unlock()
@@ -224,10 +267,15 @@ func (b *CalendarsBackend) CreateCalendar(ctx context.Context, cal *jmap.Calenda
 		cal.ID = jmap.Id(fmt.Sprintf("cal-%d", time.Now().UnixNano()))
 	}
 
-	calPath := fmt.Sprintf("calendars/%s/%s/", u, cal.ID)
+	homeSet := b.getCalendarHomeSet(ctx, calClient, u)
+	calPath := strings.TrimRight(homeSet, "/") + "/" + string(cal.ID) + "/"
 	_ = calClient.Mkdir(ctx, calPath)
 
 	b.mu.Lock()
+	if b.calPaths[u] == nil {
+		b.calPaths[u] = make(map[jmap.Id]string)
+	}
+	b.calPaths[u][cal.ID] = calPath
 	if b.calsCache[u] != nil {
 		b.calsCache[u] = append(b.calsCache[u], cal)
 	}
@@ -264,10 +312,14 @@ func (b *CalendarsBackend) DeleteCalendar(ctx context.Context, id jmap.Id) (bool
 		return false, err
 	}
 
-	calPath := fmt.Sprintf("calendars/%s/%s/", u, id)
+	homeSet := b.getCalendarHomeSet(ctx, calClient, u)
+	calPath := b.getCalPath(u, id, homeSet)
 	_ = calClient.RemoveAll(ctx, calPath)
 
 	b.mu.Lock()
+	if b.calPaths[u] != nil {
+		delete(b.calPaths[u], id)
+	}
 	if b.calsCache[u] != nil {
 		var filtered []*jmap.Calendar
 		for _, c := range b.calsCache[u] {
@@ -432,9 +484,10 @@ func (b *CalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmap.Id)
 	b.mu.Unlock()
 
 	cals, _, _ := b.GetCalendars(ctx, nil)
+	homeSet := b.getCalendarHomeSet(ctx, calClient, u)
 
 	for _, cal := range cals {
-		calPath := fmt.Sprintf("calendars/%s/%s/", u, cal.ID)
+		calPath := b.getCalPath(u, cal.ID, homeSet)
 		fis, fErr := calClient.ReadDir(ctx, calPath, false)
 		if fErr != nil {
 			continue
@@ -449,7 +502,7 @@ func (b *CalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmap.Id)
 			rawID := strings.TrimSuffix(name, ".ics")
 			evID := jmap.Id(rawID)
 
-			itemPath := calPath + name
+			itemPath := strings.TrimRight(calPath, "/") + "/" + name
 			calObj, gErr := calClient.GetCalendarObject(ctx, itemPath)
 			if gErr != nil || calObj == nil || calObj.Data == nil {
 				continue
@@ -500,6 +553,7 @@ func (b *CalendarsBackend) CreateCalendarEvent(ctx context.Context, event *jmap.
 
 	// Ensure user's calendars are discovered and initialized in Nextcloud
 	cals, _, _ := b.GetCalendars(ctx, nil)
+	homeSet := b.getCalendarHomeSet(ctx, calClient, u)
 
 	calID := ""
 	if len(event.CalendarIDs) > 0 {
@@ -523,7 +577,7 @@ func (b *CalendarsBackend) CreateCalendarEvent(ctx context.Context, event *jmap.
 		event.CalendarIDs[jmap.Id(calID)] = true
 	}
 
-	calPath := fmt.Sprintf("calendars/%s/%s/", u, calID)
+	calPath := b.getCalPath(u, jmap.Id(calID), homeSet)
 	_ = calClient.Mkdir(ctx, calPath)
 
 	icsStr := jmap.EncodeCalDAVEvent(event)
@@ -533,7 +587,7 @@ func (b *CalendarsBackend) CreateCalendarEvent(ctx context.Context, event *jmap.
 		return nil, fmt.Errorf("failed to decode icalendar: %w", decErr)
 	}
 
-	eventPath := fmt.Sprintf("calendars/%s/%s/%s.ics", u, calID, event.ID)
+	eventPath := strings.TrimRight(calPath, "/") + "/" + string(event.ID) + ".ics"
 	_, putErr := calClient.PutCalendarObject(ctx, eventPath, calObj)
 	if putErr != nil {
 		return nil, fmt.Errorf("failed to put calendar object via caldav client: %w", putErr)
@@ -729,7 +783,8 @@ func (b *CalendarsBackend) UpdateCalendarEvent(ctx context.Context, id jmap.Id, 
 	if oldCalID != "" && newCalID != "" && oldCalID != newCalID {
 		calClient, u, cErr := b.client.CalDAV(ctx)
 		if cErr == nil {
-			oldPath := fmt.Sprintf("calendars/%s/%s/%s.ics", u, oldCalID, id)
+			homeSet := b.getCalendarHomeSet(ctx, calClient, u)
+			oldPath := strings.TrimRight(b.getCalPath(u, jmap.Id(oldCalID), homeSet), "/") + "/" + string(id) + ".ics"
 			_ = calClient.RemoveAll(ctx, oldPath)
 		}
 	}
@@ -775,7 +830,9 @@ func (b *CalendarsBackend) DeleteCalendarEvent(ctx context.Context, id jmap.Id) 
 		}
 	}
 
-	eventPath := fmt.Sprintf("calendars/%s/%s/%s.ics", u, calID, id)
+	homeSet := b.getCalendarHomeSet(ctx, calClient, u)
+	calPath := b.getCalPath(u, jmap.Id(calID), homeSet)
+	eventPath := strings.TrimRight(calPath, "/") + "/" + string(id) + ".ics"
 	_ = calClient.RemoveAll(ctx, eventPath)
 
 	b.mu.Lock()

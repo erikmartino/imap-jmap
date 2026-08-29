@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/emersion/go-vcard"
+	"github.com/emersion/go-webdav/carddav"
 
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/memory"
@@ -26,6 +27,7 @@ type ContactsBackend struct {
 
 	abStates   map[string]int
 	cardStates map[string]int
+	abPaths    map[string]map[jmap.Id]string
 	cardsCache map[string]map[jmap.Id]*jmap.Card
 }
 
@@ -37,6 +39,7 @@ func NewContactsBackend(client *Client) *ContactsBackend {
 		client:     client,
 		abStates:   make(map[string]int),
 		cardStates: make(map[string]int),
+		abPaths:    make(map[string]map[jmap.Id]string),
 		cardsCache: make(map[string]map[jmap.Id]*jmap.Card),
 	}
 }
@@ -92,13 +95,38 @@ func (b *ContactsBackend) GetAllAddressBooks(ctx context.Context) ([]*jmap.Addre
 	return abs, err
 }
 
+func (b *ContactsBackend) getAddressBookHomeSet(ctx context.Context, cardClient *carddav.Client, u string) string {
+	principal, err := cardClient.FindCurrentUserPrincipal(ctx)
+	if err == nil && principal != "" {
+		homeSet, err := cardClient.FindAddressBookHomeSet(ctx, principal)
+		if err == nil && homeSet != "" {
+			return homeSet
+		}
+	}
+	return "addressbooks/users/" + u + "/"
+}
+
+func (b *ContactsBackend) getABPath(u string, abID jmap.Id, homeSet string) string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if b.abPaths[u] != nil {
+		if p, ok := b.abPaths[u][abID]; ok && p != "" {
+			return p
+		}
+	}
+	if homeSet != "" {
+		return strings.TrimRight(homeSet, "/") + "/" + string(abID) + "/"
+	}
+	return "addressbooks/users/" + u + "/" + string(abID) + "/"
+}
+
 func (b *ContactsBackend) GetAddressBooks(ctx context.Context, ids []jmap.Id) ([]*jmap.AddressBook, []jmap.Id, error) {
 	cardClient, u, err := b.client.CardDAV(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	homeSet := "addressbooks/users/" + u + "/"
+	homeSet := b.getAddressBookHomeSet(ctx, cardClient, u)
 	abList, err := cardClient.FindAddressBooks(ctx, homeSet)
 	if err != nil {
 		defaultAB := &jmap.AddressBook{
@@ -106,10 +134,17 @@ func (b *ContactsBackend) GetAddressBooks(ctx context.Context, ids []jmap.Id) ([
 			Name:      "Contacts",
 			IsDefault: true,
 		}
+		b.mu.Lock()
+		if b.abPaths[u] == nil {
+			b.abPaths[u] = make(map[jmap.Id]string)
+		}
+		b.abPaths[u]["contacts"] = strings.TrimRight(homeSet, "/") + "/contacts/"
+		b.mu.Unlock()
 		return []*jmap.AddressBook{defaultAB}, nil, nil
 	}
 
 	var list []*jmap.AddressBook
+	pathMap := make(map[jmap.Id]string)
 	idMap := make(map[jmap.Id]bool)
 	for _, id := range ids {
 		idMap[id] = true
@@ -121,7 +156,10 @@ func (b *ContactsBackend) GetAddressBooks(ctx context.Context, ids []jmap.Id) ([
 			continue
 		}
 
-		if len(ids) > 0 && !idMap[jmap.Id(abID)] {
+		aid := jmap.Id(abID)
+		pathMap[aid] = ab.Path
+
+		if len(ids) > 0 && !idMap[aid] {
 			continue
 		}
 
@@ -132,19 +170,30 @@ func (b *ContactsBackend) GetAddressBooks(ctx context.Context, ids []jmap.Id) ([
 
 		isDefault := abID == "contacts" || strings.EqualFold(name, "Contacts")
 		list = append(list, &jmap.AddressBook{
-			ID:        jmap.Id(abID),
+			ID:        aid,
 			Name:      name,
 			IsDefault: isDefault,
 		})
 	}
 
 	if len(list) == 0 {
+		aid := jmap.Id("contacts")
+		pathMap[aid] = strings.TrimRight(homeSet, "/") + "/contacts/"
 		list = append(list, &jmap.AddressBook{
-			ID:        jmap.Id("contacts"),
+			ID:        aid,
 			Name:      "Contacts",
 			IsDefault: true,
 		})
 	}
+
+	b.mu.Lock()
+	if b.abPaths[u] == nil {
+		b.abPaths[u] = make(map[jmap.Id]string)
+	}
+	for k, v := range pathMap {
+		b.abPaths[u][k] = v
+	}
+	b.mu.Unlock()
 
 	var notFound []jmap.Id
 	if len(ids) > 0 {
@@ -175,10 +224,15 @@ func (b *ContactsBackend) CreateAddressBook(ctx context.Context, ab *jmap.Addres
 		ab.ID = jmap.Id(fmt.Sprintf("ab-%d", time.Now().UnixNano()))
 	}
 
-	abPath := fmt.Sprintf("addressbooks/users/%s/%s/", u, ab.ID)
+	homeSet := b.getAddressBookHomeSet(ctx, cardClient, u)
+	abPath := strings.TrimRight(homeSet, "/") + "/" + string(ab.ID) + "/"
 	_ = cardClient.Mkdir(ctx, abPath)
 
 	b.mu.Lock()
+	if b.abPaths[u] == nil {
+		b.abPaths[u] = make(map[jmap.Id]string)
+	}
+	b.abPaths[u][ab.ID] = abPath
 	b.abStates[u]++
 	st := strconv.Itoa(b.abStates[u])
 	b.mu.Unlock()
@@ -204,10 +258,14 @@ func (b *ContactsBackend) DeleteAddressBook(ctx context.Context, id jmap.Id, rem
 		return false, err
 	}
 
-	abPath := fmt.Sprintf("addressbooks/users/%s/%s/", u, id)
+	homeSet := b.getAddressBookHomeSet(ctx, cardClient, u)
+	abPath := b.getABPath(u, id, homeSet)
 	_ = cardClient.RemoveAll(ctx, abPath)
 
 	b.mu.Lock()
+	if b.abPaths[u] != nil {
+		delete(b.abPaths[u], id)
+	}
 	b.abStates[u]++
 	st := strconv.Itoa(b.abStates[u])
 	b.mu.Unlock()
@@ -277,13 +335,14 @@ func (b *ContactsBackend) GetCards(ctx context.Context, ids []jmap.Id) ([]*jmap.
 	b.mu.Unlock()
 
 	abs, _, _ := b.GetAddressBooks(ctx, nil)
+	homeSet := b.getAddressBookHomeSet(ctx, cardClient, u)
 	idMap := make(map[jmap.Id]bool)
 	for _, id := range ids {
 		idMap[id] = true
 	}
 
 	for _, ab := range abs {
-		abPath := fmt.Sprintf("addressbooks/users/%s/%s/", u, ab.ID)
+		abPath := b.getABPath(u, ab.ID, homeSet)
 		fis, fErr := cardClient.ReadDir(ctx, abPath, false)
 		if fErr != nil {
 			continue
@@ -302,7 +361,7 @@ func (b *ContactsBackend) GetCards(ctx context.Context, ids []jmap.Id) ([]*jmap.
 				continue
 			}
 
-			itemPath := abPath + name
+			itemPath := strings.TrimRight(abPath, "/") + "/" + name
 			ao, gErr := cardClient.GetAddressObject(ctx, itemPath)
 			if gErr != nil || ao == nil || ao.Card == nil {
 				continue
@@ -372,6 +431,9 @@ func (b *ContactsBackend) CreateCard(ctx context.Context, card *jmap.Card) (*jma
 		card.Version = "1.0"
 	}
 
+	abs, _, _ := b.GetAddressBooks(ctx, nil)
+	homeSet := b.getAddressBookHomeSet(ctx, cardClient, u)
+
 	abID := ""
 	if len(card.AddressBookIDs) > 0 {
 		for aid := range card.AddressBookIDs {
@@ -382,7 +444,6 @@ func (b *ContactsBackend) CreateCard(ctx context.Context, card *jmap.Card) (*jma
 		}
 	}
 	if abID == "" {
-		abs, _, _ := b.GetAddressBooks(ctx, nil)
 		if len(abs) > 0 {
 			abID = string(abs[0].ID)
 		} else {
@@ -395,7 +456,7 @@ func (b *ContactsBackend) CreateCard(ctx context.Context, card *jmap.Card) (*jma
 		card.AddressBookIDs[jmap.Id(abID)] = true
 	}
 
-	abPath := fmt.Sprintf("addressbooks/users/%s/%s/", u, abID)
+	abPath := b.getABPath(u, jmap.Id(abID), homeSet)
 	_ = cardClient.Mkdir(ctx, abPath)
 
 	cardBytes, _ := json.Marshal(card)
@@ -417,7 +478,7 @@ func (b *ContactsBackend) CreateCard(ctx context.Context, card *jmap.Card) (*jma
 		return nil, fmt.Errorf("failed to decode vcard: %w", decErr)
 	}
 
-	cardPath := fmt.Sprintf("addressbooks/users/%s/%s/%s.vcf", u, abID, card.ID)
+	cardPath := strings.TrimRight(abPath, "/") + "/" + string(card.ID) + ".vcf"
 	_, putErr := cardClient.PutAddressObject(ctx, cardPath, cardObj)
 	if putErr != nil {
 		return nil, fmt.Errorf("failed to put address object via carddav client: %w", putErr)
@@ -508,8 +569,28 @@ func (b *ContactsBackend) UpdateCard(ctx context.Context, id jmap.Id, patch map[
 		return nil, fmt.Errorf("card %s not found", id)
 	}
 	card := cards[0]
+	oldAbID := ""
+	for aid := range card.AddressBookIDs {
+		oldAbID = string(aid)
+		break
+	}
+
 	if err := applyCardPatch(card, patch); err != nil {
 		return nil, err
+	}
+
+	newAbID := ""
+	for aid := range card.AddressBookIDs {
+		newAbID = string(aid)
+		break
+	}
+	if oldAbID != "" && newAbID != "" && oldAbID != newAbID {
+		cardClient, u, cErr := b.client.CardDAV(ctx)
+		if cErr == nil {
+			homeSet := b.getAddressBookHomeSet(ctx, cardClient, u)
+			oldPath := strings.TrimRight(b.getABPath(u, jmap.Id(oldAbID), homeSet), "/") + "/" + string(id) + ".vcf"
+			_ = cardClient.RemoveAll(ctx, oldPath)
+		}
 	}
 
 	return b.CreateCard(ctx, card)
@@ -530,7 +611,9 @@ func (b *ContactsBackend) DeleteCard(ctx context.Context, id jmap.Id) (bool, err
 		}
 	}
 
-	cardPath := fmt.Sprintf("addressbooks/users/%s/%s/%s.vcf", u, abID, id)
+	homeSet := b.getAddressBookHomeSet(ctx, cardClient, u)
+	abPath := b.getABPath(u, jmap.Id(abID), homeSet)
+	cardPath := strings.TrimRight(abPath, "/") + "/" + string(id) + ".vcf"
 	_ = cardClient.RemoveAll(ctx, cardPath)
 
 	b.mu.Lock()

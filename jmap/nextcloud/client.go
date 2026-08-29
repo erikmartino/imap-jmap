@@ -129,7 +129,7 @@ func (c *Client) CardDAV(ctx context.Context) (*carddav.Client, string, error) {
 func (c *Client) WebDAV(ctx context.Context) (*webdav.Client, string, error) {
 	user, pass := c.getUserAndPass(ctx)
 	hc := webdav.HTTPClientWithBasicAuth(c.HTTPClient, user, pass)
-	endpoint := c.BaseURL + "/remote.php/dav/files/" + user + "/"
+	endpoint := c.BaseURL + "/remote.php/webdav/"
 	client, err := webdav.NewClient(hc, endpoint)
 	if err != nil {
 		return nil, "", err
