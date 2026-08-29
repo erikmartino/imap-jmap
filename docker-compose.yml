@@ -90,6 +90,8 @@ services:
       - MAIL_SPA_URL=http://localhost:3333
       - DEBUG=false
       - LANG=en
+    volumes:
+      - ./docker/twake-calendar/appList.js:/usr/share/nginx/html/appList.js:ro
     depends_on:
       - nextcloud
     restart: unless-stopped
