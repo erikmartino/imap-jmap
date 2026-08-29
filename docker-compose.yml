@@ -76,6 +76,24 @@ services:
       - imap-jmap
     restart: unless-stopped
 
+  twake-calendar:
+    build:
+      context: .
+      dockerfile: docker/twake-calendar/Dockerfile
+    image: twake-calendar:latest
+    container_name: twake-calendar
+    ports:
+      - "3334:80"
+    environment:
+      - CALENDAR_BASE_URL=http://localhost:3334
+      - DAV_BASE_URL=http://localhost:8088/remote.php/dav
+      - MAIL_SPA_URL=http://localhost:3333
+      - DEBUG=false
+      - LANG=en
+    depends_on:
+      - nextcloud
+    restart: unless-stopped
+
   stalwart:
     image: stalwartlabs/stalwart:latest
     container_name: stalwart-mail
