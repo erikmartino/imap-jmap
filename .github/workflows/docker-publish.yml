@@ -41,11 +41,11 @@ jobs:
             dockerfile: Dockerfile
             context: .
           - name: mock-ldap
-            image: ${{ github.repository_owner }}/mock-ldap
+            image: ${{ github.repository }}-ldap
             dockerfile: docker/mock-ldap/Dockerfile
             context: .
           - name: twake-calendar
-            image: ${{ github.repository_owner }}/twake-calendar
+            image: ${{ github.repository }}-calendar
             dockerfile: docker/twake-calendar/Dockerfile
             context: .
 
