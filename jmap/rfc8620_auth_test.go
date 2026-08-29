@@ -174,6 +174,45 @@ func TestRFC8620_Auth_AccessToken_QueryParam(t *testing.T) {
 	}
 }
 
+// TestRFC8620_Auth_Basic_QueryParam tests that Basic auth credentials passed via ?access_token=base64(user:pass) are accepted.
+func TestRFC8620_Auth_Basic_QueryParam(t *testing.T) {
+	srv, _ := newAuthTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	basicEncoded := "ZXJpa21hcnRpbm9AcHJvZnVuZG8uZGs6ZXJpa21hcnRpbm9AcHJvZnVuZG8uZGs=" // erikmartino@profundo.dk:erikmartino@profundo.dk
+	resp, err := http.Get(ts.URL + "/.well-known/jmap?access_token=" + basicEncoded)
+	if err != nil {
+		t.Fatalf("GET failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected 200 with ?access_token=base64(user:pass), got %d", resp.StatusCode)
+	}
+}
+
+// TestRFC8620_Auth_Cookie tests that access_token passed via Cookie header is accepted.
+func TestRFC8620_Auth_Cookie(t *testing.T) {
+	srv, _ := newAuthTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	token := loginAndGetToken(t, ts, "bob", "bob")
+	req, _ := http.NewRequest("GET", ts.URL+"/.well-known/jmap", nil)
+	req.AddCookie(&http.Cookie{Name: "access_token", Value: token})
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected 200 with Cookie access_token, got %d", resp.StatusCode)
+	}
+}
+
 // TestRFC8620_Auth_CORS_Preflight tests that OPTIONS preflight passes through without auth.
 func TestRFC8620_Auth_CORS_Preflight(t *testing.T) {
 	srv, _ := newAuthTestServer()

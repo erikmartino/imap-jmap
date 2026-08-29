@@ -1,6 +1,7 @@
 package jmap
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,6 +37,20 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		var credUsername, credPassword string
 		auth := r.Header.Get("Authorization")
 		queryToken := r.URL.Query().Get("access_token")
+		if queryToken == "" {
+			queryToken = r.URL.Query().Get("token")
+		}
+		if queryToken == "" {
+			queryToken = r.URL.Query().Get("auth")
+		}
+		if queryToken == "" {
+			if c, err := r.Cookie("access_token"); err == nil && c.Value != "" {
+				queryToken = c.Value
+			} else if c, err := r.Cookie("jmap_token"); err == nil && c.Value != "" {
+				queryToken = c.Value
+			}
+		}
+
 		if strings.HasPrefix(auth, "Basic ") {
 			// HTTP Basic: validate username/password directly (used by JMAP webmail clients).
 			username, password, ok := r.BasicAuth()
@@ -71,6 +86,32 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 					if u, p, ok := extractor.ExtractCredentials(r.Context(), queryToken); ok {
 						credUsername = u
 						credPassword = p
+					}
+				}
+			} else {
+				// Also support Basic auth credentials passed in query (e.g. Basic <base64>, base64(user:pass), or user:pass)
+				raw := strings.TrimPrefix(queryToken, "Basic ")
+				decoded, decErr := base64.StdEncoding.DecodeString(raw)
+				if decErr != nil {
+					decoded, decErr = base64.URLEncoding.DecodeString(raw)
+				}
+				var userPass string
+				if decErr == nil && strings.Contains(string(decoded), ":") {
+					userPass = string(decoded)
+				} else if strings.Contains(queryToken, ":") {
+					userPass = queryToken
+				}
+				if userPass != "" {
+					parts := strings.SplitN(userPass, ":", 2)
+					username, password := parts[0], parts[1]
+					accID, valErr := s.AuthBackend.ValidateCredentials(r.Context(), username, password)
+					if valErr == nil {
+						accountID = accID
+						subject = username
+						credUsername = username
+						credPassword = password
+						authed = true
+						authErr = nil
 					}
 				}
 			}
