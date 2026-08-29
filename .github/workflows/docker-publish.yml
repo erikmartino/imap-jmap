@@ -15,7 +15,6 @@ on:
           - all
           - imap-jmap
           - mock-ldap
-          - twake-calendar
       tag_version:
         description: 'Manual version tag (leave empty for 1.<run_number>.<run_attempt>)'
         required: false
@@ -43,10 +42,6 @@ jobs:
           - name: mock-ldap
             image: ${{ github.repository_owner }}/mock-ldap
             dockerfile: docker/mock-ldap/Dockerfile
-            context: .
-          - name: twake-calendar
-            image: ${{ github.repository }}-calendar
-            dockerfile: docker/twake-calendar/Dockerfile
             context: .
 
     steps:

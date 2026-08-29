@@ -76,8 +76,8 @@ func TestOIDCServerFullPKCEFlow(t *testing.T) {
 	h := sha256.Sum256([]byte(codeVerifier))
 	codeChallenge := base64.RawURLEncoding.EncodeToString(h[:])
 
-	redirectURI := "https://calendar.profundo.dk/callback"
-	clientID := "twake-calendar"
+	redirectURI := "https://webmail.profundo.dk/callback"
+	clientID := "test-client"
 	state := "random-state-123"
 
 	// 2. GET /oauth/auth -> renders login page
