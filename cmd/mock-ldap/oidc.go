@@ -45,6 +45,23 @@ type TokenData struct {
 	ExpiresAt time.Time
 }
 
+type StoredItem struct {
+	Href   string `json:"href"`
+	ETag   string `json:"etag"`
+	Status int    `json:"status"`
+	Data   any    `json:"data"`
+}
+
+type StoredCalendar struct {
+	ID          string                `json:"id"`
+	Name        string                `json:"name"`
+	Description string                `json:"description"`
+	Color       string                `json:"color"`
+	Href        string                `json:"href"`
+	SyncToken   string                `json:"sync_token"`
+	Items       map[string]StoredItem `json:"items"`
+}
+
 type OIDCServer struct {
 	Issuer              string
 	Domain              string
@@ -54,6 +71,7 @@ type OIDCServer struct {
 	sessions            map[string]Session
 	authCodes           map[string]AuthCode
 	accessTokens        map[string]TokenData
+	calendars           map[string]*StoredCalendar
 	mu                  sync.RWMutex
 	ValidateCredentials func(username, password string) bool
 }
@@ -77,6 +95,7 @@ func NewOIDCServer(issuer string, domain string) (*OIDCServer, error) {
 		sessions:     make(map[string]Session),
 		authCodes:    make(map[string]AuthCode),
 		accessTokens: make(map[string]TokenData),
+		calendars:    make(map[string]*StoredCalendar),
 		ValidateCredentials: func(username, password string) bool {
 			// Accept admin bind or standard username == password
 			if (username == "admin" || username == "admin@"+domain) && (password == "admin" || password == "admin123") {
@@ -104,6 +123,7 @@ func (s *OIDCServer) Handler() http.Handler {
 	mux.HandleFunc("/api/configurations", s.handleOpenPaaSConfigurations)
 	mux.HandleFunc("/ws/ticket", s.handleWebSocketTicket)
 	mux.HandleFunc("/ws", s.handleWebSocket)
+	mux.HandleFunc("/dav/", s.handleDav)
 
 	return s.corsMiddleware(mux)
 }
@@ -571,6 +591,155 @@ func (s *OIDCServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+func (s *OIDCServer) getOrCreateUserCalendar(username string) *StoredCalendar {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	key := username + "/personal"
+	cal, ok := s.calendars[key]
+	if !ok {
+		cal = &StoredCalendar{
+			ID:          "personal",
+			Name:        "Personal",
+			Description: "Personal Calendar",
+			Color:       "#1976d2",
+			Href:        "/dav/calendars/" + username + "/personal.json",
+			SyncToken:   "1",
+			Items:       make(map[string]StoredItem),
+		}
+		s.calendars[key] = cal
+	}
+	return cal
+}
+
+func (s *OIDCServer) handleDav(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/dav/")
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+
+	authHeader := r.Header.Get("Authorization")
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+	if token == "" {
+		token = r.URL.Query().Get("access_token")
+	}
+
+	username := ""
+	if token != "" {
+		s.mu.RLock()
+		if data, ok := s.accessTokens[token]; ok {
+			username = data.Username
+		}
+		s.mu.RUnlock()
+	}
+
+	if len(parts) >= 2 && parts[0] == "calendars" {
+		userParam := strings.TrimSuffix(parts[1], ".json")
+		if username == "" {
+			username = userParam
+		}
+	}
+	if username == "" {
+		username = "user@" + s.Domain
+	}
+
+	cal := s.getOrCreateUserCalendar(username)
+
+	// 1. GET /dav/calendars/{userId}.json -> Return calendar list
+	if len(parts) == 2 && strings.HasSuffix(parts[1], ".json") && (r.Method == http.MethodGet || r.Method == "PROPFIND") {
+		resp := map[string]any{
+			"_embedded": map[string]any{
+				"dav:calendar": []map[string]any{
+					{
+						"id":                  cal.ID,
+						"dav:name":            cal.Name,
+						"caldav:description": cal.Description,
+						"apple:color":         cal.Color,
+						"_links": map[string]any{
+							"self": map[string]string{
+								"href": cal.Href,
+							},
+						},
+						"_embedded": map[string]any{
+							"sync-token": cal.SyncToken,
+							"dav:item":   []any{},
+						},
+					},
+				},
+			},
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+		return
+	}
+
+	// 2. REPORT /dav/calendars/{userId}/{calId}.json -> Return calendar items
+	if r.Method == "REPORT" || (r.Method == http.MethodPost && len(parts) >= 3) {
+		s.mu.RLock()
+		itemList := make([]StoredItem, 0, len(cal.Items))
+		for _, it := range cal.Items {
+			itemList = append(itemList, it)
+		}
+		s.mu.RUnlock()
+
+		resp := map[string]any{
+			"_embedded": map[string]any{
+				"dav:item": itemList,
+			},
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+		return
+	}
+
+	// 3. POST /dav/calendars/{userId}/{calId}.json -> Create / update event
+	if r.Method == http.MethodPost || r.Method == http.MethodPut {
+		var bodyData any
+		if err := json.NewDecoder(r.Body).Decode(&bodyData); err != nil {
+			bodyData = []any{"vcalendar", []any{}, []any{}}
+		}
+
+		uid := generateRandomToken(16)
+		itemHref := fmt.Sprintf("/dav/calendars/%s/%s/%s.ics", username, cal.ID, uid)
+		item := StoredItem{
+			Href:   itemHref,
+			ETag:   fmt.Sprintf("\"%d\"", time.Now().UnixNano()),
+			Status: 200,
+			Data:   bodyData,
+		}
+
+		s.mu.Lock()
+		cal.Items[uid] = item
+		cal.SyncToken = fmt.Sprintf("%d", time.Now().Unix())
+		s.mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(item)
+		return
+	}
+
+	// 4. DELETE /dav/calendars/{userId}/{calId}/{uid}.ics
+	if r.Method == http.MethodDelete && len(parts) >= 4 {
+		uid := strings.TrimSuffix(parts[3], ".ics")
+		s.mu.Lock()
+		delete(cal.Items, uid)
+		cal.SyncToken = fmt.Sprintf("%d", time.Now().Unix())
+		s.mu.Unlock()
+
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	// Default fallback
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"_embedded": map[string]any{
+			"dav:item": []any{},
+		},
+	})
 }
 
 func (s *OIDCServer) signJWT(claims map[string]any) (string, error) {

@@ -245,7 +245,26 @@ func TestOIDCServerFullPKCEFlow(t *testing.T) {
 		t.Errorf("Invalid ticket response: %v", ticket)
 	}
 
-	// 8. Test Remember Me: With session cookie, GET /oauth/auth should immediately redirect without form
+	// 9. GET /dav/calendars/{userId}.json -> returns calendar list with _embedded["dav:calendar"]
+	req = httptest.NewRequest(http.MethodGet, "/dav/calendars/erik@profundo.dk.json?personal=true&withRights=true", nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /dav/calendars/... returned %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var calList map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &calList); err != nil {
+		t.Fatalf("Failed to parse calendar list JSON: %v", err)
+	}
+	embedded, ok := calList["_embedded"].(map[string]any)
+	if !ok || embedded["dav:calendar"] == nil {
+		t.Errorf("Calendar list missing _embedded['dav:calendar']: %v", calList)
+	}
+
+	// 10. Test Remember Me: With session cookie, GET /oauth/auth should immediately redirect without form
 	req = httptest.NewRequest(http.MethodGet, "/oauth/auth?client_id="+clientID+"&redirect_uri="+url.QueryEscape(redirectURI)+"&state="+state+"&code_challenge="+codeChallenge+"&code_challenge_method=S256", nil)
 	req.AddCookie(sessionCookie)
 	rec = httptest.NewRecorder()
