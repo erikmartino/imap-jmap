@@ -11,7 +11,7 @@ RUN npm run build:private
 FROM nginx:alpine
 RUN apk add --no-cache gzip
 
-COPY --from=cloner /src/nginx.conf /etc/nginx/
+COPY docker/twake-calendar/nginx.conf /etc/nginx/nginx.conf
 COPY --from=builder /app/apps/private/dist /usr/share/nginx/html
 ARG BUILD_VERSION=2.0
 RUN echo "var APP_VERSION = \"${BUILD_VERSION}\";" > /usr/share/nginx/html/version.js && \
