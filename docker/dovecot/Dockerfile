@@ -13,6 +13,6 @@ RUN mkdir -p /srv/vmail && chown -R vmail:vmail /srv/vmail
 COPY docker/dovecot/entrypoint.sh /usr/local/bin/dovecot-entrypoint
 RUN chmod +x /usr/local/bin/dovecot-entrypoint
 
-EXPOSE 143 24
+EXPOSE 143 24 12345
 
 ENTRYPOINT ["/usr/local/bin/dovecot-entrypoint"]
