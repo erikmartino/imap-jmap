@@ -347,27 +347,24 @@ func (b *ContactsBackend) GetCards(ctx context.Context, ids []jmap.Id) ([]*jmap.
 
 	for _, ab := range abs {
 		abPath := b.getABPath(u, ab.ID, homeSet)
-		fis, fErr := cardClient.ReadDir(ctx, abPath, false)
-		if fErr != nil {
+		objs, qErr := cardClient.QueryAddressBook(ctx, abPath, &carddav.AddressBookQuery{
+			DataRequest: carddav.AddressDataRequest{
+				AllProp: true,
+			},
+		})
+		if qErr != nil {
 			continue
 		}
 
-		for _, fi := range fis {
-			name := path.Base(fi.Path)
-			if !strings.HasSuffix(name, ".vcf") {
+		for _, ao := range objs {
+			if ao.Card == nil {
 				continue
 			}
-
+			name := path.Base(ao.Path)
 			rawID := strings.TrimSuffix(name, ".vcf")
 			cardID := jmap.Id(rawID)
 
 			if len(ids) > 0 && !idMap[cardID] {
-				continue
-			}
-
-			itemPath := strings.TrimRight(abPath, "/") + "/" + name
-			ao, gErr := cardClient.GetAddressObject(ctx, itemPath)
-			if gErr != nil || ao == nil || ao.Card == nil {
 				continue
 			}
 

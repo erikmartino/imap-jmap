@@ -558,25 +558,27 @@ func (b *CalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmap.Id)
 	freshMap := make(map[jmap.Id]*jmap.CalendarEvent)
 	for _, cal := range cals {
 		calPath := b.getCalPath(u, cal.ID, homeSet)
-		fis, fErr := calClient.ReadDir(ctx, calPath, false)
-		if fErr != nil {
+		objs, qErr := calClient.QueryCalendar(ctx, calPath, &caldav.CalendarQuery{
+			CompFilter: caldav.CompFilter{
+				Name: "VCALENDAR",
+				Comps: []caldav.CompFilter{
+					{
+						Name: "VEVENT",
+					},
+				},
+			},
+		})
+		if qErr != nil {
 			continue
 		}
 
-		for _, fi := range fis {
-			name := path.Base(fi.Path)
-			if !strings.HasSuffix(name, ".ics") {
+		for _, calObj := range objs {
+			if calObj.Data == nil {
 				continue
 			}
-
+			name := path.Base(calObj.Path)
 			rawID := strings.TrimSuffix(name, ".ics")
 			evID := jmap.Id(rawID)
-
-			itemPath := strings.TrimRight(calPath, "/") + "/" + name
-			calObj, gErr := calClient.GetCalendarObject(ctx, itemPath)
-			if gErr != nil || calObj == nil || calObj.Data == nil {
-				continue
-			}
 
 			var buf bytes.Buffer
 			_ = ical.NewEncoder(&buf).Encode(calObj.Data)
