@@ -37,6 +37,7 @@ type CalendarsBackend struct {
 
 	calsCache          map[string][]*jmap.Calendar
 	calPaths           map[string]map[jmap.Id]string
+	homeSets           map[string]string
 	calsCacheTime      map[string]time.Time
 	eventsCache        map[string]map[jmap.Id]*jmap.CalendarEvent
 	eventsCacheTime    map[string]time.Time
@@ -58,6 +59,7 @@ func NewCalendarsBackend(client *Client) *CalendarsBackend {
 		eventsFingerprint:  make(map[string]string),
 		calsCache:          make(map[string][]*jmap.Calendar),
 		calPaths:           make(map[string]map[jmap.Id]string),
+		homeSets:           make(map[string]string),
 		calsCacheTime:      make(map[string]time.Time),
 		eventsCache:        make(map[string]map[jmap.Id]*jmap.CalendarEvent),
 		eventsCacheTime:    make(map[string]time.Time),
@@ -182,14 +184,28 @@ func filterCalendars(list []*jmap.Calendar, ids []jmap.Id) ([]*jmap.Calendar, []
 }
 
 func (b *CalendarsBackend) getCalendarHomeSet(ctx context.Context, calClient *caldav.Client, u string) string {
+	b.mu.RLock()
+	if hs, ok := b.homeSets[u]; ok && hs != "" {
+		b.mu.RUnlock()
+		return hs
+	}
+	b.mu.RUnlock()
+
 	principal, err := calClient.FindCurrentUserPrincipal(ctx)
 	if err == nil && principal != "" {
 		homeSet, err := calClient.FindCalendarHomeSet(ctx, principal)
 		if err == nil && homeSet != "" {
+			b.mu.Lock()
+			b.homeSets[u] = homeSet
+			b.mu.Unlock()
 			return homeSet
 		}
 	}
-	return "calendars/" + u + "/"
+	defaultHS := "calendars/" + u + "/"
+	b.mu.Lock()
+	b.homeSets[u] = defaultHS
+	b.mu.Unlock()
+	return defaultHS
 }
 
 func (b *CalendarsBackend) getCalPath(u string, cid jmap.Id, homeSet string) string {
@@ -491,24 +507,39 @@ func (b *CalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmap.Id)
 	cals, _, _ := b.GetCalendars(ctx, nil)
 	homeSet := b.getCalendarHomeSet(ctx, calClient, u)
 
-	freshMap := make(map[jmap.Id]*jmap.CalendarEvent)
+	type calResult struct {
+		calID jmap.Id
+		objs  []caldav.CalendarObject
+	}
+	resChan := make(chan calResult, len(cals))
+	var wg sync.WaitGroup
+
 	for _, cal := range cals {
-		calPath := b.getCalPath(u, cal.ID, homeSet)
-		objs, qErr := calClient.QueryCalendar(ctx, calPath, &caldav.CalendarQuery{
-			CompFilter: caldav.CompFilter{
-				Name: "VCALENDAR",
-				Comps: []caldav.CompFilter{
-					{
-						Name: "VEVENT",
+		wg.Add(1)
+		go func(cal *jmap.Calendar) {
+			defer wg.Done()
+			calPath := b.getCalPath(u, cal.ID, homeSet)
+			objs, qErr := calClient.QueryCalendar(ctx, calPath, &caldav.CalendarQuery{
+				CompFilter: caldav.CompFilter{
+					Name: "VCALENDAR",
+					Comps: []caldav.CompFilter{
+						{
+							Name: "VEVENT",
+						},
 					},
 				},
-			},
-		})
-		if qErr != nil {
-			continue
-		}
+			})
+			if qErr == nil {
+				resChan <- calResult{calID: cal.ID, objs: objs}
+			}
+		}(cal)
+	}
+	wg.Wait()
+	close(resChan)
 
-		for _, calObj := range objs {
+	freshMap := make(map[jmap.Id]*jmap.CalendarEvent)
+	for res := range resChan {
+		for _, calObj := range res.objs {
 			if calObj.Data == nil {
 				continue
 			}
@@ -526,7 +557,7 @@ func (b *CalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmap.Id)
 				if ev.CalendarIDs == nil {
 					ev.CalendarIDs = make(map[jmap.Id]bool)
 				}
-				ev.CalendarIDs[cal.ID] = true
+				ev.CalendarIDs[res.calID] = true
 				freshMap[evID] = ev
 			}
 		}

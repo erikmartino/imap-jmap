@@ -28,6 +28,7 @@ type ContactsBackend struct {
 	abStates   map[string]int
 	cardStates map[string]int
 	abPaths    map[string]map[jmap.Id]string
+	homeSets   map[string]string
 	cardsCache map[string]map[jmap.Id]*jmap.Card
 }
 
@@ -40,6 +41,7 @@ func NewContactsBackend(client *Client) *ContactsBackend {
 		abStates:   make(map[string]int),
 		cardStates: make(map[string]int),
 		abPaths:    make(map[string]map[jmap.Id]string),
+		homeSets:   make(map[string]string),
 		cardsCache: make(map[string]map[jmap.Id]*jmap.Card),
 	}
 }
@@ -100,14 +102,28 @@ func (b *ContactsBackend) GetAllAddressBooks(ctx context.Context) ([]*jmap.Addre
 }
 
 func (b *ContactsBackend) getAddressBookHomeSet(ctx context.Context, cardClient *carddav.Client, u string) string {
+	b.mu.RLock()
+	if hs, ok := b.homeSets[u]; ok && hs != "" {
+		b.mu.RUnlock()
+		return hs
+	}
+	b.mu.RUnlock()
+
 	principal, err := cardClient.FindCurrentUserPrincipal(ctx)
 	if err == nil && principal != "" {
 		homeSet, err := cardClient.FindAddressBookHomeSet(ctx, principal)
 		if err == nil && homeSet != "" {
+			b.mu.Lock()
+			b.homeSets[u] = homeSet
+			b.mu.Unlock()
 			return homeSet
 		}
 	}
-	return "addressbooks/users/" + u + "/"
+	defaultHS := "addressbooks/users/" + u + "/"
+	b.mu.Lock()
+	b.homeSets[u] = defaultHS
+	b.mu.Unlock()
+	return defaultHS
 }
 
 func (b *ContactsBackend) getABPath(u string, abID jmap.Id, homeSet string) string {
@@ -345,18 +361,33 @@ func (b *ContactsBackend) GetCards(ctx context.Context, ids []jmap.Id) ([]*jmap.
 		idMap[id] = true
 	}
 
-	for _, ab := range abs {
-		abPath := b.getABPath(u, ab.ID, homeSet)
-		objs, qErr := cardClient.QueryAddressBook(ctx, abPath, &carddav.AddressBookQuery{
-			DataRequest: carddav.AddressDataRequest{
-				AllProp: true,
-			},
-		})
-		if qErr != nil {
-			continue
-		}
+	type abResult struct {
+		abID jmap.Id
+		objs []carddav.AddressObject
+	}
+	resChan := make(chan abResult, len(abs))
+	var wg sync.WaitGroup
 
-		for _, ao := range objs {
+	for _, ab := range abs {
+		wg.Add(1)
+		go func(ab *jmap.AddressBook) {
+			defer wg.Done()
+			abPath := b.getABPath(u, ab.ID, homeSet)
+			objs, qErr := cardClient.QueryAddressBook(ctx, abPath, &carddav.AddressBookQuery{
+				DataRequest: carddav.AddressDataRequest{
+					AllProp: true,
+				},
+			})
+			if qErr == nil {
+				resChan <- abResult{abID: ab.ID, objs: objs}
+			}
+		}(ab)
+	}
+	wg.Wait()
+	close(resChan)
+
+	for res := range resChan {
+		for _, ao := range res.objs {
 			if ao.Card == nil {
 				continue
 			}
@@ -380,7 +411,7 @@ func (b *ContactsBackend) GetCards(ctx context.Context, ids []jmap.Id) ([]*jmap.
 					if card.AddressBookIDs == nil {
 						card.AddressBookIDs = make(map[jmap.Id]bool)
 					}
-					card.AddressBookIDs[ab.ID] = true
+					card.AddressBookIDs[res.abID] = true
 					b.mu.Lock()
 					b.cardsCache[u][cardID] = &card
 					b.mu.Unlock()
