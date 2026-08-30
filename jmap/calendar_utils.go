@@ -92,7 +92,8 @@ func parseISODuration(raw string) (time.Duration, bool) {
 	return total, true
 }
 
-func computeUTCStart(start, timeZone string) string {
+// ComputeUTCStart calculates the RFC 3339 UTC timestamp for a local start time and timezone.
+func ComputeUTCStart(start, timeZone string) string {
 	if start == "" {
 		return ""
 	}
@@ -103,7 +104,12 @@ func computeUTCStart(start, timeZone string) string {
 	return ""
 }
 
-func computeUTCEnd(start, duration, timeZone string) string {
+func computeUTCStart(start, timeZone string) string {
+	return ComputeUTCStart(start, timeZone)
+}
+
+// ComputeUTCEnd calculates the RFC 3339 UTC timestamp for a local start time, duration and timezone.
+func ComputeUTCEnd(start, duration, timeZone string) string {
 	if start == "" {
 		return ""
 	}
@@ -118,4 +124,8 @@ func computeUTCEnd(start, duration, timeZone string) string {
 		return t.Add(dur).UTC().Format("2006-01-02T15:04:05Z")
 	}
 	return ""
+}
+
+func computeUTCEnd(start, duration, timeZone string) string {
+	return ComputeUTCEnd(start, duration, timeZone)
 }

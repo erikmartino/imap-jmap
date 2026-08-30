@@ -594,9 +594,16 @@ func (b *CalendarsBackend) CreateCalendarEvent(ctx context.Context, event *jmap.
 	if event.UID == "" {
 		event.UID = string(event.ID)
 	}
+	if event.TimeZone == "" {
+		event.TimeZone = "Etc/UTC"
+	}
+	if event.UTCStart == "" {
+		event.UTCStart = jmap.ComputeUTCStart(event.Start, event.TimeZone)
+	}
+	if event.UTCEnd == "" {
+		event.UTCEnd = jmap.ComputeUTCEnd(event.Start, event.Duration, event.TimeZone)
+	}
 
-	// Ensure user's calendars are discovered and initialized in Nextcloud
-	cals, _, _ := b.GetCalendars(ctx, nil)
 	homeSet := b.getCalendarHomeSet(ctx, calClient, u)
 
 	calID := ""
@@ -609,11 +616,7 @@ func (b *CalendarsBackend) CreateCalendarEvent(ctx context.Context, event *jmap.
 		}
 	}
 	if calID == "" {
-		if len(cals) > 0 {
-			calID = string(cals[0].ID)
-		} else {
-			calID = "personal"
-		}
+		calID = "personal"
 		if event.CalendarIDs == nil {
 			event.CalendarIDs = make(map[jmap.Id]bool)
 		}
@@ -622,7 +625,6 @@ func (b *CalendarsBackend) CreateCalendarEvent(ctx context.Context, event *jmap.
 	}
 
 	calPath := b.getCalPath(u, jmap.Id(calID), homeSet)
-	_ = calClient.Mkdir(ctx, calPath)
 
 	icsStr := jmap.EncodeCalDAVEvent(event)
 	dec := ical.NewDecoder(strings.NewReader(icsStr))
@@ -771,6 +773,8 @@ func applyEventPatch(ev *jmap.CalendarEvent, patch map[string]any) error {
 		updatedEv.TimeZone = "Etc/UTC"
 	}
 	updatedEv.Start = strings.TrimSuffix(updatedEv.Start, "Z")
+	updatedEv.UTCStart = jmap.ComputeUTCStart(updatedEv.Start, updatedEv.TimeZone)
+	updatedEv.UTCEnd = jmap.ComputeUTCEnd(updatedEv.Start, updatedEv.Duration, updatedEv.TimeZone)
 
 	*ev = updatedEv
 	return nil
@@ -802,11 +806,25 @@ func (b *CalendarsBackend) UpdateCalendarEvent(ctx context.Context, id jmap.Id, 
 		return b.CreateCalendarEvent(ctx, master)
 	}
 
-	events, _, err := b.GetCalendarEvents(ctx, []jmap.Id{id})
-	if err != nil || len(events) == 0 {
-		return nil, fmt.Errorf("event %s not found", id)
+	u := b.user(ctx)
+	b.mu.RLock()
+	var ev *jmap.CalendarEvent
+	if b.eventsCache[u] != nil {
+		if cached, ok := b.eventsCache[u][id]; ok && cached != nil {
+			evCopy := *cached
+			ev = &evCopy
+		}
 	}
-	ev := events[0]
+	b.mu.RUnlock()
+
+	if ev == nil {
+		events, _, err := b.GetCalendarEvents(ctx, []jmap.Id{id})
+		if err != nil || len(events) == 0 {
+			return nil, fmt.Errorf("event %s not found", id)
+		}
+		ev = events[0]
+	}
+
 	oldCalID := ""
 	for cid := range ev.CalendarIDs {
 		oldCalID = string(cid)
@@ -818,6 +836,8 @@ func (b *CalendarsBackend) UpdateCalendarEvent(ctx context.Context, id jmap.Id, 
 	}
 	ev.Sequence++
 	ev.Updated = time.Now().UTC().Format(time.RFC3339)
+	ev.UTCStart = jmap.ComputeUTCStart(ev.Start, ev.TimeZone)
+	ev.UTCEnd = jmap.ComputeUTCEnd(ev.Start, ev.Duration, ev.TimeZone)
 
 	newCalID := ""
 	for cid := range ev.CalendarIDs {
@@ -865,14 +885,17 @@ func (b *CalendarsBackend) DeleteCalendarEvent(ctx context.Context, id jmap.Id) 
 		return false, err
 	}
 
-	events, _, _ := b.GetCalendarEvents(ctx, []jmap.Id{id})
 	calID := "personal"
-	if len(events) > 0 {
-		for cid := range events[0].CalendarIDs {
-			calID = string(cid)
-			break
+	b.mu.RLock()
+	if b.eventsCache[u] != nil {
+		if ev, ok := b.eventsCache[u][id]; ok && ev != nil {
+			for cid := range ev.CalendarIDs {
+				calID = string(cid)
+				break
+			}
 		}
 	}
+	b.mu.RUnlock()
 
 	homeSet := b.getCalendarHomeSet(ctx, calClient, u)
 	calPath := b.getCalPath(u, jmap.Id(calID), homeSet)
