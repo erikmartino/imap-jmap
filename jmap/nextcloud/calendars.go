@@ -123,15 +123,6 @@ func (b *CalendarsBackend) user(ctx context.Context) string {
 // CalendarState
 func (b *CalendarsBackend) CalendarState(ctx context.Context) string {
 	u := b.user(ctx)
-	b.mu.RLock()
-	cacheAge := time.Since(b.calsCacheTime[u])
-	hasCache := b.calsCache[u] != nil
-	b.mu.RUnlock()
-
-	if !hasCache || cacheAge > 5*time.Second {
-		_, _, _ = b.GetCalendars(ctx, nil)
-	}
-
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	st, ok := b.calStates[u]
@@ -216,17 +207,6 @@ func (b *CalendarsBackend) getCalPath(u string, cid jmap.Id, homeSet string) str
 }
 
 func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmap.Id) ([]*jmap.Calendar, []jmap.Id, error) {
-	u := b.user(ctx)
-
-	b.mu.RLock()
-	cachedCals, hasCached := b.calsCache[u]
-	cacheAge := time.Since(b.calsCacheTime[u])
-	b.mu.RUnlock()
-
-	if hasCached && len(cachedCals) > 0 && cacheAge < 5*time.Second {
-		return filterCalendars(cachedCals, ids)
-	}
-
 	calClient, u, err := b.client.CalDAV(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -419,15 +399,6 @@ func (b *CalendarsBackend) CalendarHasEvents(ctx context.Context, id jmap.Id) (b
 // CalendarEventState
 func (b *CalendarsBackend) CalendarEventState(ctx context.Context) string {
 	u := b.user(ctx)
-	b.mu.RLock()
-	cacheAge := time.Since(b.eventsCacheTime[u])
-	hasCache := b.eventsCache[u] != nil
-	b.mu.RUnlock()
-
-	if !hasCache || cacheAge > 3*time.Second {
-		_, _, _ = b.GetCalendarEvents(ctx, nil)
-	}
-
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	st, ok := b.eventStates[u]
@@ -512,41 +483,6 @@ func (b *CalendarsBackend) buildEventResponseFromCache(u string, ids []jmap.Id) 
 }
 
 func (b *CalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmap.Id) ([]*jmap.CalendarEvent, []jmap.Id, error) {
-	u := b.user(ctx)
-
-	b.mu.RLock()
-	cache := b.eventsCache[u]
-	cacheAge := time.Since(b.eventsCacheTime[u])
-	b.mu.RUnlock()
-
-	// Check if all requested IDs can be satisfied immediately from cache within TTL
-	canServeFromCache := false
-	if cache != nil && cacheAge < 5*time.Second {
-		if ids == nil {
-			canServeFromCache = true
-		} else if len(ids) == 0 {
-			canServeFromCache = cacheAge < 2*time.Second
-		} else {
-			canServeFromCache = true
-			for _, id := range ids {
-				masterID := id
-				if strings.Contains(string(id), "#") {
-					parts := strings.SplitN(string(id), "#", 2)
-					masterID = jmap.Id(parts[0])
-				}
-				if _, ok := cache[masterID]; !ok {
-					canServeFromCache = false
-					break
-				}
-			}
-		}
-	}
-
-	if canServeFromCache {
-		list, notFound := b.buildEventResponseFromCache(u, ids)
-		return list, notFound, nil
-	}
-
 	calClient, u, err := b.client.CalDAV(ctx)
 	if err != nil {
 		return nil, nil, err
