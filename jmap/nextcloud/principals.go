@@ -127,9 +127,7 @@ func (b *PrincipalsBackend) SetBroadcaster(broadcaster *jmap.Broadcaster) {
 }
 
 func (b *PrincipalsBackend) emitStateChange(u, typeName, newState string) {
-	b.mu.RLock()
 	bc := b.broadcaster
-	b.mu.RUnlock()
 	if bc != nil && u != "" {
 		accID := jmap.AccountIDForSubject(u)
 		bc.PublishStateChange(accID, typeName, newState)

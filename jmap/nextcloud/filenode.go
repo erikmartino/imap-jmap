@@ -40,9 +40,7 @@ func (b *FileNodeBackend) SetBroadcaster(bc *jmap.Broadcaster) {
 }
 
 func (b *FileNodeBackend) emitStateChange(u, typeName, newState string) {
-	b.mu.RLock()
 	bc := b.broadcaster
-	b.mu.RUnlock()
 	if bc != nil {
 		accountID := jmap.AccountIDForSubject(u)
 		bc.PublishStateChange(accountID, typeName, newState)

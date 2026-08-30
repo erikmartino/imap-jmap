@@ -234,15 +234,17 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, p
 					}
 					continue
 				}
-				beforeList, _, _ := backend.GetCalendarEvents(ctx, []Id{Id(resolvedID)})
 				var beforeEv *CalendarEvent
-				if len(beforeList) > 0 {
-					// Deep-copy: the memory backend returns its stored pointer and the
-					// update below mutates it in place; the notification must carry the
-					// pre-change data.
-					beforeBytes, _ := json.Marshal(beforeList[0])
-					beforeEv = &CalendarEvent{}
-					_ = json.Unmarshal(beforeBytes, beforeEv)
+				if sendSchedulingMessages {
+					beforeList, _, _ := backend.GetCalendarEvents(ctx, []Id{Id(resolvedID)})
+					if len(beforeList) > 0 {
+						// Deep-copy: the memory backend returns its stored pointer and the
+						// update below mutates it in place; the notification must carry the
+						// pre-change data.
+						beforeBytes, _ := json.Marshal(beforeList[0])
+						beforeEv = &CalendarEvent{}
+						_ = json.Unmarshal(beforeBytes, beforeEv)
+					}
 				}
 				updatedEv, err := backend.UpdateCalendarEvent(ctx, Id(resolvedID), patch)
 				if err != nil {

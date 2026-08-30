@@ -75,9 +75,7 @@ func (b *CalendarsBackend) SetBroadcaster(bc *jmap.Broadcaster) {
 }
 
 func (b *CalendarsBackend) emitStateChange(u, typeName, newState string) {
-	b.mu.RLock()
 	bc := b.broadcaster
-	b.mu.RUnlock()
 	if bc != nil {
 		accountID := jmap.AccountIDForSubject(u)
 		bc.PublishStateChange(accountID, typeName, newState)
@@ -302,11 +300,18 @@ func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmap.Id) ([]*
 	b.calsFingerprint[u] = newFp
 	b.calsCache[u] = list
 	b.calsCacheTime[u] = time.Now()
+	needEmit := false
+	var st string
 	if oldFp != "" && oldFp != newFp {
 		b.calStates[u]++
-		b.emitStateChange(u, "Calendar", strconv.Itoa(b.calStates[u]))
+		st = strconv.Itoa(b.calStates[u])
+		needEmit = true
 	}
 	b.mu.Unlock()
+
+	if needEmit {
+		b.emitStateChange(u, "Calendar", st)
+	}
 
 	return filterCalendars(list, ids)
 }
@@ -569,11 +574,18 @@ func (b *CalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmap.Id)
 	b.eventsFingerprint[u] = newFp
 	b.eventsCache[u] = freshMap
 	b.eventsCacheTime[u] = time.Now()
+	needEmit := false
+	var st string
 	if oldFp != "" && oldFp != newFp {
 		b.eventStates[u]++
-		b.emitStateChange(u, "CalendarEvent", strconv.Itoa(b.eventStates[u]))
+		st = strconv.Itoa(b.eventStates[u])
+		needEmit = true
 	}
 	b.mu.Unlock()
+
+	if needEmit {
+		b.emitStateChange(u, "CalendarEvent", st)
+	}
 
 	list, notFound := b.buildEventResponseFromCache(u, ids)
 	return list, notFound, nil
