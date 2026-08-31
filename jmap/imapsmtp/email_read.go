@@ -712,7 +712,16 @@ func (b *IMAPSMTPBackend) GetThreads(ctx context.Context, ids []jmap.Id) ([]*jma
 
 	threadEmails := make(map[jmap.Id][]jmap.Id)
 	for _, em := range allEmails {
-		threadEmails[em.ThreadID] = append(threadEmails[em.ThreadID], em.ID)
+		alreadyInThread := false
+		for _, existingID := range threadEmails[em.ThreadID] {
+			if existingID == em.ID {
+				alreadyInThread = true
+				break
+			}
+		}
+		if !alreadyInThread {
+			threadEmails[em.ThreadID] = append(threadEmails[em.ThreadID], em.ID)
+		}
 	}
 
 	var found []*jmap.Thread
@@ -741,7 +750,17 @@ func (b *IMAPSMTPBackend) GetAllThreads(ctx context.Context) ([]*jmap.Thread, er
 
 	threadEmails := make(map[jmap.Id][]jmap.Id)
 	for _, em := range allEmails {
-		threadEmails[em.ThreadID] = append(threadEmails[em.ThreadID], em.ID)
+		// Deduplicate emails in the same thread that are identical copies across mailboxes or revisions
+		alreadyInThread := false
+		for _, existingID := range threadEmails[em.ThreadID] {
+			if existingID == em.ID {
+				alreadyInThread = true
+				break
+			}
+		}
+		if !alreadyInThread {
+			threadEmails[em.ThreadID] = append(threadEmails[em.ThreadID], em.ID)
+		}
 	}
 
 	var threads []*jmap.Thread
