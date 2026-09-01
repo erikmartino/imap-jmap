@@ -470,6 +470,7 @@ func handleCalendarEventCopy(backend CalendarsBackend) MethodHandler {
 		created := make(map[string]*CalendarEvent)
 		notCreated := make(map[string]any)
 		destroyOriginals := make([]Id, 0)
+		creationRefs := newSetCreationRefs(ctx)
 
 		if createRaw, ok := args["create"].(map[string]any); ok {
 			for creationID, raw := range createRaw {
@@ -479,7 +480,8 @@ func handleCalendarEventCopy(backend CalendarsBackend) MethodHandler {
 					notCreated[creationID] = SetError{Type: "invalidProperties", Description: "copy create entry must reference a source id"}
 					continue
 				}
-				srcs, notFound, _ := backend.GetCalendarEvents(srcCtx, []Id{Id(srcID)})
+				resolvedSrcID := resolveCreationID(srcID, creationRefs)
+				srcs, notFound, _ := backend.GetCalendarEvents(srcCtx, []Id{Id(resolvedSrcID)})
 				if len(srcs) == 0 || len(notFound) > 0 {
 					notCreated[creationID] = SetError{Type: "notFound", Description: "source event not found: " + srcID}
 					continue
@@ -496,7 +498,8 @@ func handleCalendarEventCopy(backend CalendarsBackend) MethodHandler {
 					notCreated[creationID] = SetError{Type: "invalidProperties", Description: err.Error()}
 				} else {
 					created[creationID] = newEv
-					destroyOriginals = append(destroyOriginals, Id(srcID))
+					recordCreationRefs(ctx, creationRefs, creationID, newEv.ID)
+					destroyOriginals = append(destroyOriginals, Id(resolvedSrcID))
 				}
 			}
 		}
@@ -512,8 +515,8 @@ func handleCalendarEventCopy(backend CalendarsBackend) MethodHandler {
 			"accountId":     accountID,
 			"oldState":      oldState,
 			"newState":      backend.CalendarEventState(ctx),
-			"created":       created,
-			"notCreated":    notCreated,
+			"created":       nilIfEmpty(created),
+			"notCreated":    nilIfEmpty(notCreated),
 		}
 	}
 }

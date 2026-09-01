@@ -510,11 +510,13 @@ func handleMailboxCopy(backend MailBackend) MethodHandler {
 		oldState := backend.MailboxState(ctx)
 		created := make(map[string]*Mailbox)
 		notCreated := make(map[string]SetError)
+		creationRefs := newSetCreationRefs(ctx)
 
 		for clientKey, raw := range createMap {
 			if mbData, ok := raw.(map[string]any); ok {
 				if idStr, ok := mbData["id"].(string); ok {
-					list, _, _ := backend.GetMailboxes(ctx, []Id{Id(idStr)})
+					resolvedID := resolveCreationID(idStr, creationRefs)
+					list, _, _ := backend.GetMailboxes(ctx, []Id{Id(resolvedID)})
 					if len(list) > 0 {
 						cp := *list[0]
 						cp.ID = ""
@@ -527,7 +529,7 @@ func handleMailboxCopy(backend MailBackend) MethodHandler {
 							if parentIDOverride == "" {
 								cp.ParentID = nil
 							} else {
-								pid := Id(parentIDOverride)
+								pid := Id(resolveCreationID(parentIDOverride, creationRefs))
 								cp.ParentID = &pid
 							}
 						}
@@ -535,8 +537,9 @@ func handleMailboxCopy(backend MailBackend) MethodHandler {
 						createdMB, err := backend.CreateMailbox(ctx, &cp)
 						if err == nil {
 							created[clientKey] = createdMB
+							recordCreationRefs(ctx, creationRefs, clientKey, createdMB.ID)
 							if onDestroy {
-								_, _ = backend.DeleteMailbox(ctx, Id(idStr), false)
+								_, _ = backend.DeleteMailbox(ctx, Id(resolvedID), false)
 							}
 						} else {
 							notCreated[clientKey] = SetError{Type: "serverFail", Description: err.Error()}
@@ -553,8 +556,8 @@ func handleMailboxCopy(backend MailBackend) MethodHandler {
 			"accountId":     accountID,
 			"oldState":      oldState,
 			"newState":      backend.MailboxState(ctx),
-			"created":       created,
-			"notCreated":    notCreated,
+			"created":       nilIfEmpty(created),
+			"notCreated":    nilIfEmpty(notCreated),
 		}
 	}
 }

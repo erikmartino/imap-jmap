@@ -110,6 +110,7 @@ func handleSieveScriptSet(backend SieveBackend) MethodHandler {
 		notCreated := make(map[string]any)
 		notUpdated := make(map[string]any)
 		notDestroyed := make(map[string]any)
+		creationRefs := newSetCreationRefs(ctx)
 
 		if backend != nil {
 			if createRaw, ok := args["create"].(map[string]any); ok {
@@ -123,6 +124,7 @@ func handleSieveScriptSet(backend SieveBackend) MethodHandler {
 						notCreated[creationID] = SetError{Type: "invalidScript", Description: err.Error()}
 					} else {
 						created[creationID] = createdScript
+						recordCreationRefs(ctx, creationRefs, creationID, createdScript.ID)
 					}
 				}
 			}
@@ -130,35 +132,39 @@ func handleSieveScriptSet(backend SieveBackend) MethodHandler {
 			if updateRaw, ok := args["update"].(map[string]any); ok {
 				for idStr, patchRaw := range updateRaw {
 					patch, _ := patchRaw.(map[string]any)
-					updatedScript, err := backend.UpdateSieveScript(ctx, Id(idStr), patch)
+					resolvedID := resolveCreationID(idStr, creationRefs)
+					updatedScript, err := backend.UpdateSieveScript(ctx, Id(resolvedID), resolvePatchCreationRefs(patch, creationRefs))
 					if err != nil {
 						if errors.Is(err, ErrNotFound) {
-							notUpdated[idStr] = SetError{Type: "notFound", Description: err.Error()}
+							notUpdated[resolvedID] = SetError{Type: "notFound", Description: err.Error()}
 						} else {
-							notUpdated[idStr] = SetError{Type: "invalidScript", Description: err.Error()}
+							notUpdated[resolvedID] = SetError{Type: "invalidScript", Description: err.Error()}
 						}
 					} else {
 						_ = updatedScript
-						updated[idStr] = nil
+						updated[resolvedID] = nil
 					}
 				}
 			}
 
 			if actID, ok := args["onSuccessActivateScript"].(string); ok && actID != "" {
-				_, _ = backend.UpdateSieveScript(ctx, Id(actID), map[string]any{"isActive": true})
+				resolvedActID := resolveCreationID(actID, creationRefs)
+				_, _ = backend.UpdateSieveScript(ctx, Id(resolvedActID), map[string]any{"isActive": true})
 			}
 			if deactID, ok := args["onSuccessDeactivateScript"].(string); ok && deactID != "" {
-				_, _ = backend.UpdateSieveScript(ctx, Id(deactID), map[string]any{"isActive": false})
+				resolvedDeactID := resolveCreationID(deactID, creationRefs)
+				_, _ = backend.UpdateSieveScript(ctx, Id(resolvedDeactID), map[string]any{"isActive": false})
 			}
 
 			if destroyRaw, ok := args["destroy"].([]any); ok {
 				for _, item := range destroyRaw {
 					if idStr, ok := item.(string); ok {
-						okDel, err := backend.DeleteSieveScript(ctx, Id(idStr))
+						resolvedID := resolveCreationID(idStr, creationRefs)
+						okDel, err := backend.DeleteSieveScript(ctx, Id(resolvedID))
 						if err != nil || !okDel {
-							notDestroyed[idStr] = SetError{Type: "notFound", Description: "sieve script not found"}
+							notDestroyed[resolvedID] = SetError{Type: "notFound", Description: "sieve script not found"}
 						} else {
-							destroyed = append(destroyed, Id(idStr))
+							destroyed = append(destroyed, Id(resolvedID))
 						}
 					}
 				}
@@ -170,12 +176,12 @@ func handleSieveScriptSet(backend SieveBackend) MethodHandler {
 			"accountId":    accountID,
 			"oldState":     oldState,
 			"newState":     newState,
-			"created":      created,
-			"updated":      updated,
-			"destroyed":    destroyed,
-			"notCreated":   notCreated,
-			"notUpdated":   notUpdated,
-			"notDestroyed": notDestroyed,
+			"created":      nilIfEmpty(created),
+			"updated":      nilIfEmpty(updated),
+			"destroyed":    nilIfEmpty(destroyed),
+			"notCreated":   nilIfEmpty(notCreated),
+			"notUpdated":   nilIfEmpty(notUpdated),
+			"notDestroyed": nilIfEmpty(notDestroyed),
 		}
 	}
 }

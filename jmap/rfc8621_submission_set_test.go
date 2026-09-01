@@ -814,6 +814,226 @@ func TestEmailSubmission_CreationReferences(t *testing.T) {
 	}
 }
 
+// TestEmailSubmission_ImportCreationReferences verifies creation references (#creationId)
+// linking an Email created via Email/import in the same request to an EmailSubmission and onSuccessUpdateEmail (Mailove workflow).
+func TestEmailSubmission_ImportCreationReferences(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// 1. Upload RFC 822 email blob
+	rawMsg := "From: erikmartino@profundo.dk\r\nTo: erikmartino@profundo.dk\r\nSubject: Mailove send\r\n\r\nHello from Mailove"
+	acctID := jmap.AccountIDForSubject(testUsername)
+	uploadResp, err := authedPost(ts.URL+"/upload/"+acctID+"/", "message/rfc822", strings.NewReader(rawMsg))
+	if err != nil {
+		t.Fatalf("upload failed: %v", err)
+	}
+	defer uploadResp.Body.Close()
+	var uploadData map[string]any
+	_ = json.NewDecoder(uploadResp.Body).Decode(&uploadData)
+	blobID, _ := uploadData["blobId"].(string)
+	if blobID == "" {
+		t.Fatalf("missing blobId from upload: %v", uploadData)
+	}
+
+	// 2. Perform composite Email/import + EmailSubmission/set request as Mailove does
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.SubmissionCapabilityURI}
+	res := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/import", map[string]any{
+			"accountId": acctID,
+			"emails": map[string]any{
+				"draft": map[string]any{
+					"blobId":     blobID,
+					"mailboxIds": map[string]any{"mb-drafts": true},
+					"keywords":   map[string]any{"$draft": true, "$seen": true},
+					"receivedAt": "2026-09-01T12:00:00Z",
+				},
+			},
+		}, "c0"},
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"send": map[string]any{
+					"emailId":    "#draft",
+					"identityId": "id-primary",
+					"envelope": map[string]any{
+						"mailFrom": map[string]any{"email": "erikmartino@profundo.dk"},
+						"rcptTo":   []any{map[string]any{"email": "erikmartino@profundo.dk"}},
+					},
+				},
+			},
+			"onSuccessUpdateEmail": map[string]any{
+				"#send": map[string]any{
+					"keywords/$draft":      nil,
+					"keywords/$seen":       true,
+					"mailboxIds/mb-drafts": nil,
+					"mailboxIds/mb-sent":   true,
+				},
+			},
+		}, "c1"},
+	})
+
+	if len(res.MethodResponses) != 3 {
+		t.Fatalf("Expected 3 method responses (including implicit Email/set), got %d: %v", len(res.MethodResponses), res.MethodResponses)
+	}
+	importCreated, _ := res.MethodResponses[0].Args["created"].(map[string]any)
+	draftObj, ok := importCreated["draft"].(map[string]any)
+	if !ok {
+		t.Fatalf("Email/import draft not created: %v", res.MethodResponses[0].Args)
+	}
+	importedEmailID, _ := draftObj["id"].(string)
+	if importedEmailID == "" {
+		t.Fatalf("Email/import returned empty id: %v", draftObj)
+	}
+
+	subCreated, _ := res.MethodResponses[1].Args["created"].(map[string]any)
+	subObj, ok := subCreated["send"].(map[string]any)
+	if !ok {
+		subNotCreated, _ := res.MethodResponses[1].Args["notCreated"].(map[string]any)
+		t.Fatalf("EmailSubmission/set send not created, notCreated=%v args=%v", subNotCreated, res.MethodResponses[1].Args)
+	}
+	if subObj["emailId"] != importedEmailID {
+		t.Errorf("Expected submission emailId=%q, got %q", importedEmailID, subObj["emailId"])
+	}
+
+	// 3. Verify Email was updated via onSuccessUpdateEmail (moved to Sent, draft flag removed)
+	verifyRes := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/get", map[string]any{
+			"accountId":  "primary",
+			"ids":        []any{importedEmailID},
+			"properties": []any{"mailboxIds", "keywords"},
+		}, "c2"},
+	})
+	list, _ := verifyRes.MethodResponses[0].Args["list"].([]any)
+	if len(list) != 1 {
+		t.Fatalf("Expected 1 email in Email/get, got %v", list)
+	}
+	emailObj := list[0].(map[string]any)
+	mbIDs, _ := emailObj["mailboxIds"].(map[string]any)
+	if !mbIDs["mb-sent"].(bool) || mbIDs["mb-drafts"] != nil {
+		t.Errorf("Expected email in mb-sent and not mb-drafts, got %v", mbIDs)
+	}
+	kws, _ := emailObj["keywords"].(map[string]any)
+	if kws["$draft"] != nil {
+		t.Errorf("Expected $draft keyword removed, got %v", kws)
+	}
+}
+
+// TestEmailSubmission_BlobUploadImportSubmissionPipeline verifies that a single JMAP request
+// can chain Blob/upload -> Email/import -> EmailSubmission/set using creation references (#b1, #draft).
+func TestEmailSubmission_BlobUploadImportSubmissionPipeline(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	acctID := jmap.AccountIDForSubject(testUsername)
+	rawRFC822 := "From: erikmartino@profundo.dk\r\nTo: recipient@example.com\r\nSubject: Pipeline Chain\r\n\r\nChained message"
+
+	using := []string{
+		jmap.CoreCapabilityURI,
+		jmap.MailCapabilityURI,
+		jmap.SubmissionCapabilityURI,
+		jmap.BlobCapabilityURI,
+	}
+
+	res := postJMAP(t, ts.URL, using, []any{
+		// 1. Upload blob via JMAP Blob/upload
+		[]any{"Blob/upload", map[string]any{
+			"accountId": acctID,
+			"create": map[string]any{
+				"b1": map[string]any{
+					"type": "message/rfc822",
+					"data": []any{
+						map[string]any{"data:asText": rawRFC822},
+					},
+				},
+			},
+		}, "c0"},
+		// 2. Import email referencing uploaded blob via #b1
+		[]any{"Email/import", map[string]any{
+			"accountId": acctID,
+			"emails": map[string]any{
+				"draft": map[string]any{
+					"blobId":     "#b1",
+					"mailboxIds": map[string]any{"mb-drafts": true},
+					"keywords":   map[string]any{"$draft": true},
+				},
+			},
+		}, "c1"},
+		// 3. Submit email referencing imported email via #draft
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": acctID,
+			"create": map[string]any{
+				"send": map[string]any{
+					"emailId":    "#draft",
+					"identityId": "id-primary",
+				},
+			},
+			"onSuccessUpdateEmail": map[string]any{
+				"#send": map[string]any{
+					"keywords/$draft":      nil,
+					"mailboxIds/mb-drafts": nil,
+					"mailboxIds/mb-sent":   true,
+				},
+			},
+		}, "c2"},
+	})
+
+	if len(res.MethodResponses) != 4 {
+		t.Fatalf("Expected 4 responses (including implicit Email/set), got %d: %v", len(res.MethodResponses), res.MethodResponses)
+	}
+
+	// 1. Verify Blob/upload
+	blobCreated, _ := res.MethodResponses[0].Args["created"].(map[string]any)
+	b1Obj, ok := blobCreated["b1"].(map[string]any)
+	if !ok {
+		t.Fatalf("Blob/upload b1 failed: %v", res.MethodResponses[0].Args)
+	}
+	blobID, _ := b1Obj["id"].(string)
+	if blobID == "" {
+		t.Fatalf("Empty blobId returned: %v", b1Obj)
+	}
+
+	// 2. Verify Email/import
+	emailCreated, _ := res.MethodResponses[1].Args["created"].(map[string]any)
+	draftObj, ok := emailCreated["draft"].(map[string]any)
+	if !ok {
+		t.Fatalf("Email/import draft failed: %v", res.MethodResponses[1].Args)
+	}
+	emailID, _ := draftObj["id"].(string)
+	if emailID == "" {
+		t.Fatalf("Empty emailId returned: %v", draftObj)
+	}
+
+	// 3. Verify EmailSubmission/set
+	subCreated, _ := res.MethodResponses[2].Args["created"].(map[string]any)
+	subObj, ok := subCreated["send"].(map[string]any)
+	if !ok {
+		t.Fatalf("EmailSubmission/set send failed: %v", res.MethodResponses[2].Args)
+	}
+	if subObj["emailId"] != emailID {
+		t.Errorf("Expected submission emailId=%q, got %q", emailID, subObj["emailId"])
+	}
+
+	// 4. Verify updated Email
+	getRes := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/get", map[string]any{
+			"accountId":  acctID,
+			"ids":        []any{emailID},
+			"properties": []any{"mailboxIds", "keywords"},
+		}, "c3"},
+	})
+	list, _ := getRes.MethodResponses[0].Args["list"].([]any)
+	if len(list) != 1 {
+		t.Fatalf("Expected 1 email in Email/get, got %v", list)
+	}
+	emailObj2 := list[0].(map[string]any)
+	mbIDs2, _ := emailObj2["mailboxIds"].(map[string]any)
+	if !mbIDs2["mb-sent"].(bool) || mbIDs2["mb-drafts"] != nil {
+		t.Errorf("Expected email in Sent and not Drafts, got %v", mbIDs2)
+	}
+}
+
 type mockOutboundSender struct {
 	called     bool
 	from       string

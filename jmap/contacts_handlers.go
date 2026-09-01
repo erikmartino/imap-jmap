@@ -505,6 +505,7 @@ func handleCardCopy(backend ContactsBackend) MethodHandler {
 
 		created := make(map[string]*Card)
 		notCreated := make(map[string]any)
+		creationRefs := newSetCreationRefs(ctx)
 
 		if createRaw, ok := args["create"].(map[string]any); ok {
 			for creationID, raw := range createRaw {
@@ -514,7 +515,8 @@ func handleCardCopy(backend ContactsBackend) MethodHandler {
 					notCreated[creationID] = SetError{Type: "invalidProperties", Description: "copy create entry must reference a source id"}
 					continue
 				}
-				srcs, notFound, _ := backend.GetCards(ctx, []Id{Id(srcID)})
+				resolvedSrcID := resolveCreationID(srcID, creationRefs)
+				srcs, notFound, _ := backend.GetCards(ctx, []Id{Id(resolvedSrcID)})
 				if len(srcs) == 0 || len(notFound) > 0 {
 					notCreated[creationID] = SetError{Type: "notFound", Description: "source card not found: " + srcID}
 					continue
@@ -531,6 +533,7 @@ func handleCardCopy(backend ContactsBackend) MethodHandler {
 					notCreated[creationID] = SetError{Type: "invalidProperties", Description: err.Error()}
 				} else {
 					created[creationID] = newCard
+					recordCreationRefs(ctx, creationRefs, creationID, newCard.ID)
 				}
 			}
 		}
@@ -540,8 +543,8 @@ func handleCardCopy(backend ContactsBackend) MethodHandler {
 			"accountId":     accountID,
 			"oldState":      oldState,
 			"newState":      backend.CardState(ctx),
-			"created":       created,
-			"notCreated":    notCreated,
+			"created":       nilIfEmpty(created),
+			"notCreated":    nilIfEmpty(notCreated),
 		}
 	}
 }
@@ -558,6 +561,7 @@ func handleAddressBookCopy(backend ContactsBackend) MethodHandler {
 
 		created := make(map[string]*AddressBook)
 		notCreated := make(map[string]any)
+		creationRefs := newSetCreationRefs(ctx)
 
 		if createRaw, ok := args["create"].(map[string]any); ok {
 			for creationID, raw := range createRaw {
@@ -567,7 +571,8 @@ func handleAddressBookCopy(backend ContactsBackend) MethodHandler {
 					notCreated[creationID] = SetError{Type: "invalidProperties", Description: "copy create entry must reference a source id"}
 					continue
 				}
-				srcs, notFound, _ := backend.GetAddressBooks(ctx, []Id{Id(srcID)})
+				resolvedSrcID := resolveCreationID(srcID, creationRefs)
+				srcs, notFound, _ := backend.GetAddressBooks(ctx, []Id{Id(resolvedSrcID)})
 				if len(srcs) == 0 || len(notFound) > 0 {
 					notCreated[creationID] = SetError{Type: "notFound", Description: "source address book not found: " + srcID}
 					continue
@@ -584,6 +589,7 @@ func handleAddressBookCopy(backend ContactsBackend) MethodHandler {
 					notCreated[creationID] = SetError{Type: "invalidProperties", Description: err.Error()}
 				} else {
 					created[creationID] = newAB
+					recordCreationRefs(ctx, creationRefs, creationID, newAB.ID)
 				}
 			}
 		}
@@ -593,8 +599,8 @@ func handleAddressBookCopy(backend ContactsBackend) MethodHandler {
 			"accountId":     accountID,
 			"oldState":      oldState,
 			"newState":      backend.AddressBookState(ctx),
-			"created":       created,
-			"notCreated":    notCreated,
+			"created":       nilIfEmpty(created),
+			"notCreated":    nilIfEmpty(notCreated),
 		}
 	}
 }

@@ -370,3 +370,64 @@ func TestRFC8620_CreationRefsRequestSeed(t *testing.T) {
 		t.Errorf("expected response createdIds to include e1->%q, got %v", emID, r.CreatedIds)
 	}
 }
+
+// TestRFC8620_CreationRefsSieveAndCopy verifies SieveScript/set and Copy handlers
+// record and resolve creation references across method calls (RFC 8620 Section 5.3 & 5.4).
+func TestRFC8620_CreationRefsSieveAndCopy(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// 1. Create Sieve script and activate it via creation reference in onSuccessActivateScript
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.SubmissionCapabilityURI, jmap.SieveCapabilityURI}
+	r1 := postJMAP(t, ts.URL, using, []any{
+		[]any{"SieveScript/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"s1": map[string]any{"name": "Filter1", "content": "require [\"fileinto\"];"},
+			},
+			"onSuccessActivateScript": "#s1",
+		}, "c1"},
+	})
+	created, _ := r1.MethodResponses[0].Args["created"].(map[string]any)
+	s1Obj, ok := created["s1"].(map[string]any)
+	if !ok {
+		t.Fatalf("SieveScript s1 not created: %v", r1.MethodResponses[0].Args)
+	}
+	scriptID, _ := s1Obj["id"].(string)
+
+	r2 := postJMAP(t, ts.URL, using, []any{
+		[]any{"SieveScript/get", map[string]any{"accountId": "primary", "ids": []any{scriptID}}, "c2"},
+	})
+	list, _ := r2.MethodResponses[0].Args["list"].([]any)
+	if len(list) != 1 || list[0].(map[string]any)["isActive"] != true {
+		t.Errorf("expected script %q to be active via onSuccessActivateScript, got %v", scriptID, list)
+	}
+
+	// 2. Mailbox/set creation -> Mailbox/copy referencing it via creation ref
+	r3 := postJMAP(t, ts.URL, using, []any{
+		[]any{"Mailbox/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"mb1": map[string]any{"name": "FolderOrig"},
+			},
+		}, "c3"},
+		[]any{"Mailbox/copy", map[string]any{
+			"fromAccountId": "primary",
+			"accountId":     "primary",
+			"create": map[string]any{
+				"mbcopy": map[string]any{"id": "#mb1", "name": "FolderCopied"},
+			},
+		}, "c4"},
+	})
+	mbCreated, _ := r3.MethodResponses[0].Args["created"].(map[string]any)
+	origID := mbCreated["mb1"].(map[string]any)["id"].(string)
+	copyCreated, _ := r3.MethodResponses[1].Args["created"].(map[string]any)
+	if copyCreated["mbcopy"] == nil {
+		t.Fatalf("Mailbox/copy failed to resolve creation reference #mb1: %v", r3.MethodResponses[1].Args)
+	}
+	copyID := copyCreated["mbcopy"].(map[string]any)["id"].(string)
+	if copyID == origID {
+		t.Errorf("Copied mailbox should have a new ID, got %q", copyID)
+	}
+}

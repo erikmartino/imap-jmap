@@ -329,6 +329,7 @@ func handleBlobCopy(backend BlobBackend) MethodHandler {
 
 		copied := make(map[string]string)
 		notCopied := make(map[string]any)
+		creationRefs := newSetCreationRefs(ctx)
 
 		var blobIDs []string
 		if rawIDs, ok := args["blobIds"].([]any); ok {
@@ -342,11 +343,13 @@ func handleBlobCopy(backend BlobBackend) MethodHandler {
 			for clientKey, raw := range createMap {
 				if item, ok := raw.(map[string]any); ok {
 					if blobID, ok := item["blobId"].(string); ok {
-						copiedBlob, err := backend.CopyBlob(ctx, fromAccountID, accountID, blobID)
+						resolvedBlobID := resolveCreationID(blobID, creationRefs)
+						copiedBlob, err := backend.CopyBlob(ctx, fromAccountID, accountID, resolvedBlobID)
 						if err != nil {
 							notCopied[clientKey] = SetError{Type: "blobNotFound", Description: "blob not found"}
 						} else {
 							copied[clientKey] = copiedBlob.ID
+							recordCreationRefs(ctx, creationRefs, clientKey, Id(copiedBlob.ID))
 						}
 					}
 				}
@@ -354,25 +357,27 @@ func handleBlobCopy(backend BlobBackend) MethodHandler {
 			return "Blob/copy", map[string]any{
 				"fromAccountId": fromAccountID,
 				"accountId":     accountID,
-				"copied":        copied,
-				"notCopied":     notCopied,
+				"copied":        nilIfEmpty(copied),
+				"notCopied":     nilIfEmpty(notCopied),
 			}
 		}
 
 		for _, blobID := range blobIDs {
-			copiedBlob, err := backend.CopyBlob(ctx, fromAccountID, accountID, blobID)
+			resolvedBlobID := resolveCreationID(blobID, creationRefs)
+			copiedBlob, err := backend.CopyBlob(ctx, fromAccountID, accountID, resolvedBlobID)
 			if err != nil {
 				notCopied[blobID] = SetError{Type: "blobNotFound", Description: "blob not found"}
 			} else {
 				copied[blobID] = copiedBlob.ID
+				recordCreationRefs(ctx, creationRefs, blobID, Id(copiedBlob.ID))
 			}
 		}
 
 		return "Blob/copy", map[string]any{
 			"fromAccountId": fromAccountID,
 			"accountId":     accountID,
-			"copied":        copied,
-			"notCopied":     notCopied,
+			"copied":        nilIfEmpty(copied),
+			"notCopied":     nilIfEmpty(notCopied),
 		}
 	}
 }

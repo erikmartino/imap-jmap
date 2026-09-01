@@ -24,11 +24,13 @@ func handleEmailCopy(backend MailBackend) MethodHandler {
 		oldState := backend.EmailState(destCtx)
 		created := make(map[string]*Email)
 		notCreated := make(map[string]SetError)
+		creationRefs := newSetCreationRefs(ctx)
 
 		for clientKey, raw := range createMap {
 			if emData, ok := raw.(map[string]any); ok {
 				if idStr, ok := emData["id"].(string); ok {
-					list, _, _ := backend.GetEmails(fromCtx, []Id{Id(idStr)})
+					resolvedID := resolveCreationID(idStr, creationRefs)
+					list, _, _ := backend.GetEmails(fromCtx, []Id{Id(resolvedID)})
 					if len(list) > 0 {
 						cp := *list[0]
 						cp.ID = ""
@@ -39,7 +41,8 @@ func handleEmailCopy(backend MailBackend) MethodHandler {
 							cp.MailboxIDs = make(map[Id]bool)
 							for k, v := range mbMap {
 								if v != nil {
-									cp.MailboxIDs[Id(k)] = true
+									resolvedMBID := resolveCreationID(k, creationRefs)
+									cp.MailboxIDs[Id(resolvedMBID)] = true
 								}
 							}
 						}
@@ -55,8 +58,9 @@ func handleEmailCopy(backend MailBackend) MethodHandler {
 						createdEM, err := backend.CreateEmail(destCtx, &cp)
 						if err == nil {
 							created[clientKey] = createdEM
+							recordCreationRefs(ctx, creationRefs, clientKey, createdEM.ID)
 							if onSuccessDestroy {
-								_, _ = backend.DeleteEmail(fromCtx, Id(idStr))
+								_, _ = backend.DeleteEmail(fromCtx, Id(resolvedID))
 							}
 						} else {
 							notCreated[clientKey] = SetError{Type: "serverFail", Description: err.Error()}
@@ -77,8 +81,8 @@ func handleEmailCopy(backend MailBackend) MethodHandler {
 			"accountId":     accountID,
 			"oldState":      oldState,
 			"newState":      backend.EmailState(destCtx),
-			"created":       created,
-			"notCreated":    notCreated,
+			"created":       nilIfEmpty(created),
+			"notCreated":    nilIfEmpty(notCreated),
 		}
 	}
 }
@@ -107,6 +111,7 @@ func handleEmailImport(backend MailBackend, blobBackend BlobBackend) MethodHandl
 		oldState := backend.EmailState(ctx)
 		created := make(map[string]any)
 		notCreated := make(map[string]SetError)
+		creationRefs := newSetCreationRefs(ctx)
 
 		for clientKey, raw := range emailsMap {
 			emData, ok := raw.(map[string]any)
@@ -133,10 +138,13 @@ func handleEmailImport(backend MailBackend, blobBackend BlobBackend) MethodHandl
 				continue
 			}
 
+			blobID = resolveCreationID(blobID, creationRefs)
+
 			// Validate mailbox existence
 			var mbIDsList []Id
 			for id := range mbIDs {
-				mbIDsList = append(mbIDsList, Id(id))
+				resolvedMBID := resolveCreationID(id, creationRefs)
+				mbIDsList = append(mbIDsList, Id(resolvedMBID))
 			}
 			_, notFoundMBs, err := backend.GetMailboxes(ctx, mbIDsList)
 			if err != nil || len(notFoundMBs) > 0 {
@@ -203,7 +211,8 @@ func handleEmailImport(backend MailBackend, blobBackend BlobBackend) MethodHandl
 
 			em.MailboxIDs = make(map[Id]bool, len(mbIDs))
 			for id := range mbIDs {
-				em.MailboxIDs[Id(id)] = true
+				resolvedMBID := resolveCreationID(id, creationRefs)
+				em.MailboxIDs[Id(resolvedMBID)] = true
 			}
 
 			if kwMap != nil {
@@ -224,6 +233,7 @@ func handleEmailImport(backend MailBackend, blobBackend BlobBackend) MethodHandl
 				"threadId": createdEm.ThreadID,
 				"size":     createdEm.Size,
 			}
+			recordCreationRefs(ctx, creationRefs, clientKey, createdEm.ID)
 		}
 
 		newState := backend.EmailState(ctx)
@@ -231,8 +241,8 @@ func handleEmailImport(backend MailBackend, blobBackend BlobBackend) MethodHandl
 			"accountId":  accountID,
 			"oldState":   oldState,
 			"newState":   newState,
-			"created":    created,
-			"notCreated": notCreated,
+			"created":    nilIfEmpty(created),
+			"notCreated": nilIfEmpty(notCreated),
 		}
 	}
 }

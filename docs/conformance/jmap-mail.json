@@ -172,7 +172,7 @@
     "section": "7.5",
     "level": "MUST",
     "text": "EmailSubmission/set sends, and applies onSuccessUpdateEmail / onSuccessDestroyEmail.",
-    "tests": ["TestEmailSubmissionSetDestroyTests", "TestEmailSubmission_CreationReferences", "TestEmailSubmission_IfInStateMismatch", "TestEmailSubmission_ImmutablePropertiesNotUpdated", "TestEmailSubmission_LocalDelivery", "TestEmailSubmission_OnSuccessDestroyEmail", "TestEmailSubmission_OnSuccessUpdateEmail", "TestEmailSubmission_OutboundSenderRelay", "TestEmailSubmission_PushStateChange", "TestEmailSubmission_UndoStatusCancelFinalCannotCancel", "TestEmailSubmission_UndoStatusCancelPending", "TestEmailSubmission_ValidationErrors", "TestRFC8621_Section7_3_EmailSubmissionSet"],
+    "tests": ["TestEmailSubmissionSetDestroyTests", "TestEmailSubmission_BlobUploadImportSubmissionPipeline", "TestEmailSubmission_CreationReferences", "TestEmailSubmission_IfInStateMismatch", "TestEmailSubmission_ImmutablePropertiesNotUpdated", "TestEmailSubmission_ImportCreationReferences", "TestEmailSubmission_LocalDelivery", "TestEmailSubmission_OnSuccessDestroyEmail", "TestEmailSubmission_OnSuccessUpdateEmail", "TestEmailSubmission_OutboundSenderRelay", "TestEmailSubmission_PushStateChange", "TestEmailSubmission_UndoStatusCancelFinalCannotCancel", "TestEmailSubmission_UndoStatusCancelPending", "TestEmailSubmission_ValidationErrors", "TestRFC8621_Section7_3_EmailSubmissionSet"],
     "status": "covered"
   },
   {
