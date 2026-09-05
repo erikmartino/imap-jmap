@@ -84,6 +84,7 @@ type RequestError struct {
 	Type   string `json:"type"`
 	Status int    `json:"status"`
 	Detail string `json:"detail,omitempty"`
+	Limit  string `json:"limit,omitempty"`
 }
 
 const (
@@ -141,6 +142,8 @@ const (
 	MethodErrorAccountNotFound        = "accountNotFound"
 	MethodErrorServerFail             = "serverFail"
 	MethodErrorForbidden              = "forbidden"
+	MethodErrorRequestTooLarge        = "requestTooLarge"
+	MethodErrorCannotCalculateChanges = "cannotCalculateChanges"
 )
 
 // ResultReference represents a result reference object per RFC 8620 Section 3.7.

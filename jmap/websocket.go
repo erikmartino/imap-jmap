@@ -3,8 +3,10 @@ package jmap
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/coder/websocket"
 )
@@ -104,6 +106,12 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
+		limits := s.coreLimits(r)
+		if limits.MaxSizeRequest > 0 && uint64(len(data)) > limits.MaxSizeRequest {
+			writeWSError(ctx, conn, "", ErrorLimit, "The message size exceeded maxSizeRequest", "maxSizeRequest")
+			continue
+		}
+
 		// Decode the incoming message @type.
 		var typeProbe struct {
 			Type string `json:"@type"`
@@ -157,6 +165,11 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
+			if limits.MaxCallsInRequest > 0 && uint64(len(req.MethodCalls)) > limits.MaxCallsInRequest {
+				writeWSError(ctx, conn, req.RequestID, ErrorLimit, "The number of method calls exceeded maxCallsInRequest", "maxCallsInRequest")
+				continue
+			}
+
 			// Validate capabilities per RFC 8620 Section 3.1.
 			capErr := ""
 			for _, capURI := range req.Using {
@@ -175,6 +188,7 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 			refs := NewCreationRefs(req.CreatedIds)
 			reqCtx := WithCreationRefs(ctx, refs)
+			reqCtx = WithCoreLimits(reqCtx, limits)
 
 			for _, call := range req.MethodCalls {
 				resolvedArgs, refErrType, refErr := s.resolveResultReferences(call.Args, executedMap)
@@ -187,6 +201,48 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 					responses = append(responses, respInv)
 					executedMap[call.ClientCallID] = respInv
 					continue
+				}
+
+				// RFC 8620 Section 2.2 & 5.1: maxObjectsInGet enforcement
+				if strings.HasSuffix(call.Name, "/get") {
+					if rawIDs, hasIDs := resolvedArgs["ids"]; hasIDs && rawIDs != nil {
+						if idsSlice, ok := rawIDs.([]any); ok {
+							if limits.MaxObjectsInGet > 0 && uint64(len(idsSlice)) > limits.MaxObjectsInGet {
+								respInv := Invocation{
+									Name:         "error",
+									Args:         MethodErrorArgs(MethodErrorRequestTooLarge, fmt.Sprintf("Number of requested ids (%d) exceeds maxObjectsInGet (%d)", len(idsSlice), limits.MaxObjectsInGet)),
+									ClientCallID: call.ClientCallID,
+								}
+								responses = append(responses, respInv)
+								executedMap[call.ClientCallID] = respInv
+								continue
+							}
+						}
+					}
+				}
+
+				// RFC 8620 Section 2.2 & 5.3: maxObjectsInSet enforcement
+				if strings.HasSuffix(call.Name, "/set") {
+					var setCount uint64
+					if c, ok := resolvedArgs["create"].(map[string]any); ok {
+						setCount += uint64(len(c))
+					}
+					if u, ok := resolvedArgs["update"].(map[string]any); ok {
+						setCount += uint64(len(u))
+					}
+					if d, ok := resolvedArgs["destroy"].([]any); ok {
+						setCount += uint64(len(d))
+					}
+					if limits.MaxObjectsInSet > 0 && setCount > limits.MaxObjectsInSet {
+						respInv := Invocation{
+							Name:         "error",
+							Args:         MethodErrorArgs(MethodErrorRequestTooLarge, fmt.Sprintf("Total objects in set (%d) exceeds maxObjectsInSet (%d)", setCount, limits.MaxObjectsInSet)),
+							ClientCallID: call.ClientCallID,
+						}
+						responses = append(responses, respInv)
+						executedMap[call.ClientCallID] = respInv
+						continue
+					}
 				}
 
 				handler, ok := s.MethodRegistry.Get(call.Name)
@@ -234,13 +290,20 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 }
 
 // writeWSError sends a JSON Problem Details error over a WebSocket per RFC 8887 Section 4.3.4.
-func writeWSError(ctx context.Context, conn *websocket.Conn, requestID, errType, detail string) {
+func writeWSError(ctx context.Context, conn *websocket.Conn, requestID, errType, detail string, limit ...string) {
+	status := 400
+	if len(limit) > 0 && limit[0] == "maxSizeRequest" {
+		status = 413
+	}
 	msg := map[string]any{
 		"@type":     "RequestError",
 		"requestId": requestID,
 		"type":      errType,
-		"status":    400,
+		"status":    status,
 		"detail":    detail,
+	}
+	if len(limit) > 0 && limit[0] != "" {
+		msg["limit"] = limit[0]
 	}
 	data, _ := json.Marshal(msg)
 	_ = conn.Write(ctx, websocket.MessageText, data)

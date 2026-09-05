@@ -29,6 +29,9 @@ func handleMailboxGet(backend MailBackend) MethodHandler {
 			list, notFound, err = backend.GetMailboxes(ctx, ids)
 		} else {
 			list, err = backend.GetAllMailboxes(ctx)
+			if errName, errArgs, ok := ValidateGetLimits(ctx, len(list)); !ok {
+				return errName, errArgs
+			}
 		}
 
 		if err != nil || list == nil {

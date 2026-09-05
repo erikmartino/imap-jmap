@@ -158,6 +158,16 @@ func WithOutboundSender(o OutboundMailSender) Option {
 	}
 }
 
+// WithCoreCapability sets custom CoreCapability limits on the server session.
+func WithCoreCapability(cc CoreCapability) Option {
+	return func(s *Server) {
+		if s.Session == nil {
+			s.Session = DefaultSession("", "user@example.com")
+		}
+		s.Session.Capabilities[CoreCapabilityURI] = cc
+	}
+}
+
 // NewServer initializes a new Server instance.
 func NewServer(session *Session, opts ...Option) *Server {
 	if session == nil {
@@ -227,6 +237,8 @@ func (s *Server) Handler() http.Handler {
 			s.HandleEventSource(w, r)
 		case strings.HasSuffix(path, "/version"):
 			s.handleVersion(w, r)
+		case strings.HasSuffix(path, "/convert"):
+			s.handleConvert(w, r)
 		default:
 			s.handleNotFound(w, r)
 		}
@@ -364,6 +376,11 @@ func (s *Server) sessionForRequest(r *http.Request) *Session {
 	if s.IMAPAccessBackend != nil {
 		caps[ImapAccessCapabilityURI] = ImapAccessCapability{}
 	}
+	if s.Session != nil {
+		if customCore, ok := s.Session.Capabilities[CoreCapabilityURI].(CoreCapability); ok {
+			caps[CoreCapabilityURI] = customCore
+		}
+	}
 	sess.Capabilities = caps
 
 	// Advertise absolute service URLs built from the request's externally-reachable
@@ -468,9 +485,24 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyBytes, err := io.ReadAll(r.Body)
+	limits := s.coreLimits(r)
+	maxSize := int64(limits.MaxSizeRequest)
+	if maxSize <= 0 {
+		maxSize = int64(DefaultMaxSizeRequest)
+	}
+
+	if r.ContentLength > maxSize {
+		s.writeRequestError(w, http.StatusRequestEntityTooLarge, ErrorLimit, fmt.Sprintf("The request size (%d octets) exceeded maxSizeRequest (%d octets)", r.ContentLength, maxSize), "maxSizeRequest")
+		return
+	}
+
+	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, maxSize+1))
 	if err != nil {
 		s.writeRequestError(w, http.StatusBadRequest, ErrorNotJSON, "Cannot read request body")
+		return
+	}
+	if int64(len(bodyBytes)) > maxSize {
+		s.writeRequestError(w, http.StatusRequestEntityTooLarge, ErrorLimit, fmt.Sprintf("The request size (%d octets) exceeded maxSizeRequest (%d octets)", len(bodyBytes), maxSize), "maxSizeRequest")
 		return
 	}
 
@@ -492,8 +524,14 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		s.writeRequestError(w, http.StatusBadRequest, ErrorNotRequest, "'using' must be an array.")
 		return
 	}
-	if _, ok := methodCallsRaw.([]any); !ok {
+	callsList, ok := methodCallsRaw.([]any)
+	if !ok {
 		s.writeRequestError(w, http.StatusBadRequest, ErrorNotRequest, "'methodCalls' must be an array.")
+		return
+	}
+
+	if limits.MaxCallsInRequest > 0 && uint64(len(callsList)) > limits.MaxCallsInRequest {
+		s.writeRequestError(w, http.StatusBadRequest, ErrorLimit, fmt.Sprintf("The number of method calls (%d) exceeded maxCallsInRequest (%d)", len(callsList), limits.MaxCallsInRequest), "maxCallsInRequest")
 		return
 	}
 
@@ -521,6 +559,7 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	refs := NewCreationRefs(req.CreatedIds)
 	reqCtx := WithCreationRefs(r.Context(), refs)
 	reqCtx = WithUsingCapabilities(reqCtx, req.Using)
+	reqCtx = WithCoreLimits(reqCtx, limits)
 	reqCtx = withResponseSpill(reqCtx)
 
 	for _, call := range req.MethodCalls {
@@ -558,6 +597,48 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 			responses = append(responses, respInv)
 			executedMap[call.ClientCallID] = respInv
 			continue
+		}
+
+		// RFC 8620 Section 2.2 & 5.1: maxObjectsInGet enforcement
+		if strings.HasSuffix(call.Name, "/get") {
+			if rawIDs, hasIDs := resolvedArgs["ids"]; hasIDs && rawIDs != nil {
+				if idsSlice, ok := rawIDs.([]any); ok {
+					if limits.MaxObjectsInGet > 0 && uint64(len(idsSlice)) > limits.MaxObjectsInGet {
+						respInv := Invocation{
+							Name:         "error",
+							Args:         MethodErrorArgs(MethodErrorRequestTooLarge, fmt.Sprintf("Number of requested ids (%d) exceeds maxObjectsInGet (%d)", len(idsSlice), limits.MaxObjectsInGet)),
+							ClientCallID: call.ClientCallID,
+						}
+						responses = append(responses, respInv)
+						executedMap[call.ClientCallID] = respInv
+						continue
+					}
+				}
+			}
+		}
+
+		// RFC 8620 Section 2.2 & 5.3: maxObjectsInSet enforcement
+		if strings.HasSuffix(call.Name, "/set") {
+			var setCount uint64
+			if c, ok := resolvedArgs["create"].(map[string]any); ok {
+				setCount += uint64(len(c))
+			}
+			if u, ok := resolvedArgs["update"].(map[string]any); ok {
+				setCount += uint64(len(u))
+			}
+			if d, ok := resolvedArgs["destroy"].([]any); ok {
+				setCount += uint64(len(d))
+			}
+			if limits.MaxObjectsInSet > 0 && setCount > limits.MaxObjectsInSet {
+				respInv := Invocation{
+					Name:         "error",
+					Args:         MethodErrorArgs(MethodErrorRequestTooLarge, fmt.Sprintf("Total objects in set (%d) exceeds maxObjectsInSet (%d)", setCount, limits.MaxObjectsInSet)),
+					ClientCallID: call.ClientCallID,
+				}
+				responses = append(responses, respInv)
+				executedMap[call.ClientCallID] = respInv
+				continue
+			}
 		}
 
 		handler, ok := s.MethodRegistry.Get(call.Name)
@@ -709,55 +790,124 @@ func normalizeSetResult(respName string, args map[string]any) {
 	}
 }
 
+// coreLimits returns the CoreCapability limits for the request or server defaults.
+func (s *Server) coreLimits(r *http.Request) CoreCapability {
+	var sess *Session
+	if r != nil {
+		sess = s.sessionForRequest(r)
+	}
+	if sess == nil {
+		sess = s.Session
+	}
+	if sess != nil {
+		if cc, ok := sess.Capabilities[CoreCapabilityURI].(CoreCapability); ok {
+			return cc
+		}
+	}
+	return CoreCapability{
+		MaxSizeUpload:         DefaultMaxSizeUpload,
+		MaxConcurrentUpload:   DefaultMaxConcurrentUpload,
+		MaxSizeRequest:        DefaultMaxSizeRequest,
+		MaxConcurrentRequests: DefaultMaxConcurrentRequests,
+		MaxCallsInRequest:     DefaultMaxCallsInRequest,
+		MaxObjectsInGet:       DefaultMaxObjectsInGet,
+		MaxObjectsInSet:       DefaultMaxObjectsInSet,
+		CollationAlgorithms:   []string{"i;ascii-casemap", "i;octet"},
+	}
+}
+
 // resolveResultReferences replaces every result-reference argument (an argument whose name is
 // prefixed with "#", per RFC 8620 Section 3.7) with the value obtained from the response of an
-// earlier method call in the same request. On failure it returns the JMAP method error type and
-// a description; an empty description means success.
+// earlier method call in the same request, recursively resolving references in nested objects,
+// arrays, and patches.
 func (s *Server) resolveResultReferences(args map[string]any, executed map[string]Invocation) (map[string]any, string, string) {
 	if args == nil {
 		return make(map[string]any), "", ""
 	}
 
-	resolved := make(map[string]any, len(args))
-	for k, v := range args {
-		if !strings.HasPrefix(k, "#") {
-			resolved[k] = v
-			continue
-		}
-
-		name := strings.TrimPrefix(k, "#")
-		if _, dup := args[name]; dup {
-			return nil, MethodErrorInvalidArguments,
-				fmt.Sprintf("Argument %q is given in both normal and referenced form", name)
-		}
-
-		m, ok := v.(map[string]any)
-		if !ok || !IsResultReference(m) {
-			return nil, MethodErrorInvalidResultReference,
-				fmt.Sprintf("Argument %q is not a valid ResultReference object", k)
-		}
-
-		val, refErr := s.resolveResultReference(m, executed)
-		if refErr != "" {
-			return nil, MethodErrorInvalidResultReference, refErr
-		}
-
-		// RFC 8620 Section 3.7: If the result reference evaluates to a single value and the argument
-		// expects an Array (e.g. "ids", "emailIds", "destroy", "properties"), convert to a 1-element array.
-		if _, isSlice := val.([]any); !isSlice && val != nil {
-			if name == "ids" || name == "emailIds" || name == "mailboxIds" || name == "threadIds" || name == "destroy" || name == "typeNames" || name == "properties" {
-				val = []any{val}
-			}
-		}
-		resolved[name] = val
+	res, errType, errDetail := s.resolveValueResultReferences(args, executed, true)
+	if errDetail != "" {
+		return nil, errType, errDetail
 	}
-	return resolved, "", ""
+
+	if m, ok := res.(map[string]any); ok {
+		return m, "", ""
+	}
+	return make(map[string]any), "", ""
+}
+
+func (s *Server) resolveValueResultReferences(val any, executed map[string]Invocation, isTopLevelArgs bool) (any, string, string) {
+	switch v := val.(type) {
+	case map[string]any:
+		resolved := make(map[string]any, len(v))
+		for k, item := range v {
+			if strings.HasPrefix(k, "#") {
+				refMap, isRef := item.(map[string]any)
+				if isTopLevelArgs || (isRef && IsResultReference(refMap)) {
+					name := strings.TrimPrefix(k, "#")
+					if _, dup := v[name]; dup {
+						return nil, MethodErrorInvalidArguments,
+							fmt.Sprintf("Argument %q is given in both normal and referenced form", name)
+					}
+
+					if !isRef || !IsResultReference(refMap) {
+						return nil, MethodErrorInvalidResultReference,
+							fmt.Sprintf("Argument %q is not a valid ResultReference object", k)
+					}
+
+					resolvedVal, refErr := s.resolveResultReference(refMap, executed)
+					if refErr != "" {
+						return nil, MethodErrorInvalidResultReference, refErr
+					}
+
+					// RFC 8620 Section 3.7: If the result reference evaluates to a single value and the argument
+					// expects an Array (e.g. "ids", "emailIds", "destroy", "properties"), convert to a 1-element array.
+					if isTopLevelArgs {
+						if _, isSlice := resolvedVal.([]any); !isSlice && resolvedVal != nil {
+							if name == "ids" || name == "emailIds" || name == "mailboxIds" || name == "threadIds" || name == "destroy" || name == "typeNames" || name == "properties" {
+								resolvedVal = []any{resolvedVal}
+							}
+						}
+					}
+
+					resolved[name] = resolvedVal
+					continue
+				}
+			}
+
+			// Not a result reference: recurse into nested value
+			childVal, errType, errDetail := s.resolveValueResultReferences(item, executed, false)
+			if errDetail != "" {
+				return nil, errType, errDetail
+			}
+			resolved[k] = childVal
+		}
+		return resolved, "", ""
+
+	case []any:
+		resolved := make([]any, len(v))
+		for i, item := range v {
+			childVal, errType, errDetail := s.resolveValueResultReferences(item, executed, false)
+			if errDetail != "" {
+				return nil, errType, errDetail
+			}
+			resolved[i] = childVal
+		}
+		return resolved, "", ""
+
+	default:
+		return v, "", ""
+	}
 }
 
 func (s *Server) resolveResultReference(m map[string]any, executed map[string]Invocation) (any, string) {
 	resultOf, _ := m["resultOf"].(string)
 	reqName, _ := m["name"].(string)
 	path, _ := m["path"].(string)
+
+	if resultOf == "" || reqName == "" || path == "" {
+		return nil, "resultOf, name, and path must be non-empty strings in ResultReference"
+	}
 
 	prevInv, ok := executed[resultOf]
 	if !ok {
@@ -776,14 +926,18 @@ func (s *Server) resolveResultReference(m map[string]any, executed map[string]In
 	return val, ""
 }
 
-func (s *Server) writeRequestError(w http.ResponseWriter, status int, errType string, detail string) {
+func (s *Server) writeRequestError(w http.ResponseWriter, status int, errType string, detail string, limit ...string) {
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(RequestError{
+	errObj := RequestError{
 		Type:   errType,
 		Status: status,
 		Detail: detail,
-	})
+	}
+	if len(limit) > 0 && limit[0] != "" {
+		errObj.Limit = limit[0]
+	}
+	_ = json.NewEncoder(w).Encode(errObj)
 }
 
 func (s *Server) handleNotFound(w http.ResponseWriter, r *http.Request) {

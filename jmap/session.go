@@ -80,6 +80,17 @@ type FileNodeCapability struct {
 // ImapAccessCapability defines the capability object for "urn:ietf:params:jmap:imapaccess" per RFC 9698 Section 2.
 type ImapAccessCapability struct{}
 
+// Default CoreCapability limits per RFC 8620 Section 2.2.
+const (
+	DefaultMaxSizeUpload         uint64 = 50000000
+	DefaultMaxConcurrentUpload   uint64 = 4
+	DefaultMaxSizeRequest        uint64 = 10000000
+	DefaultMaxConcurrentRequests uint64 = 4
+	DefaultMaxCallsInRequest     uint64 = 16
+	DefaultMaxObjectsInGet       uint64 = 500
+	DefaultMaxObjectsInSet       uint64 = 500
+)
+
 // CoreCapability defines the capability object for "urn:ietf:params:jmap:core" per RFC 8620 Section 2.2.
 type CoreCapability struct {
 	MaxSizeUpload         uint64   `json:"maxSizeUpload"`
@@ -278,13 +289,13 @@ func sessionFor(baseURL, username, accountID string) *Session {
 	return &Session{
 		Capabilities: map[string]any{
 			CoreCapabilityURI: CoreCapability{
-				MaxSizeUpload:         50000000,
-				MaxConcurrentUpload:   4,
-				MaxSizeRequest:        10000000,
-				MaxConcurrentRequests: 4,
-				MaxCallsInRequest:     16,
-				MaxObjectsInGet:       500,
-				MaxObjectsInSet:       500,
+				MaxSizeUpload:         DefaultMaxSizeUpload,
+				MaxConcurrentUpload:   DefaultMaxConcurrentUpload,
+				MaxSizeRequest:        DefaultMaxSizeRequest,
+				MaxConcurrentRequests: DefaultMaxConcurrentRequests,
+				MaxCallsInRequest:     DefaultMaxCallsInRequest,
+				MaxObjectsInGet:       DefaultMaxObjectsInGet,
+				MaxObjectsInSet:       DefaultMaxObjectsInSet,
 				CollationAlgorithms:   []string{"i;ascii-casemap", "i;octet"},
 			},
 			MailCapabilityURI:       struct{}{},

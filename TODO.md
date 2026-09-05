@@ -30,17 +30,17 @@ Previous task log preserved in [`TODO_PREVIOUS.md`](./TODO_PREVIOUS.md).
   - [x] 1.4 Eliminate hardcoded usernames/paths in application code ([`dav/memory/`](./dav/memory/) and [`smtp/receiver.go`](./smtp/receiver.go))
   - [x] 1.5 Fix RFC 8620 §3.6.1 invalid JSON error URI (`urn:ietf:params:jmap:error:notJSON`)
 
-- [ ] **Phase 2: CalDAV & CardDAV Serving Retirement & Card Conversion**
+- [x] **Phase 2: CalDAV & CardDAV Serving Retirement & Card Conversion**
   - [x] 2.1 Removed `dav/` package and eliminated CalDAV/CardDAV routes (`/caldav/`, `/carddav/`) from `main.go`. Server strictly serves JMAP.
   - [x] 2.2 Retained outbound CalDAV and CardDAV clients in [`jmap/nextcloud/`](./jmap/nextcloud/) to connect to upstream calendar/contacts stores.
-  - [ ] 2.3 Wire `/convert` endpoint (public, `application/jscontact+json` ⇄ `text/vcard`, 422 for invalid cards) per RFC 9553
+  - [x] 2.3 Wire `/convert` endpoint (public, `application/jscontact+json` ⇄ `text/vcard`, 422 for invalid cards) per RFC 9553
 
-- [ ] **Phase 3: Core RFC 8620 Conformance & Request Limit Enforcement**
-  - [ ] 3.1 Enforce `maxCallsInRequest` on `MethodCalls` in [`jmap/server.go`](./jmap/server.go) (`urn:ietf:params:jmap:error:limit`)
-  - [ ] 3.2 Enforce `maxSizeRequest` on request body size in [`jmap/server.go`](./jmap/server.go)
-  - [ ] 3.3 Enforce `maxObjectsInGet` in `*/get` handlers (`requestTooLarge`)
-  - [ ] 3.4 Enforce `maxObjectsInSet` in `*/set` handlers (`requestTooLarge`)
-  - [ ] 3.5 Support nested and patch Result References in [`jmap/server.go:resolveResultReferences`](./jmap/server.go)
+- [x] **Phase 3: Core RFC 8620 Conformance & Request Limit Enforcement**
+  - [x] 3.1 Enforce `maxCallsInRequest` on `MethodCalls` in [`jmap/server.go`](./jmap/server.go) and WebSocket (`urn:ietf:params:jmap:error:limit`)
+  - [x] 3.2 Enforce `maxSizeRequest` on request body size in [`jmap/server.go`](./jmap/server.go) and WebSocket
+  - [x] 3.3 Enforce `maxObjectsInGet` in `*/get` handlers and server dispatch (`requestTooLarge`)
+  - [x] 3.4 Enforce `maxObjectsInSet` in `*/set` handlers and server dispatch (`requestTooLarge`)
+  - [x] 3.5 Support nested and patch Result References in [`jmap/server.go:resolveResultReferences`](./jmap/server.go)
 
 - [ ] **Phase 4: RFC Integration & Feature Completeness**
   - [ ] 4.1 Real Quota accounting & `overQuota` enforcement (RFC 9425): update `Used` counters on email create/destroy and enforce limits
@@ -119,8 +119,39 @@ Previous task log preserved in [`TODO_PREVIOUS.md`](./TODO_PREVIOUS.md).
 - **Retention**: Retained the outbound CalDAV and CardDAV clients in [`jmap/nextcloud/`](./jmap/nextcloud/) that bridge Nextcloud calendars and address books into JMAP.
 - **Validation**: `go test ./...` passes with 0 failures and 0 external dependencies.
 
-#### 2.2 Wire `/convert` endpoint (RFC 9553)
-- **Problem**: RFC 9553 conversion HTTP endpoint not exposed on HTTP router.
-- **Action**: Expose `/convert` handler on `Server.Handler()` accepting POST with `application/jscontact+json` or `text/vcard` and returning converted representation; returns 422 Unprocessable Entity for invalid cards per spec.
-- **Validation**: New unit and HTTP tests for `/convert`.
+#### 2.3 Wire `/convert` Endpoint (RFC 9553) [COMPLETED]
+- **Problem**: RFC 9553 conversion HTTP endpoint was not exposed on the HTTP router.
+- **Action**: Implemented [`jmap/convert.go`](./jmap/convert.go) exposing `/convert` accepting POST with `application/jscontact+json` or `text/vcard` (bidirectional conversion, auto-detecting Content-Type, returning 422 Unprocessable Entity for invalid cards/vCards, 405 for non-POST, 415 for unsupported media types). Wired `/convert` in [`jmap/server.go`](./jmap/server.go) and [`jmap/auth_middleware.go`](./jmap/auth_middleware.go) as a public unauthenticated endpoint.
+- **Validation**: Hermetic unit and HTTP tests in [`jmap/convert_test.go`](./jmap/convert_test.go) (`TestConvert_*`).
+
+---
+
+### Phase 3: Core RFC 8620 Conformance & Request Limit Enforcement
+
+#### 3.1 & 3.2 Request Limits (`maxCallsInRequest`, `maxSizeRequest`, `maxSizeUpload`) [COMPLETED]
+- **Locations**: [`jmap/server.go`](./jmap/server.go), [`jmap/websocket.go`](./jmap/websocket.go), [`jmap/blobs.go`](./jmap/blobs.go), [`jmap/session.go`](./jmap/session.go), [`jmap/types.go`](./jmap/types.go), [`jmap/limits.go`](./jmap/limits.go)
+- **Problem**: Limits advertised in the Session (`maxCallsInRequest`, `maxSizeRequest`, `maxSizeUpload`) were not enforced on incoming requests, violating RFC 8620 §3.6.1 and RFC 8887 §4.3.4. `RequestError` Problem Details lacked the mandatory `limit` property.
+- **Action**:
+  - Added `limit` field to `RequestError` per RFC 8620 §3.6.1.
+  - Enforced `maxSizeRequest` in HTTP `handleAPI` and WebSocket read loop; rejects oversized bodies with HTTP 413 and `urn:ietf:params:jmap:error:limit` (`limit: "maxSizeRequest"`).
+  - Enforced `maxCallsInRequest` in HTTP `handleAPI` and WebSocket dispatch; rejects oversized method call arrays with HTTP 400 and `urn:ietf:params:jmap:error:limit` (`limit: "maxCallsInRequest"`).
+  - Enforced `maxSizeUpload` in `HandleUpload` with HTTP 413 and `urn:ietf:params:jmap:error:limit` (`limit: "maxSizeUpload"`).
+  - Added `WithCoreCapability` option and context helpers in [`jmap/limits.go`](./jmap/limits.go).
+- **Validation**: [`jmap/rfc8620_limits_test.go`](./jmap/rfc8620_limits_test.go) (`TestRFC8620_Section3_6_1_MaxCallsInRequest`, `TestRFC8620_Section3_6_1_MaxSizeRequest`, `TestRFC8887_WebSocket_LimitEnforcement`).
+
+#### 3.3 & 3.4 Method Limits (`maxObjectsInGet`, `maxObjectsInSet`) [COMPLETED]
+- **Locations**: [`jmap/server.go`](./jmap/server.go), [`jmap/websocket.go`](./jmap/websocket.go), [`jmap/mailbox_handlers.go`](./jmap/mailbox_handlers.go), [`jmap/email_handlers.go`](./jmap/email_handlers.go), [`jmap/limits.go`](./jmap/limits.go)
+- **Problem**: Requests requesting more than `maxObjectsInGet` objects or sending more than `maxObjectsInSet` objects were not rejected with the mandatory `requestTooLarge` method error per RFC 8620 §2.2, §5.1, and §5.3.
+- **Action**:
+  - Defined `MethodErrorRequestTooLarge = "requestTooLarge"` in [`jmap/types.go`](./jmap/types.go).
+  - Enforced `maxObjectsInGet` on `ids` array length in server and WebSocket dispatch for all `*/get` methods.
+  - Enforced `maxObjectsInGet` via `ValidateGetLimits` when `ids == nil` fetches all objects across mailboxes and emails.
+  - Enforced `maxObjectsInSet` on total `create` + `update` + `destroy` count in server and WebSocket dispatch for all `*/set` methods.
+- **Validation**: [`jmap/rfc8620_limits_test.go`](./jmap/rfc8620_limits_test.go) (`TestRFC8620_Section5_1_MaxObjectsInGet`, `TestRFC8620_Section5_3_MaxObjectsInSet`).
+
+#### 3.5 Nested & Patch Result References [COMPLETED]
+- **Locations**: [`jmap/server.go:resolveResultReferences`](./jmap/server.go)
+- **Problem**: `resolveResultReferences` only resolved top-level arguments prefixed with `#`, failing to support result references nested within filter conditions, object creations, and patch update keys.
+- **Action**: Implemented recursive `resolveValueResultReferences` traversing nested maps and arrays to resolve `#`-prefixed property references (including patch pointers like `#keywords/$flagged`) while preserving `#creationId` keys (RFC 8620 §5.3). Added duplicate property detection (`invalidArguments`) and scalar-to-array coercion for array arguments.
+- **Validation**: [`jmap/rfc8620_limits_test.go`](./jmap/rfc8620_limits_test.go) (`TestRFC8620_Section3_7_NestedResultReferences`).
 

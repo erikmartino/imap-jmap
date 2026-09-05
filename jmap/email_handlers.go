@@ -53,6 +53,9 @@ func handleEmailGet(backend MailBackend) MethodHandler {
 			list, notFound, err = backend.GetEmails(ctx, ids)
 		} else {
 			list, err = backend.GetAllEmails(ctx)
+			if errName, errArgs, ok := ValidateGetLimits(ctx, len(list)); !ok {
+				return errName, errArgs
+			}
 		}
 
 		if err != nil || list == nil {

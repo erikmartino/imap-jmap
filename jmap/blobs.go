@@ -20,15 +20,19 @@ type Blob struct {
 	Data         []byte `json:"-"`
 }
 
-func writeProblemDetails(w http.ResponseWriter, status int, problemType, title, detail string) {
+func writeProblemDetails(w http.ResponseWriter, status int, problemType, title, detail string, limit ...string) {
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	errObj := map[string]any{
 		"type":   problemType,
 		"status": status,
 		"title":  title,
 		"detail": detail,
-	})
+	}
+	if len(limit) > 0 && limit[0] != "" {
+		errObj["limit"] = limit[0]
+	}
+	_ = json.NewEncoder(w).Encode(errObj)
 }
 
 // HandleUpload handles POST requests to /upload/{accountId}/ per RFC 8620 Section 6.1.
@@ -47,7 +51,7 @@ func (s *Server) HandleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Enforce maxSizeUpload (default 50MB)
-	maxSizeUpload := int64(50000000)
+	maxSizeUpload := int64(DefaultMaxSizeUpload)
 	if sess := s.sessionForRequest(r); sess != nil {
 		if capRaw, ok := sess.Capabilities[CoreCapabilityURI].(CoreCapability); ok && capRaw.MaxSizeUpload > 0 {
 			maxSizeUpload = int64(capRaw.MaxSizeUpload)
@@ -55,7 +59,7 @@ func (s *Server) HandleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.ContentLength > maxSizeUpload {
-		writeProblemDetails(w, http.StatusRequestEntityTooLarge, "urn:ietf:params:jmap:error:maxSizeUpload", "Payload Too Large", "Upload exceeds maxSizeUpload")
+		writeProblemDetails(w, http.StatusRequestEntityTooLarge, ErrorLimit, "Payload Too Large", "Upload exceeds maxSizeUpload", "maxSizeUpload")
 		return
 	}
 
@@ -67,7 +71,7 @@ func (s *Server) HandleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if int64(len(data)) > maxSizeUpload {
-		writeProblemDetails(w, http.StatusRequestEntityTooLarge, "urn:ietf:params:jmap:error:maxSizeUpload", "Payload Too Large", "Upload exceeds maxSizeUpload")
+		writeProblemDetails(w, http.StatusRequestEntityTooLarge, ErrorLimit, "Payload Too Large", "Upload exceeds maxSizeUpload", "maxSizeUpload")
 		return
 	}
 
