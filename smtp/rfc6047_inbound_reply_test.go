@@ -8,8 +8,9 @@ import (
 	"time"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
+	"imap-jmap/jmap/imapsmtp"
 	"imap-jmap/jmap/spectest"
+	"imap-jmap/jmap/testmock"
 	jmapsmtp "imap-jmap/smtp"
 )
 
@@ -25,9 +26,11 @@ func TestRFC6047_InboundReplyUpdatesParticipationStatus(t *testing.T) {
 		"A REPLY updates the replying attendee's PARTSTAT (participationStatus), not the event status.")
 
 	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
-	calBackend := memory.NewMemoryCalendarsBackend()
-	mailBackend := memory.NewMemoryBackend()
-	blobBackend := memory.NewMemoryBlobBackend()
+	calBackend := testmock.NewMemoryCalendarsBackend()
+	backend, cleanup := imapsmtp.NewEmbeddedBackend("bob@example.com", "alice@example.com")
+	defer cleanup()
+	mailBackend := backend
+	blobBackend := backend
 
 	// Organizer bob owns the event in his account; attendee alice will reply.
 	const organizer = "bob@example.com"

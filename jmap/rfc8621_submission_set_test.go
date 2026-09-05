@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
 )
 
 // TestEmailSubmissionSetDestroyTests tests EmailSubmission/set create, destroy, and error paths per RFC 8621 Section 7.3.
@@ -219,14 +218,7 @@ func TestEmailSubmission_LocalDelivery(t *testing.T) {
 
 // TestEmailSubmission_ExternalAllowList tests the external recipient allow-list gate.
 func TestEmailSubmission_ExternalAllowList(t *testing.T) {
-	memBackend := memory.NewMemoryBackend()
-	memBlobBackend := memory.NewMemoryBlobBackend()
-	srv := jmap.NewServer(
-		nil,
-		jmap.WithMailBackend(memBackend),
-		jmap.WithBlobBackend(memBlobBackend),
-		jmap.WithAllowedRecipients([]string{"allowed@external.com"}),
-	)
+	srv := newTestServer(jmap.WithAllowedRecipients([]string{"allowed@external.com"}))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -420,18 +412,11 @@ func TestEmailSubmission_OnSuccessDestroyEmail(t *testing.T) {
 func TestEmailSubmission_OnSuccessUpdateEmailIgnoredForFailedCreation(t *testing.T) {
 	// Submit to a recipient that is not local and not in the allow-list, so the submission
 	// is rejected with a forbidden SetError.
-	memBackend := memory.NewMemoryBackend()
-	memBlobBackend := memory.NewMemoryBlobBackend()
-	srv := jmap.NewServer(
-		nil,
-		jmap.WithMailBackend(memBackend),
-		jmap.WithBlobBackend(memBlobBackend),
-		jmap.WithAllowedRecipients([]string{"allowed@external.com"}),
-	)
+	srv := newTestServer(jmap.WithAllowedRecipients([]string{"allowed@external.com"}))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	em2, err := memBackend.CreateEmail(seedCtx(), &jmap.Email{
+	em2, err := srv.MailBackend.CreateEmail(seedCtx(), &jmap.Email{
 		MailboxIDs: map[jmap.Id]bool{"mb-drafts": true},
 		Keywords:   map[string]bool{"$draft": true},
 		Subject:    "Failed Submission Test",
@@ -468,7 +453,7 @@ func TestEmailSubmission_OnSuccessUpdateEmailIgnoredForFailedCreation(t *testing
 		t.Fatalf("Expected submission in notCreated, got %v", res.MethodResponses[0].Args)
 	}
 
-	emails, _, _ := memBackend.GetEmails(seedCtx(), []jmap.Id{em2.ID})
+	emails, _, _ := srv.MailBackend.GetEmails(seedCtx(), []jmap.Id{em2.ID})
 	if len(emails) == 0 {
 		t.Fatalf("Email must survive a failed submission")
 	}
@@ -1060,12 +1045,7 @@ func (m *mockOutboundSender) SendMail(ctx context.Context, from string, recipien
 // external allow-listed submissions are routed through it with full MIME payload.
 func TestEmailSubmission_OutboundSenderRelay(t *testing.T) {
 	mockSender := &mockOutboundSender{}
-	memBackend := memory.NewMemoryBackend()
-	memBlobBackend := memory.NewMemoryBlobBackend()
-	srv := jmap.NewServer(
-		nil,
-		jmap.WithMailBackend(memBackend),
-		jmap.WithBlobBackend(memBlobBackend),
+	srv := newTestServer(
 		jmap.WithAllowedRecipients([]string{"external@allowed.org"}),
 		jmap.WithOutboundSender(mockSender),
 	)
@@ -1118,14 +1098,7 @@ func TestEmailSubmission_OutboundSenderRelay(t *testing.T) {
 // TestEmailSubmission_PushStateChange verifies that creating an EmailSubmission emits
 // a StateChange SSE event containing EmailSubmission for the account (RFC 8620 Section 7.1).
 func TestEmailSubmission_PushStateChange(t *testing.T) {
-	memBackend := memory.NewMemoryBackend()
-	memBlobBackend := memory.NewMemoryBlobBackend()
-	srv := jmap.NewServer(
-		nil,
-		jmap.WithMailBackend(memBackend),
-		jmap.WithBlobBackend(memBlobBackend),
-	)
-	memBackend.SetBroadcaster(srv.Broadcaster)
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 

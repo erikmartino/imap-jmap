@@ -8,7 +8,8 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
+	"imap-jmap/jmap/imapsmtp"
+	"imap-jmap/jmap/testmock"
 )
 
 // testUsername is the default account every test client authenticates as. The memory
@@ -66,18 +67,17 @@ func authedGet(url string) (*http.Response, error) {
 func newTestServer(opts ...jmap.Option) *jmap.Server {
 	// Wire every advertised capability's backend so the default test server behaves like a
 	// real, full-featured server (no advertised method returns "unknown method").
-	mb := memory.NewMemoryBackend()
-	bb := memory.NewMemoryBlobBackend()
-	fb := memory.NewMemoryFileNodeBackend()
-	cal := memory.NewMemoryCalendarsBackend()
-	contacts := memory.NewMemoryContactsBackend()
-	sieve := memory.NewMemorySieveBackend()
-	imap := memory.NewMemoryIMAPAccessBackend()
-	memAuth := memory.NewMemoryAuthBackend()
+	gwBackend, _ := imapsmtp.NewEmbeddedBackend(testUsername)
+	fb := testmock.NewMemoryFileNodeBackend()
+	cal := testmock.NewMemoryCalendarsBackend()
+	contacts := testmock.NewMemoryContactsBackend()
+	sieve := testmock.NewMemorySieveBackend()
+	imap := testmock.NewMemoryIMAPAccessBackend()
+	memAuth := testmock.NewMemoryAuthBackend()
 
 	allOpts := []jmap.Option{
-		jmap.WithMailBackend(mb),
-		jmap.WithBlobBackend(bb),
+		jmap.WithMailBackend(gwBackend),
+		jmap.WithBlobBackend(gwBackend),
 		jmap.WithFileNodeBackend(fb),
 		jmap.WithCalendarsBackend(cal),
 		jmap.WithContactsBackend(contacts),
@@ -88,10 +88,10 @@ func newTestServer(opts ...jmap.Option) *jmap.Server {
 	allOpts = append(allOpts, opts...)
 
 	srv := jmap.NewServer(nil, allOpts...)
-	if memAuth, ok := srv.AuthBackend.(*memory.MemoryAuthBackend); ok {
-		memAuth.SetBackends(mb, srv.BlobBackend, cal, contacts, fb)
+	if memAuth, ok := srv.AuthBackend.(*testmock.MemoryAuthBackend); ok {
+		memAuth.SetBackends(gwBackend, srv.BlobBackend, cal, contacts, fb)
 	}
-	mb.SetBroadcaster(srv.Broadcaster)
+	gwBackend.SetBroadcaster(srv.Broadcaster)
 	cal.SetBroadcaster(srv.Broadcaster)
 	contacts.SetBroadcaster(srv.Broadcaster)
 	sieve.SetBroadcaster(srv.Broadcaster)

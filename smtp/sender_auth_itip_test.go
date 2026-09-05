@@ -16,8 +16,9 @@ import (
 	"github.com/emersion/go-msgauth/dkim"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
+	"imap-jmap/jmap/imapsmtp"
 	"imap-jmap/jmap/spectest"
+	"imap-jmap/jmap/testmock"
 )
 
 // fakeDNS is an in-memory DNSResolver for sender-authentication tests. TXT
@@ -77,25 +78,25 @@ func (f *fakeDNS) LookupAddr(_ context.Context, name string) ([]string, error) {
 }
 
 // startAuthSession builds a ReceiverBackend with the real SPF/DKIM/DMARC
-// verifier over the given DNS, plus real memory backends, and returns a
+// verifier over the given DNS, plus embedded IMAP and testmock backends, and returns a
 // session whose peer address is a non-loopback IP so the authentication gate
 // is actually exercised (loopback/local-account senders bypass it by design).
-func startAuthSession(t *testing.T, dns DNSResolver) (*Session, *memory.MemoryCalendarsBackend, *memory.MemoryBackend) {
+func startAuthSession(t *testing.T, dns DNSResolver) (*Session, *testmock.MemoryCalendarsBackend, jmap.MailBackend) {
 	t.Helper()
-	mailBackend := memory.NewMemoryBackend()
-	blobBackend := memory.NewMemoryBlobBackend()
-	calBackend := memory.NewMemoryCalendarsBackend()
-	backend := NewReceiverBackend(mailBackend, blobBackend, calBackend)
-	backend.SenderVerifier = NewSPFDKIMDMARCVerifier(dns)
-	backend.AccountResolver = jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
-	sess, err := backend.NewSession(nil)
+	backend, cleanup := imapsmtp.NewEmbeddedBackend("bob@example.com", "organizer@example.com", "alice@example.com", "invitee@example.com")
+	t.Cleanup(cleanup)
+	calBackend := testmock.NewMemoryCalendarsBackend()
+	rb := NewReceiverBackend(backend, backend, calBackend)
+	rb.SenderVerifier = NewSPFDKIMDMARCVerifier(dns)
+	rb.AccountResolver = jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
+	sess, err := rb.NewSession(nil)
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
 	s := sess.(*Session)
 	s.remoteAddr = "192.0.2.10:54321"
 	s.helo = "client.external.org"
-	return s, calBackend, mailBackend
+	return s, calBackend, backend
 }
 
 func replyMsg(attendee, organizer, uid, partstat string) []byte {
@@ -138,7 +139,7 @@ func requestMsg(organizer, invitee, uid string) []byte {
 }
 
 // seedEvent creates an event on Bob's (local) account with an external attendee.
-func seedEvent(t *testing.T, calBackend *memory.MemoryCalendarsBackend, organizer, attendee, uid string) jmap.Id {
+func seedEvent(t *testing.T, calBackend *testmock.MemoryCalendarsBackend, organizer, attendee, uid string) jmap.Id {
 	t.Helper()
 	bobCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject(organizer))
 	ev, err := calBackend.CreateCalendarEvent(bobCtx, &jmap.CalendarEvent{
@@ -157,7 +158,7 @@ func seedEvent(t *testing.T, calBackend *memory.MemoryCalendarsBackend, organize
 	return ev.ID
 }
 
-func attendanceStatus(t *testing.T, calBackend *memory.MemoryCalendarsBackend, organizer string, id jmap.Id, attendee string) string {
+func attendanceStatus(t *testing.T, calBackend *testmock.MemoryCalendarsBackend, organizer string, id jmap.Id, attendee string) string {
 	t.Helper()
 	bobCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject(organizer))
 	evs, _, err := calBackend.GetCalendarEvents(bobCtx, []jmap.Id{id})
@@ -170,7 +171,7 @@ func attendanceStatus(t *testing.T, calBackend *memory.MemoryCalendarsBackend, o
 	return ""
 }
 
-func mailboxCount(t *testing.T, mailBackend *memory.MemoryBackend, recipient string) int {
+func mailboxCount(t *testing.T, mailBackend jmap.MailBackend, recipient string) int {
 	t.Helper()
 	ctx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject(recipient))
 	ids, _, err := mailBackend.QueryEmails(ctx, nil, nil, 0, nil)
@@ -425,12 +426,10 @@ func TestRFC6047_SenderAuth_LocalDeliveryWorksWithoutValidation(t *testing.T) {
 	spectest.Require(t, "RFC6047", "2.2.2", spectest.MUST,
 		"Trust exceptions: loopback clients and local-account senders need no DNS validation (local delivery works).")
 
-	calBackend := memory.NewMemoryCalendarsBackend()
-	mailBackend := memory.NewMemoryBackend()
-	blobBackend := memory.NewMemoryBlobBackend()
+	backend, cleanup := imapsmtp.NewEmbeddedBackend("bob@example.com", "alice@example.com")
+	defer cleanup()
+	calBackend := testmock.NewMemoryCalendarsBackend()
 	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
-	backend := NewReceiverBackend(mailBackend, blobBackend, calBackend, resolver)
-	backend.SenderVerifier = NewSPFDKIMDMARCVerifier(&fakeDNS{})
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -439,7 +438,7 @@ func TestRFC6047_SenderAuth_LocalDeliveryWorksWithoutValidation(t *testing.T) {
 	addr := l.Addr().String()
 	_ = l.Close()
 
-	srv := NewServer(addr, mailBackend, blobBackend, calBackend,
+	srv := NewServer(addr, backend, backend, calBackend,
 		WithAccountResolver(resolver), WithSenderVerifier(NewSPFDKIMDMARCVerifier(&fakeDNS{})))
 	go func() { _ = srv.ListenAndServe() }()
 	defer srv.Close()

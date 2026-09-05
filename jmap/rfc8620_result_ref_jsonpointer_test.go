@@ -1,7 +1,6 @@
 package jmap_test
 
 import (
-	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -15,7 +14,7 @@ func TestRFC8620_Section3_7_ResultReferenceJSONPointerEscapingAndValidation(t *t
 	defer ts.Close()
 
 	// Seed email
-	em, err := srv.MailBackend.CreateEmail(context.Background(), &jmap.Email{
+	em, err := srv.MailBackend.CreateEmail(seedCtx(), &jmap.Email{
 		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
 		Subject:    "Ref Email",
 	})

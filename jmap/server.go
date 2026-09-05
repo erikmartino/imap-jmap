@@ -470,7 +470,7 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
-		s.writeRequestError(w, http.StatusBadRequest, ErrorInvalidJSON, "Cannot read request body")
+		s.writeRequestError(w, http.StatusBadRequest, ErrorNotJSON, "Cannot read request body")
 		return
 	}
 
@@ -478,7 +478,7 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 
 	var rawMap map[string]any
 	if err := json.Unmarshal(bodyBytes, &rawMap); err != nil {
-		s.writeRequestError(w, http.StatusBadRequest, ErrorInvalidJSON, "The request body could not be parsed as valid JSON.")
+		s.writeRequestError(w, http.StatusBadRequest, ErrorNotJSON, "The request body could not be parsed as valid JSON.")
 		return
 	}
 
@@ -499,7 +499,7 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 
 	var req Request
 	if err := json.Unmarshal(bodyBytes, &req); err != nil {
-		s.writeRequestError(w, http.StatusBadRequest, ErrorInvalidJSON, "Invalid request format.")
+		s.writeRequestError(w, http.StatusBadRequest, ErrorNotRequest, "Invalid request format.")
 		return
 	}
 

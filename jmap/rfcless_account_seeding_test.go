@@ -6,13 +6,13 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
+	"imap-jmap/jmap/testmock"
 )
 
 // TestRFCLess_FirstUseAccountSeeding tests that a brand-new authenticated account is lazily seeded
 // with sample emails across folders, calendar entries, address-book contacts, and a FileNode subfolder.
 func TestRFCLess_FirstUseAccountSeeding(t *testing.T) {
-	authBackend := memory.NewMemoryAuthBackend()
+	authBackend := testmock.NewMemoryAuthBackend()
 	srv := newTestServer(jmap.WithAuthBackend(authBackend))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()

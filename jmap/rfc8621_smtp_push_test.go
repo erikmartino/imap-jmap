@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
 	jmapsmtp "imap-jmap/smtp"
 )
 
@@ -22,16 +21,7 @@ import (
 // and makes the email queryable via JMAP Email/get per RFC 8621.
 func TestRFC8621_SMTPReceiveToJMAPPushIntegration(t *testing.T) {
 	// 1. Initialize backends & JMAP Server
-	memBackend := memory.NewMemoryBackend()
-	memBlobBackend := memory.NewMemoryBlobBackend()
-	session := jmap.DefaultSession("http://localhost:8080", "user@example.com")
-
-	server := jmap.NewServer(
-		session,
-		jmap.WithMailBackend(memBackend),
-		jmap.WithBlobBackend(memBlobBackend),
-	)
-	memBackend.SetBroadcaster(server.Broadcaster)
+	server := newTestServer()
 
 	// 2. Start JMAP HTTP Server (httptest)
 	ts := httptest.NewServer(server.Handler())
@@ -45,7 +35,7 @@ func TestRFC8621_SMTPReceiveToJMAPPushIntegration(t *testing.T) {
 	smtpAddr := listener.Addr().String()
 	_ = listener.Close()
 
-	smtpServer := jmapsmtp.NewServer(smtpAddr, memBackend, memBlobBackend, nil)
+	smtpServer := jmapsmtp.NewServer(smtpAddr, server.MailBackend, server.BlobBackend, nil)
 	go func() {
 		_ = smtpServer.ListenAndServe()
 	}()

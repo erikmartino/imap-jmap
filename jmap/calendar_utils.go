@@ -54,7 +54,9 @@ func parseLocalDateTimeBound(s string, loc *time.Location) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-func parseISODuration(raw string) (time.Duration, bool) {
+// ParseISODuration converts an ISO 8601 duration (e.g. "PT1H30M", "P1D", "P1W") to
+// time.Duration. Returns ok=false for unsupported, malformed, or empty input.
+func ParseISODuration(raw string) (time.Duration, bool) {
 	s := strings.TrimSpace(raw)
 	if s == "" || s[0] != 'P' {
 		return 0, false
@@ -87,9 +89,15 @@ func parseISODuration(raw string) (time.Duration, bool) {
 			flush(time.Minute)
 		case c == 'S' && inTime:
 			flush(time.Second)
+		default:
+			return 0, false
 		}
 	}
 	return total, true
+}
+
+func parseISODuration(raw string) (time.Duration, bool) {
+	return ParseISODuration(raw)
 }
 
 // ComputeUTCStart calculates the RFC 3339 UTC timestamp for a local start time and timezone.

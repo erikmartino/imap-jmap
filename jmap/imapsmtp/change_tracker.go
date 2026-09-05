@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/emersion/go-imap/v2"
@@ -24,6 +25,7 @@ type FolderState struct {
 type CompositeState struct {
 	Version int                    `json:"v"`
 	Folders map[string]FolderState `json:"f"`
+	Seq     uint64                 `json:"s,omitempty"`
 }
 
 // Encode converts CompositeState to an opaque JMAP state token.
@@ -34,6 +36,14 @@ func (cs *CompositeState) Encode() string {
 
 // DecodeCompositeState parses a JMAP state token into a CompositeState.
 func DecodeCompositeState(token string) (*CompositeState, error) {
+	token = strings.TrimSpace(token)
+	if token == "0" || token == "state-0" {
+		return &CompositeState{
+			Version: 1,
+			Folders: make(map[string]FolderState),
+			Seq:     0,
+		}, nil
+	}
 	if !strings.HasPrefix(token, "v1.") {
 		return nil, fmt.Errorf("invalid state token prefix: %s", token)
 	}
@@ -67,9 +77,11 @@ func (b *IMAPSMTPBackend) GetCurrentCompositeState(ctx context.Context) (*Compos
 		return nil, err
 	}
 
+	accountID, _ := jmap.AccountIDFromContext(ctx)
 	cs := &CompositeState{
 		Version: 1,
 		Folders: make(map[string]FolderState),
+		Seq:     b.getEmailSeq(accountID),
 	}
 
 	for _, m := range mailboxesData {
@@ -84,14 +96,20 @@ func (b *IMAPSMTPBackend) GetCurrentCompositeState(ctx context.Context) (*Compos
 			continue
 		}
 
-		statusCmd := client.Status(m.Mailbox, &imap.StatusOptions{
+		statusOpts := &imap.StatusOptions{
 			NumMessages:   true,
 			NumUnseen:     true,
 			UIDNext:       true,
 			UIDValidity:   true,
 			HighestModSeq: true,
-		})
+		}
+		statusCmd := client.Status(m.Mailbox, statusOpts)
 		status, err := statusCmd.Wait()
+		if err != nil {
+			statusOpts.HighestModSeq = false
+			statusCmd = client.Status(m.Mailbox, statusOpts)
+			status, err = statusCmd.Wait()
+		}
 		if err != nil || status == nil {
 			continue
 		}
@@ -142,7 +160,7 @@ func (b *IMAPSMTPBackend) MailboxChanges(ctx context.Context, sinceState string,
 	old, err := DecodeCompositeState(sinceState)
 	if err != nil {
 		// Cannot calculate changes from unknown state token
-		return nil, nil, nil, nil, newState, false
+		return nil, nil, nil, nil, newState, true
 	}
 
 	var created []jmap.Id
@@ -170,6 +188,17 @@ func (b *IMAPSMTPBackend) MailboxChanges(ctx context.Context, sinceState string,
 		}
 	}
 
+	sort.Slice(created, func(i, j int) bool { return created[i] < created[j] })
+	sort.Slice(updated, func(i, j int) bool { return updated[i] < updated[j] })
+	sort.Slice(destroyed, func(i, j int) bool { return destroyed[i] < destroyed[j] })
+
+	if maxChanges != nil && *maxChanges > 0 {
+		total := uint64(len(created) + len(updated) + len(destroyed))
+		if total > *maxChanges {
+			return nil, nil, nil, nil, newState, true
+		}
+	}
+
 	return created, updated, destroyed, []string{"totalEmails", "unreadEmails"}, newState, false
 }
 
@@ -189,12 +218,52 @@ func (b *IMAPSMTPBackend) EmailChanges(ctx context.Context, sinceState string, m
 	old, err := DecodeCompositeState(sinceState)
 	if err != nil {
 		// Malformed or foreign state token
-		return nil, nil, nil, newState, false
+		return nil, nil, nil, newState, true
 	}
 
-	var created []jmap.Id
-	var updated []jmap.Id
-	var destroyed []jmap.Id
+	accountID, _ := jmap.AccountIDFromContext(ctx)
+
+	b.emailMutationsMu.RLock()
+	mutations := b.emailMutations[accountID]
+	var hasMutationHistory bool
+	if len(mutations) > 0 {
+		if mutations[0].state <= old.Seq+1 {
+			hasMutationHistory = true
+		}
+	} else if old.Seq == current.Seq {
+		hasMutationHistory = true
+	}
+
+	createdSet := make(map[jmap.Id]bool)
+	updatedSet := make(map[jmap.Id]bool)
+	destroyedSet := make(map[jmap.Id]bool)
+
+	if hasMutationHistory {
+		for _, entry := range mutations {
+			if entry.state > old.Seq {
+				switch entry.action {
+				case "create":
+					createdSet[entry.id] = true
+					delete(updatedSet, entry.id)
+					delete(destroyedSet, entry.id)
+				case "update":
+					if !createdSet[entry.id] {
+						updatedSet[entry.id] = true
+					}
+				case "destroy":
+					delete(createdSet, entry.id)
+					delete(updatedSet, entry.id)
+					destroyedSet[entry.id] = true
+				}
+			}
+		}
+	}
+	b.emailMutationsMu.RUnlock()
+
+	if !hasMutationHistory && old.Seq < current.Seq {
+		// History was pruned or discarded
+		return nil, nil, nil, newState, true
+	}
 
 	for folder, newFS := range current.Folders {
 		mbID := MailboxIDForName(folder)
@@ -203,7 +272,7 @@ func (b *IMAPSMTPBackend) EmailChanges(ctx context.Context, sinceState string, m
 			// Newly created folder with initial messages
 			if newFS.UIDNext > 1 {
 				for uid := uint32(1); uid < newFS.UIDNext; uid++ {
-					created = append(created, EmailIDFor(mbID, uid))
+					createdSet[EmailIDFor(mbID, uid)] = true
 				}
 			}
 			continue
@@ -212,10 +281,10 @@ func (b *IMAPSMTPBackend) EmailChanges(ctx context.Context, sinceState string, m
 		if oldFS.UIDValidity != newFS.UIDValidity {
 			// Mailbox recreated: old UIDs destroyed, new UIDs created
 			for uid := uint32(1); uid < oldFS.UIDNext; uid++ {
-				destroyed = append(destroyed, EmailIDFor(mbID, uid))
+				destroyedSet[EmailIDFor(mbID, uid)] = true
 			}
 			for uid := uint32(1); uid < newFS.UIDNext; uid++ {
-				created = append(created, EmailIDFor(mbID, uid))
+				createdSet[EmailIDFor(mbID, uid)] = true
 			}
 			continue
 		}
@@ -223,15 +292,24 @@ func (b *IMAPSMTPBackend) EmailChanges(ctx context.Context, sinceState string, m
 		// New messages appended (UIDNext increased)
 		if newFS.UIDNext > oldFS.UIDNext {
 			for uid := oldFS.UIDNext; uid < newFS.UIDNext; uid++ {
-				created = append(created, EmailIDFor(mbID, uid))
+				createdSet[EmailIDFor(mbID, uid)] = true
 			}
 		}
 
-		// Flags/metadata updated
-		if newFS.HighestModSeq > oldFS.HighestModSeq || (newFS.HighestModSeq == 0 && newFS.Unseen != oldFS.Unseen) {
-			// Flag changes detected
-			for uid := uint32(1); uid < oldFS.UIDNext; uid++ {
-				updated = append(updated, EmailIDFor(mbID, uid))
+		// If no mutation history at all (e.g. seq == 0), fallback to folder modseq
+		if old.Seq == 0 && current.Seq == 0 {
+			if newFS.HighestModSeq > oldFS.HighestModSeq {
+				for uid := uint32(1); uid < oldFS.UIDNext; uid++ {
+					updatedSet[EmailIDFor(mbID, uid)] = true
+				}
+			} else if newFS.HighestModSeq == 0 {
+				newMsgs := int64(newFS.Messages) - int64(oldFS.Messages)
+				unseenDiff := int64(newFS.Unseen) - int64(oldFS.Unseen)
+				if (newMsgs == 0 && unseenDiff != 0) || unseenDiff < 0 || unseenDiff > newMsgs {
+					for uid := uint32(1); uid < oldFS.UIDNext; uid++ {
+						updatedSet[EmailIDFor(mbID, uid)] = true
+					}
+				}
 			}
 		}
 	}
@@ -241,8 +319,33 @@ func (b *IMAPSMTPBackend) EmailChanges(ctx context.Context, sinceState string, m
 		if _, exists := current.Folders[folder]; !exists {
 			mbID := MailboxIDForName(folder)
 			for uid := uint32(1); uid < oldFS.UIDNext; uid++ {
-				destroyed = append(destroyed, EmailIDFor(mbID, uid))
+				destroyedSet[EmailIDFor(mbID, uid)] = true
 			}
+		}
+	}
+
+	var created []jmap.Id
+	var updated []jmap.Id
+	var destroyed []jmap.Id
+
+	for id := range createdSet {
+		created = append(created, id)
+	}
+	for id := range updatedSet {
+		updated = append(updated, id)
+	}
+	for id := range destroyedSet {
+		destroyed = append(destroyed, id)
+	}
+
+	sort.Slice(created, func(i, j int) bool { return created[i] < created[j] })
+	sort.Slice(updated, func(i, j int) bool { return updated[i] < updated[j] })
+	sort.Slice(destroyed, func(i, j int) bool { return destroyed[i] < destroyed[j] })
+
+	if maxChanges != nil && *maxChanges > 0 {
+		total := uint64(len(created) + len(updated) + len(destroyed))
+		if total > *maxChanges {
+			return nil, nil, nil, newState, true
 		}
 	}
 

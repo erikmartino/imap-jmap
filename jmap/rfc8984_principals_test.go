@@ -7,11 +7,11 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
+	"imap-jmap/jmap/testmock"
 )
 
 func TestRFC8984_PrincipalsCapability(t *testing.T) {
-	pb := memory.NewMemoryPrincipalsBackend()
+	pb := testmock.NewMemoryPrincipalsBackend()
 	srv := jmap.NewServer(nil, jmap.WithPrincipalsBackend(pb))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -48,7 +48,7 @@ func TestRFC8984_PrincipalsCapability(t *testing.T) {
 }
 
 func TestRFC8984_PrincipalGetAndQuery(t *testing.T) {
-	pb := memory.NewMemoryPrincipalsBackend()
+	pb := testmock.NewMemoryPrincipalsBackend()
 	srv := jmap.NewServer(nil, jmap.WithPrincipalsBackend(pb))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -92,7 +92,7 @@ func TestRFC8984_PrincipalGetAndQuery(t *testing.T) {
 }
 
 func TestRFC8984_PrincipalSetLifecycle(t *testing.T) {
-	pb := memory.NewMemoryPrincipalsBackend()
+	pb := testmock.NewMemoryPrincipalsBackend()
 	srv := jmap.NewServer(nil, jmap.WithPrincipalsBackend(pb))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -162,8 +162,8 @@ func TestRFC8984_PrincipalSetLifecycle(t *testing.T) {
 }
 
 func TestRFC8984_PrincipalGetAvailability(t *testing.T) {
-	pb := memory.NewMemoryPrincipalsBackend()
-	cb := memory.NewMemoryCalendarsBackend()
+	pb := testmock.NewMemoryPrincipalsBackend()
+	cb := testmock.NewMemoryCalendarsBackend()
 	pb.SetCalendarsBackend(cb)
 
 	srv := jmap.NewServer(nil, jmap.WithPrincipalsBackend(pb), jmap.WithCalendarsBackend(cb))

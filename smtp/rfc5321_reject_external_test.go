@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
+	"imap-jmap/jmap/imapsmtp"
 	"imap-jmap/jmap/spectest"
 	jmapsmtp "imap-jmap/smtp"
 )
@@ -42,10 +42,10 @@ func TestRFC5321_RejectExternalRecipient(t *testing.T) {
 	spectest.Require(t, "RFC5321", "3.4", spectest.MUST,
 		"A receiving SMTP server rejects recipients it cannot deliver to (relaying denied) rather than accepting the message.")
 
-	memBackend := memory.NewMemoryBackend()
-	memBlobBackend := memory.NewMemoryBlobBackend()
+	backend, cleanup := imapsmtp.NewEmbeddedBackend("sender@example.com", "user@example.com", "external@other.com")
+	defer cleanup()
 	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
-	addr := startSMTPServerWithResolver(t, memBackend, memBlobBackend, nil, resolver)
+	addr := startSMTPServerWithResolver(t, backend, backend, nil, resolver)
 
 	msg := []byte("From: sender@example.com\r\n" +
 		"To: external@other.com\r\n" +
@@ -64,7 +64,7 @@ func TestRFC5321_RejectExternalRecipient(t *testing.T) {
 	// Nothing may have been stored anywhere: the external recipient must not land in
 	// the default fallback account or in an account derived from the recipient.
 	fallbackCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject("user@example.com"))
-	fallbackEmails, err := memBackend.GetAllEmails(fallbackCtx)
+	fallbackEmails, err := backend.GetAllEmails(fallbackCtx)
 	if err != nil {
 		t.Fatalf("GetAllEmails(fallback): %v", err)
 	}
@@ -74,7 +74,7 @@ func TestRFC5321_RejectExternalRecipient(t *testing.T) {
 		}
 	}
 	derivedCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject("external@other.com"))
-	derivedEmails, err := memBackend.GetAllEmails(derivedCtx)
+	derivedEmails, err := backend.GetAllEmails(derivedCtx)
 	if err != nil {
 		t.Fatalf("GetAllEmails(derived): %v", err)
 	}
@@ -89,10 +89,10 @@ func TestRFC5321_RejectExternalRecipient(t *testing.T) {
 // transaction: the local recipient is accepted with 250, the external one is refused
 // with 550 5.7.1, and the message is delivered only to the local recipient's account.
 func TestRFC5321_MixedRecipientsRejectExternal(t *testing.T) {
-	memBackend := memory.NewMemoryBackend()
-	memBlobBackend := memory.NewMemoryBlobBackend()
+	backend, cleanup := imapsmtp.NewEmbeddedBackend("sender@example.com", "user@example.com", "external@other.com")
+	defer cleanup()
 	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
-	addr := startSMTPServerWithResolver(t, memBackend, memBlobBackend, nil, resolver)
+	addr := startSMTPServerWithResolver(t, backend, backend, nil, resolver)
 
 	c, err := smtp.Dial(addr)
 	if err != nil {
@@ -130,7 +130,7 @@ func TestRFC5321_MixedRecipientsRejectExternal(t *testing.T) {
 
 	// Delivered only to the local recipient.
 	localCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject("user@example.com"))
-	localEmails, err := memBackend.GetAllEmails(localCtx)
+	localEmails, err := backend.GetAllEmails(localCtx)
 	if err != nil {
 		t.Fatalf("GetAllEmails(local): %v", err)
 	}
@@ -144,11 +144,12 @@ func TestRFC5321_MixedRecipientsRejectExternal(t *testing.T) {
 	if delivered == nil {
 		t.Fatalf("local recipient should have received the message")
 	}
-	if !delivered.MailboxIDs["mb-inbox"] {
+	inboxID := jmap.InboxMailboxID(localCtx, backend)
+	if !delivered.MailboxIDs[inboxID] {
 		t.Errorf("expected the delivered message in the local recipient's Inbox")
 	}
 	externalCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject("external@other.com"))
-	externalEmails, err := memBackend.GetAllEmails(externalCtx)
+	externalEmails, err := backend.GetAllEmails(externalCtx)
 	if err != nil {
 		t.Fatalf("GetAllEmails(external): %v", err)
 	}
@@ -159,11 +160,11 @@ func TestRFC5321_MixedRecipientsRejectExternal(t *testing.T) {
 	}
 }
 
-// failingMailBackend wraps the memory MailBackend and fails every CreateEmail call to
+// failingMailBackend wraps the MailBackend and fails every CreateEmail call to
 // simulate a storage outage, so the DATA transaction must report a failure reply
 // instead of acknowledging a message that was never stored.
 type failingMailBackend struct {
-	*memory.MemoryBackend
+	jmap.MailBackend
 }
 
 func (f *failingMailBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jmap.Email, error) {
@@ -178,10 +179,11 @@ func TestRFC5321_DataStorageFailureReturns451(t *testing.T) {
 	spectest.Require(t, "RFC5321", "3.7", spectest.MUST,
 		"A receiving SMTP server must not reply 250 to DATA when the message could not be stored for any recipient; it must return a failure reply.")
 
-	memBlobBackend := memory.NewMemoryBlobBackend()
-	badBackend := &failingMailBackend{MemoryBackend: memory.NewMemoryBackend()}
+	backend, cleanup := imapsmtp.NewEmbeddedBackend("sender@example.com", "user@example.com")
+	defer cleanup()
+	badBackend := &failingMailBackend{MailBackend: backend}
 	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
-	addr := startSMTPServerWithResolver(t, badBackend, memBlobBackend, nil, resolver)
+	addr := startSMTPServerWithResolver(t, badBackend, backend, nil, resolver)
 
 	msg := []byte("From: sender@example.com\r\n" +
 		"To: user@example.com\r\n" +

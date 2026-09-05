@@ -10,6 +10,7 @@ import (
 	"io"
 	"mime"
 	"net/mail"
+	"strconv"
 	"strings"
 	"time"
 
@@ -206,6 +207,26 @@ func ParseRFC822WithAccount(accountID string, raw []byte, blobBackend ...BlobBac
 					em.To = convertMailAddresses(addrs)
 				}
 			}
+		case "x-jmap-size":
+			if sz, err := strconv.ParseUint(val, 10, 64); err == nil {
+				em.Size = sz
+			}
+		case "x-jmap-received-at":
+			if val != "" {
+				em.ReceivedAt = val
+			}
+		case "x-jmap-smime-status":
+			if val != "" {
+				em.SMIMEStatus = &val
+			}
+		case "x-jmap-smime-verified-with":
+			if val != "" {
+				em.SMIMEVerifiedWith = &val
+			}
+		case "x-jmap-smime-status-at":
+			if val != "" {
+				em.SMIMEStatusAt = &val
+			}
 		}
 	}
 
@@ -255,6 +276,9 @@ func parseMIMEEntity(ctx context.Context, accountID string, e *message.Entity, d
 		if err == nil {
 			mediaType = strings.ToLower(mt)
 			mediaParams = mp
+			if mediaType == "text/calendar" && mp != nil && mp["method"] != "" {
+				mediaType = fmt.Sprintf("text/calendar; method=%s", mp["method"])
+			}
 		}
 	}
 
@@ -360,6 +384,9 @@ func parseMIMEEntity(ctx context.Context, accountID string, e *message.Entity, d
 
 	*partCounter++
 	pID := fmt.Sprintf("%d", *partCounter)
+	if customPID := e.Header.Get("X-JMAP-Part-ID"); customPID != "" {
+		pID = customPID
+	}
 
 	bodyBytes, _ := io.ReadAll(e.Body)
 	size := uint64(len(bodyBytes))
@@ -491,7 +518,7 @@ func extractTextBody(p *EmailBodyPart) []EmailBodyPart {
 		return nil
 	}
 
-	if strings.EqualFold(p.Type, "text/plain") {
+	if strings.EqualFold(p.Type, "text/plain") || strings.HasPrefix(strings.ToLower(p.Type), "text/calendar") {
 		return []EmailBodyPart{*p}
 	}
 	if isInlineMedia(p.Type) {
@@ -793,6 +820,34 @@ func FormatEmailRFC822(em *Email) []byte {
 		}
 	}
 
+	if em.Size > 0 {
+		h.Set("X-JMAP-Size", fmt.Sprintf("%d", em.Size))
+	}
+	if em.ReceivedAt != "" {
+		h.Set("X-JMAP-Received-At", em.ReceivedAt)
+	}
+	if em.SMIMEStatus != nil && *em.SMIMEStatus != "" {
+		h.Set("X-JMAP-SMIME-Status", *em.SMIMEStatus)
+	}
+	if em.SMIMEVerifiedWith != nil && *em.SMIMEVerifiedWith != "" {
+		h.Set("X-JMAP-SMIME-Verified-With", *em.SMIMEVerifiedWith)
+	}
+	if em.SMIMEStatusAt != nil && *em.SMIMEStatusAt != "" {
+		h.Set("X-JMAP-SMIME-Status-At", *em.SMIMEStatusAt)
+	}
+
+	partIDToSet := ""
+	if len(em.TextBody) > 0 && em.TextBody[0].PartID != nil {
+		partIDToSet = *em.TextBody[0].PartID
+	} else if len(em.HTMLBody) > 0 && em.HTMLBody[0].PartID != nil {
+		partIDToSet = *em.HTMLBody[0].PartID
+	} else if em.BodyStructure.PartID != nil {
+		partIDToSet = *em.BodyStructure.PartID
+	}
+	if partIDToSet != "" {
+		h.Set("X-JMAP-Part-ID", partIDToSet)
+	}
+
 	// Extract text/plain content
 	var textParts []string
 	for _, p := range em.TextBody {
@@ -833,11 +888,47 @@ func FormatEmailRFC822(em *Email) []byte {
 		}
 	}
 
+	// Disambiguate if htmlBody and textBody reference the exact same part (RFC 8621 Section 4.1.4)
+	if len(em.TextBody) > 0 && len(em.HTMLBody) > 0 && em.TextBody[0].PartID != nil && em.HTMLBody[0].PartID != nil && *em.TextBody[0].PartID == *em.HTMLBody[0].PartID {
+		if strings.EqualFold(em.BodyStructure.Type, "text/html") || strings.EqualFold(em.TextBody[0].Type, "text/html") {
+			textParts = nil
+		} else {
+			htmlParts = nil
+		}
+	}
+
 	textBody := strings.Join(textParts, "\n")
 	htmlBody := strings.Join(htmlParts, "\n")
 	hasText := len(textParts) > 0
 	hasHTML := len(htmlParts) > 0
 	hasAttachments := len(em.Attachments) > 0
+
+	if !hasAttachments && !(hasText && hasHTML) {
+		contentType := "text/plain; charset=utf-8"
+		bodyContent := textBody
+		if hasHTML {
+			contentType = "text/html; charset=utf-8"
+			bodyContent = htmlBody
+		} else if len(em.TextBody) > 0 && em.TextBody[0].Type != "" {
+			contentType = em.TextBody[0].Type
+			if !strings.Contains(contentType, "charset=") && strings.HasPrefix(contentType, "text/") {
+				contentType += "; charset=utf-8"
+			}
+		} else if em.BodyStructure.Type != "" {
+			contentType = em.BodyStructure.Type
+			if !strings.Contains(contentType, "charset=") && strings.HasPrefix(contentType, "text/") {
+				contentType += "; charset=utf-8"
+			}
+		}
+		h.Set("Content-Type", contentType)
+		fields := h.Fields()
+		for fields.Next() {
+			buf.WriteString(fmt.Sprintf("%s: %s\r\n", fields.Key(), fields.Value()))
+		}
+		buf.WriteString("\r\n")
+		buf.WriteString(bodyContent)
+		return buf.Bytes()
+	}
 
 	mw, err := gomail.CreateWriter(&buf, h)
 	if err != nil {
@@ -884,10 +975,29 @@ func FormatEmailRFC822(em *Email) []byte {
 			}
 		}
 	} else {
-		// text/plain only (or empty)
+		contentType := "text/plain; charset=utf-8"
+		if len(em.TextBody) > 0 && em.TextBody[0].Type != "" && !strings.EqualFold(em.TextBody[0].Type, "text/plain") {
+			contentType = em.TextBody[0].Type
+			if !strings.Contains(contentType, "charset=") {
+				contentType += "; charset=utf-8"
+			}
+		} else if em.BodyStructure.Type != "" && !strings.EqualFold(em.BodyStructure.Type, "text/plain") {
+			contentType = em.BodyStructure.Type
+			if !strings.Contains(contentType, "charset=") {
+				contentType += "; charset=utf-8"
+			}
+		}
+
+		mediaType, params, err := mime.ParseMediaType(contentType)
+		if err != nil {
+			mediaType = contentType
+			params = nil
+		}
+
+		// single text part (e.g. text/plain or text/calendar)
 		if !hasAttachments {
 			var inlineH gomail.InlineHeader
-			inlineH.Set("Content-Type", "text/plain; charset=utf-8")
+			inlineH.Header.SetContentType(mediaType, params)
 			if pw, err := mw.CreateSingleInline(inlineH); err == nil {
 				_, _ = io.WriteString(pw, textBody)
 				_ = pw.Close()
@@ -896,7 +1006,7 @@ func FormatEmailRFC822(em *Email) []byte {
 			iw, err := mw.CreateInline()
 			if err == nil {
 				var plainH gomail.InlineHeader
-				plainH.Set("Content-Type", "text/plain; charset=utf-8")
+				plainH.Header.SetContentType(mediaType, params)
 				if pw, err := iw.CreatePart(plainH); err == nil {
 					_, _ = io.WriteString(pw, textBody)
 					_ = pw.Close()

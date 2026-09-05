@@ -454,18 +454,15 @@ func handleCalendarEventQueryChanges(backend CalendarsBackend) MethodHandler {
 // handleCalendarEventCopy implements CalendarEvent/copy per RFC 8620 Section 5.4.
 func handleCalendarEventCopy(backend CalendarsBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
-		accountID, _ := args["accountId"].(string)
-		fromAccountID, _ := args["fromAccountId"].(string)
-		if fromAccountID == "" {
-			fromAccountID = accountID
+		accountID, fromAccountID := ResolveCopyAccountIDs(args)
+		srcCtx := SourceAccountContext(ctx, args)
+
+		oldState, errInv := ValidateCopyStates(ctx, srcCtx, args, backend.CalendarEventState, backend.CalendarEventState)
+		if errInv != nil {
+			return errInv.Name, errInv.Args
 		}
-		srcCtx := sourceAccountContext(ctx, args)
-		oldState := backend.CalendarEventState(ctx)
 
 		onSuccessDestroyOriginal, _ := args["onSuccessDestroyOriginal"].(bool)
-		if dfis, ok := args["destroyFromIfInState"].(string); ok && dfis != "" && dfis != backend.CalendarEventState(srcCtx) {
-			return "error", MethodErrorArgs("stateMismatch", "destroyFromIfInState does not match the source account state")
-		}
 
 		created := make(map[string]*CalendarEvent)
 		notCreated := make(map[string]any)

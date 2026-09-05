@@ -1,17 +1,17 @@
 package jmap_test
 
 import (
-	"context"
 	"testing"
 
-	"imap-jmap/jmap/memory"
+	"imap-jmap/jmap/imapsmtp"
 )
 
 // TestRFC3501_IMAP4rev1Mapping tests RFC 3501 IMAP4rev1 protocol mapping into JMAP keywords & mailbox attributes.
 func TestRFC3501_IMAP4rev1Mapping(t *testing.T) {
-	memBackend := memory.NewMemoryBackend()
+	backend, cleanup := imapsmtp.NewEmbeddedBackend(testUsername)
+	defer cleanup()
 
-	mbs, err := memBackend.GetAllMailboxes(context.Background())
+	mbs, err := backend.GetAllMailboxes(seedCtx())
 	if err != nil {
 		t.Fatalf("GetMailboxes failed per RFC 3501: %v", err)
 	}

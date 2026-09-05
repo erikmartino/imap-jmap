@@ -46,6 +46,30 @@ func TestRFC9007_MDNSend(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
+	// Query an existing email to reference in the MDN
+	qBody, _ := json.Marshal(map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+		"methodCalls": []any{
+			[]any{"Email/query", map[string]any{"accountId": "primary"}, "q1"},
+		},
+	})
+	qResp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(qBody))
+	if err != nil {
+		t.Fatalf("POST /jmap Email/query failed: %v", err)
+	}
+	var qJmapResp struct {
+		MethodResponses []any `json:"methodResponses"`
+	}
+	_ = json.NewDecoder(qResp.Body).Decode(&qJmapResp)
+	qResp.Body.Close()
+
+	qArgs := qJmapResp.MethodResponses[0].([]any)[1].(map[string]any)
+	ids := qArgs["ids"].([]any)
+	if len(ids) == 0 {
+		t.Fatalf("Expected at least 1 seeded email for MDN test")
+	}
+	targetEmailID := ids[0].(string)
+
 	reqBody := map[string]any{
 		"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.MdnCapabilityURI},
 		"methodCalls": []any{
@@ -54,7 +78,7 @@ func TestRFC9007_MDNSend(t *testing.T) {
 				"identityId": "id-1",
 				"send": map[string]any{
 					"mdn1": map[string]any{
-						"forEmailId": "email-1",
+						"forEmailId": targetEmailID,
 						"disposition": map[string]any{
 							"actionMode":  "manual-action",
 							"sendingMode": "MDN-sent-manually",
@@ -117,12 +141,56 @@ func TestRFC9007_MDNParse(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
+	// Query an existing email to retrieve its real blobId
+	qBody, _ := json.Marshal(map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+		"methodCalls": []any{
+			[]any{"Email/query", map[string]any{"accountId": "primary"}, "q1"},
+		},
+	})
+	qResp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(qBody))
+	if err != nil {
+		t.Fatalf("POST /jmap Email/query failed: %v", err)
+	}
+	var qJmapResp struct {
+		MethodResponses []any `json:"methodResponses"`
+	}
+	_ = json.NewDecoder(qResp.Body).Decode(&qJmapResp)
+	qResp.Body.Close()
+
+	qArgs := qJmapResp.MethodResponses[0].([]any)[1].(map[string]any)
+	ids := qArgs["ids"].([]any)
+	if len(ids) == 0 {
+		t.Fatalf("Expected at least 1 seeded email for MDN test")
+	}
+
+	getBody, _ := json.Marshal(map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI},
+		"methodCalls": []any{
+			[]any{"Email/get", map[string]any{"accountId": "primary", "ids": []any{ids[0]}}, "g1"},
+		},
+	})
+	gResp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(getBody))
+	if err != nil {
+		t.Fatalf("POST /jmap Email/get failed: %v", err)
+	}
+	var gJmapResp struct {
+		MethodResponses []any `json:"methodResponses"`
+	}
+	_ = json.NewDecoder(gResp.Body).Decode(&gJmapResp)
+	gResp.Body.Close()
+
+	gArgs := gJmapResp.MethodResponses[0].([]any)[1].(map[string]any)
+	list := gArgs["list"].([]any)
+	firstEmail := list[0].(map[string]any)
+	targetBlobID := firstEmail["blobId"].(string)
+
 	reqBody := map[string]any{
 		"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.MdnCapabilityURI},
 		"methodCalls": []any{
 			[]any{"MDN/parse", map[string]any{
 				"accountId": "primary",
-				"blobIds":   []any{"blob-stub-1", "missing-blob-xyz"},
+				"blobIds":   []any{targetBlobID, "missing-blob-xyz"},
 			}, "call-1"},
 		},
 	}
@@ -153,8 +221,8 @@ func TestRFC9007_MDNParse(t *testing.T) {
 	args := methodCall[1].(map[string]any)
 	parsedMap, _ := args["parsed"].(map[string]any)
 
-	if _, ok := parsedMap["blob-stub-1"]; !ok {
-		t.Errorf("Expected blob-stub-1 to be in parsed map, got %+v", parsedMap)
+	if _, ok := parsedMap[targetBlobID]; !ok {
+		t.Errorf("Expected %s to be in parsed map, got %+v", targetBlobID, parsedMap)
 	}
 
 	// A blob id that does not exist must be reported in notFound,

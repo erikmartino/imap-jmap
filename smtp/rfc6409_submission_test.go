@@ -9,23 +9,24 @@ import (
 	gosmtp "github.com/emersion/go-smtp"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
+	"imap-jmap/jmap/imapsmtp"
 	"imap-jmap/jmap/spectest"
+	"imap-jmap/jmap/testmock"
 )
 
 // submissionBackend builds a ReceiverBackend on the RFC 6409 Section 3.1
 // submission transport with a real credential verifier, ready for session
 // level tests.
-func submissionBackend(t *testing.T) (*ReceiverBackend, *memory.MemoryCalendarsBackend, *memory.MemoryBackend) {
+func submissionBackend(t *testing.T) (*ReceiverBackend, *testmock.MemoryCalendarsBackend, jmap.MailBackend) {
 	t.Helper()
-	mailBackend := memory.NewMemoryBackend()
-	blobBackend := memory.NewMemoryBlobBackend()
-	calBackend := memory.NewMemoryCalendarsBackend()
-	backend := NewReceiverBackend(mailBackend, blobBackend, calBackend)
-	backend.Mode = TransportModeSubmission
-	backend.Authenticator = NewAuthBackendAuthenticator(memory.NewMemoryAuthBackend())
-	backend.AccountResolver = jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
-	return backend, calBackend, mailBackend
+	backend, cleanup := imapsmtp.NewEmbeddedBackend("bob@example.com", "alice@example.com", "carol@example.com", "user@example.com")
+	t.Cleanup(cleanup)
+	calBackend := testmock.NewMemoryCalendarsBackend()
+	rb := NewReceiverBackend(backend, backend, calBackend)
+	rb.Mode = TransportModeSubmission
+	rb.Authenticator = NewAuthBackendAuthenticator(testmock.NewMemoryAuthBackend())
+	rb.AccountResolver = jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
+	return rb, calBackend, backend
 }
 
 func TestRFC6409_SubmissionRequiresAuthentication(t *testing.T) {

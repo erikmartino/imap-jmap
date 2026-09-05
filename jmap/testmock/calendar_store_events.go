@@ -1,4 +1,4 @@
-package memory
+package testmock
 
 import (
 	"context"
@@ -853,19 +853,19 @@ func (b *MemoryCalendarsBackend) QueryCalendarEvents(ctx context.Context, filter
 
 	var matched []*jmap.CalendarEvent
 	for _, ev := range us.events {
-		if MatchCalendarEvent(ev, filter) {
+		if jmap.MatchCalendarEvent(ev, filter) {
 			matched = append(matched, ev)
 		}
 	}
 
-	sortCalendarEvents(matched, sort)
+	jmap.SortCalendarEvents(matched, sort)
 
 	var resultIDs []jmap.Id
 	if expandRecurrences {
 		horizon := time.Now().AddDate(2, 0, 0)
 		for _, ev := range matched {
 			if len(ev.RecurrenceRules) > 0 {
-				instances := ExpandRecurrenceInstances(ev, horizon)
+				instances := jmap.ExpandRecurrenceInstances(ev, horizon)
 				for _, inst := range instances {
 					resultIDs = append(resultIDs, jmap.Id(fmt.Sprintf("%s#%s", string(ev.ID), inst.RecurrenceID)))
 				}

@@ -110,7 +110,7 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := json.Unmarshal(data, &typeProbe); err != nil {
 			slog.Debug("WebSocket invalid JSON message", "remote", r.RemoteAddr, "error", err)
-			writeWSError(ctx, conn, "", ErrorInvalidJSON, "The message could not be parsed as valid JSON.")
+			writeWSError(ctx, conn, "", ErrorNotJSON, "The message could not be parsed as valid JSON.")
 			continue
 		}
 
@@ -153,7 +153,7 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 				CreatedIds  map[string]string `json:"createdIds,omitempty"`
 			}
 			if err := json.Unmarshal(data, &req); err != nil {
-				writeWSError(ctx, conn, "", ErrorInvalidJSON, "The request body could not be parsed as a JMAP Request.")
+				writeWSError(ctx, conn, "", ErrorNotRequest, "The request body could not be parsed as a JMAP Request.")
 				continue
 			}
 

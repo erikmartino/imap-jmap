@@ -229,8 +229,8 @@ func TestRFC8620_Section3_5_StructureOfAJMAPResponse(t *testing.T) {
 	}
 }
 
-// TestRFC8620_Section3_6_1_RequestErrors_InvalidJSON tests invalidJSON error per RFC 8620 Section 3.6.1.
-func TestRFC8620_Section3_6_1_RequestErrors_InvalidJSON(t *testing.T) {
+// TestRFC8620_Section3_6_1_RequestErrors_NotJSON tests notJSON error per RFC 8620 Section 3.6.1.
+func TestRFC8620_Section3_6_1_RequestErrors_NotJSON(t *testing.T) {
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -250,8 +250,8 @@ func TestRFC8620_Section3_6_1_RequestErrors_InvalidJSON(t *testing.T) {
 		t.Fatalf("Failed to decode RequestError: %v", err)
 	}
 
-	if reqErr.Type != jmap.ErrorInvalidJSON {
-		t.Errorf("Expected error type %q, got %q", jmap.ErrorInvalidJSON, reqErr.Type)
+	if reqErr.Type != jmap.ErrorNotJSON {
+		t.Errorf("Expected error type %q, got %q", jmap.ErrorNotJSON, reqErr.Type)
 	}
 }
 

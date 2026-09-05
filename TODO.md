@@ -1,37 +1,126 @@
-# TODO — Remaining RFC Feature Gaps & Roadmap
+# TODO — Architecture Refactoring, Code Consolidation & RFC Conformance Roadmap
 
-**Goal** (see [AGENTS.md](./AGENTS.md), which is authoritative): A client MUST NOT be able to determine that there is not a real, full-featured server behind the protocol.
+**Authoritative Reference**: See [`AGENTS.md`](./AGENTS.md) for core principles:
+1. *Indistinguishable from a real server* (no hardcoded/empty stubs, real change tracking, persistence, correct error objects).
+2. *No hardcoded or default usernames in application code*.
+3. *RFC 2119 requirement implementation & traceability*.
+4. *Standard parsers & encoders only — never ad-hoc parsing*.
 
-**Scope**: JMAP-only server implementation. Tests MUST be filed under the primary RFC for the requirement (calendar JMAP tests under `rfc8984_*_test.go` per repo convention, since JMAP-for-Calendars is governed by **draft-ietf-jmap-calendars-27**). CalDAV/CardDAV/WebDAV are covered by the `dav/` package's dedicated test suite.
-
----
-
-## Open Tasks
-
-### 1. External Conformance Test Suites Verification
-Track and continuously execute all verified external test suites against the server:
-
-- [ ] **`jmapio/jscontact-tests` (Python)**: Ingest/run JSContact Card ([RFC 9553](https://www.rfc-editor.org/rfc/rfc9553.html)) and vCard conversion test cases against server endpoints. Requires implementing the RFC 9555 ([JSContact ↔ vCard](https://www.rfc-editor.org/rfc/rfc9555.html)) + RFC 9554 (extended property preservation) bidirectional conversion in-repo (vendored `go-jscontact` was assessed and covers only ~30% of the suite — infeasible without compromise):
-  - [ ] Implement `jmap/vcardconv`: JSContact → vCard (RFC 9555, vCard 4.0 target, RFC 6868 escaping, strict property/parameter output).
-  - [ ] Implement `jmap/vcardconv`: vCard → JSContact (incl. `localizations`, phonetic/sortAs names, `vCardProps`/`vCardParams` preservation, IANA props).
-  - [ ] Wire CNR-style `/convert` endpoint (public, `application/jscontact+json` ⇄ `text/vcard`, 422 for invalid cards).
-  - [ ] Vendor the 55 suite vectors as Go tests (`spectest.Require`, matrix rows for RFC 9555/RFC 9554).
-  - [ ] Run `jscontact-tests` Python suite against the live server until 55/55 green.
-- [ ] **MIME Torture Test Suite**: Run standard W3C / MHonArc deeply nested/malformed MIME test fixtures against `Email/parse` and inbound SMTP.
+Previous task log preserved in [`TODO_PREVIOUS.md`](./TODO_PREVIOUS.md).
 
 ---
 
-## Completed
-- **AUTH-2 — Retire `password == email` in Production**: The OIDC backend now fails closed (rejects all credential attempts) unless an explicit `AUTH_DEV_FALLBACK=true` attaches the in-memory dev credential backend.
-- **SEC-1 — Sender Authentication**: SPF/DKIM/DMARC verification gates iTIP auto-apply; unauthenticated messages fail closed (delivered to mailbox only).
-- **SEC-4 — Real SMTP Auth Boundary**: Unauthenticated inbound MX transport separated from authenticated submission (RFC 6409 / RFC 4954); scheduling trust gated on the transport boundary.
-- **Fastmail `JMAP-TestSuite` (Perl)**: 89/89 test files PASS (Core RFC 8620, Mail RFC 8621, WebSockets RFC 8887).
-- **TypeScript `jmap-test-suite` (Node.js)**: 309/309 tests PASS (Core, Mail, Multi-account, EventSource, Push, Submissions, Quotas).
+## Roadmap Overview & Phases
+
+- [x] **Phase 0: Memory Backend Retirement & IMAP/SMTP Backend (`imapsmtp`) Consolidation**
+  - [x] 0.1 Fully retired and deleted `jmap/memory/` backend; verified zero imports across codebase.
+  - [x] 0.2 Consolidated all mail, blob, submission, identity, vacation response, push subscription, and quota storage into `jmap/imapsmtp/` as the sole reference backend.
+  - [x] 0.3 Segregated non-mail mock stores (calendars, contacts/cards, sieve, filenodes) into `jmap/testmock/`.
+  - [x] 0.4 Implemented exact email mutation sequence tracking in `CompositeState` and `EmailChanges` to prevent spurious updates on modseq changes.
+  - [x] 0.5 Implemented `cannotCalculateChanges` handling for invalid/foreign state tokens in `MailboxChanges` and `EmailChanges` (RFC 8620 §5.6 / §5.2).
+  - [x] 0.6 Supported initial state tokens (`"0"`, `"state-0"`) in `DecodeCompositeState`.
+  - [x] 0.7 Implemented reverse blob reference tracking (`recordBlobRef`, `deleteBlobRefsForEmail`, `LookupBlobReferences`) per RFC 9404 §4.3.
+  - [x] 0.8 Enriched background contexts in `GetBlob` with active account credentials for SMTP/IMAP interop.
+  - [x] 0.9 Achieved 100% test pass rate across all packages hermetically in-process with 0 external dependencies (`timeout 10s go test ./...`).
+
+- [x] **Phase 1: Code Consolidation & Common Handler Bug Fixes**
+  - [x] 1.1 Deduplicate `parseISODuration` ([`jmap/calendar_utils.go`](./jmap/calendar_utils.go))
+  - [x] 1.2 Unify recursive `FilterOperator` (AND/OR/NOT) across occurrences
+  - [x] 1.3 Fix and consolidate `*/copy` handlers (account context bug in Card/AddressBook, intra-account copy in Email, missing `destroyFromIfInState` / `onSuccessDestroyOriginal`)
+  - [x] 1.4 Eliminate hardcoded usernames/paths in application code ([`dav/memory/`](./dav/memory/) and [`smtp/receiver.go`](./smtp/receiver.go))
+  - [x] 1.5 Fix RFC 8620 §3.6.1 invalid JSON error URI (`urn:ietf:params:jmap:error:notJSON`)
+
+- [ ] **Phase 2: CalDAV & CardDAV Serving Retirement & Card Conversion**
+  - [x] 2.1 Removed `dav/` package and eliminated CalDAV/CardDAV routes (`/caldav/`, `/carddav/`) from `main.go`. Server strictly serves JMAP.
+  - [x] 2.2 Retained outbound CalDAV and CardDAV clients in [`jmap/nextcloud/`](./jmap/nextcloud/) to connect to upstream calendar/contacts stores.
+  - [ ] 2.3 Wire `/convert` endpoint (public, `application/jscontact+json` ⇄ `text/vcard`, 422 for invalid cards) per RFC 9553
+
+- [ ] **Phase 3: Core RFC 8620 Conformance & Request Limit Enforcement**
+  - [ ] 3.1 Enforce `maxCallsInRequest` on `MethodCalls` in [`jmap/server.go`](./jmap/server.go) (`urn:ietf:params:jmap:error:limit`)
+  - [ ] 3.2 Enforce `maxSizeRequest` on request body size in [`jmap/server.go`](./jmap/server.go)
+  - [ ] 3.3 Enforce `maxObjectsInGet` in `*/get` handlers (`requestTooLarge`)
+  - [ ] 3.4 Enforce `maxObjectsInSet` in `*/set` handlers (`requestTooLarge`)
+  - [ ] 3.5 Support nested and patch Result References in [`jmap/server.go:resolveResultReferences`](./jmap/server.go)
+
+- [ ] **Phase 4: RFC Integration & Feature Completeness**
+  - [ ] 4.1 Real Quota accounting & `overQuota` enforcement (RFC 9425): update `Used` counters on email create/destroy and enforce limits
+  - [ ] 4.2 Sieve script execution on incoming SMTP delivery (RFC 5228 / RFC 9661): evaluate recipient's active script (`fileinto`, `discard`, `redirect`, `reject`)
+  - [ ] 4.3 VacationResponse auto-reply execution on incoming delivery (RFC 8621 §8): evaluate `isEnabled` and date range to send auto-reply
+  - [ ] 4.4 Real RFC 9007 `MDN/parse` MIME decoding (parse `multipart/report` and `message/disposition-notification`)
+  - [ ] 4.5 Web Push event dispatch (RFC 8620 §7.2, RFC 8030, RFC 8291, RFC 9749): send encrypted Web Push notifications on state change
+  - [ ] 4.6 Enforce `minDateTime`, `maxDateTime`, and `maxExpandedQueryDuration` on calendar queries (draft-ietf-jmap-calendars-27 §5.11)
+
+- [ ] **Phase 5: External Test Suites & Conformance Verification**
+  - [ ] 5.1 `jmapio/jscontact-tests` (Python)
+  - [ ] 5.2 MIME Torture Test Suite
 
 ---
 
-## Non-Goals & Out-of-Scope Specifications
-- **RFC 9670 (JMAP Sharing)**: Explicitly designated as out-of-scope per [AGENTS.md](./AGENTS.md).
-- **Legacy XML Mail Auto-Configuration (AutoConfig/AutoDiscover)**: Replaced by native RFC 8620 Session Discovery, DNS SRV/TXT bootstrapping, and IETF PACC JSON autoconfiguration per [AGENTS.md](./AGENTS.md).
-- **Process-Restart In-Memory Persistence**: In-memory backend persistence across process restarts is non-goal (state rebuilds on start).
-- **DAV Native JMAP Intermixing**: CalDAV/CardDAV/WebDAV protocol handling is isolated in the `dav/` package.
+## Detailed Task Specifications
+
+### Phase 1: Code Consolidation & Common Handler Bug Fixes
+
+#### 1.1 Deduplicate `parseISODuration`
+- **Location**: [`jmap/calendar_utils.go:57`](./jmap/calendar_utils.go) and [`jmap/memory/calendar_store_recurrence.go:620`](./jmap/memory/calendar_store_recurrence.go)
+- **Problem**: Duplicate character-by-character ISO 8601 duration parsers.
+- **Action**: Export `ParseISODuration(raw string) (time.Duration, bool)` from [`jmap/calendar_utils.go`](./jmap/calendar_utils.go) with strict validation, and replace the private function in `calendar_store_recurrence.go`.
+- **Validation**: `go test ./jmap/...`
+
+#### 1.2 Unify Recursive `FilterOperator` (AND/OR/NOT)
+- **Locations**:
+  - `jmap/query.go:235-270`
+  - `jmap/mailbox_handlers.go:251-285`
+  - `jmap/memory/mail_store_extra.go:400-435`
+  - `jmap/memory/contacts_store.go:524-560`
+  - `jmap/memory/calendar_store_recurrence.go:49-85`
+  - `jmap/memory/calendar_store_notifications.go:240-275`
+  - `jmap/imapsmtp/email_read.go:344-380`
+- **Problem**: 7 duplicate implementations of recursive boolean evaluation over `conditions`.
+- **Action**: Implement generic `EvalFilterOperator(filter map[string]any, matchCondition func(map[string]any) bool) (match bool, isOperator bool)` in [`jmap/query.go`](./jmap/query.go).
+- **Validation**: Existing query tests in all packages.
+
+#### 1.3 Fix & Consolidate `*/copy` Handlers [COMPLETED]
+- **Locations**:
+  - `jmap/contacts_handlers.go:497-605` (`Card/copy`, `AddressBook/copy`)
+  - `jmap/email_ops_handlers.go:10-88` (`Email/copy`)
+  - `jmap/mailbox_handlers.go:503-562` (`Mailbox/copy`)
+  - `jmap/calendar_handlers.go:228-296` (`Calendar/copy`)
+  - `jmap/calendar_event_handlers.go:455-520` (`CalendarEvent/copy`)
+- **Problems**:
+  - `Card/copy` and `AddressBook/copy` read from `ctx` (target account) instead of `srcCtx` (`fromAccountId`).
+  - `destroyFromIfInState` and `onSuccessDestroyOriginal` omitted in `Card/copy`, `AddressBook/copy`, and `Mailbox/copy`.
+  - `Email/copy` rejects same-account copy (`fromAccountId == accountId`) which RFC 8620 §5.4 allows.
+- **Action**: Consolidate common copy helpers (`ResolveCopyAccountIDs`, `SourceAccountContext`, `ValidateCopyStates`) in [`jmap/copy.go`](./jmap/copy.go) and fix account context and RFC 8620 §5.4 parameter handling across all copy handlers.
+- **Validation**: All existing copy tests pass; added `TestRFC8621_Section4_6_EmailCopy_SameAccount` in [`jmap/rfc8621_email_copy_test.go`](./jmap/rfc8621_email_copy_test.go).
+
+
+#### 1.4 Hardcoded Usernames & Identifiers Cleanup [COMPLETED]
+- **Locations**:
+  - `dav/memory/caldav_backend.go:122`: replaced `BuildITIPRequest(ev, "user@example.com")` with standards-conformant `EncodeCalDAVEvent(ev)` (RFC 4791 / RFC 5545)
+  - `dav/memory/caldav_backend.go:29`: `CurrentUserPrincipal` dynamically checks `SubjectFromContext` and `AccountIDFromContext`
+  - `dav/memory/carddav_backend.go:29,150`: `CurrentUserPrincipal` dynamically checks context; `GetAddressObject` / `GetCalendarObject` dynamically derive parent path
+  - `smtp/receiver.go:87`: removed hardcoded `user@example.com` fallback in `NewReceiverBackend`; added `WithFallbackAccountID` option
+- **Validation**: All tests in `dav` and `smtp` pass; dynamic principal resolution verified in `dav/rfc4791_test.go` and `dav/rfc6352_test.go`.
+
+
+#### 1.5 Fix RFC 8620 §3.6.1 Invalid JSON Error URI [COMPLETED]
+- **Location**: [`jmap/types.go:90`](./jmap/types.go), [`jmap/server.go:473,481,502`](./jmap/server.go), [`jmap/websocket.go:113,156`](./jmap/websocket.go)
+- **Problem**: `ErrorInvalidJSON = "urn:ietf:params:jmap:error:invalidJSON"` violated RFC 8620 §3.6.1 (`urn:ietf:params:jmap:error:notJSON`).
+- **Action**: Updated constant to `ErrorNotJSON = "urn:ietf:params:jmap:error:notJSON"` with `ErrorInvalidJSON` as a backwards-compatible alias; updated `server.go` and `websocket.go` to emit `ErrorNotJSON` for JSON syntax errors and `ErrorNotRequest` for request structural errors; updated `TestRFC8620_Section3_6_1_RequestErrors_NotJSON`.
+- **Validation**: All tests pass.
+
+---
+
+### Phase 2: CalDAV & CardDAV Serving Retirement & Card Conversion
+
+#### 2.1 CalDAV & CardDAV Serving Retirement [COMPLETED]
+- **Problem**: Server was serving CalDAV and CardDAV HTTP endpoints (`/caldav/`, `/carddav/`) via the `dav/` package on top of JMAP backends.
+- **Action**: Retired and removed the `dav/` package, removed CalDAV and CardDAV handlers and listeners from [`main.go`](./main.go), and designated CalDAV/CardDAV server endpoints as out-of-scope in [`AGENTS.md`](./AGENTS.md). The server strictly serves JMAP.
+- **Retention**: Retained the outbound CalDAV and CardDAV clients in [`jmap/nextcloud/`](./jmap/nextcloud/) that bridge Nextcloud calendars and address books into JMAP.
+- **Validation**: `go test ./...` passes with 0 failures and 0 external dependencies.
+
+#### 2.2 Wire `/convert` endpoint (RFC 9553)
+- **Problem**: RFC 9553 conversion HTTP endpoint not exposed on HTTP router.
+- **Action**: Expose `/convert` handler on `Server.Handler()` accepting POST with `application/jscontact+json` or `text/vcard` and returning converted representation; returns 422 Unprocessable Entity for invalid cards per spec.
+- **Validation**: New unit and HTTP tests for `/convert`.
+

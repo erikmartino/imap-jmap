@@ -1,4 +1,4 @@
-package memory
+package testmock
 
 import (
 	"context"
@@ -340,7 +340,7 @@ func (b *MemoryPrincipalsBackend) GetAvailability(ctx context.Context, principal
 			}
 
 			// Expand recurrences and emit one busy window per instance that overlaps the query window.
-			for _, inst := range ExpandRecurrenceInstances(ev, winEnd) {
+			for _, inst := range jmap.ExpandRecurrenceInstances(ev, winEnd) {
 				if hasEnd && !inst.Start.Before(winEnd) {
 					continue // occurrence starts at/after the window end
 				}

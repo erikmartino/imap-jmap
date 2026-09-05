@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
+	"imap-jmap/jmap/imapsmtp"
 )
 
 // submissionQueryClient wraps one test server so all method calls in a test share the same
@@ -429,20 +429,29 @@ func TestRFC8621_SubmissionQueryAnchor(t *testing.T) {
 // distinguishes values, using a pending submission that cannot be created over the protocol
 // (the server assigns "final" on creation).
 func TestRFC8621_SubmissionQueryUndoStatusBackend(t *testing.T) {
-	ctx := context.Background()
-	mb := memory.NewMemoryBackend()
+	be, cleanup := imapsmtp.NewEmbeddedBackend(testUsername)
+	defer cleanup()
+	ctx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject(testUsername))
 
-	sub, err := mb.CreateSubmission(ctx, &jmap.EmailSubmission{EmailID: "email-1", IdentityID: "id-primary"})
+	em, err := be.CreateEmail(ctx, &jmap.Email{
+		Subject: "Test for Submission",
+		To:      []jmap.EmailAddress{{Email: "to@example.com"}},
+	})
+	if err != nil {
+		t.Fatalf("CreateEmail failed: %v", err)
+	}
+
+	sub, err := be.CreateSubmission(ctx, &jmap.EmailSubmission{EmailID: em.ID, IdentityID: "id-primary"})
 	if err != nil {
 		t.Fatalf("CreateSubmission failed: %v", err)
 	}
 	sub.UndoStatus = "pending"
 
-	ids, total, err := mb.QuerySubmissions(ctx, map[string]any{"undoStatus": "pending"}, nil, 0, nil)
+	ids, total, err := be.QuerySubmissions(ctx, map[string]any{"undoStatus": "pending"}, nil, 0, nil)
 	if err != nil || total != 1 || len(ids) != 1 || ids[0] != sub.ID {
 		t.Errorf("undoStatus pending must match the pending submission, got %v (total %d): %v", ids, total, err)
 	}
-	ids, total, err = mb.QuerySubmissions(ctx, map[string]any{"undoStatus": "final"}, nil, 0, nil)
+	ids, total, err = be.QuerySubmissions(ctx, map[string]any{"undoStatus": "final"}, nil, 0, nil)
 	if err != nil || total != 0 || len(ids) != 0 {
 		t.Errorf("undoStatus final must exclude the pending submission, got %v (total %d): %v", ids, total, err)
 	}

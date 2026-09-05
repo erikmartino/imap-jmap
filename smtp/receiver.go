@@ -84,7 +84,7 @@ func NewReceiverBackend(mailBackend jmap.MailBackend, blobBackend jmap.BlobBacke
 		BlobBackend:      blobBackend,
 		CalendarsBackend: calBackend,
 		AccountResolver:  r,
-		AccountID:        jmap.AccountIDForSubject("user@example.com"),
+		AccountID:        "",
 		ServerName:       "localhost",
 	}
 }

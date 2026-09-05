@@ -9,70 +9,76 @@ import (
 
 func handleEmailCopy(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
-		fromAccountID, _ := args["fromAccountId"].(string)
-		accountID, _ := args["accountId"].(string)
-		createMap, _ := args["create"].(map[string]any)
-		onSuccessDestroy, _ := args["onSuccessDestroyOriginal"].(bool)
+		accountID, fromAccountID := ResolveCopyAccountIDs(args)
+		srcCtx := SourceAccountContext(ctx, args)
 
-		if fromAccountID == "" || accountID == "" || fromAccountID == accountID {
-			return "error", MethodErrorArgs(MethodErrorInvalidArguments, "fromAccountId and accountId must be present and distinct")
+		oldState, errInv := ValidateCopyStates(ctx, srcCtx, args, backend.EmailState, backend.EmailState)
+		if errInv != nil {
+			return errInv.Name, errInv.Args
 		}
 
-		fromCtx := ContextWithAccountID(ctx, fromAccountID)
-		destCtx := ContextWithAccountID(ctx, accountID)
-
-		oldState := backend.EmailState(destCtx)
+		onSuccessDestroy, _ := args["onSuccessDestroyOriginal"].(bool)
 		created := make(map[string]*Email)
-		notCreated := make(map[string]SetError)
+		notCreated := make(map[string]any)
+		destroyOriginals := make([]Id, 0)
 		creationRefs := newSetCreationRefs(ctx)
 
-		for clientKey, raw := range createMap {
-			if emData, ok := raw.(map[string]any); ok {
-				if idStr, ok := emData["id"].(string); ok {
-					resolvedID := resolveCreationID(idStr, creationRefs)
-					list, _, _ := backend.GetEmails(fromCtx, []Id{Id(resolvedID)})
-					if len(list) > 0 {
-						cp := *list[0]
-						cp.ID = ""
-						cp.ThreadID = ""
-
-						// Apply property overrides if specified (RFC 8621 Section 4.6)
-						if mbMap, ok := emData["mailboxIds"].(map[string]any); ok {
-							cp.MailboxIDs = make(map[Id]bool)
-							for k, v := range mbMap {
-								if v != nil {
-									resolvedMBID := resolveCreationID(k, creationRefs)
-									cp.MailboxIDs[Id(resolvedMBID)] = true
-								}
-							}
-						}
-						if kwMap, ok := emData["keywords"].(map[string]any); ok {
-							cp.Keywords = make(map[string]bool)
-							for k, v := range kwMap {
-								if boolVal, ok := v.(bool); ok {
-									cp.Keywords[k] = boolVal
-								}
-							}
-						}
-
-						createdEM, err := backend.CreateEmail(destCtx, &cp)
-						if err == nil {
-							created[clientKey] = createdEM
-							recordCreationRefs(ctx, creationRefs, clientKey, createdEM.ID)
-							if onSuccessDestroy {
-								_, _ = backend.DeleteEmail(fromCtx, Id(resolvedID))
-							}
-						} else {
-							notCreated[clientKey] = SetError{Type: "serverFail", Description: err.Error()}
-						}
-					} else {
-						notCreated[clientKey] = SetError{Type: "notFound", Description: "email not found"}
-					}
-				} else {
-					notCreated[clientKey] = SetError{Type: "invalidProperties", Description: "missing id"}
+		if createMap, ok := args["create"].(map[string]any); ok {
+			for clientKey, raw := range createMap {
+				emData, ok := raw.(map[string]any)
+				if !ok {
+					notCreated[clientKey] = SetError{Type: "invalidProperties", Description: "invalid create entry"}
+					continue
 				}
-			} else {
-				notCreated[clientKey] = SetError{Type: "invalidProperties", Description: "invalid create entry"}
+				idStr, _ := emData["id"].(string)
+				if idStr == "" {
+					notCreated[clientKey] = SetError{Type: "invalidProperties", Description: "missing id"}
+					continue
+				}
+				resolvedID := resolveCreationID(idStr, creationRefs)
+				list, notFound, _ := backend.GetEmails(srcCtx, []Id{Id(resolvedID)})
+				if len(list) == 0 || len(notFound) > 0 {
+					notCreated[clientKey] = SetError{Type: "notFound", Description: "email not found"}
+					continue
+				}
+
+				cp := *list[0]
+				cp.ID = ""
+				cp.ThreadID = ""
+
+				// Apply property overrides if specified (RFC 8621 Section 4.6)
+				if mbMap, ok := emData["mailboxIds"].(map[string]any); ok {
+					cp.MailboxIDs = make(map[Id]bool)
+					for k, v := range mbMap {
+						if v != nil {
+							resolvedMBID := resolveCreationID(k, creationRefs)
+							cp.MailboxIDs[Id(resolvedMBID)] = true
+						}
+					}
+				}
+				if kwMap, ok := emData["keywords"].(map[string]any); ok {
+					cp.Keywords = make(map[string]bool)
+					for k, v := range kwMap {
+						if boolVal, ok := v.(bool); ok {
+							cp.Keywords[k] = boolVal
+						}
+					}
+				}
+
+				createdEM, err := backend.CreateEmail(ctx, &cp)
+				if err != nil {
+					notCreated[clientKey] = SetError{Type: "serverFail", Description: err.Error()}
+				} else {
+					created[clientKey] = createdEM
+					recordCreationRefs(ctx, creationRefs, clientKey, createdEM.ID)
+					destroyOriginals = append(destroyOriginals, Id(resolvedID))
+				}
+			}
+		}
+
+		if onSuccessDestroy {
+			for _, srcID := range destroyOriginals {
+				_, _ = backend.DeleteEmail(srcCtx, srcID)
 			}
 		}
 
@@ -80,7 +86,7 @@ func handleEmailCopy(backend MailBackend) MethodHandler {
 			"fromAccountId": fromAccountID,
 			"accountId":     accountID,
 			"oldState":      oldState,
-			"newState":      backend.EmailState(destCtx),
+			"newState":      backend.EmailState(ctx),
 			"created":       nilIfEmpty(created),
 			"notCreated":    nilIfEmpty(notCreated),
 		}

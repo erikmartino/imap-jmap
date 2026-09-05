@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
+	"imap-jmap/jmap/imapsmtp"
 	"imap-jmap/jmap/spectest"
 	jmapsmtp "imap-jmap/smtp"
 )
@@ -26,8 +26,8 @@ func TestLocalDelivery_UserToUserOverSMTP(t *testing.T) {
 	spectest.Require(t, "RFC5321", "4.4", spectest.MUST,
 		"A receiving SMTP server MUST prepend a Received: trace header to the message content.")
 
-	memBackend := memory.NewMemoryBackend()
-	memBlobBackend := memory.NewMemoryBlobBackend()
+	embeddedBackend, cleanup := imapsmtp.NewEmbeddedBackend("alice@example.com", "bob@example.com")
+	defer cleanup()
 	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -37,7 +37,7 @@ func TestLocalDelivery_UserToUserOverSMTP(t *testing.T) {
 	addr := l.Addr().String()
 	_ = l.Close()
 
-	srv := jmapsmtp.NewServer(addr, memBackend, memBlobBackend, nil, jmapsmtp.WithAccountResolver(resolver))
+	srv := jmapsmtp.NewServer(addr, embeddedBackend, embeddedBackend, nil, jmapsmtp.WithAccountResolver(resolver))
 	go func() { _ = srv.ListenAndServe() }()
 	defer srv.Close()
 	time.Sleep(50 * time.Millisecond)
@@ -79,7 +79,7 @@ func TestLocalDelivery_UserToUserOverSMTP(t *testing.T) {
 	var delivered *jmap.Email
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		emails, _ := memBackend.GetAllEmails(bobCtx)
+		emails, _ := embeddedBackend.GetAllEmails(bobCtx)
 		for _, em := range emails {
 			if em.Subject == subject {
 				delivered = em
@@ -94,13 +94,14 @@ func TestLocalDelivery_UserToUserOverSMTP(t *testing.T) {
 	if delivered == nil {
 		t.Fatalf("recipient %s did not receive the message", recipient)
 	}
-	if !delivered.MailboxIDs["mb-inbox"] {
+	inboxID := jmap.InboxMailboxID(bobCtx, embeddedBackend)
+	if !delivered.MailboxIDs[inboxID] {
 		t.Errorf("expected the delivered message in the recipient's Inbox")
 	}
 
 	// It is NOT delivered to the sender's account (the sender is not a local recipient).
 	aliceCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject(sender))
-	aliceEmails, _ := memBackend.GetAllEmails(aliceCtx)
+	aliceEmails, _ := embeddedBackend.GetAllEmails(aliceCtx)
 	for _, em := range aliceEmails {
 		if em.Subject == subject {
 			t.Errorf("message must not be delivered to the sender's account")
@@ -108,7 +109,7 @@ func TestLocalDelivery_UserToUserOverSMTP(t *testing.T) {
 	}
 
 	// Delivery via SMTP is visible in a mail header: the Received: trace header.
-	blob, found, err := memBlobBackend.GetBlob(bobCtx, bobID, string(delivered.BlobID))
+	blob, found, err := embeddedBackend.GetBlob(bobCtx, bobID, string(delivered.BlobID))
 	if err != nil || !found {
 		t.Fatalf("recipient blob %s not found: err=%v", delivered.BlobID, err)
 	}

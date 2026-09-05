@@ -8,14 +8,16 @@ import (
 	"time"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
+	"imap-jmap/jmap/imapsmtp"
 	jmapsmtp "imap-jmap/smtp"
 )
 
 // TestRFC5321_SMTPProtocolDelivery tests RFC 5321 SMTP delivery sequence (EHLO, MAIL FROM, RCPT TO, DATA, QUIT).
 func TestRFC5321_SMTPProtocolDelivery(t *testing.T) {
-	memBackend := memory.NewMemoryBackend()
-	memBlobBackend := memory.NewMemoryBlobBackend()
+	backend, cleanup := imapsmtp.NewEmbeddedBackend("recipient@example.com")
+	defer cleanup()
+	memBackend := backend
+	memBlobBackend := backend
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -48,7 +50,7 @@ func TestRFC5321_SMTPProtocolDelivery(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	accountCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject("user@example.com"))
+	accountCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject("recipient@example.com"))
 	emails, err := memBackend.GetAllEmails(accountCtx)
 	if err != nil || len(emails) == 0 {
 		t.Fatalf("Expected delivered email in MailBackend per RFC 5321, got 0")

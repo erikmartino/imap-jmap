@@ -7,12 +7,12 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
+	"imap-jmap/jmap/testmock"
 )
 
 // TestRFC9553_JSContactDataModel tests JSContact (RFC 9553) Card data model creation and retrieval via JMAP.
 func TestRFC9553_JSContactDataModel(t *testing.T) {
-	contactsBackend := memory.NewMemoryContactsBackend()
+	contactsBackend := testmock.NewMemoryContactsBackend()
 	srv := jmap.NewServer(nil, jmap.WithContactsBackend(contactsBackend))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -64,7 +64,7 @@ func TestRFC9553_JSContactDataModel(t *testing.T) {
 
 // TestRFC9553_JSContactFullCard tests full JSContact Card specification properties per RFC 9553.
 func TestRFC9553_JSContactFullCard(t *testing.T) {
-	contactsBackend := memory.NewMemoryContactsBackend()
+	contactsBackend := testmock.NewMemoryContactsBackend()
 	srv := jmap.NewServer(nil, jmap.WithContactsBackend(contactsBackend))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -257,7 +257,7 @@ func TestRFC9553_JSContactFullCard(t *testing.T) {
 
 // TestRFC9553_JSContactGroup tests JSContact group card properties per RFC 9553 Section 2.1.6.
 func TestRFC9553_JSContactGroup(t *testing.T) {
-	contactsBackend := memory.NewMemoryContactsBackend()
+	contactsBackend := testmock.NewMemoryContactsBackend()
 	srv := jmap.NewServer(nil, jmap.WithContactsBackend(contactsBackend))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -314,7 +314,7 @@ func TestRFC9553_JSContactGroup(t *testing.T) {
 
 // TestRFC9553_CardVersionAndUid tests version ("1.0") and uid requirement / auto-generation per RFC 9553 Section 2.1.2/2.1.9.
 func TestRFC9553_CardVersionAndUid(t *testing.T) {
-	contactsBackend := memory.NewMemoryContactsBackend()
+	contactsBackend := testmock.NewMemoryContactsBackend()
 	srv := jmap.NewServer(nil, jmap.WithContactsBackend(contactsBackend))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -352,7 +352,7 @@ func TestRFC9553_CardVersionAndUid(t *testing.T) {
 
 // TestRFC9553_CardJSONPointerPatch tests nested JSON Pointer patch paths per RFC 8620 Section 5.3 / RFC 9610 Section 3.5.
 func TestRFC9553_CardJSONPointerPatch(t *testing.T) {
-	contactsBackend := memory.NewMemoryContactsBackend()
+	contactsBackend := testmock.NewMemoryContactsBackend()
 	srv := jmap.NewServer(nil, jmap.WithContactsBackend(contactsBackend))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strings"
 )
 
 // Mailbox Handlers (RFC 8621 Section 2)
@@ -248,41 +247,10 @@ func matchesMailboxFilter(mb *Mailbox, filter map[string]any) bool {
 	if len(filter) == 0 {
 		return true
 	}
-	if opRaw, ok := filter["operator"].(string); ok {
-		condsRaw, ok := filter["conditions"].([]any)
-		if !ok {
-			return true
-		}
-		op := strings.ToUpper(opRaw)
-		switch op {
-		case "AND":
-			for _, c := range condsRaw {
-				if condMap, ok := c.(map[string]any); ok {
-					if !matchesMailboxFilter(mb, condMap) {
-						return false
-					}
-				}
-			}
-			return true
-		case "OR":
-			for _, c := range condsRaw {
-				if condMap, ok := c.(map[string]any); ok {
-					if matchesMailboxFilter(mb, condMap) {
-						return true
-					}
-				}
-			}
-			return len(condsRaw) == 0
-		case "NOT":
-			for _, c := range condsRaw {
-				if condMap, ok := c.(map[string]any); ok {
-					if matchesMailboxFilter(mb, condMap) {
-						return false
-					}
-				}
-			}
-			return true
-		}
+	if match, isOp := EvalFilterOperator(filter, func(cond map[string]any) bool {
+		return matchesMailboxFilter(mb, cond)
+	}); isOp {
+		return match
 	}
 
 	if parentVal, exists := filter["parentId"]; exists {
@@ -502,52 +470,69 @@ func handleMailboxQueryChanges(backend MailBackend) MethodHandler {
 
 func handleMailboxCopy(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
-		fromAccountID, _ := args["fromAccountId"].(string)
-		accountID, _ := args["accountId"].(string)
-		createMap, _ := args["create"].(map[string]any)
-		onDestroy, _ := args["onSuccessDestroyOriginal"].(bool)
+		accountID, fromAccountID := ResolveCopyAccountIDs(args)
+		srcCtx := SourceAccountContext(ctx, args)
 
-		oldState := backend.MailboxState(ctx)
+		oldState, errInv := ValidateCopyStates(ctx, srcCtx, args, backend.MailboxState, backend.MailboxState)
+		if errInv != nil {
+			return errInv.Name, errInv.Args
+		}
+
+		onDestroy, _ := args["onSuccessDestroyOriginal"].(bool)
 		created := make(map[string]*Mailbox)
-		notCreated := make(map[string]SetError)
+		notCreated := make(map[string]any)
+		destroyOriginals := make([]Id, 0)
 		creationRefs := newSetCreationRefs(ctx)
 
-		for clientKey, raw := range createMap {
-			if mbData, ok := raw.(map[string]any); ok {
-				if idStr, ok := mbData["id"].(string); ok {
-					resolvedID := resolveCreationID(idStr, creationRefs)
-					list, _, _ := backend.GetMailboxes(ctx, []Id{Id(resolvedID)})
-					if len(list) > 0 {
-						cp := *list[0]
-						cp.ID = ""
+		if createMap, ok := args["create"].(map[string]any); ok {
+			for clientKey, raw := range createMap {
+				mbData, ok := raw.(map[string]any)
+				if !ok {
+					notCreated[clientKey] = SetError{Type: "invalidProperties", Description: "invalid create entry"}
+					continue
+				}
+				idStr, _ := mbData["id"].(string)
+				if idStr == "" {
+					notCreated[clientKey] = SetError{Type: "invalidProperties", Description: "missing id"}
+					continue
+				}
+				resolvedID := resolveCreationID(idStr, creationRefs)
+				list, notFound, _ := backend.GetMailboxes(srcCtx, []Id{Id(resolvedID)})
+				if len(list) == 0 || len(notFound) > 0 {
+					notCreated[clientKey] = SetError{Type: "notFound", Description: "mailbox not found"}
+					continue
+				}
 
-						// Apply overrides (RFC 8621 Section 2.5)
-						if nameOverride, ok := mbData["name"].(string); ok && nameOverride != "" {
-							cp.Name = nameOverride
-						}
-						if parentIDOverride, ok := mbData["parentId"].(string); ok {
-							if parentIDOverride == "" {
-								cp.ParentID = nil
-							} else {
-								pid := Id(resolveCreationID(parentIDOverride, creationRefs))
-								cp.ParentID = &pid
-							}
-						}
+				cp := *list[0]
+				cp.ID = ""
 
-						createdMB, err := backend.CreateMailbox(ctx, &cp)
-						if err == nil {
-							created[clientKey] = createdMB
-							recordCreationRefs(ctx, creationRefs, clientKey, createdMB.ID)
-							if onDestroy {
-								_, _ = backend.DeleteMailbox(ctx, Id(resolvedID), false)
-							}
-						} else {
-							notCreated[clientKey] = SetError{Type: "serverFail", Description: err.Error()}
-						}
+				// Apply overrides (RFC 8621 Section 2.5)
+				if nameOverride, ok := mbData["name"].(string); ok && nameOverride != "" {
+					cp.Name = nameOverride
+				}
+				if parentIDOverride, ok := mbData["parentId"].(string); ok {
+					if parentIDOverride == "" {
+						cp.ParentID = nil
 					} else {
-						notCreated[clientKey] = SetError{Type: "notFound", Description: "mailbox not found"}
+						pid := Id(resolveCreationID(parentIDOverride, creationRefs))
+						cp.ParentID = &pid
 					}
 				}
+
+				createdMB, err := backend.CreateMailbox(ctx, &cp)
+				if err != nil {
+					notCreated[clientKey] = SetError{Type: "serverFail", Description: err.Error()}
+				} else {
+					created[clientKey] = createdMB
+					recordCreationRefs(ctx, creationRefs, clientKey, createdMB.ID)
+					destroyOriginals = append(destroyOriginals, Id(resolvedID))
+				}
+			}
+		}
+
+		if onDestroy {
+			for _, srcID := range destroyOriginals {
+				_, _ = backend.DeleteMailbox(srcCtx, srcID, false)
 			}
 		}
 

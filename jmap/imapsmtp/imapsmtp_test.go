@@ -408,13 +408,9 @@ func TestEmailQuerySearchWildcardsAndOperators(t *testing.T) {
 }
 
 func TestIMAPIdlePushNotification(t *testing.T) {
-	imapAddr, smtpAddr := getTestTargetServers()
-	if !isIMAPReachable(imapAddr) {
-		t.Skip("IMAP server is not reachable at " + imapAddr)
-	}
-
-	be := New(imapAddr, smtpAddr)
-	defer be.Pool().Close()
+	be, cleanup := NewEmbeddedBackend("user@example.com")
+	defer cleanup()
+	defer be.Close()
 
 	broadcaster := jmap.NewBroadcaster()
 	be.SetBroadcaster(broadcaster)

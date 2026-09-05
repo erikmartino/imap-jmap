@@ -1,10 +1,9 @@
-package memory
+package testmock
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -516,199 +515,6 @@ func (b *MemoryContactsBackend) DeleteCard(ctx context.Context, id jmap.Id) (boo
 	return true, nil
 }
 
-// MatchCard reports whether a card satisfies an RFC 9610 Section 3.3.1 filter condition or FilterOperator.
-func MatchCard(card *jmap.Card, filter map[string]any) bool {
-	if filter == nil {
-		return true
-	}
-	if opVal, ok := filter["operator"]; ok {
-		op, _ := opVal.(string)
-		var conds []map[string]any
-		if rawConds, ok := filter["conditions"].([]any); ok {
-			for _, c := range rawConds {
-				if cm, ok := c.(map[string]any); ok {
-					conds = append(conds, cm)
-				}
-			}
-		} else if rawConds, ok := filter["conditions"].([]map[string]any); ok {
-			conds = rawConds
-		}
-
-		switch strings.ToUpper(op) {
-		case "AND":
-			for _, c := range conds {
-				if !MatchCard(card, c) {
-					return false
-				}
-			}
-			return true
-		case "OR":
-			for _, c := range conds {
-				if MatchCard(card, c) {
-					return true
-				}
-			}
-			return false
-		case "NOT":
-			for _, c := range conds {
-				if MatchCard(card, c) {
-					return false
-				}
-			}
-			return true
-		}
-	}
-
-	for k, v := range filter {
-		if k == "operator" || k == "conditions" {
-			continue
-		}
-		switch k {
-		case "inAddressBook":
-			ab, ok := v.(string)
-			if !ok || !card.AddressBookIDs[jmap.Id(ab)] {
-				return false
-			}
-		case "uid":
-			s, _ := v.(string)
-			if card.Uid != s {
-				return false
-			}
-		case "hasMember":
-			s, _ := v.(string)
-			if !card.Members[s] {
-				return false
-			}
-		case "kind":
-			s, _ := v.(string)
-			if card.Kind != s {
-				return false
-			}
-		case "createdBefore":
-			s, _ := v.(string)
-			if card.Created == "" || card.Created >= s {
-				return false
-			}
-		case "createdAfter":
-			s, _ := v.(string)
-			if card.Created == "" || card.Created < s {
-				return false
-			}
-		case "updatedBefore":
-			s, _ := v.(string)
-			if card.Updated == "" || card.Updated >= s {
-				return false
-			}
-		case "updatedAfter":
-			s, _ := v.(string)
-			if card.Updated == "" || card.Updated < s {
-				return false
-			}
-		case "name":
-			s, _ := v.(string)
-			if !matchesCardName(card.Name, s) {
-				return false
-			}
-		case "name/given", "name/surname", "name/surname2":
-			s, _ := v.(string)
-			if !matchesNameKind(card.Name, strings.TrimPrefix(k, "name/"), s) {
-				return false
-			}
-		case "nickname":
-			s, _ := v.(string)
-			if !matchesNickname(card.Nicknames, s) {
-				return false
-			}
-		case "organization":
-			s, _ := v.(string)
-			if !matchesOrganization(card.Organizations, s) {
-				return false
-			}
-		case "email":
-			s, _ := v.(string)
-			if !matchesEmails(card.Emails, s) {
-				return false
-			}
-		case "phone":
-			s, _ := v.(string)
-			if !matchesPhones(card.Phones, s) {
-				return false
-			}
-		case "onlineService":
-			s, _ := v.(string)
-			if !matchesOnlineService(card.OnlineServices, s) {
-				return false
-			}
-		case "address":
-			s, _ := v.(string)
-			if !matchesAddresses(card.Addresses, s) {
-				return false
-			}
-		case "note":
-			s, _ := v.(string)
-			if !matchesNotes(card.Notes, s) {
-				return false
-			}
-		case "text":
-			s, _ := v.(string)
-			if !matchesCardText(card, s) {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-func getCardNameComponent(card *jmap.Card, kind string) string {
-	if card == nil || card.Name == nil {
-		return ""
-	}
-	for _, comp := range card.Name.Components {
-		if comp != nil && comp.Kind == kind {
-			return comp.Value
-		}
-	}
-	return ""
-}
-
-func sortCards(cards []*jmap.Card, comparators []jmap.Comparator) {
-	if len(comparators) == 0 {
-		return
-	}
-	sort.SliceStable(cards, func(i, j int) bool {
-		c1, c2 := cards[i], cards[j]
-		for _, comp := range comparators {
-			var v1, v2 string
-			switch comp.Property {
-			case "created":
-				v1, v2 = c1.Created, c2.Created
-			case "updated":
-				v1, v2 = c1.Updated, c2.Updated
-			case "name/given":
-				v1 = getCardNameComponent(c1, "given")
-				v2 = getCardNameComponent(c2, "given")
-			case "name/surname":
-				v1 = getCardNameComponent(c1, "surname")
-				v2 = getCardNameComponent(c2, "surname")
-			case "name/surname2":
-				v1 = getCardNameComponent(c1, "surname2")
-				v2 = getCardNameComponent(c2, "surname2")
-			default:
-				continue
-			}
-
-			if v1 == v2 {
-				continue
-			}
-			if comp.IsAscending {
-				return v1 < v2
-			}
-			return v1 > v2
-		}
-		return string(c1.ID) < string(c2.ID)
-	})
-}
-
 func (b *MemoryContactsBackend) QueryCards(ctx context.Context, filter map[string]any, comparators []jmap.Comparator, position int, limit *uint64) ([]jmap.Id, int, error) {
 	b.mu.RLock()
 	us := b.getStoreLocked(ctx)
@@ -716,13 +522,13 @@ func (b *MemoryContactsBackend) QueryCards(ctx context.Context, filter map[strin
 
 	var matched []*jmap.Card
 	for _, card := range us.cards {
-		if MatchCard(card, filter) {
+		if jmap.MatchCard(card, filter) {
 			matched = append(matched, card)
 		}
 	}
 
 	total := len(matched)
-	sortCards(matched, comparators)
+	jmap.SortCards(matched, comparators)
 
 	position = jmap.NormalizePosition(position, total)
 	if position >= total {

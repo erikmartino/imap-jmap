@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
 )
 
 // TestRFC9404_Section2_Capability tests urn:ietf:params:jmap:blob capability discovery per RFC 9404 Section 2.
@@ -56,13 +55,10 @@ func TestRFC9404_Section2_Capability(t *testing.T) {
 
 // TestRFC9404_Section4_BlobGet tests Blob/get method per RFC 9404 Section 4.
 func TestRFC9404_Section4_BlobGet(t *testing.T) {
-	blobBackend := memory.NewMemoryBlobBackend()
-	acctID := jmap.AccountIDForSubject(testUsername)
-	_, _ = blobBackend.PutBlob(context.TODO(), acctID, "text/plain", []byte("Hello RFC 9404"))
-
-	srv := jmap.NewServer(nil, jmap.WithBlobBackend(blobBackend))
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
+	acctID := jmap.AccountIDForSubject(testUsername)
 
 	// Upload a blob first via HTTP upload
 	uploadResp, err := authedPost(ts.URL+"/upload/"+acctID+"/", "text/plain", bytes.NewReader([]byte("Test Data")))
@@ -198,6 +194,23 @@ func TestRFC9404_Section4_3_BlobLookup(t *testing.T) {
 		t.Fatalf("Expected uploaded blob id, got %v", uploadArgs["created"])
 	}
 
+	mbQuery := post([]any{
+		[]any{"Mailbox/get", map[string]any{"accountId": "primary"}, "mb0"},
+	})
+	var inboxID string
+	if list, ok := mbQuery["list"].([]any); ok {
+		for _, raw := range list {
+			m := raw.(map[string]any)
+			if m["role"] == "inbox" || m["name"] == "INBOX" {
+				inboxID = m["id"].(string)
+				break
+			}
+		}
+	}
+	if inboxID == "" {
+		t.Fatalf("could not find INBOX mailbox id")
+	}
+
 	importArgs := post([]any{
 		[]any{"Blob/upload", map[string]any{"accountId": "primary", "create": map[string]any{}}, "c0"},
 		[]any{"Email/import", map[string]any{
@@ -205,7 +218,7 @@ func TestRFC9404_Section4_3_BlobLookup(t *testing.T) {
 			"create": map[string]any{
 				"i1": map[string]any{
 					"blobId":     blobID,
-					"mailboxIds": map[string]any{"mb-inbox": true},
+					"mailboxIds": map[string]any{inboxID: true},
 				},
 			},
 		}, "c2"},
@@ -213,7 +226,7 @@ func TestRFC9404_Section4_3_BlobLookup(t *testing.T) {
 	createdImport := importArgs["created"].(map[string]any)
 	emailObj, ok := createdImport["i1"].(map[string]any)
 	if !ok {
-		t.Fatalf("Expected imported email, got %v", createdImport)
+		t.Fatalf("Expected imported email, got %v (notCreated: %v)", createdImport, importArgs["notCreated"])
 	}
 	emailID := emailObj["id"].(string)
 	threadID := emailObj["threadId"].(string)
@@ -306,12 +319,14 @@ func TestRFC9404_Section4_3_BlobLookup(t *testing.T) {
 
 // TestRFC9404_Section4_BlobCopy tests Blob/copy method per RFC 9404 Section 4.
 func TestRFC9404_Section4_BlobCopy(t *testing.T) {
-	blobBackend := memory.NewMemoryBlobBackend()
-	b1, _ := blobBackend.PutBlob(context.TODO(), "account-a", "text/plain", []byte("Copy Me"))
-
-	srv := jmap.NewServer(nil, jmap.WithBlobBackend(blobBackend))
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
+
+	b1, err := srv.BlobBackend.PutBlob(context.TODO(), "account-a", "text/plain", []byte("Copy Me"))
+	if err != nil {
+		t.Fatalf("PutBlob failed: %v", err)
+	}
 
 	reqPayload := map[string]any{
 		"using": []string{jmap.CoreCapabilityURI, jmap.BlobCapabilityURI},

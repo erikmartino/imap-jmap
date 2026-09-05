@@ -136,9 +136,10 @@ func sendSchedulingEmail(ctx context.Context, mailBackend MailBackend, subject, 
 	}
 	p1 := "1"
 	email := &Email{
-		Subject: subject,
-		From:    []EmailAddress{{Email: fromAddr}},
-		To:      []EmailAddress{{Email: toAddr}},
+		MailboxIDs: map[Id]bool{"mb-sent": true},
+		Subject:    subject,
+		From:       []EmailAddress{{Email: fromAddr}},
+		To:         []EmailAddress{{Email: toAddr}},
 		BodyStructure: EmailBodyPart{
 			PartID: &p1,
 			Type:   "text/calendar; method=" + method,

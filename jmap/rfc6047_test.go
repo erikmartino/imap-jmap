@@ -9,14 +9,16 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
+	"imap-jmap/jmap/imapsmtp"
+	"imap-jmap/jmap/testmock"
 )
 
 // TestRFC6047_AutoSendInvitationAndCancellation tests RFC 6047 iMIP email binding for invitation request & cancellation.
 func TestRFC6047_AutoSendInvitationAndCancellation(t *testing.T) {
-	calBackend := memory.NewMemoryCalendarsBackend()
-	mailBackend := memory.NewMemoryBackend()
-	srv := jmap.NewServer(nil, jmap.WithCalendarsBackend(calBackend), jmap.WithMailBackend(mailBackend))
+	calBackend := testmock.NewMemoryCalendarsBackend()
+	mailBackend, cleanup := imapsmtp.NewEmbeddedBackend(testUsername)
+	defer cleanup()
+	srv := jmap.NewServer(nil, jmap.WithCalendarsBackend(calBackend), jmap.WithMailBackend(mailBackend), jmap.WithBlobBackend(mailBackend))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 

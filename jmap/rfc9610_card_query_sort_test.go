@@ -7,11 +7,11 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
+	"imap-jmap/jmap/testmock"
 )
 
 func TestRFC9610_ContactCard_QuerySort(t *testing.T) {
-	contactsBackend := memory.NewMemoryContactsBackend()
+	contactsBackend := testmock.NewMemoryContactsBackend()
 	srv := jmap.NewServer(nil, jmap.WithContactsBackend(contactsBackend))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()

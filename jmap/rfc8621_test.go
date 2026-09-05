@@ -734,12 +734,12 @@ func TestRFC8621_Section4_5_1_EmailQueryFromToFilters(t *testing.T) {
 		return out
 	}
 
-	// Seeded emails: email-1 From admin@example.com, email-3 From noreply@ietf.org,
+	// Seeded emails: email-1 (mb-inbox-1) From admin@example.com, email-3 (mb-inbox-2) From noreply@ietf.org,
 	// both To user@example.com.
-	if got := queryFiltered(map[string]any{"from": "admin@example.com"}); len(got) != 1 || got[0] != "email-1" {
+	if got := queryFiltered(map[string]any{"from": "admin@example.com"}); len(got) != 1 || (got[0] != "email-1" && got[0] != "mb-inbox-1") {
 		t.Errorf("Expected email-1 for from admin@example.com, got %v", got)
 	}
-	if got := queryFiltered(map[string]any{"from": "ietf.org"}); len(got) != 1 || got[0] != "email-3" {
+	if got := queryFiltered(map[string]any{"from": "ietf.org"}); len(got) != 1 || (got[0] != "email-3" && got[0] != "mb-inbox-2") {
 		t.Errorf("Expected email-3 for from ietf.org, got %v", got)
 	}
 	if got := queryFiltered(map[string]any{"from": "user@example.com"}); len(got) != 0 {

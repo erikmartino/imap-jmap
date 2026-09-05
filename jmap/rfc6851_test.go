@@ -1,19 +1,23 @@
 package jmap_test
 
 import (
-	"context"
 	"testing"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
+	"imap-jmap/jmap/imapsmtp"
 )
 
 // TestRFC6851_IMAPMoveMailboxAssignment tests RFC 6851 IMAP MOVE command mailbox reassignment mapping.
 func TestRFC6851_IMAPMoveMailboxAssignment(t *testing.T) {
-	memBackend := memory.NewMemoryBackend()
+	backend, cleanup := imapsmtp.NewEmbeddedBackend(testUsername)
+	defer cleanup()
 
-	email, err := memBackend.CreateEmail(context.Background(), &jmap.Email{
-		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
+	ctx := seedCtx()
+	inboxID := imapsmtp.MailboxIDForName("INBOX")
+	archiveID := imapsmtp.MailboxIDForName("Archive")
+
+	email, err := backend.CreateEmail(ctx, &jmap.Email{
+		MailboxIDs: map[jmap.Id]bool{inboxID: true},
 		Subject:    "RFC 6851 Move Test",
 	})
 	if err != nil {
@@ -21,14 +25,14 @@ func TestRFC6851_IMAPMoveMailboxAssignment(t *testing.T) {
 	}
 
 	patch := map[string]any{
-		"mailboxIds": map[string]any{"mb-archive": true},
+		"mailboxIds": map[string]any{string(archiveID): true},
 	}
-	up, err := memBackend.UpdateEmail(context.Background(), email.ID, patch)
+	up, err := backend.UpdateEmail(ctx, email.ID, patch)
 	if err != nil {
 		t.Fatalf("UpdateEmail (Move) failed per RFC 6851: %v", err)
 	}
 
-	if !up.MailboxIDs["mb-archive"] {
-		t.Errorf("Expected email to be moved to mb-archive per RFC 6851")
+	if !up.MailboxIDs[archiveID] {
+		t.Errorf("Expected email to be moved to %s per RFC 6851, got %v", archiveID, up.MailboxIDs)
 	}
 }

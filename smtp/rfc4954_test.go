@@ -11,15 +11,16 @@ import (
 	"time"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
+	"imap-jmap/jmap/imapsmtp"
 	"imap-jmap/jmap/spectest"
+	"imap-jmap/jmap/testmock"
 	jmapsmtp "imap-jmap/smtp"
 )
 
 // startSMTPServer starts a real SMTP server on an ephemeral port and returns
-// its address plus the memory backends it stores into. The test waits until
+// its address plus the backends it stores into. The test waits until
 // the listener actually accepts connections.
-func startSMTPServer(t *testing.T, opts ...jmapsmtp.Option) (string, *memory.MemoryBackend, *memory.MemoryBlobBackend) {
+func startSMTPServer(t *testing.T, opts ...jmapsmtp.Option) (string, jmap.MailBackend, jmap.BlobBackend) {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -28,10 +29,10 @@ func startSMTPServer(t *testing.T, opts ...jmapsmtp.Option) (string, *memory.Mem
 	addr := listener.Addr().String()
 	_ = listener.Close()
 
-	mailBackend := memory.NewMemoryBackend()
-	blobBackend := memory.NewMemoryBlobBackend()
-	calBackend := memory.NewMemoryCalendarsBackend()
-	srv := jmapsmtp.NewServer(addr, mailBackend, blobBackend, calBackend, opts...)
+	backend, cleanup := imapsmtp.NewEmbeddedBackend("alice@example.com", "bob@example.com", "user@example.com")
+	t.Cleanup(cleanup)
+	calBackend := testmock.NewMemoryCalendarsBackend()
+	srv := jmapsmtp.NewServer(addr, backend, backend, calBackend, opts...)
 	go func() {
 		_ = srv.ListenAndServe()
 	}()
@@ -49,7 +50,7 @@ func startSMTPServer(t *testing.T, opts ...jmapsmtp.Option) (string, *memory.Mem
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	return addr, mailBackend, blobBackend
+	return addr, backend, backend
 }
 
 func dialClient(t *testing.T, addr string) *smtp.Client {
@@ -75,7 +76,7 @@ func plainAuth(addr, user, pass string) smtp.Auth {
 	return smtp.PlainAuth("", user, pass, host)
 }
 
-func storedRawMessage(t *testing.T, mailBackend *memory.MemoryBackend, blobBackend *memory.MemoryBlobBackend, recipient string) string {
+func storedRawMessage(t *testing.T, mailBackend jmap.MailBackend, blobBackend jmap.BlobBackend, recipient string) string {
 	t.Helper()
 	ctx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject(recipient))
 	ids, _, err := mailBackend.QueryEmails(ctx, nil, nil, 0, nil)
@@ -96,10 +97,10 @@ func storedRawMessage(t *testing.T, mailBackend *memory.MemoryBackend, blobBacke
 	return string(blob.Data)
 }
 
-func submissionServer(t *testing.T) (string, *memory.MemoryBackend, *memory.MemoryBlobBackend) {
+func submissionServer(t *testing.T) (string, jmap.MailBackend, jmap.BlobBackend) {
 	return startSMTPServer(t,
 		jmapsmtp.WithTransportMode(jmapsmtp.TransportModeSubmission),
-		jmapsmtp.WithAuthenticator(jmapsmtp.NewAuthBackendAuthenticator(memory.NewMemoryAuthBackend())),
+		jmapsmtp.WithAuthenticator(jmapsmtp.NewAuthBackendAuthenticator(testmock.NewMemoryAuthBackend())),
 		jmapsmtp.WithAccountResolver(jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}),
 	)
 }
@@ -270,7 +271,7 @@ func TestRFC4954_NoInsecureAuthConfigurationOverWire(t *testing.T) {
 
 	addr, _, _ := startSMTPServer(t,
 		jmapsmtp.WithTransportMode(jmapsmtp.TransportModeSubmission),
-		jmapsmtp.WithAuthenticator(jmapsmtp.NewAuthBackendAuthenticator(memory.NewMemoryAuthBackend())),
+		jmapsmtp.WithAuthenticator(jmapsmtp.NewAuthBackendAuthenticator(testmock.NewMemoryAuthBackend())),
 		jmapsmtp.WithAllowInsecureAuth(false),
 	)
 	client := dialClient(t, addr)

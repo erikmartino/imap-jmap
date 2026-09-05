@@ -221,6 +221,56 @@ type ThreadFilterContext struct {
 	ThreadEmailsWithKw map[Id]map[string]int
 }
 
+// EvalFilterOperator evaluates an RFC 8620 Section 5.5 FilterOperator object (contains
+// "operator" and "conditions" properties) using the provided matchCondition function for each
+// condition. It returns (matched, true) if filter is a FilterOperator, or (false, false) if
+// filter is not an operator (i.e. it is a FilterCondition).
+func EvalFilterOperator(filter map[string]any, matchCondition func(map[string]any) bool) (bool, bool) {
+	if filter == nil {
+		return true, false
+	}
+	opRaw, ok := filter["operator"].(string)
+	if !ok {
+		return false, false
+	}
+	var conds []map[string]any
+	if rawConds, ok := filter["conditions"].([]any); ok {
+		for _, c := range rawConds {
+			if cm, ok := c.(map[string]any); ok {
+				conds = append(conds, cm)
+			}
+		}
+	} else if rawConds, ok := filter["conditions"].([]map[string]any); ok {
+		conds = rawConds
+	}
+
+	switch strings.ToUpper(opRaw) {
+	case "AND":
+		for _, condMap := range conds {
+			if !matchCondition(condMap) {
+				return false, true
+			}
+		}
+		return true, true
+	case "OR":
+		for _, condMap := range conds {
+			if matchCondition(condMap) {
+				return true, true
+			}
+		}
+		return false, true
+	case "NOT":
+		for _, condMap := range conds {
+			if matchCondition(condMap) {
+				return false, true
+			}
+		}
+		return true, true
+	default:
+		return true, true
+	}
+}
+
 // MatchesFilter checks if an email matches a filter object per RFC 8621 Section 4.5.
 func MatchesFilter(em *Email, filter map[string]any) bool {
 	return MatchesFilterWithThreadContext(em, filter, nil)
@@ -232,45 +282,10 @@ func MatchesFilterWithThreadContext(em *Email, filter map[string]any, tc *Thread
 		return true
 	}
 
-	// Check if this is a FilterOperator object (contains "operator" key)
-	if opRaw, ok := filter["operator"].(string); ok {
-		condsRaw, ok := filter["conditions"].([]any)
-		if !ok {
-			return true
-		}
-
-		op := strings.ToUpper(opRaw)
-		switch op {
-		case "AND":
-			for _, condRaw := range condsRaw {
-				if condMap, ok := condRaw.(map[string]any); ok {
-					if !MatchesFilterWithThreadContext(em, condMap, tc) {
-						return false
-					}
-				}
-			}
-			return true
-
-		case "OR":
-			for _, condRaw := range condsRaw {
-				if condMap, ok := condRaw.(map[string]any); ok {
-					if MatchesFilterWithThreadContext(em, condMap, tc) {
-						return true
-					}
-				}
-			}
-			return len(condsRaw) == 0
-
-		case "NOT":
-			for _, condRaw := range condsRaw {
-				if condMap, ok := condRaw.(map[string]any); ok {
-					if MatchesFilterWithThreadContext(em, condMap, tc) {
-						return false
-					}
-				}
-			}
-			return true
-		}
+	if match, isOp := EvalFilterOperator(filter, func(cond map[string]any) bool {
+		return MatchesFilterWithThreadContext(em, cond, tc)
+	}); isOp {
+		return match
 	}
 
 	// Evaluate FilterCondition properties

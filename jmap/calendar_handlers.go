@@ -227,20 +227,15 @@ func handleCalendarSet(backend CalendarsBackend) MethodHandler {
 
 func handleCalendarCopy(backend CalendarsBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
-		accountID, _ := args["accountId"].(string)
-		fromAccountID, _ := args["fromAccountId"].(string)
-		if fromAccountID == "" {
-			fromAccountID = accountID
+		accountID, fromAccountID := ResolveCopyAccountIDs(args)
+		srcCtx := SourceAccountContext(ctx, args)
+
+		oldState, errInv := ValidateCopyStates(ctx, srcCtx, args, backend.CalendarState, backend.CalendarState)
+		if errInv != nil {
+			return errInv.Name, errInv.Args
 		}
-		// Read the source objects from the "from" account, not the destination account.
-		srcCtx := sourceAccountContext(ctx, args)
-		oldState := backend.CalendarState(ctx)
 
 		onSuccessDestroyOriginal, _ := args["onSuccessDestroyOriginal"].(bool)
-		if dfis, ok := args["destroyFromIfInState"].(string); ok && dfis != "" && dfis != backend.CalendarState(srcCtx) {
-			return "error", MethodErrorArgs("stateMismatch", "destroyFromIfInState does not match the source account state")
-		}
-
 		created := make(map[string]*Calendar)
 		notCreated := make(map[string]any)
 		destroyOriginals := make([]Id, 0)
@@ -289,20 +284,10 @@ func handleCalendarCopy(backend CalendarsBackend) MethodHandler {
 			"accountId":     accountID,
 			"oldState":      oldState,
 			"newState":      backend.CalendarState(ctx),
-			"created":       created,
-			"notCreated":    notCreated,
+			"created":       nilIfEmpty(created),
+			"notCreated":    nilIfEmpty(notCreated),
 		}
 	}
-}
-
-// sourceAccountContext returns a context scoped to the copy's fromAccountId so source objects
-// are read from the correct account. An empty or "primary" fromAccountId means the caller's own
-// account, i.e. the context is left unchanged.
-func sourceAccountContext(ctx context.Context, args map[string]any) context.Context {
-	if raw, _ := args["fromAccountId"].(string); raw != "" && raw != "primary" {
-		return ContextWithAccountID(ctx, raw)
-	}
-	return ctx
 }
 
 // validCalendarProperties are the settable/known Calendar properties (draft-ietf-jmap-calendars

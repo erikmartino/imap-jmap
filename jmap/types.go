@@ -87,7 +87,8 @@ type RequestError struct {
 }
 
 const (
-	ErrorInvalidJSON       = "urn:ietf:params:jmap:error:invalidJSON"
+	ErrorNotJSON           = "urn:ietf:params:jmap:error:notJSON"
+	ErrorInvalidJSON       = ErrorNotJSON // Deprecated alias for backwards compatibility
 	ErrorUnknownCapability = "urn:ietf:params:jmap:error:unknownCapability"
 	ErrorNotRequest        = "urn:ietf:params:jmap:error:notRequest"
 	ErrorLimit             = "urn:ietf:params:jmap:error:limit"

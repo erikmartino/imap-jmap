@@ -12,19 +12,26 @@ import (
 	"time"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
+	"imap-jmap/jmap/imapsmtp"
 	"imap-jmap/jmap/spectest"
+	"imap-jmap/jmap/testmock"
 	jmapsmtp "imap-jmap/smtp"
 )
+
+func newSecurityTestBackends(t *testing.T, users ...string) (jmap.MailBackend, jmap.BlobBackend, *testmock.MemoryCalendarsBackend) {
+	t.Helper()
+	backend, cleanup := imapsmtp.NewEmbeddedBackend(users...)
+	t.Cleanup(cleanup)
+	calBackend := testmock.NewMemoryCalendarsBackend()
+	return backend, backend, calBackend
+}
 
 func TestRFC6047_SecurityHardening_EnvelopeIdentityBinding(t *testing.T) {
 	spectest.Require(t, "RFC6047", "3", spectest.MUST,
 		"Security Considerations: Require authenticated envelope sender to match iTIP actor.")
 
 	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
-	calBackend := memory.NewMemoryCalendarsBackend()
-	mailBackend := memory.NewMemoryBackend()
-	blobBackend := memory.NewMemoryBlobBackend()
+	mailBackend, blobBackend, calBackend := newSecurityTestBackends(t, "bob@example.com", "alice@example.com", "eve@example.com")
 
 	const organizer = "bob@example.com"
 	const attendee = "alice@example.com"
@@ -91,9 +98,7 @@ func TestRFC6047_SecurityHardening_ParticipantAuthorization(t *testing.T) {
 		"Security Considerations: Participant authorization: REPLY ignored if sender is not on the event.")
 
 	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
-	calBackend := memory.NewMemoryCalendarsBackend()
-	mailBackend := memory.NewMemoryBackend()
-	blobBackend := memory.NewMemoryBlobBackend()
+	mailBackend, blobBackend, calBackend := newSecurityTestBackends(t, "bob@example.com", "alice@example.com", "charlie@example.com")
 
 	const organizer = "bob@example.com"
 	const attendee = "alice@example.com"
@@ -159,9 +164,7 @@ func TestRFC6047_SecurityHardening_ReplaySequenceDefence(t *testing.T) {
 		"Sequence defence: Stale iTIP messages with SEQUENCE < event.SEQUENCE are discarded.")
 
 	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
-	calBackend := memory.NewMemoryCalendarsBackend()
-	mailBackend := memory.NewMemoryBackend()
-	blobBackend := memory.NewMemoryBlobBackend()
+	mailBackend, blobBackend, calBackend := newSecurityTestBackends(t, "bob@example.com", "alice@example.com")
 
 	const organizer = "bob@example.com"
 	const attendee = "alice@example.com"
@@ -228,9 +231,7 @@ func TestRFC6047_SecurityHardening_InboundCancel(t *testing.T) {
 		"Inbound CANCEL from organizer marks the event cancelled.")
 
 	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
-	calBackend := memory.NewMemoryCalendarsBackend()
-	mailBackend := memory.NewMemoryBackend()
-	blobBackend := memory.NewMemoryBlobBackend()
+	mailBackend, blobBackend, calBackend := newSecurityTestBackends(t, "organizer@example.com", "invitee@example.com")
 
 	const organizer = "organizer@example.com"
 	const invitee = "invitee@example.com"
@@ -314,9 +315,7 @@ func TestRFC5321_SEC6_OversizedMessageRejected(t *testing.T) {
 	spectest.Require(t, "RFC5321", "4.2.3", spectest.MUST,
 		"Resource limits: Oversized messages exceeding maximum limit must be rejected with 552 error.")
 
-	mailBackend := memory.NewMemoryBackend()
-	blobBackend := memory.NewMemoryBlobBackend()
-	calBackend := memory.NewMemoryCalendarsBackend()
+	mailBackend, blobBackend, calBackend := newSecurityTestBackends(t, "user@example.com")
 
 	backend := jmapsmtp.NewReceiverBackend(mailBackend, blobBackend, calBackend)
 	session, err := backend.NewSession(nil)
@@ -347,9 +346,7 @@ func TestRFC5321_SEC6_MIMEPartLimits(t *testing.T) {
 	spectest.Require(t, "RFC2045", "1", spectest.MUST,
 		"Resource limits: Bounded MIME multipart extraction prevents unbounded part allocation.")
 
-	mailBackend := memory.NewMemoryBackend()
-	blobBackend := memory.NewMemoryBlobBackend()
-	calBackend := memory.NewMemoryCalendarsBackend()
+	mailBackend, blobBackend, calBackend := newSecurityTestBackends(t, "user@example.com")
 
 	backend := jmapsmtp.NewReceiverBackend(mailBackend, blobBackend, calBackend)
 	session, err := backend.NewSession(nil)

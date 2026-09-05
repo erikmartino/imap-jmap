@@ -1,18 +1,18 @@
 package jmap_test
 
 import (
-	"context"
 	"testing"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
+	"imap-jmap/jmap/imapsmtp"
 )
 
 // TestRFC4315_IMAPUIDPlusTracking tests RFC 4315 IMAP UIDPLUS unique identifier tracking in JMAP IDs.
 func TestRFC4315_IMAPUIDPlusTracking(t *testing.T) {
-	memBackend := memory.NewMemoryBackend()
+	backend, cleanup := imapsmtp.NewEmbeddedBackend(testUsername)
+	defer cleanup()
 
-	email, err := memBackend.CreateEmail(context.Background(), &jmap.Email{
+	email, err := backend.CreateEmail(seedCtx(), &jmap.Email{
 		Subject: "UIDPLUS Test",
 	})
 	if err != nil {

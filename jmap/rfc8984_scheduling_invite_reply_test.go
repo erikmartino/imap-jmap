@@ -8,17 +8,19 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
+	"imap-jmap/jmap/imapsmtp"
 	"imap-jmap/jmap/spectest"
+	"imap-jmap/jmap/testmock"
 )
 
 // schedulingTestServer returns a JMAP server backed by fresh calendar + mail backends,
 // plus the mail backend so tests can inspect the iMIP messages the server dispatched.
-func schedulingTestServer(t *testing.T) (*httptest.Server, *memory.MemoryBackend) {
+func schedulingTestServer(t *testing.T) (*httptest.Server, jmap.MailBackend) {
 	t.Helper()
-	calBackend := memory.NewMemoryCalendarsBackend()
-	mailBackend := memory.NewMemoryBackend()
-	srv := jmap.NewServer(nil, jmap.WithCalendarsBackend(calBackend), jmap.WithMailBackend(mailBackend))
+	calBackend := testmock.NewMemoryCalendarsBackend()
+	mailBackend, cleanup := imapsmtp.NewEmbeddedBackend(testUsername)
+	t.Cleanup(cleanup)
+	srv := jmap.NewServer(nil, jmap.WithCalendarsBackend(calBackend), jmap.WithMailBackend(mailBackend), jmap.WithBlobBackend(mailBackend))
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts, mailBackend
@@ -27,7 +29,7 @@ func schedulingTestServer(t *testing.T) (*httptest.Server, *memory.MemoryBackend
 // schedulingEmails returns only the iMIP scheduling messages the server dispatched
 // (those carrying a text/calendar body part), ignoring any seeded sample mail — a real
 // client likewise recognises a scheduling message by its text/calendar content type.
-func schedulingEmails(t *testing.T, mb *memory.MemoryBackend) []*jmap.Email {
+func schedulingEmails(t *testing.T, mb jmap.MailBackend) []*jmap.Email {
 	t.Helper()
 	emails, err := mb.GetAllEmails(seedCtx())
 	if err != nil {
@@ -140,7 +142,7 @@ func TestRFC8984_SchedulingNoSupportedScheduleMethods(t *testing.T) {
 		"noSupportedScheduleMethods is returned when scheduling is requested but no schedule method is available.")
 
 	// A calendar backend but NO mail backend: there is no method to send iTIP.
-	calBackend := memory.NewMemoryCalendarsBackend()
+	calBackend := testmock.NewMemoryCalendarsBackend()
 	srv := jmap.NewServer(nil, jmap.WithCalendarsBackend(calBackend))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()

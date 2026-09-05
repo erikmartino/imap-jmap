@@ -10,8 +10,9 @@ import (
 	"time"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
+	"imap-jmap/jmap/imapsmtp"
 	"imap-jmap/jmap/spectest"
+	"imap-jmap/jmap/testmock"
 	jmapsmtp "imap-jmap/smtp"
 )
 
@@ -27,9 +28,11 @@ func TestRFC6047_InboundRequestFullFidelityMultipart(t *testing.T) {
 		"An inbound REQUEST imports the full event (recurrence, duration, location, participants).")
 
 	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
-	calBackend := memory.NewMemoryCalendarsBackend()
-	mailBackend := memory.NewMemoryBackend()
-	blobBackend := memory.NewMemoryBlobBackend()
+	calBackend := testmock.NewMemoryCalendarsBackend()
+	backend, cleanup := imapsmtp.NewEmbeddedBackend("invitee@example.com")
+	defer cleanup()
+	mailBackend := backend
+	blobBackend := backend
 
 	const organizer = "organizer@ext.test" // external organizer
 	const invitee = "invitee@example.com"  // local invitee

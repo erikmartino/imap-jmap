@@ -7,15 +7,15 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
+	"imap-jmap/jmap/testmock"
 )
 
 // TestRFC8984_AvailabilityBusyWindows verifies Principal/getAvailability emits real busy windows:
 // end = start + duration (not a zero-length window), and events that are "free", cancelled, or
 // "secret" do not contribute to the free-busy shown to other principals.
 func TestRFC8984_AvailabilityBusyWindows(t *testing.T) {
-	pb := memory.NewMemoryPrincipalsBackend()
-	cb := memory.NewMemoryCalendarsBackend()
+	pb := testmock.NewMemoryPrincipalsBackend()
+	cb := testmock.NewMemoryCalendarsBackend()
 	pb.SetCalendarsBackend(cb)
 
 	srv := jmap.NewServer(nil, jmap.WithPrincipalsBackend(pb), jmap.WithCalendarsBackend(cb))
@@ -73,8 +73,8 @@ func TestRFC8984_AvailabilityBusyWindows(t *testing.T) {
 // TestRFC8984_AvailabilityCrossPrincipal verifies Principal/getAvailability resolves the target principal's
 // distinct account context and returns busy windows from that target principal's calendars.
 func TestRFC8984_AvailabilityCrossPrincipal(t *testing.T) {
-	pb := memory.NewMemoryPrincipalsBackend()
-	cb := memory.NewMemoryCalendarsBackend()
+	pb := testmock.NewMemoryPrincipalsBackend()
+	cb := testmock.NewMemoryCalendarsBackend()
 	pb.SetCalendarsBackend(cb)
 
 	srv := jmap.NewServer(nil, jmap.WithPrincipalsBackend(pb), jmap.WithCalendarsBackend(cb))
@@ -135,8 +135,8 @@ func TestRFC8984_AvailabilityCrossPrincipal(t *testing.T) {
 // TestRFC8984_AvailabilityIncludeInAvailability verifies that the calendar-level includeInAvailability
 // setting ("all", "none", "attending") is strictly respected when computing free-busy.
 func TestRFC8984_AvailabilityIncludeInAvailability(t *testing.T) {
-	pb := memory.NewMemoryPrincipalsBackend()
-	cb := memory.NewMemoryCalendarsBackend()
+	pb := testmock.NewMemoryPrincipalsBackend()
+	cb := testmock.NewMemoryCalendarsBackend()
 	pb.SetCalendarsBackend(cb)
 
 	srv := jmap.NewServer(nil, jmap.WithPrincipalsBackend(pb), jmap.WithCalendarsBackend(cb))

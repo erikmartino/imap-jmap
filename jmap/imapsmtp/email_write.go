@@ -57,13 +57,33 @@ func (b *IMAPSMTPBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jma
 		em.MailboxIDs = map[jmap.Id]bool{destMbID: true}
 	}
 
-	rawBytes := jmap.FormatEmailRFC822(em)
+	var rawBytes []byte
+	originalBlobID := em.BlobID
+	if em.BlobID != "" {
+		b.blobsMu.RLock()
+		if blob, ok := b.blobs[string(em.BlobID)]; ok && len(blob.Data) > 0 {
+			rawBytes = blob.Data
+		}
+		b.blobsMu.RUnlock()
+	}
+	if len(rawBytes) == 0 {
+		rawBytes = jmap.FormatEmailRFC822(em)
+	}
 	flags := MapKeywordsToIMAPFlags(em.Keywords)
 
-	appendCmd := client.Append(folderName, int64(len(rawBytes)), &imap.AppendOptions{
+	appendOpts := &imap.AppendOptions{
 		Flags: flags,
 		Time:  time.Now(),
-	})
+	}
+	if em.ReceivedAt != "" {
+		if t, err := time.Parse(time.RFC3339Nano, em.ReceivedAt); err == nil {
+			appendOpts.Time = t
+		} else if t, err := time.Parse(time.RFC3339, em.ReceivedAt); err == nil {
+			appendOpts.Time = t
+		}
+	}
+
+	appendCmd := client.Append(folderName, int64(len(rawBytes)), appendOpts)
 	if _, err := appendCmd.Write(rawBytes); err != nil {
 		_ = appendCmd.Close()
 		return nil, fmt.Errorf("failed to write append bytes: %w", err)
@@ -92,12 +112,35 @@ func (b *IMAPSMTPBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jma
 	em.ID = emailID
 	em.BlobID = jmap.Id(emailID)
 	em.Size = uint64(len(rawBytes))
-	em.ReceivedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	if em.ReceivedAt == "" {
+		em.ReceivedAt = appendOpts.Time.UTC().Format(time.RFC3339Nano)
+	}
 	if em.ThreadID == "" {
 		if len(em.MessageID) > 0 {
 			em.ThreadID = ThreadIDFor(em.MessageID[0], emailID)
 		} else {
 			em.ThreadID = emailID
+		}
+	}
+
+	accountID, _ := jmap.AccountIDFromContext(ctx)
+	b.recordEmailMutation(accountID, emailID, "create")
+	if originalBlobID != "" {
+		b.recordBlobRef(accountID, string(originalBlobID), emailID)
+	}
+	for _, part := range em.TextBody {
+		if part.BlobID != nil && *part.BlobID != "" {
+			b.recordBlobRef(accountID, string(*part.BlobID), emailID)
+		}
+	}
+	for _, part := range em.HTMLBody {
+		if part.BlobID != nil && *part.BlobID != "" {
+			b.recordBlobRef(accountID, string(*part.BlobID), emailID)
+		}
+	}
+	for _, att := range em.Attachments {
+		if att.BlobID != nil && *att.BlobID != "" {
+			b.recordBlobRef(accountID, string(*att.BlobID), emailID)
 		}
 	}
 	b.publishStateChange(ctx)
@@ -106,6 +149,8 @@ func (b *IMAPSMTPBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jma
 
 // UpdateEmail modifies keywords or moves an email to another IMAP mailbox.
 func (b *IMAPSMTPBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.Email, error) {
+	origID := id
+	id = b.resolveMovedEmailID(id)
 	mbID, uid, err := ParseEmailID(id)
 	if err != nil {
 		return nil, err
@@ -213,31 +258,62 @@ func (b *IMAPSMTPBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map
 	if targetMoveMbID != "" && targetMoveMbID != mbID {
 		newFolderName, err := NameForMailboxID(targetMoveMbID)
 		if err == nil {
-			// Copy to new mailbox, flag \Deleted in old mailbox, and expunge
-			if _, err := client.Copy(uidSet, newFolderName).Wait(); err == nil {
-				storeCmd := client.Store(uidSet, &imap.StoreFlags{
-					Op:     imap.StoreFlagsAdd,
-					Flags:  []imap.Flag{imap.FlagDeleted},
-					Silent: true,
-				}, nil)
-				_, _ = storeCmd.Collect()
-				_, _ = client.Expunge().Collect()
+			moveCmd := client.Move(uidSet, newFolderName)
+			moveData, err := moveCmd.Wait()
+			if err != nil {
+				return nil, fmt.Errorf("failed to move message to %s: %w", newFolderName, err)
 			}
+			var newUID uint32
+			if moveData != nil && moveData.DestUIDs != nil {
+				if destSet, ok := moveData.DestUIDs.(imap.UIDSet); ok {
+					if nums, ok := destSet.Nums(); ok && len(nums) > 0 {
+						newUID = uint32(nums[0])
+					}
+				}
+			}
+			if newUID == 0 {
+				if selData, err := client.Select(newFolderName, nil).Wait(); err == nil && selData.NumMessages > 0 {
+					fetchCmd := client.Fetch(imap.SeqSetNum(selData.NumMessages), &imap.FetchOptions{UID: true})
+					if msgs, err := fetchCmd.Collect(); err == nil && len(msgs) > 0 {
+						newUID = uint32(msgs[0].UID)
+					}
+				}
+			}
+			if newUID > 0 {
+				newID := EmailIDFor(targetMoveMbID, newUID)
+				b.trackMovedEmail(origID, newID)
+				b.trackMovedEmail(id, newID)
+			}
+			b.publishStateChange(ctx)
+			emails, _, _ := b.GetEmails(ctx, []jmap.Id{origID})
+			accountID, _ := jmap.AccountIDFromContext(ctx)
+			b.recordEmailMutation(accountID, origID, "update")
+			b.publishStateChange(ctx)
+			if len(emails) > 0 {
+				return emails[0], nil
+			}
+			return &jmap.Email{
+				ID:         origID,
+				MailboxIDs: map[jmap.Id]bool{targetMoveMbID: true},
+			}, nil
 		}
 	}
 
 	// Fetch updated message
-	emails, _, err := b.GetEmails(ctx, []jmap.Id{id})
+	emails, _, err := b.GetEmails(ctx, []jmap.Id{origID})
+	accountID, _ := jmap.AccountIDFromContext(ctx)
+	b.recordEmailMutation(accountID, origID, "update")
 	b.publishStateChange(ctx)
 	if err == nil && len(emails) > 0 {
 		return emails[0], nil
 	}
 
-	return &jmap.Email{ID: id}, nil
+	return &jmap.Email{ID: origID}, nil
 }
 
 // DeleteEmail removes an email from IMAP via \Deleted flag and EXPUNGE.
 func (b *IMAPSMTPBackend) DeleteEmail(ctx context.Context, id jmap.Id) (bool, error) {
+	id = b.resolveMovedEmailID(id)
 	mbID, uid, err := ParseEmailID(id)
 	if err != nil {
 		return false, err
@@ -274,6 +350,9 @@ func (b *IMAPSMTPBackend) DeleteEmail(ctx context.Context, id jmap.Id) (bool, er
 		return false, fmt.Errorf("failed to expunge deleted email: %w", err)
 	}
 
+	accountID, _ := jmap.AccountIDFromContext(ctx)
+	b.recordEmailMutation(accountID, id, "destroy")
+	b.deleteBlobRefsForEmail(accountID, id)
 	b.publishStateChange(ctx)
 	return true, nil
 }

@@ -7,12 +7,12 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
+	"imap-jmap/jmap/testmock"
 )
 
 // TestRFC9661_Capability tests urn:ietf:params:jmap:sieve capability discovery per RFC 9661 Section 2.
 func TestRFC9661_Capability(t *testing.T) {
-	sieveBackend := memory.NewMemorySieveBackend()
+	sieveBackend := testmock.NewMemorySieveBackend()
 	srv := jmap.NewServer(nil, jmap.WithSieveBackend(sieveBackend))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -47,7 +47,7 @@ func TestRFC9661_Capability(t *testing.T) {
 
 // TestRFC9661_SieveScript_Validate tests SieveScript/validate with valid and invalid Sieve scripts.
 func TestRFC9661_SieveScript_Validate(t *testing.T) {
-	sieveBackend := memory.NewMemorySieveBackend()
+	sieveBackend := testmock.NewMemorySieveBackend()
 	srv := jmap.NewServer(nil, jmap.WithSieveBackend(sieveBackend))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -124,7 +124,7 @@ func TestRFC9661_SieveScript_Validate(t *testing.T) {
 
 // TestRFC9661_SieveScript_GetSetQuery tests SieveScript/set, SieveScript/get, and SieveScript/query.
 func TestRFC9661_SieveScript_GetSetQuery(t *testing.T) {
-	sieveBackend := memory.NewMemorySieveBackend()
+	sieveBackend := testmock.NewMemorySieveBackend()
 	srv := jmap.NewServer(nil, jmap.WithSieveBackend(sieveBackend))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()

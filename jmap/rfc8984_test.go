@@ -7,12 +7,12 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
+	"imap-jmap/jmap/testmock"
 )
 
 // TestRFC8984_Capability tests urn:ietf:params:jmap:calendars capability discovery per JMAP for Calendars.
 func TestRFC8984_Capability(t *testing.T) {
-	calBackend := memory.NewMemoryCalendarsBackend()
+	calBackend := testmock.NewMemoryCalendarsBackend()
 	srv := jmap.NewServer(nil, jmap.WithCalendarsBackend(calBackend))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -68,7 +68,7 @@ func TestRFC8984_Capability(t *testing.T) {
 
 // TestRFC8984_Calendar_GetAndSet tests Calendar/get and Calendar/set.
 func TestRFC8984_Calendar_GetAndSet(t *testing.T) {
-	calBackend := memory.NewMemoryCalendarsBackend()
+	calBackend := testmock.NewMemoryCalendarsBackend()
 	srv := jmap.NewServer(nil, jmap.WithCalendarsBackend(calBackend))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -148,7 +148,7 @@ func TestRFC8984_Calendar_GetAndSet(t *testing.T) {
 
 // TestRFC8984_CalendarEvent_GetSetQuery tests CalendarEvent methods & JSCalendar properties per RFC 8984.
 func TestRFC8984_CalendarEvent_GetSetQuery(t *testing.T) {
-	calBackend := memory.NewMemoryCalendarsBackend()
+	calBackend := testmock.NewMemoryCalendarsBackend()
 	srv := jmap.NewServer(nil, jmap.WithCalendarsBackend(calBackend))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -297,7 +297,7 @@ func TestRFC8984_CalendarEvent_GetSetQuery(t *testing.T) {
 
 // TestRFC8984_JSCalendarFullEvent tests links and virtualLocations in JSCalendar events per RFC 8984.
 func TestRFC8984_JSCalendarFullEvent(t *testing.T) {
-	calBackend := memory.NewMemoryCalendarsBackend()
+	calBackend := testmock.NewMemoryCalendarsBackend()
 	srv := jmap.NewServer(nil, jmap.WithCalendarsBackend(calBackend))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -455,7 +455,7 @@ func TestRFC8984_CalendarAndEventCopy(t *testing.T) {
 // TestRFC8984_CalendarCopyRoundTrip proves Calendar/copy actually copies an existing calendar
 // (by source id, with a property override) into a new object, per RFC 8620 Section 5.4.
 func TestRFC8984_CalendarCopyRoundTrip(t *testing.T) {
-	calBackend := memory.NewMemoryCalendarsBackend()
+	calBackend := testmock.NewMemoryCalendarsBackend()
 	srv := jmap.NewServer(nil, jmap.WithCalendarsBackend(calBackend))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()

@@ -496,15 +496,18 @@ func handleCardQueryChanges(backend ContactsBackend) MethodHandler {
 // card by id, optionally overriding properties, and is recreated in the target account.
 func handleCardCopy(backend ContactsBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
-		accountID, _ := args["accountId"].(string)
-		fromAccountID, _ := args["fromAccountId"].(string)
-		if fromAccountID == "" {
-			fromAccountID = accountID
-		}
-		oldState := backend.CardState(ctx)
+		accountID, fromAccountID := ResolveCopyAccountIDs(args)
+		srcCtx := SourceAccountContext(ctx, args)
 
+		oldState, errInv := ValidateCopyStates(ctx, srcCtx, args, backend.CardState, backend.CardState)
+		if errInv != nil {
+			return errInv.Name, errInv.Args
+		}
+
+		onSuccessDestroyOriginal, _ := args["onSuccessDestroyOriginal"].(bool)
 		created := make(map[string]*Card)
 		notCreated := make(map[string]any)
+		destroyOriginals := make([]Id, 0)
 		creationRefs := newSetCreationRefs(ctx)
 
 		if createRaw, ok := args["create"].(map[string]any); ok {
@@ -516,7 +519,7 @@ func handleCardCopy(backend ContactsBackend) MethodHandler {
 					continue
 				}
 				resolvedSrcID := resolveCreationID(srcID, creationRefs)
-				srcs, notFound, _ := backend.GetCards(ctx, []Id{Id(resolvedSrcID)})
+				srcs, notFound, _ := backend.GetCards(srcCtx, []Id{Id(resolvedSrcID)})
 				if len(srcs) == 0 || len(notFound) > 0 {
 					notCreated[creationID] = SetError{Type: "notFound", Description: "source card not found: " + srcID}
 					continue
@@ -534,7 +537,14 @@ func handleCardCopy(backend ContactsBackend) MethodHandler {
 				} else {
 					created[creationID] = newCard
 					recordCreationRefs(ctx, creationRefs, creationID, newCard.ID)
+					destroyOriginals = append(destroyOriginals, Id(resolvedSrcID))
 				}
+			}
+		}
+
+		if onSuccessDestroyOriginal {
+			for _, srcID := range destroyOriginals {
+				_, _ = backend.DeleteCard(srcCtx, srcID)
 			}
 		}
 
@@ -552,15 +562,18 @@ func handleCardCopy(backend ContactsBackend) MethodHandler {
 // handleAddressBookCopy implements AddressBook/copy as a server extension per RFC 8620 Section 5.4.
 func handleAddressBookCopy(backend ContactsBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
-		accountID, _ := args["accountId"].(string)
-		fromAccountID, _ := args["fromAccountId"].(string)
-		if fromAccountID == "" {
-			fromAccountID = accountID
-		}
-		oldState := backend.AddressBookState(ctx)
+		accountID, fromAccountID := ResolveCopyAccountIDs(args)
+		srcCtx := SourceAccountContext(ctx, args)
 
+		oldState, errInv := ValidateCopyStates(ctx, srcCtx, args, backend.AddressBookState, backend.AddressBookState)
+		if errInv != nil {
+			return errInv.Name, errInv.Args
+		}
+
+		onSuccessDestroyOriginal, _ := args["onSuccessDestroyOriginal"].(bool)
 		created := make(map[string]*AddressBook)
 		notCreated := make(map[string]any)
+		destroyOriginals := make([]Id, 0)
 		creationRefs := newSetCreationRefs(ctx)
 
 		if createRaw, ok := args["create"].(map[string]any); ok {
@@ -572,7 +585,7 @@ func handleAddressBookCopy(backend ContactsBackend) MethodHandler {
 					continue
 				}
 				resolvedSrcID := resolveCreationID(srcID, creationRefs)
-				srcs, notFound, _ := backend.GetAddressBooks(ctx, []Id{Id(resolvedSrcID)})
+				srcs, notFound, _ := backend.GetAddressBooks(srcCtx, []Id{Id(resolvedSrcID)})
 				if len(srcs) == 0 || len(notFound) > 0 {
 					notCreated[creationID] = SetError{Type: "notFound", Description: "source address book not found: " + srcID}
 					continue
@@ -590,7 +603,14 @@ func handleAddressBookCopy(backend ContactsBackend) MethodHandler {
 				} else {
 					created[creationID] = newAB
 					recordCreationRefs(ctx, creationRefs, creationID, newAB.ID)
+					destroyOriginals = append(destroyOriginals, Id(resolvedSrcID))
 				}
+			}
+		}
+
+		if onSuccessDestroyOriginal {
+			for _, srcID := range destroyOriginals {
+				_, _ = backend.DeleteAddressBook(srcCtx, srcID, false)
 			}
 		}
 

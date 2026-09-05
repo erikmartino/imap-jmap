@@ -9,7 +9,8 @@ import (
 	"time"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
+	"imap-jmap/jmap/imapsmtp"
+	"imap-jmap/jmap/testmock"
 	jmapsmtp "imap-jmap/smtp"
 )
 
@@ -54,8 +55,10 @@ func TestRFC5322_ParseMessageToEmail(t *testing.T) {
 
 // TestRFC5321_SMTPServerReceive tests SMTP message ingestion and storage per RFC 5321.
 func TestRFC5321_SMTPServerReceive(t *testing.T) {
-	memBackend := memory.NewMemoryBackend()
-	memBlobBackend := memory.NewMemoryBlobBackend()
+	backend, cleanup := imapsmtp.NewEmbeddedBackend("user@example.com")
+	defer cleanup()
+	memBackend := backend
+	memBlobBackend := backend
 
 	// Find free local port
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -84,9 +87,9 @@ func TestRFC5321_SMTPServerReceive(t *testing.T) {
 
 	// Send message over SMTP
 	from := "sender@example.com"
-	to := []string{"recipient@example.com"}
+	to := []string{"user@example.com"}
 	msg := []byte("From: <sender@example.com>\r\n" +
-		"To: <recipient@example.com>\r\n" +
+		"To: <user@example.com>\r\n" +
 		"Subject: SMTP Test Delivery\r\n" +
 		"Message-ID: <smtp-delivery-1@example.com>\r\n" +
 		"\r\n" +
@@ -144,8 +147,9 @@ func TestRFC5321_SMTPServerReceive(t *testing.T) {
 	}
 
 	// Verify Mailbox stats updated
+	inboxID := jmap.InboxMailboxID(accountCtx, memBackend)
 	var mailboxes []*jmap.Mailbox
-	mailboxes, _, err = memBackend.GetMailboxes(accountCtx, []jmap.Id{"mb-inbox"})
+	mailboxes, _, err = memBackend.GetMailboxes(accountCtx, []jmap.Id{inboxID})
 	if err != nil || len(mailboxes) == 0 {
 		t.Fatalf("failed to retrieve Inbox mailbox")
 	}
@@ -157,11 +161,13 @@ func TestRFC5321_SMTPServerReceive(t *testing.T) {
 
 // TestRFC6047_SMTPServerReceiveIMIPReply tests SMTP intake of RFC 6047 iMIP reply messages.
 func TestRFC6047_SMTPServerReceiveIMIPReply(t *testing.T) {
-	memBackend := memory.NewMemoryBackend()
-	memBlobBackend := memory.NewMemoryBlobBackend()
-	memCalBackend := memory.NewMemoryCalendarsBackend()
+	backend, cleanup := imapsmtp.NewEmbeddedBackend("organizer@example.com", "client@example.com")
+	defer cleanup()
+	memBackend := backend
+	memBlobBackend := backend
+	memCalBackend := testmock.NewMemoryCalendarsBackend()
 
-	accountCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject("user@example.com"))
+	accountCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject("organizer@example.com"))
 
 	// 1. Create a calendar event with external participant
 	ev, err := memCalBackend.CreateCalendarEvent(accountCtx, &jmap.CalendarEvent{
@@ -240,8 +246,10 @@ func TestRFC6047_SMTPServerReceiveIMIPReply(t *testing.T) {
 
 // TestRFC5321_PerRecipientRouting tests that incoming SMTP emails are delivered per-recipient using AccountResolver.
 func TestRFC5321_PerRecipientRouting(t *testing.T) {
-	memBackend := memory.NewMemoryBackend()
-	memBlobBackend := memory.NewMemoryBlobBackend()
+	backend, cleanup := imapsmtp.NewEmbeddedBackend("sender@example.com", "user2@example.com")
+	defer cleanup()
+	memBackend := backend
+	memBlobBackend := backend
 	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")

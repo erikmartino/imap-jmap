@@ -107,6 +107,11 @@ func fieldGroup(f *vcard.Field) (altID, lang string) {
 	return param(f, "ALTID"), param(f, "LANGUAGE")
 }
 
+// CardToJSCard converts a parsed vCard into a JSContact Card map.
+func CardToJSCard(card vcard.Card) (map[string]any, error) {
+	return cardToJSCard(card)
+}
+
 func cardToJSCard(card vcard.Card) (map[string]any, error) {
 	out := map[string]any{}
 	out["@type"] = "Card"
@@ -136,6 +141,7 @@ func cardToJSCard(card vcard.Card) (map[string]any, error) {
 	}
 
 	applyNames(out, card)
+	applyNicknames(out, card)
 	applyOrganizationsAndTitles(out, card)
 	applyEmails(out, card)
 	applyPhones(out, card)
@@ -541,6 +547,31 @@ func parseSortAs(s string) map[string]any {
 	return sortAs
 }
 
+// ---- nicknames -----------------------------------------------------------
+
+func applyNicknames(out map[string]any, card vcard.Card) {
+	nicknames := map[string]any{}
+	for _, f := range card[vcard.FieldNickname] {
+		id := param(f, "PROP-ID")
+		if id == "" {
+			id = nextID(nicknames, "n")
+		}
+		for _, name := range strings.Split(f.Value, ",") {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				continue
+			}
+			obj := map[string]any{"name": name}
+			applyContextsAndPref(obj, f)
+			nicknames[id] = obj
+			id = nextID(nicknames, "n")
+		}
+	}
+	if len(nicknames) > 0 {
+		out["nicknames"] = nicknames
+	}
+}
+
 // ---- organizations and titles ---------------------------------------------
 
 func applyOrganizationsAndTitles(out map[string]any, card vcard.Card) {
@@ -629,7 +660,7 @@ func applyLocalizationPatch(out map[string]any, lang, path, value string) bool {
 func propID(out map[string]any, section, propName string, f *vcard.Field) string {
 	id := param(f, "PROP-ID")
 	if id == "" {
-		id = nextID(mapFieldOrEmpty(out, section), propName[0:1])
+		id = nextID(mapFieldOrEmpty(out, section), strings.ToLower(propName[0:1]))
 	}
 	return id
 }

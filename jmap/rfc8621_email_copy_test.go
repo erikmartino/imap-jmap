@@ -81,3 +81,76 @@ func TestRFC8621_Section4_6_EmailCopyRoundTrip(t *testing.T) {
 		t.Errorf("Expected notFound in notCreated for missing source, got %q", errType)
 	}
 }
+
+// TestRFC8621_Section4_6_EmailCopy_SameAccount tests Email/copy within the same account
+// and state validation (ifInState) per RFC 8620 Section 5.4 and RFC 8621 Section 4.6.
+func TestRFC8621_Section4_6_EmailCopy_SameAccount(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	srcEM, err := srv.MailBackend.CreateEmail(seedCtx(), &jmap.Email{
+		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
+		Subject:    "Original Email for Intra-Account Copy",
+	})
+	if err != nil {
+		t.Fatalf("Failed to seed source email: %v", err)
+	}
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}
+	accID := jmap.AccountIDForSubject(testUsername)
+
+	// 1. Same-account copy with fromAccountId omitted (defaults to accountId)
+	calls1 := []any{
+		[]any{"Email/copy", map[string]any{
+			"accountId": accID,
+			"create": map[string]any{
+				"cp1": map[string]any{
+					"id":         string(srcEM.ID),
+					"mailboxIds": map[string]bool{"mb-inbox": true},
+				},
+			},
+		}, "c1"},
+	}
+	res1 := postJMAP(t, ts.URL, using, calls1)
+	if len(res1.MethodResponses) == 0 {
+		t.Fatalf("Empty response for Email/copy")
+	}
+	if res1.MethodResponses[0].Name != "Email/copy" {
+		t.Fatalf("Expected Email/copy response, got %s: %v", res1.MethodResponses[0].Name, res1.MethodResponses[0].Args)
+	}
+	created, _ := res1.MethodResponses[0].Args["created"].(map[string]any)
+	copyObj, ok := created["cp1"].(map[string]any)
+	if !ok {
+		t.Fatalf("Failed to copy Email within same account: %v", res1.MethodResponses[0].Args)
+	}
+	newID, _ := copyObj["id"].(string)
+	if newID == "" || newID == string(srcEM.ID) {
+		t.Errorf("Copied Email ID should be new and distinct from source ID %s, got %q", srcEM.ID, newID)
+	}
+
+	// 2. Same-account copy with ifInState mismatch -> stateMismatch error
+	calls2 := []any{
+		[]any{"Email/copy", map[string]any{
+			"accountId": accID,
+			"ifInState": "invalid-state-mismatch",
+			"create": map[string]any{
+				"cp2": map[string]any{
+					"id": string(srcEM.ID),
+				},
+			},
+		}, "c2"},
+	}
+	res2 := postJMAP(t, ts.URL, using, calls2)
+	if len(res2.MethodResponses) == 0 {
+		t.Fatalf("Empty response for Email/copy")
+	}
+	if res2.MethodResponses[0].Name != "error" {
+		t.Fatalf("Expected error response for mismatched ifInState, got %s", res2.MethodResponses[0].Name)
+	}
+	errType2, _ := res2.MethodResponses[0].Args["type"].(string)
+	if errType2 != "stateMismatch" {
+		t.Errorf("Expected stateMismatch error, got %q", errType2)
+	}
+}
+

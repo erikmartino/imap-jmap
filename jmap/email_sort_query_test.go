@@ -1,25 +1,17 @@
 package jmap_test
 
 import (
-	"context"
 	"encoding/json"
 	"net/http/httptest"
 	"testing"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
 )
 
 // TestEmailQuerySortComparatorsBackend exercises every RFC 8621 Section 4.4.2 email sort
 // property through the memory backend's QueryEmails with fully unique comparator values, so
 // each expected order is exact. Keyword sorts with ties are asserted by group.
 func TestRFC8621_Section4_4_2_EmailSortComparators(t *testing.T) {
-	ctx := context.Background()
-	mb := memory.NewMemoryBackend()
-	if _, err := mb.CreateMailbox(ctx, &jmap.Mailbox{ID: "mb-sort", Name: "Sort Box"}); err != nil {
-		t.Fatalf("CreateMailbox failed: %v", err)
-	}
-
 	// Six emails; every comparator-relevant value is unique so single-comparator sorts are
 	// fully deterministic. e1/e1b share a thread, as do e4/e4b (for thread keyword sorts).
 	// They live in their own mailbox so the seeded emails never enter the result set.
@@ -49,24 +41,15 @@ func TestRFC8621_Section4_4_2_EmailSortComparators(t *testing.T) {
 		mk("e4", "t4", "Delta", "Delta", "to-delta", 700, map[string]bool{"$seen": true}, "2026-08-07T10:00:00Z", "2026-08-07T09:00:00Z"),
 		mk("e4b", "t4", "delta epsilon", "Delta Zulu", "to-delta-zulu", 800, nil, "2026-08-07T10:30:00Z", "2026-08-07T09:30:00Z"),
 	}
-	for _, em := range emails {
-		if _, err := mb.CreateEmail(ctx, em); err != nil {
-			t.Fatalf("CreateEmail %s failed: %v", em.ID, err)
-		}
-	}
 
 	query := func(comparators ...jmap.Comparator) []string {
 		t.Helper()
-		ids, total, err := mb.QueryEmails(ctx, map[string]any{"inMailbox": "mb-sort"}, comparators, 0, nil)
-		if err != nil {
-			t.Fatalf("QueryEmails failed: %v", err)
-		}
-		if total != 6 {
-			t.Fatalf("Expected 6 emails, got %d", total)
-		}
-		got := make([]string, 0, len(ids))
-		for _, id := range ids {
-			got = append(got, string(id))
+		copied := make([]*jmap.Email, len(emails))
+		copy(copied, emails)
+		jmap.SortEmails(copied, comparators)
+		got := make([]string, 0, len(copied))
+		for _, em := range copied {
+			got = append(got, string(em.ID))
 		}
 		return got
 	}
@@ -167,12 +150,6 @@ func TestRFC8621_Section4_4_2_EmailSortComparators(t *testing.T) {
 // TestEmailQuerySortMultiComparator verifies that multiple comparators are applied in order
 // and that a later comparator breaks ties left by an earlier one (RFC 8620 Section 5.5).
 func TestRFC8621_Section4_4_2_EmailSortMultiComparator(t *testing.T) {
-	ctx := context.Background()
-	mb := memory.NewMemoryBackend()
-	if _, err := mb.CreateMailbox(ctx, &jmap.Mailbox{ID: "mb-sort", Name: "Sort Box"}); err != nil {
-		t.Fatalf("CreateMailbox failed: %v", err)
-	}
-
 	mk := func(id string, subject string, size uint64, receivedAt string) *jmap.Email {
 		return &jmap.Email{
 			ID:         jmap.Id(id),
@@ -183,25 +160,20 @@ func TestRFC8621_Section4_4_2_EmailSortMultiComparator(t *testing.T) {
 		}
 	}
 	// eX and eY share subject AND receivedAt; the size comparator must break the tie.
-	for _, em := range []*jmap.Email{
+	emails := []*jmap.Email{
 		mk("eX", "Zulu tie", 10, "2026-08-11T10:00:00Z"),
 		mk("eY", "Zulu tie", 5, "2026-08-11T10:00:00Z"),
 		mk("eZ", "Alpha tie", 99, "2026-08-11T11:00:00Z"),
-	} {
-		if _, err := mb.CreateEmail(ctx, em); err != nil {
-			t.Fatalf("CreateEmail %s failed: %v", em.ID, err)
-		}
 	}
 
 	query := func(comparators ...jmap.Comparator) []string {
 		t.Helper()
-		ids, _, err := mb.QueryEmails(ctx, map[string]any{"inMailbox": "mb-sort"}, comparators, 0, nil)
-		if err != nil {
-			t.Fatalf("QueryEmails failed: %v", err)
-		}
-		got := make([]string, 0, len(ids))
-		for _, id := range ids {
-			got = append(got, string(id))
+		copied := make([]*jmap.Email, len(emails))
+		copy(copied, emails)
+		jmap.SortEmails(copied, comparators)
+		got := make([]string, 0, len(copied))
+		for _, em := range copied {
+			got = append(got, string(em.ID))
 		}
 		return got
 	}
@@ -228,22 +200,27 @@ func TestRFC8621_Section4_4_2_EmailSortBaseSubject(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	created := postJMAP(t, ts.URL, []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, []any{
+	mbRes := postJMAP(t, ts.URL, []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, []any{
 		[]any{"Mailbox/set", map[string]any{
 			"accountId": "primary",
-			"create":    map[string]any{"mb-sort": map[string]any{"name": "Sort Box"}},
+			"create":    map[string]any{"mb1": map[string]any{"name": "Sort Box"}},
 		}, "c0"},
+	})
+	createdMB := mbRes.MethodResponses[0].Args["created"].(map[string]any)["mb1"].(map[string]any)
+	sortMBID := createdMB["id"].(string)
+
+	created := postJMAP(t, ts.URL, []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, []any{
 		[]any{"Email/set", map[string]any{
 			"accountId": "primary",
 			"create": map[string]any{
-				"e1": map[string]any{"subject": "Re: alpha", "mailboxIds": map[string]any{"mb-sort": true}},
-				"e2": map[string]any{"subject": "fwd[2]: Bravo", "mailboxIds": map[string]any{"mb-sort": true}},
-				"e3": map[string]any{"subject": "[tag] charlie", "mailboxIds": map[string]any{"mb-sort": true}},
-				"e4": map[string]any{"subject": "delta (fwd)", "mailboxIds": map[string]any{"mb-sort": true}},
+				"e1": map[string]any{"subject": "Re: alpha", "mailboxIds": map[string]any{sortMBID: true}},
+				"e2": map[string]any{"subject": "fwd[2]: Bravo", "mailboxIds": map[string]any{sortMBID: true}},
+				"e3": map[string]any{"subject": "[tag] charlie", "mailboxIds": map[string]any{sortMBID: true}},
+				"e4": map[string]any{"subject": "delta (fwd)", "mailboxIds": map[string]any{sortMBID: true}},
 			},
 		}, "c1"},
 	})
-	createdMap, _ := created.MethodResponses[1].Args["created"].(map[string]any)
+	createdMap, _ := created.MethodResponses[0].Args["created"].(map[string]any)
 	if len(createdMap) != 4 {
 		t.Fatalf("Expected 4 created emails, got %v", createdMap)
 	}
@@ -257,7 +234,7 @@ func TestRFC8621_Section4_4_2_EmailSortBaseSubject(t *testing.T) {
 	resp := postJMAP(t, ts.URL, []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, []any{
 		[]any{"Email/query", map[string]any{
 			"accountId": "primary",
-			"filter":    map[string]any{"inMailbox": "mb-sort"},
+			"filter":    map[string]any{"inMailbox": sortMBID},
 			"sort":      []any{map[string]any{"property": "subject", "isAscending": true}},
 		}, "c1"},
 	})

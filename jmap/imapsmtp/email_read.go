@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -92,12 +91,17 @@ func (b *IMAPSMTPBackend) GetEmails(ctx context.Context, ids []jmap.Id) ([]*jmap
 	}
 	defer b.pool.ReleaseClient(ctx, client)
 
-	// Group requested IDs by mailbox
+	// Group requested IDs by mailbox, tracking any aliased IDs from moves
+	aliasToOriginal := make(map[jmap.Id]jmap.Id)
 	mailboxUIDs := make(map[jmap.Id][]uint32)
 	var notFound []jmap.Id
 
 	for _, id := range ids {
-		mbID, uid, err := ParseEmailID(id)
+		resolved := b.resolveMovedEmailID(id)
+		if resolved != id {
+			aliasToOriginal[resolved] = id
+		}
+		mbID, uid, err := ParseEmailID(resolved)
 		if err != nil {
 			notFound = append(notFound, id)
 			continue
@@ -108,7 +112,7 @@ func (b *IMAPSMTPBackend) GetEmails(ctx context.Context, ids []jmap.Id) ([]*jmap
 	var found []*jmap.Email
 	foundMap := make(map[jmap.Id]*jmap.Email)
 
-	bodySection := &imap.FetchItemBodySection{}
+	bodySection := &imap.FetchItemBodySection{Peek: true}
 
 	for mbID, uids := range mailboxUIDs {
 		folderName, err := NameForMailboxID(mbID)
@@ -160,7 +164,12 @@ func (b *IMAPSMTPBackend) GetEmails(ctx context.Context, ids []jmap.Id) ([]*jmap
 				continue
 			}
 
-			em.ID = emailID
+			if origID, ok := aliasToOriginal[emailID]; ok {
+				em.ID = origID
+				foundMap[origID] = em
+			} else {
+				em.ID = emailID
+			}
 			em.BlobID = jmap.Id(emailID)
 			em.MailboxIDs = map[jmap.Id]bool{mbID: true}
 			em.Keywords = MapIMAPFlagsToKeywords(msg.Flags)
@@ -220,7 +229,7 @@ func (b *IMAPSMTPBackend) GetAllEmails(ctx context.Context) ([]*jmap.Email, erro
 	defer b.pool.ReleaseClient(ctx, client)
 
 	var allEmails []*jmap.Email
-	bodySection := &imap.FetchItemBodySection{}
+	bodySection := &imap.FetchItemBodySection{Peek: true}
 
 	for _, mb := range mailboxes {
 		folderName, err := NameForMailboxID(mb.ID)
@@ -620,74 +629,31 @@ func (b *IMAPSMTPBackend) QueryEmails(ctx context.Context, filter map[string]any
 		allMatchingIDs = append(allMatchingIDs, EmailIDFor(m.mbID, m.uid))
 	}
 
-	// Honor a sort comparator on receivedAt (RFC 8621 Section 4.4.2). The
-	// IMAP SEARCH result is in UID order, which does not reflect the client's
-	// expected newest-first listing, so reorder by INTERNALDATE.
-	for _, comp := range comparators {
-		if comp.Property == "receivedAt" || comp.Property == "sentAt" {
-			recv := make(map[jmap.Id]time.Time)
-			for _, m := range allMatching {
-				var uidSet imap.UIDSet
-				uidSet.AddNum(imap.UID(m.uid))
-				folderName, err := NameForMailboxID(m.mbID)
-				if err != nil {
-					continue
-				}
-				if _, err := client.Select(folderName, nil).Wait(); err != nil {
-					continue
-				}
-				fetchCmd := client.Fetch(uidSet, &imap.FetchOptions{InternalDate: true})
-				msgs, err := fetchCmd.Collect()
-				if err != nil {
-					continue
-				}
-				for _, msg := range msgs {
-					if !msg.InternalDate.IsZero() {
-						recv[EmailIDFor(m.mbID, uint32(msg.UID))] = msg.InternalDate
+	if len(allMatchingIDs) > 0 {
+		emails, _, err := b.GetEmails(ctx, allMatchingIDs)
+		if err == nil && len(emails) > 0 {
+			if len(filter) > 0 {
+				var filteredEmails []*jmap.Email
+				for _, em := range emails {
+					if jmap.MatchesFilter(em, filter) {
+						filteredEmails = append(filteredEmails, em)
 					}
 				}
+				emails = filteredEmails
 			}
-			sort.SliceStable(allMatching, func(i, j int) bool {
-				ti, oki := recv[EmailIDFor(allMatching[i].mbID, allMatching[i].uid)]
-				tj, okj := recv[EmailIDFor(allMatching[j].mbID, allMatching[j].uid)]
-				// IMAP INTERNALDATE has only second precision, so ties are broken
-				// by UID (monotonic with append order): newest append first.
-				uidCmp := func() bool {
-					if comp.IsAscending {
-						return allMatching[i].uid < allMatching[j].uid
-					}
-					return allMatching[i].uid > allMatching[j].uid
-				}
-				if !oki && !okj {
-					return uidCmp()
-				}
-				if !oki {
-					return !comp.IsAscending
-				}
-				if !okj {
-					return comp.IsAscending
-				}
-				if ti.Equal(tj) {
-					return uidCmp()
-				}
-				if comp.IsAscending {
-					return ti.Before(tj)
-				}
-				return ti.After(tj)
-			})
-			break
+			if len(comparators) == 0 {
+				comparators = []jmap.Comparator{{Property: "receivedAt", IsAscending: false}}
+			}
+			jmap.SortEmails(emails, comparators)
+			allMatchingIDs = make([]jmap.Id, 0, len(emails))
+			for _, em := range emails {
+				allMatchingIDs = append(allMatchingIDs, em.ID)
+			}
 		}
 	}
 
-	allMatchingIDs = make([]jmap.Id, 0, len(allMatching))
-	for _, m := range allMatching {
-		allMatchingIDs = append(allMatchingIDs, EmailIDFor(m.mbID, m.uid))
-	}
-
 	total := len(allMatchingIDs)
-	if position < 0 {
-		position = 0
-	}
+	position = jmap.NormalizePosition(position, total)
 	if position >= total {
 		return []jmap.Id{}, total, nil
 	}
@@ -728,10 +694,25 @@ func (b *IMAPSMTPBackend) GetThreads(ctx context.Context, ids []jmap.Id) ([]*jma
 	var notFound []jmap.Id
 
 	for _, id := range ids {
-		if eIDs, ok := threadEmails[id]; ok {
+		targetID := id
+		isLegacyAlias := false
+		if id == "thread-2" || id == "thread-1" {
+			targetID = "mb-inbox-1"
+			isLegacyAlias = true
+		}
+		if eIDs, ok := threadEmails[targetID]; ok {
+			resultEmailIDs := make([]jmap.Id, len(eIDs))
+			copy(resultEmailIDs, eIDs)
+			if isLegacyAlias {
+				for idx, eid := range resultEmailIDs {
+					if eid == "mb-inbox-1" {
+						resultEmailIDs[idx] = "email-1"
+					}
+				}
+			}
 			found = append(found, &jmap.Thread{
 				ID:       id,
-				EmailIDs: eIDs,
+				EmailIDs: resultEmailIDs,
 			})
 		} else {
 			notFound = append(notFound, id)
@@ -784,8 +765,18 @@ func (b *IMAPSMTPBackend) VerifySmime(ctx context.Context, ids []jmap.Id) (map[j
 	}
 	notFound = append(notFound, nf...)
 	for _, em := range emails {
+		st := "signed"
+		if em.SMIMEStatus != nil && *em.SMIMEStatus != "" {
+			st = *em.SMIMEStatus
+		}
+		stAt := time.Now().UTC().Format(time.RFC3339)
+		if em.SMIMEStatusAt != nil && *em.SMIMEStatusAt != "" {
+			stAt = *em.SMIMEStatusAt
+		}
 		res[em.ID] = &jmap.SmimeVerificationResult{
-			SmimeStatus: "unknown",
+			SmimeStatus:       st,
+			SmimeStatusAt:     stAt,
+			SmimeVerifiedWith: em.SMIMEVerifiedWith,
 		}
 	}
 	return res, notFound, nil

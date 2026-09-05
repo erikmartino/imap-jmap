@@ -23,13 +23,10 @@ import (
 	"time"
 	_ "time/tzdata"
 
-	"imap-jmap/dav"
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/imapsmtp"
-	"imap-jmap/jmap/memory"
 	"imap-jmap/jmap/nextcloud"
 	"imap-jmap/smtp"
-
 )
 
 func main() {
@@ -126,10 +123,6 @@ func main() {
 	submissionAddr := fmt.Sprintf("%s:%s", submissionHostStr, *submissionPort)
 	publicURL := os.Getenv("PUBLIC_URL")
 
-	backendType := os.Getenv("BACKEND_TYPE")
-	if backendType == "" {
-		backendType = "memory"
-	}
 	imapServer := os.Getenv("IMAP_SERVER")
 	if imapServer == "" {
 		imapServer = "dovecot:143"
@@ -141,24 +134,13 @@ func main() {
 
 	session := jmap.DefaultSession(publicURL, "user@example.com")
 
-	var mailBackend jmap.MailBackend
-	var blobBackend jmap.BlobBackend
-
-	if backendType == "imapsmtp" {
-		log.Printf("Initializing IMAP/SMTP Gateway Backend (IMAP: %s, SMTP: %s)", imapServer, smtpTargetServer)
-		gwBackend := imapsmtp.New(imapServer, smtpTargetServer)
-		mailBackend = gwBackend
-		blobBackend = gwBackend
-	} else {
-		log.Printf("Initializing Memory Backend")
-		memBackend := memory.NewMemoryBackend()
-		memBlobBackend := memory.NewMemoryBlobBackend()
-		mailBackend = memBackend
-		blobBackend = memBlobBackend
-	}
+	log.Printf("Initializing IMAP/SMTP Gateway Backend (IMAP: %s, SMTP: %s)", imapServer, smtpTargetServer)
+	gwBackend := imapsmtp.New(imapServer, smtpTargetServer)
+	var mailBackend jmap.MailBackend = gwBackend
+	var blobBackend jmap.BlobBackend = gwBackend
 
 	nextcloudURL := os.Getenv("NEXTCLOUD_URL")
-	if nextcloudURL == "" && backendType == "imapsmtp" {
+	if nextcloudURL == "" {
 		nextcloudURL = "http://nextcloud:80"
 	}
 
@@ -174,44 +156,16 @@ func main() {
 		contactsBackend = nextcloud.NewContactsBackend(ncClient)
 		fileNodeBackend = nextcloud.NewFileNodeBackend(ncClient)
 		principalsBackend = nextcloud.NewPrincipalsBackend(ncClient, calBackend)
-	} else {
-		calBackend = memory.NewMemoryCalendarsBackend()
-		contactsBackend = memory.NewMemoryContactsBackend()
-		fileNodeBackend = memory.NewMemoryFileNodeBackend()
-		memPrincipals := memory.NewMemoryPrincipalsBackend()
-		memPrincipals.SetCalendarsBackend(calBackend)
-		principalsBackend = memPrincipals
 	}
-
-	memSieveBackend := memory.NewMemorySieveBackend()
-	memIMAPBackend := memory.NewMemoryIMAPAccessBackend()
-	devAuthBackend := memory.NewMemoryAuthBackend()
-	devAuthBackend.SetBackends(mailBackend, blobBackend, calBackend, contactsBackend, fileNodeBackend)
 
 	secretKey := os.Getenv("SESSION_SECRET")
 	if secretKey == "" {
 		secretKey = "imap-jmap-secret-session-key-32b!"
 	}
 
-	var authBackend jmap.AuthBackend = devAuthBackend
-	if backendType == "imapsmtp" {
-		if gw, ok := mailBackend.(*imapsmtp.IMAPSMTPBackend); ok {
-			authBackend = imapsmtp.NewAuthBackend(gw.Pool(), secretKey)
-		}
-	}
+	var authBackend jmap.AuthBackend = imapsmtp.NewAuthBackend(gwBackend.Pool(), secretKey)
 	if *oidcIssuer != "" {
-		var oidcFallback jmap.AuthBackend
-		// AUTH-2: the in-memory "password == email" credential path MUST NOT leak
-		// into a production OIDC deployment. It is only attached as the OIDC
-		// credential fallback when explicitly requested via AUTH_DEV_FALLBACK=true;
-		// by default the OIDC backend accepts tokens only and rejects every
-		// username/password attempt (failing closed).
-		if strings.EqualFold(os.Getenv("AUTH_DEV_FALLBACK"), "true") {
-			oidcFallback = devAuthBackend
-			log.Printf("WARNING: AUTH_DEV_FALLBACK=true — development username==password credentials are enabled alongside OIDC. Do not use in production.")
-		} else if backendType == "imapsmtp" {
-			oidcFallback = authBackend
-		}
+		var oidcFallback jmap.AuthBackend = authBackend
 		oidcBackend, err := jmap.NewOIDCAuthBackend(jmap.OIDCConfig{
 			Issuer:          *oidcIssuer,
 			JWKSURL:         *oidcJWKSURL,
@@ -221,29 +175,23 @@ func main() {
 		if err != nil {
 			log.Fatalf("Failed to initialize OIDCAuthBackend: %v", err)
 		}
-		log.Printf("OIDC authentication enabled with issuer %s (dev credential fallback: %t)", *oidcIssuer, oidcFallback != nil)
+		log.Printf("OIDC authentication enabled with issuer %s", *oidcIssuer)
 		authBackend = oidcBackend
 	}
 
 	accountResolver := jmap.PrimaryDomainResolver{PrimaryDomain: *primaryDomain}
 
-	// Sample data is dynamically auto-seeded per account upon first login in MemoryAuthBackend.
-	// For the IMAP/SMTP gateway deployment the memory auth backend is not in the auth path, so
-	// seed through the live backends on first successful authentication instead.
-	if backendType == "imapsmtp" {
-		authBackend = &seedingAuthBackend{
-			inner:  authBackend,
-			seeded: make(map[string]bool),
-			seedFn: func(ctx context.Context, accountID, subject string) {
-				accountCtx := jmap.ContextWithAccountID(context.Background(), accountID)
-				accountCtx = jmap.ContextWithSubject(accountCtx, subject)
-				accountCtx = jmap.ContextWithCredentials(accountCtx, subject, subject)
-				memory.SeedAccountSampleData(accountCtx, accountID, mailBackend, blobBackend, calBackend, contactsBackend, fileNodeBackend)
-				if ncPb, ok := principalsBackend.(*nextcloud.PrincipalsBackend); ok {
-					_ = ncPb.EnsureUser(accountCtx, subject, subject)
-				}
-			},
-		}
+	authBackend = &seedingAuthBackend{
+		inner:  authBackend,
+		seeded: make(map[string]bool),
+		seedFn: func(ctx context.Context, accountID, subject string) {
+			accountCtx := jmap.ContextWithAccountID(context.Background(), accountID)
+			accountCtx = jmap.ContextWithSubject(accountCtx, subject)
+			accountCtx = jmap.ContextWithCredentials(accountCtx, subject, subject)
+			if ncPb, ok := principalsBackend.(*nextcloud.PrincipalsBackend); ok {
+				_ = ncPb.EnsureUser(accountCtx, subject, subject)
+			}
+		},
 	}
 
 	outboundSender := smtp.NewMXOutboundSender()
@@ -254,22 +202,29 @@ func main() {
 		outboundSender.LocalName = sn
 	}
 
-	server := jmap.NewServer(
-		session,
+	serverOpts := []jmap.Option{
 		jmap.WithMailBackend(mailBackend),
 		jmap.WithBlobBackend(blobBackend),
-		jmap.WithCalendarsBackend(calBackend),
-		jmap.WithContactsBackend(contactsBackend),
-		jmap.WithSieveBackend(memSieveBackend),
-		jmap.WithIMAPAccessBackend(memIMAPBackend),
-		jmap.WithFileNodeBackend(fileNodeBackend),
-		jmap.WithPrincipalsBackend(principalsBackend),
 		jmap.WithAuthBackend(authBackend),
 		jmap.WithAccountResolver(accountResolver),
 		jmap.WithAllowedRecipients(allowedSlice),
 		jmap.WithOutboundSender(outboundSender),
 		jmap.WithPublicBaseURL(publicURL),
-	)
+	}
+	if calBackend != nil {
+		serverOpts = append(serverOpts, jmap.WithCalendarsBackend(calBackend))
+	}
+	if contactsBackend != nil {
+		serverOpts = append(serverOpts, jmap.WithContactsBackend(contactsBackend))
+	}
+	if fileNodeBackend != nil {
+		serverOpts = append(serverOpts, jmap.WithFileNodeBackend(fileNodeBackend))
+	}
+	if principalsBackend != nil {
+		serverOpts = append(serverOpts, jmap.WithPrincipalsBackend(principalsBackend))
+	}
+
+	server := jmap.NewServer(session, serverOpts...)
 	if mb, ok := mailBackend.(interface{ SetBroadcaster(*jmap.Broadcaster) }); ok {
 		mb.SetBroadcaster(server.Broadcaster)
 	}
@@ -280,7 +235,6 @@ func main() {
 	if cb, ok := contactsBackend.(interface{ SetBroadcaster(*jmap.Broadcaster) }); ok {
 		cb.SetBroadcaster(server.Broadcaster)
 	}
-	memSieveBackend.SetBroadcaster(server.Broadcaster)
 	if fb, ok := fileNodeBackend.(interface{ SetBroadcaster(*jmap.Broadcaster) }); ok {
 		fb.SetBroadcaster(server.Broadcaster)
 	}
@@ -317,11 +271,7 @@ func main() {
 		}
 	}()
 
-	davServer := dav.NewServer(calBackend, contactsBackend)
-	httpMux := http.NewServeMux()
-	httpMux.Handle("/caldav/", davServer.CalDAVHandler)
-	httpMux.Handle("/carddav/", davServer.CardDAVHandler)
-	httpMux.Handle("/", server.Handler())
+	jmapHandler := server.Handler()
 
 	// Start HTTPS TLS Listener for browser clients enforcing HTTPS connect-src CSP.
 	// Prefer a caller-supplied certificate (e.g. mkcert, which is trusted by the
@@ -334,7 +284,7 @@ func main() {
 		}
 		httpsServer := &http.Server{
 			Addr:      httpsAddr,
-			Handler:   httpMux,
+			Handler:   jmapHandler,
 			TLSConfig: tlsConfig,
 		}
 		go func() {
@@ -347,12 +297,10 @@ func main() {
 		log.Printf("HTTPS TLS disabled (failed to obtain certificate: %v)", certErr)
 	}
 
-	log.Printf("Starting JMAP & WebDAV server on http://%s (public URL: %s)", addr, publicURL)
+	log.Printf("Starting JMAP server on http://%s (public URL: %s)", addr, publicURL)
 	log.Printf("Discovery endpoint: %s/.well-known/jmap", publicURL)
-	log.Printf("CalDAV endpoint: %s/caldav/", publicURL)
-	log.Printf("CardDAV endpoint: %s/carddav/", publicURL)
 
-	if err := http.ListenAndServe(addr, httpMux); err != nil {
+	if err := http.ListenAndServe(addr, jmapHandler); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }

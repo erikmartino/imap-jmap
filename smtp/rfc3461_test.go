@@ -3,17 +3,17 @@ package smtp_test
 import (
 	"testing"
 
-	"imap-jmap/jmap/memory"
+	"imap-jmap/jmap/imapsmtp"
 	jmapsmtp "imap-jmap/smtp"
 )
 
 // TestRFC3461_SMTPDSN tests RFC 3461 SMTP Service Extension for Delivery Status Notifications.
 func TestRFC3461_SMTPDSN(t *testing.T) {
-	memBackend := memory.NewMemoryBackend()
-	memBlobBackend := memory.NewMemoryBlobBackend()
+	backend, cleanup := imapsmtp.NewEmbeddedBackend("sender@example.com")
+	defer cleanup()
 
-	backend := jmapsmtp.NewReceiverBackend(memBackend, memBlobBackend, nil)
-	sess, err := backend.NewSession(nil)
+	rcvBackend := jmapsmtp.NewReceiverBackend(backend, backend, nil)
+	sess, err := rcvBackend.NewSession(nil)
 	if err != nil {
 		t.Fatalf("NewSession failed: %v", err)
 	}

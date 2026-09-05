@@ -10,8 +10,8 @@ import (
 	"github.com/emersion/go-msgauth/dmarc"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
 	"imap-jmap/jmap/spectest"
+	"imap-jmap/jmap/testmock"
 )
 
 // stubVerifier is a SenderVerifier stub for gate tests.
@@ -27,10 +27,8 @@ func (s *stubVerifier) Verify(_ context.Context, _ *MessageToVerify) (*SenderAut
 }
 
 func newAuthSession(verifier SenderVerifier) *Session {
-	mailBackend := memory.NewMemoryBackend()
-	blobBackend := memory.NewMemoryBlobBackend()
-	calBackend := memory.NewMemoryCalendarsBackend()
-	backend := NewReceiverBackend(mailBackend, blobBackend, calBackend)
+	calBackend := testmock.NewMemoryCalendarsBackend()
+	backend := NewReceiverBackend(nil, nil, calBackend)
 	backend.SenderVerifier = verifier
 	backend.AccountResolver = jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
 	return &Session{backend: backend}

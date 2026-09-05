@@ -27,6 +27,16 @@ func WithAccountResolver(resolver jmap.AccountResolver) Option {
 	}
 }
 
+// WithFallbackAccountID sets an explicit fallback account ID on the SMTP receiver backend
+// for messages with no local resolvable recipient.
+func WithFallbackAccountID(accountID string) Option {
+	return func(s *Server) {
+		if receiver, ok := s.server.Backend.(*ReceiverBackend); ok {
+			receiver.AccountID = accountID
+		}
+	}
+}
+
 // WithSenderVerifier sets the SenderVerifier (SPF/DKIM/DMARC, SEC-1) used to
 // authenticate senders before iTIP scheduling messages are auto-applied.
 // Without it the receiver runs in development mode and applies iTIP without

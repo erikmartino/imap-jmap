@@ -15,7 +15,6 @@ import (
 	"github.com/emersion/go-webdav/carddav"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/memory"
 	"imap-jmap/jmap/vcardconv"
 )
 
@@ -666,7 +665,7 @@ func (b *ContactsBackend) QueryCards(ctx context.Context, filter map[string]any,
 
 	var matched []*jmap.Card
 	for _, c := range cards {
-		if memory.MatchCard(c, filter) {
+		if jmap.MatchCard(c, filter) {
 			matched = append(matched, c)
 		}
 	}
