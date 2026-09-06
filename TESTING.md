@@ -31,10 +31,12 @@ go test -v -run "TestRFC8887" ./jmap       # WebSockets (RFC 8887)
 ```
 
 ### Requirement-Traceability Matrix & Spec Coverage Checker
-Every normative clause worked on is documented in `docs/conformance/<spec>.json`. The `TestSpecCoverage` test enforces matrix integrity:
+Every normative clause worked on is documented in the Go-native `spec/` package (`spec.Matrices`). The `TestSpecCoverage` test enforces matrix integrity:
 
 ```bash
 go test -v -run TestSpecCoverage ./jmap
+# or directly on the spec package:
+go test -v ./spec
 ```
 
 ---

@@ -1,30 +1,32 @@
 // Package spectest provides RFC 2119 requirement-coverage annotations for tests.
 //
-// A test cites the exact normative clause it exercises with Require(); the citation
-// is logged (so it shows in `go test -v`) and recorded so coverage can be reported
-// and audited against the requirement-traceability matrix under docs/conformance/.
+// A test cites the exact normative clause it exercises with Require() or Cover();
+// the citation is logged (so it shows in `go test -v`) and recorded so coverage can be
+// reported and audited against the requirement matrices defined in package spec/.
 //
-// The matrix is the machine-checked source of truth (see the SpecCoverage checker in
-// the jmap tests); Require() is the in-test citation that makes each test
-// self-documenting and, per AGENTS.md, is mandatory for new requirement tests.
+// The spec matrices are the machine-checked source of truth (see the SpecCoverage checker);
+// Require() and Cover() make each test self-documenting and, per AGENTS.md, are
+// mandatory for new requirement tests.
 package spectest
 
 import (
 	"sync"
 	"testing"
+
+	"imap-jmap/spec"
 )
 
 // Level is an RFC 2119 / RFC 8174 requirement level.
-type Level string
+type Level = spec.Level
 
 const (
-	MUST        Level = "MUST"
-	MUSTNOT     Level = "MUST NOT"
-	SHOULD      Level = "SHOULD"
-	SHOULDNOT   Level = "SHOULD NOT"
-	MAY         Level = "MAY"
-	RECOMMENDED Level = "RECOMMENDED"
-	OPTIONAL    Level = "OPTIONAL"
+	MUST        = spec.MUST
+	MUSTNOT     = spec.MUSTNOT
+	SHOULD      = spec.SHOULD
+	SHOULDNOT   = spec.SHOULDNOT
+	MAY         = spec.MAY
+	RECOMMENDED = spec.RECOMMENDED
+	OPTIONAL    = spec.OPTIONAL
 )
 
 // Citation records that a test exercised a specific normative clause.
@@ -51,6 +53,12 @@ func Require(t testing.TB, spec, section string, level Level, text string) {
 	citations = append(citations, Citation{Test: t.Name(), Spec: spec, Section: section, Level: level, Text: text})
 	mu.Unlock()
 	t.Logf("[spec] %s §%s %s — %s", spec, section, level, text)
+}
+
+// Cover cites a strongly-typed Requirement from the spec package.
+func Cover(t testing.TB, req spec.Requirement) {
+	t.Helper()
+	Require(t, req.Spec, req.Section, req.Level, req.Text)
 }
 
 // Registered returns a copy of every citation recorded so far.

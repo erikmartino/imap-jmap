@@ -1,4 +1,4 @@
-package jmap_test
+package spec_test
 
 import (
 	"go/ast"
@@ -13,26 +13,12 @@ import (
 
 	"imap-jmap/spec"
 )
-// TestSpecCoverage gates the requirement-traceability matrices: it fails on dangling
-// test references, "covered" rows without tests, unsorted or malformed rows, and
-// duplicate clauses, and it reports the outstanding gaps. It cannot judge whether a
-// listed test exercises the clause *correctly* or across every input representation —
-// that is enforced by the AGENTS.md coverage rules and the spectest.Require() citations,
-// not by this structural check.
+
+// TestSpecCoverage ensures all specification requirement matrices are valid,
+// sorted, refer to real tests, and report outstanding gaps.
 func TestSpecCoverage(t *testing.T) {
 	for _, m := range spec.Matrices {
-		testDir := m.TestDir
-		switch testDir {
-		case "jmap":
-			testDir = "."
-		case "jmap/vcardconv":
-			testDir = "./vcardconv"
-		case "smtp":
-			testDir = "../smtp"
-		default:
-			testDir = filepath.Join("..", testDir)
-		}
-
+		testDir := filepath.Join("..", m.TestDir)
 		testNames := collectTestNames(t, testDir)
 		rows := m.Requirements
 
@@ -96,8 +82,6 @@ func TestSpecCoverage(t *testing.T) {
 	}
 }
 
-// rowOrder orders rows by spec (string) then section (numeric-aware), so the matrix
-// stays readable and sections don't sort lexically (5.4 before 5.11).
 func rowOrder(a, b spec.Requirement) int {
 	if a.Spec != b.Spec {
 		return strings.Compare(a.Spec, b.Spec)
@@ -126,8 +110,6 @@ func sectionCompare(a, b string) int {
 	return len(as) - len(bs)
 }
 
-// collectTestNames parses every *_test.go in the package directory and returns the set
-// of top-level Test function names, so the matrix's test references can be verified.
 func collectTestNames(t *testing.T, dir string) map[string]bool {
 	names := map[string]bool{}
 	entries, err := os.ReadDir(dir)
