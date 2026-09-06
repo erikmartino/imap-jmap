@@ -189,6 +189,13 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			refs := NewCreationRefs(req.CreatedIds)
 			reqCtx := WithCreationRefs(ctx, refs)
 			reqCtx = WithCoreLimits(reqCtx, limits)
+			var calCap CalendarsCapability
+			if s.Session != nil && s.Session.Capabilities != nil {
+				if c, ok := s.Session.Capabilities[CalendarsCapabilityURI].(CalendarsCapability); ok {
+					calCap = c
+				}
+			}
+			reqCtx = WithCalendarsCapability(reqCtx, calCap)
 
 			for _, call := range req.MethodCalls {
 				resolvedArgs, refErrType, refErr := s.resolveResultReferences(call.Args, executedMap)

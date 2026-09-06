@@ -79,6 +79,10 @@ func ParseISODuration(raw string) (time.Duration, bool) {
 			value = value*10 + uint64(c-'0')
 		case c == 'T':
 			inTime = true
+		case c == 'Y' && !inTime:
+			flush(365 * 24 * time.Hour)
+		case c == 'M' && !inTime:
+			flush(30 * 24 * time.Hour)
 		case c == 'W' && !inTime:
 			flush(7 * 24 * time.Hour)
 		case c == 'D' && !inTime:

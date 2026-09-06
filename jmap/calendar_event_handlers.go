@@ -3,6 +3,7 @@ package jmap
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -142,6 +143,7 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, p
 		notDestroyed := make(map[string]any)
 
 		creationRefs := newSetCreationRefs(ctx)
+		calCap := CalendarsCapabilityFromContext(ctx)
 
 		if createRaw, ok := args["create"].(map[string]any); ok {
 			notCreated = runCreateLoop(createRaw, creationRefs, func(creationID string, resolvedMap map[string]any) (string, error) {
@@ -149,7 +151,7 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, p
 					return "", SetError{Type: "noSupportedScheduleMethods", Description: "no supported schedule methods available for scheduling"}
 				}
 				cleanMap := sanitizeEventMap(resolvedMap)
-				if err := validateCalendarEventMap(cleanMap); err != nil {
+				if err := validateCalendarEventMap(cleanMap, calCap); err != nil {
 					return "", err
 				}
 				evBytes, _ := json.Marshal(cleanMap)
@@ -226,7 +228,7 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, p
 					notUpdated[string(resolvedID)] = SetError{Type: "noSupportedScheduleMethods", Description: "no supported schedule methods available for scheduling"}
 					continue
 				}
-				if err := validateCalendarEventMap(patch); err != nil {
+				if err := validateCalendarEventMap(patch, calCap); err != nil {
 					if setErr, isSetErr := err.(SetError); isSetErr {
 						notUpdated[string(resolvedID)] = setErr
 					} else {
@@ -344,10 +346,25 @@ func handleCalendarEventQuery(backend CalendarsBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 
+		calCap := CalendarsCapabilityFromContext(ctx)
+		tz, _ := args["timeZone"].(string)
+		if tz == "" {
+			tz = "Etc/UTC"
+		}
+		loc := loadLocation(tz)
+
 		filter, _ := args["filter"].(map[string]any)
-		if errType, errMsg := validateCalendarEventFilter(filter); errType != "" {
+		if errType, errMsg := validateCalendarEventFilter(filter, calCap, loc); errType != "" {
 			return "error", MethodErrorArgs(errType, errMsg)
 		}
+
+		expandRecurrences, _ := args["expandRecurrences"].(bool)
+		if expandRecurrences {
+			if durErr := validateExpandDuration(filter, calCap, loc); durErr != "" {
+				return "error", MethodErrorArgs("expandDurationTooLarge", durErr)
+			}
+		}
+
 		position, posErr := parseQueryPosition(args)
 		if posErr != "" {
 			return "error", MethodErrorArgs(MethodErrorInvalidArguments, posErr)
@@ -364,7 +381,6 @@ func handleCalendarEventQuery(backend CalendarsBackend) MethodHandler {
 			limit = &l
 		}
 
-		expandRecurrences, _ := args["expandRecurrences"].(bool)
 		comparators := parseComparators(args)
 		if errType, errMsg := validateComparators(comparators, calendarEventSortProperties); errType != "" {
 			return "error", MethodErrorArgs(errType, errMsg)
@@ -629,8 +645,9 @@ var validCalendarFilterOperators = map[string]bool{"AND": true, "OR": true, "NOT
 
 // validateCalendarEventFilter walks a CalendarEvent/query filter (a FilterCondition or a
 // FilterOperator tree) and rejects any unknown condition property with unsupportedFilter, per
-// the "No Fallthrough Match Defaults" rule. Returns ("","") when the filter is valid.
-func validateCalendarEventFilter(filter map[string]any) (errType, errMsg string) {
+// the "No Fallthrough Match Defaults" rule. It also validates date bounds against minDateTime
+// and maxDateTime capability limits. Returns ("","") when the filter is valid.
+func validateCalendarEventFilter(filter map[string]any, calCap CalendarsCapability, loc *time.Location) (errType, errMsg string) {
 	if filter == nil {
 		return "", ""
 	}
@@ -648,18 +665,91 @@ func validateCalendarEventFilter(filter map[string]any) (errType, errMsg string)
 			if !ok {
 				return "unsupportedFilter", "filter condition must be an object"
 			}
-			if et, em := validateCalendarEventFilter(cm); et != "" {
+			if et, em := validateCalendarEventFilter(cm, calCap, loc); et != "" {
 				return et, em
 			}
 		}
 		return "", ""
 	}
-	for k := range filter {
+	for k, v := range filter {
 		if !calendarEventFilterConditions[k] {
 			return "unsupportedFilter", "unknown filter condition: " + k
 		}
+		switch k {
+		case "before", "after", "updatedBefore", "updatedAfter":
+			if s, ok := v.(string); ok && s != "" {
+				t, ok := parseLocalDateTimeBound(s, loc)
+				if !ok {
+					return MethodErrorInvalidArguments, fmt.Sprintf("invalid date format for %s: %s", k, s)
+				}
+				if calCap.MinDateTime != "" {
+					if minT, okMin := parseLocalDateTimeBound(calCap.MinDateTime, time.UTC); okMin {
+						if t.Before(minT) {
+							return MethodErrorInvalidArguments, fmt.Sprintf("%s date (%s) is earlier than minDateTime (%s)", k, s, calCap.MinDateTime)
+						}
+					}
+				}
+				if calCap.MaxDateTime != "" {
+					if maxT, okMax := parseLocalDateTimeBound(calCap.MaxDateTime, time.UTC); okMax {
+						if t.After(maxT) {
+							return MethodErrorInvalidArguments, fmt.Sprintf("%s date (%s) is later than maxDateTime (%s)", k, s, calCap.MaxDateTime)
+						}
+					}
+				}
+			}
+		}
 	}
 	return "", ""
+}
+
+func validateExpandDuration(filter map[string]any, calCap CalendarsCapability, loc *time.Location) string {
+	if calCap.MaxExpandedQueryDuration == "" {
+		return ""
+	}
+	maxDur, ok := ParseISODuration(calCap.MaxExpandedQueryDuration)
+	if !ok || maxDur <= 0 {
+		return ""
+	}
+	beforeStr, afterStr := extractFilterBounds(filter)
+	if beforeStr == "" || afterStr == "" {
+		return ""
+	}
+	beforeT, okB := parseLocalDateTimeBound(beforeStr, loc)
+	afterT, okA := parseLocalDateTimeBound(afterStr, loc)
+	if !okB || !okA {
+		return ""
+	}
+	diff := beforeT.Sub(afterT)
+	if diff > maxDur {
+		return fmt.Sprintf("duration between before (%s) and after (%s) is %v, which exceeds maxExpandedQueryDuration (%s)", beforeStr, afterStr, diff, calCap.MaxExpandedQueryDuration)
+	}
+	return ""
+}
+
+func extractFilterBounds(filter map[string]any) (before, after string) {
+	if filter == nil {
+		return "", ""
+	}
+	if b, ok := filter["before"].(string); ok {
+		before = b
+	}
+	if a, ok := filter["after"].(string); ok {
+		after = a
+	}
+	if conds, ok := filter["conditions"].([]any); ok {
+		for _, c := range conds {
+			if cm, ok := c.(map[string]any); ok {
+				cb, ca := extractFilterBounds(cm)
+				if before == "" {
+					before = cb
+				}
+				if after == "" {
+					after = ca
+				}
+			}
+		}
+	}
+	return before, after
 }
 
 var validCalendarEventProperties = map[string]bool{
@@ -761,7 +851,7 @@ func sanitizeEventMap(m map[string]any) map[string]any {
 	return cleaned
 }
 
-func validateCalendarEventMap(m map[string]any) error {
+func validateCalendarEventMap(m map[string]any, calCap CalendarsCapability) error {
 	for k, v := range m {
 		baseKey := strings.TrimPrefix(k, "/")
 		if strings.Contains(baseKey, "/") {
@@ -775,6 +865,63 @@ func validateCalendarEventMap(m map[string]any) error {
 			}
 		}
 		switch baseKey {
+		case "start":
+			if s, ok := v.(string); ok && s != "" {
+				t, okT := parseLocalDateTimeBound(s, time.UTC)
+				if !okT {
+					return SetError{Type: "invalidProperties", Description: "invalid start date format: " + s, Properties: []string{k}}
+				}
+				if calCap.MinDateTime != "" {
+					if minT, okMin := parseLocalDateTimeBound(calCap.MinDateTime, time.UTC); okMin && t.Before(minT) {
+						return SetError{Type: "invalidProperties", Description: fmt.Sprintf("start date (%s) is earlier than minDateTime (%s)", s, calCap.MinDateTime), Properties: []string{k}}
+					}
+				}
+				if calCap.MaxDateTime != "" {
+					if maxT, okMax := parseLocalDateTimeBound(calCap.MaxDateTime, time.UTC); okMax && t.After(maxT) {
+						return SetError{Type: "invalidProperties", Description: fmt.Sprintf("start date (%s) is later than maxDateTime (%s)", s, calCap.MaxDateTime), Properties: []string{k}}
+					}
+				}
+			}
+		case "recurrenceRules":
+			if rules, ok := v.([]any); ok {
+				for _, r := range rules {
+					if rm, ok := r.(map[string]any); ok {
+						if until, ok := rm["until"].(string); ok && until != "" {
+							t, okT := parseLocalDateTimeBound(until, time.UTC)
+							if okT {
+								if calCap.MinDateTime != "" {
+									if minT, okMin := parseLocalDateTimeBound(calCap.MinDateTime, time.UTC); okMin && t.Before(minT) {
+										return SetError{Type: "invalidProperties", Description: fmt.Sprintf("recurrence rule until date (%s) is earlier than minDateTime (%s)", until, calCap.MinDateTime), Properties: []string{k}}
+									}
+								}
+								if calCap.MaxDateTime != "" {
+									if maxT, okMax := parseLocalDateTimeBound(calCap.MaxDateTime, time.UTC); okMax && t.After(maxT) {
+										return SetError{Type: "invalidProperties", Description: fmt.Sprintf("recurrence rule until date (%s) is later than maxDateTime (%s)", until, calCap.MaxDateTime), Properties: []string{k}}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		case "recurrenceOverrides":
+			if overrides, ok := v.(map[string]any); ok {
+				for recID := range overrides {
+					t, okT := parseLocalDateTimeBound(recID, time.UTC)
+					if okT {
+						if calCap.MinDateTime != "" {
+							if minT, okMin := parseLocalDateTimeBound(calCap.MinDateTime, time.UTC); okMin && t.Before(minT) {
+								return SetError{Type: "invalidProperties", Description: fmt.Sprintf("recurrence override date (%s) is earlier than minDateTime (%s)", recID, calCap.MinDateTime), Properties: []string{k}}
+							}
+						}
+						if calCap.MaxDateTime != "" {
+							if maxT, okMax := parseLocalDateTimeBound(calCap.MaxDateTime, time.UTC); okMax && t.After(maxT) {
+								return SetError{Type: "invalidProperties", Description: fmt.Sprintf("recurrence override date (%s) is later than maxDateTime (%s)", recID, calCap.MaxDateTime), Properties: []string{k}}
+							}
+						}
+					}
+				}
+			}
 		case "status":
 			// "status" is an Event property (RFC 8984 Section 4.4.2); its only valid values
 			// are confirmed/tentative/cancelled. JSCalendar Tasks track state via "progress"

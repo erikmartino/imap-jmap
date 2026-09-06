@@ -284,9 +284,8 @@
     "section": "5.11",
     "level": "SHOULD",
     "text": "minDateTime/maxDateTime/maxExpandedQueryDuration capability limits are enforced on queries.",
-    "tests": [],
-    "status": "gap",
-    "note": "Advertised in the session capability but not referenced by CalendarEvent/query or /set logic."
+    "tests": ["TestRFC8984_CalendarQueryCapabilityLimits"],
+    "status": "covered"
   },
   {
     "spec": "draft-ietf-jmap-calendars-27",
@@ -325,8 +324,8 @@
     "section": "5.11.1",
     "level": "SHOULD",
     "text": "before/after are DST-correct in a non-UTC timeZone.",
-    "tests": [],
-    "status": "gap"
+    "tests": ["TestRFC8984_QueryDSTTransitionBounds"],
+    "status": "covered"
   },
   {
     "spec": "draft-ietf-jmap-calendars-27",

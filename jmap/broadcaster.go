@@ -10,10 +10,14 @@ type StateChange struct {
 	Changed map[string]map[string]string `json:"changed"` // accountID -> typeName -> stateToken
 }
 
-// Broadcaster manages active SSE subscriber channels per RFC 8620 Section 7.1.
+// StateChangeListener is called whenever a StateChange is published.
+type StateChangeListener func(accountID, typeName, newState string)
+
+// Broadcaster manages active SSE subscriber channels per RFC 8620 Section 7.1 and push dispatchers.
 type Broadcaster struct {
 	mu          sync.RWMutex
 	subscribers map[chan *StateChange]struct{}
+	listeners   []StateChangeListener
 }
 
 // NewBroadcaster initializes a new Broadcaster instance.
@@ -21,6 +25,13 @@ func NewBroadcaster() *Broadcaster {
 	return &Broadcaster{
 		subscribers: make(map[chan *StateChange]struct{}),
 	}
+}
+
+// AddListener registers a callback invoked whenever a StateChange is published.
+func (b *Broadcaster) AddListener(l StateChangeListener) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.listeners = append(b.listeners, l)
 }
 
 // Subscribe registers a new subscriber channel.
@@ -64,5 +75,9 @@ func (b *Broadcaster) PublishStateChange(accountID string, typeName string, newS
 		default:
 			// Buffer full, drop non-blocking
 		}
+	}
+
+	for _, l := range b.listeners {
+		go l(accountID, typeName, newState)
 	}
 }

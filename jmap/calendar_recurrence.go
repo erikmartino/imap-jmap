@@ -171,8 +171,22 @@ func parseFloatingDateTime(s string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
+func parseEventStart(ev *CalendarEvent) (time.Time, bool) {
+	if ev == nil || ev.Start == "" {
+		return time.Time{}, false
+	}
+	if t, err := time.Parse(time.RFC3339, ev.Start); err == nil {
+		return t, true
+	}
+	loc := time.UTC
+	if ev.TimeZone != "" && ev.TimeZone != "floating" {
+		loc = loadLocation(ev.TimeZone)
+	}
+	return parseLocalDateTimeBound(ev.Start, loc)
+}
+
 func eventEndTime(ev *CalendarEvent) (time.Time, bool) {
-	start, ok := parseRFC3339(ev.Start)
+	start, ok := parseEventStart(ev)
 	if !ok {
 		return time.Time{}, false
 	}
@@ -315,33 +329,24 @@ func buildRRuleOption(rule *JSCalendarRecurrenceRule, dtstart time.Time) (rrule.
 	return opt, true
 }
 
-func overrideStart(recID string, patch map[string]any) (time.Time, bool) {
+func overrideStart(ev *CalendarEvent, recID string, patch map[string]any) (time.Time, bool) {
+	loc := time.UTC
+	if ev != nil && ev.TimeZone != "" && ev.TimeZone != "floating" {
+		loc = loadLocation(ev.TimeZone)
+	}
 	if patch != nil {
 		if s, ok := patch["start"].(string); ok && s != "" {
-			if t, ok := parseRFC3339(s); ok {
-				return t, true
-			}
-			if t, ok := parseFloatingDateTime(s); ok {
-				return t, true
-			}
+			return parseLocalDateTimeBound(s, loc)
 		}
 	}
-	if t, ok := parseRFC3339(recID); ok {
-		return t, true
-	}
-	if t, ok := parseFloatingDateTime(recID); ok {
-		return t, true
-	}
-	return time.Time{}, false
+	return parseLocalDateTimeBound(recID, loc)
 }
 
 // ExpandRecurrenceInstances expands an event's recurrenceRules over [start, horizon] per RFC 8984.
 func ExpandRecurrenceInstances(ev *CalendarEvent, horizon time.Time) []RecurrenceInstance {
-	start, ok := parseRFC3339(ev.Start)
+	start, ok := parseEventStart(ev)
 	if !ok {
-		if start, ok = parseFloatingDateTime(ev.Start); !ok {
-			return nil
-		}
+		return nil
 	}
 
 	duration := time.Duration(0)
@@ -419,7 +424,7 @@ func ExpandRecurrenceInstances(ev *CalendarEvent, horizon time.Time) []Recurrenc
 		if _, present := starts[recID]; present {
 			continue
 		}
-		if t, ok := overrideStart(recID, ev.RecurrenceOverrides[recID]); ok {
+		if t, ok := overrideStart(ev, recID, ev.RecurrenceOverrides[recID]); ok {
 			starts[t.UTC().Format(time.RFC3339)] = t
 		}
 	}
@@ -435,7 +440,7 @@ func ExpandRecurrenceInstances(ev *CalendarEvent, horizon time.Time) []Recurrenc
 			if excluded, _ := ov["excluded"].(bool); excluded {
 				continue
 			}
-			if s, ok := overrideStart(recID, ov); ok {
+			if s, ok := overrideStart(ev, recID, ov); ok {
 				instStart = s
 			}
 			if ds, ok := ov["duration"].(string); ok && ds != "" {
@@ -466,10 +471,13 @@ func ExpandRecurrenceInstances(ev *CalendarEvent, horizon time.Time) []Recurrenc
 
 
 func eventIsFloating(ev *CalendarEvent) bool {
-	if ev.TimeZone != "" {
+	if ev == nil {
+		return true
+	}
+	if ev.TimeZone != "" && ev.TimeZone != "floating" {
 		return false
 	}
-	if _, ok := parseRFC3339(ev.Start); ok {
+	if strings.HasSuffix(ev.Start, "Z") || strings.Contains(ev.Start, "+") {
 		return false
 	}
 	return true

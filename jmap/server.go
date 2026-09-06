@@ -2,6 +2,7 @@ package jmap
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -205,6 +206,27 @@ func NewServer(session *Session, opts ...Option) *Server {
 	}
 	RegisterFileNodeHandlers(s.MethodRegistry, s.FileNodeBackend)
 	RegisterPrincipalsHandlers(s.MethodRegistry, s.PrincipalsBackend)
+
+	if s.MailBackend != nil && s.Broadcaster != nil {
+		s.Broadcaster.AddListener(func(accountID, typeName, newState string) {
+			accountCtx := ContextWithAccountID(context.Background(), accountID)
+			subs, err := s.MailBackend.GetAllPushSubscriptions(accountCtx)
+			if err != nil || len(subs) == 0 {
+				return
+			}
+			for _, sub := range subs {
+				if sub == nil || sub.URL == "" {
+					continue
+				}
+				go func(sub *PushSubscription) {
+					err := DispatchWebPushStateChange(context.Background(), sub, accountID, typeName, newState, nil, "")
+					if err == ErrSubscriptionGone {
+						_, _ = s.MailBackend.DeletePushSubscription(accountCtx, sub.ID)
+					}
+				}(sub)
+			}
+		})
+	}
 
 	return s
 }
@@ -560,6 +582,13 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	reqCtx := WithCreationRefs(r.Context(), refs)
 	reqCtx = WithUsingCapabilities(reqCtx, req.Using)
 	reqCtx = WithCoreLimits(reqCtx, limits)
+	var calCap CalendarsCapability
+	if s.Session != nil && s.Session.Capabilities != nil {
+		if c, ok := s.Session.Capabilities[CalendarsCapabilityURI].(CalendarsCapability); ok {
+			calCap = c
+		}
+	}
+	reqCtx = WithCalendarsCapability(reqCtx, calCap)
 	reqCtx = withResponseSpill(reqCtx)
 
 	for _, call := range req.MethodCalls {

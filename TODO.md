@@ -42,13 +42,13 @@ Previous task log preserved in [`TODO_PREVIOUS.md`](./TODO_PREVIOUS.md).
   - [x] 3.4 Enforce `maxObjectsInSet` in `*/set` handlers and server dispatch (`requestTooLarge`)
   - [x] 3.5 Support nested and patch Result References in [`jmap/server.go:resolveResultReferences`](./jmap/server.go)
 
-- [ ] **Phase 4: RFC Integration & Feature Completeness**
+- [x] **Phase 4: RFC Integration & Feature Completeness**
   - [x] 4.1 Real Quota accounting & `overQuota` enforcement (RFC 9425): update `Used` counters on email create/destroy and enforce limits
   - [x] 4.2 Sieve script execution on incoming SMTP delivery (RFC 5228 / RFC 9661): evaluate recipient's active script (`fileinto`, `discard`, `redirect`, `reject`)
   - [x] 4.3 VacationResponse auto-reply execution on incoming delivery (RFC 8621 §8): evaluate `isEnabled` and date range to send auto-reply
   - [x] 4.4 Real RFC 9007 `MDN/parse` MIME decoding (parse `multipart/report` and `message/disposition-notification`)
-  - [ ] 4.5 Web Push event dispatch (RFC 8620 §7.2, RFC 8030, RFC 8291, RFC 9749): send encrypted Web Push notifications on state change
-  - [ ] 4.6 Enforce `minDateTime`, `maxDateTime`, and `maxExpandedQueryDuration` on calendar queries (draft-ietf-jmap-calendars-27 §5.11)
+  - [x] 4.5 Web Push event dispatch (RFC 8620 §7.2, RFC 8030, RFC 8291, RFC 9749): send encrypted Web Push notifications on state change
+  - [x] 4.6 Enforce `minDateTime`, `maxDateTime`, and `maxExpandedQueryDuration` on calendar queries (draft-ietf-jmap-calendars-27 §5.11)
 
 - [ ] **Phase 5: External Test Suites & Conformance Verification**
   - [ ] 5.1 `jmapio/jscontact-tests` (Python)
@@ -205,6 +205,31 @@ Previous task log preserved in [`TODO_PREVIOUS.md`](./TODO_PREVIOUS.md).
   - Resolved `forEmailId` dynamically by matching `Original-Message-ID` against stored emails' `Message-ID` values per RFC 9007 §3.2; set to empty/null if no matching email was found.
   - Classified non-MDN blobs as `notParsable` and non-existent blobs as `notFound` per RFC 9007 §2.2.
 - **Validation**: Updated [`jmap/rfc9007_test.go`](./jmap/rfc9007_test.go) and created dedicated [`jmap/rfc9007_mdn_parse_test.go`](./jmap/rfc9007_mdn_parse_test.go).
+
+#### 4.5 Web Push Event Dispatch (RFC 8620 §7.2, RFC 8030, RFC 8291, RFC 9749) [COMPLETED]
+- **Locations**: [`jmap/webpush.go`](./jmap/webpush.go), [`jmap/broadcaster.go`](./jmap/broadcaster.go), [`jmap/server.go`](./jmap/server.go), [`jmap/webpush_test.go`](./jmap/webpush_test.go)
+- **Problem**: `PushSubscription` objects could be registered via `PushSubscription/set`, but state mutations were never dispatched to client push endpoints; RFC 8291 payload encryption and RFC 9749 VAPID authentication were not implemented.
+- **Action**:
+  - Implemented RFC 8291 Message Encryption for Web Push (`aes128gcm`) using ECDH P-256 and HKDF-SHA256 in [`jmap/webpush.go`](./jmap/webpush.go), verified against RFC 8291 Appendix A test vectors.
+  - Implemented RFC 8292 / RFC 9749 VAPID ES256 Authorization token generation with origin/audience derivation and contact subject.
+  - Implemented `DispatchWebPushStateChange` delivering encrypted RFC 8620 `StateChange` payloads to active subscriptions, filtering by subscription `types`, with RFC 8030 TTL, Urgency, and Topic headers.
+  - Handled HTTP 404/410 Gone push service responses by automatically deleting expired/unregistered push subscriptions from storage.
+  - Added `AddListener` and `StateChangeListener` to `Broadcaster`, wiring Web Push notification delivery into server initialization alongside SSE.
+- **Validation**: Verified with RFC 8291 Appendix A known-answer vectors, mock push service dispatch, type filtering, 410 cleanup, and end-to-end IMAP IDLE mutation dispatch in [`jmap/webpush_test.go`](./jmap/webpush_test.go).
+
+#### 4.6 Enforce Capability Limits on Calendar Queries & Mutations (draft-ietf-jmap-calendars-27 §5.11) [COMPLETED]
+- **Locations**: [`jmap/limits.go`](./jmap/limits.go), [`jmap/session.go`](./jmap/session.go), [`jmap/server.go`](./jmap/server.go), [`jmap/websocket.go`](./jmap/websocket.go), [`jmap/calendar_utils.go`](./jmap/calendar_utils.go), [`jmap/calendar_event_handlers.go`](./jmap/calendar_event_handlers.go), [`jmap/calendar_recurrence.go`](./jmap/calendar_recurrence.go), [`docs/conformance/jmap-calendars.json`](./docs/conformance/jmap-calendars.json)
+- **Problem**: Advertised session capability limits (`minDateTime`, `maxDateTime`, `maxExpandedQueryDuration`) were neither checked on `CalendarEvent/query` nor on `CalendarEvent/set`; recurrence expansion over large durations was unconstrained, dates outside supported boundaries were accepted, and non-UTC timezone DST transitions miscalculated event matching.
+- **Action**:
+  - Added `WithCalendarsCapability` context helpers and default constants in [`jmap/limits.go`](./jmap/limits.go), injected in `server.go` and `websocket.go`.
+  - Added full ISO 8601 duration support (`Y`, `M`, `W`, `D`, `H`, `M`, `S`) in [`jmap/calendar_utils.go`](./jmap/calendar_utils.go).
+  - Enforced `maxExpandedQueryDuration` on `CalendarEvent/query` when `expandRecurrences` is true, returning standard `expandDurationTooLarge` method error when the duration between `before` and `after` exceeds the advertised limit.
+  - Enforced `minDateTime` and `maxDateTime` on `CalendarEvent/query` filter bounds (`before`, `after`, `updatedBefore`, `updatedAfter`), returning `invalidArguments` for dates outside supported bounds.
+  - Enforced `minDateTime` and `maxDateTime` on `CalendarEvent/set` create and update, returning `invalidProperties` SetError for `start`, recurrence rule `until`, and recurrence override dates outside bounds.
+  - Fixed event start time parsing in [`jmap/calendar_recurrence.go`](./jmap/calendar_recurrence.go) to interpret `LocalDateTime` in the event's designated `timeZone`, enabling DST-correct matching across spring forward and fall back transitions.
+  - Closed all remaining gaps in [`docs/conformance/jmap-calendars.json`](./docs/conformance/jmap-calendars.json), bringing the entire conformance matrix suite to 100% covered and 0 gaps.
+- **Validation**: Dedicated unit tests in [`jmap/rfc8984_calendar_limits_test.go`](./jmap/rfc8984_calendar_limits_test.go) and [`jmap/rfc8984_query_dst_test.go`](./jmap/rfc8984_query_dst_test.go); verified by `TestSpecCoverage`.
+
 
 
 
