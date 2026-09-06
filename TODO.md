@@ -6,63 +6,41 @@
 3. *RFC 2119 requirement implementation & traceability*.
 4. *Standard parsers & encoders only — never ad-hoc parsing*.
 
-Previous task logs preserved in [`TODO_PREVIOUS.md`](./TODO_PREVIOUS.md).
+Previous task logs and completed milestones preserved in [`TODO_PREVIOUS.md`](./TODO_PREVIOUS.md).
 
 ---
 
 ## Active Roadmap
 
-### Phase 1: Complete Elimination of `testmock` via In-Process Nextcloud & Reference Backends
-Following the successful retirement of `jmap/memory/` in favor of `imapsmtp` in Phase 0, replace all artificial `testmock` stores with production adapters running in-process:
+### Phase 3: JMAP for Tasks (`draft-ietf-jmap-tasks` / RFC 8984 JSCalendar §5)
+Bridge Nextcloud CalDAV `VTODO` collections and tasks to JMAP Tasks:
 
-- [x] **1.1 In-Process Nextcloud Server (`jmap/nextcloud/embedded.go`)**
-  - Implement `nextcloud.NewEmbeddedBackend(usernames ...string) (*Client, *CalendarsBackend, *ContactsBackend, *FileNodeBackend, *PrincipalsBackend, func())`.
-  - Spin up an in-process `httptest.Server` mounting:
-    - **CalDAV** (`github.com/emersion/go-webdav/caldav.Handler`) for calendar events (RFC 4791 / RFC 8984) and principal discovery (`current-user-principal`, `calendar-home-set`).
-    - **CardDAV** (`github.com/emersion/go-webdav/carddav.Handler`) for address books and cards (RFC 6352 / RFC 9553) and addressbook home sets.
-    - **WebDAV** (`golang.org/x/net/webdav` / `webdav.NewMemFS()`) for root WebDAV file storage (`/remote.php/webdav/`).
-    - **OCS API Handler** (`/ocs/v1.php/cloud/users`, `/groups`) with standard OCS JSON envelope for user provisioning and group lookup.
-  - Sub-millisecond startup, hermetic in-process execution with 0 external daemons.
+- [ ] **3.1 Session Capability & Data Models**
+  - Advertise `urn:ietf:params:jmap:tasks` capability in JMAP session resource.
+  - Define `TaskList` model (`id`, `name`, `color`, `sortOrder`, `isDefault`, `shareWith`).
+  - Define `Task` model ([RFC 8984 §5](https://www.rfc-editor.org/rfc/rfc8984.html#section-5)) (`id`, `taskListId`, `title`, `description`, `due`, `start`, `estimatedDuration`, `status`, `progress`, `percentComplete`, `priority`, `subtasks`, `recurrenceRules`).
 
-- [x] **1.2 Real State & Delta Sync in `jmap/nextcloud`**
-  - Implement real delta tracking (`created`, `updated`, `destroyed`, `cannotCalculateChanges`) in [`jmap/nextcloud/calendars.go`](./jmap/nextcloud/calendars.go) (`CalendarEventChanges`, `CalendarChanges`).
-  - Implement real delta tracking in [`jmap/nextcloud/contacts.go`](./jmap/nextcloud/contacts.go) (`CardChanges`, `AddressBookChanges`).
-  - Implement real delta tracking in [`jmap/nextcloud/filenode.go`](./jmap/nextcloud/filenode.go) (`FileNodeChanges`).
-  - Implement real delta tracking in [`jmap/nextcloud/principals.go`](./jmap/nextcloud/principals.go) (`PrincipalChanges`).
+- [ ] **3.2 Nextcloud CalDAV `VTODO` Backend Integration**
+  - Implement `TaskList/get`, `TaskList/set`, `TaskList/changes` against Nextcloud CalDAV task collections.
+  - Implement `Task/get`, `Task/set`, `Task/query`, `Task/changes` mapped to CalDAV `VTODO` components via `go-webdav/caldav` and `go-ical`.
+  - Maintain delta tracking (`created`, `updated`, `destroyed`, `state`) in `jmap/nextcloud/`.
 
-- [x] **1.3 Migrate JMAP Server & Test Suites to Nextcloud Backends**
-  - Update [`jmap/test_helper_test.go`](./jmap/test_helper_test.go) (`newTestServer`) to wire `nextcloud.NewEmbeddedBackend` for Calendars, Contacts, FileNodes, and Principals.
-  - Verify all 45 Calendar tests ([`jmap/rfc8984_*_test.go`](./jmap/)) and Card tests ([`jmap/rfc9610_*_test.go`](./jmap/)) pass against the Nextcloud adapter.
-
-- [x] **1.4 Reference Backends for Remaining Stores**
-  - Consolidate Sieve backend into an in-process Sieve store or reference implementation.
-  - Consolidate Auth and IMAPAccess backends into `imapsmtp` or reference stores.
-
-- [x] **1.5 Complete Deletion of `jmap/testmock/`**
-  - Verify zero imports across the entire repository.
-  - Delete `jmap/testmock/` directory completely.
+- [ ] **3.3 Method Handlers & Conformance Tests**
+  - Register `Task/*` and `TaskList/*` handlers in JMAP method registry.
+  - Add requirement traceability matrix `docs/conformance/jmap-tasks.json` gated by `TestSpecCoverage`.
+  - Implement dedicated unit test suite in `jmap/` with `spectest.Require` citations.
 
 ---
 
-### Phase 2: External Test Suites & Conformance Verification
-- [x] **2.1 `jmapio/jscontact-tests` (Python)**
-  - Execute JSContact ↔ vCard conversion vectors against `/convert` endpoint (RFC 9553 / RFC 9555).
-  - 55/55 vectors passing (100% green) in external test suite.
-  - Vendored all 55 vectors in `jmap/vcardconv/vectors_test.go` with RFC 9553 / RFC 9554 / RFC 9555 `spectest.Require` citations.
-  - Added requirement traceability matrix in `docs/conformance/jscontact.json` gated by `TestSpecCoverage`.
-- [x] **2.2 MIME Torture Test Suite**
-  - Vendored canonical MIME torture test vectors into `jmap/testdata/mime_torture/`:
-    - Mark Crispin's original multi-media demonstration (`crispin_torture.eml`).
-    - Ryan Finnie's MIME torture test v1.0 (`rf_mime_torture.eml`).
-    - 25-level deeply nested alternating multiparts (`deep_nested_multiparts.eml`).
-    - Malformed boundaries: missing boundary, empty boundary, unterminated boundary, dashes only.
-    - Mixed and overlapping CTEs: 7bit, 8bit UTF-8, QP, base64, unknown CTE, corrupt base64/QP.
-    - Header folding stress (50+ line folds, tab folds, no-space after colon, RFC 2047 encoded-words).
-    - Header injection resistance (CRLF encoded injection neutralization).
-    - Circular and deeply recursive `message/rfc822` encapsulation.
-    - Obsolete RFC 822 CFWS syntax and address comments.
-    - Adversarial payloads (null bytes, 50KB lines, 200+ headers).
-  - Executed `TestEmailParse_MIMETorture` and `TestEmailParse_AdversarialEdgeCases` in `jmap/` testing `Email/parse` and `ParseRFC822` (100% green, 0 panics).
-  - Executed `TestSMTPReceiver_MIMETorture` and `TestSMTPReceiver_OversizedMessageDATA` in `smtp/` testing inbound SMTP handling over live TCP socket (100% green, 0 panics).
-  - Hardened `smtp.ParseMessageToEmail` with bounded `MaxMIMEParts` recursion protection and `strconv.Itoa` part formatting.
-  - Added requirement traceability in `docs/conformance/jmap-mail.json` and `docs/conformance/smtp.json` gated by `TestSpecCoverage`.
+### Phase 4: JMAP for Notes (`draft-ietf-jmap-notes`)
+- [ ] **4.1 Session Capability & Data Models**
+  - Advertise `urn:ietf:params:jmap:notes` capability.
+  - Define `Note` model (`id`, `title`, `content`, `format`, `categories`, `isFavorite`, `updated`).
+- [ ] **4.2 Nextcloud Notes Integration**
+  - Map `Note/*` methods (`get`, `set`, `query`, `changes`) to Nextcloud WebDAV (`/Notes/`) or Notes REST API.
+
+---
+
+### Phase 5: Storage Quotas Bridge (RFC 9425)
+- [ ] **5.1 Nextcloud User Storage Quota Bridge**
+  - Project Nextcloud WebDAV user storage statistics (`quota-available-bytes` / `quota-used-bytes`) into JMAP `urn:ietf:params:jmap:quota` alongside mail quotas.
