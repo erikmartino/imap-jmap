@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,7 +17,7 @@ type PrincipalsBackend struct {
 	calBackend      jmap.CalendarsBackend
 	mu              sync.RWMutex
 	principalsCache map[jmap.Id]*jmap.Principal
-	state           int
+	tracker         *jmap.ChangeTracker
 	broadcaster     *jmap.Broadcaster
 }
 
@@ -30,13 +29,13 @@ func NewPrincipalsBackend(client *Client, calBackend jmap.CalendarsBackend) *Pri
 		client:          client,
 		calBackend:      calBackend,
 		principalsCache: make(map[jmap.Id]*jmap.Principal),
-		state:           1,
+		tracker:         jmap.NewChangeTracker(1000),
 	}
 
 	initialUsers := []struct {
 		userid, email, displayname string
 	}{
-		{"user", "user@example.com", "User Example"},
+		{"primary", "user@example.com", "User Example"},
 		{"alice", "alice@example.com", "Alice Smith"},
 		{"bob", "bob@example.com", "Bob Jones"},
 		{"carol", "carol@example.com", "Carol Danvers"},
@@ -62,7 +61,7 @@ func NewPrincipalsBackend(client *Client, calBackend jmap.CalendarsBackend) *Pri
 		CalendarAddress:    "mailto:team@example.com",
 		MayGetAvailability: false,
 		MayShareWith:       true,
-		Members:            map[string]bool{"p-alice": true, "p-bob": true, "p-carol": true, "p-user": true},
+		Members:            map[string]bool{"p-alice": true, "p-bob": true, "p-carol": true, "p-primary": true},
 	}
 	b.principalsCache["p-all"] = &jmap.Principal{
 		ID:                 "p-all",
@@ -72,7 +71,7 @@ func NewPrincipalsBackend(client *Client, calBackend jmap.CalendarsBackend) *Pri
 		CalendarAddress:    "mailto:all@example.com",
 		MayGetAvailability: false,
 		MayShareWith:       true,
-		Members:            map[string]bool{"p-alice": true, "p-bob": true, "p-carol": true, "p-user": true},
+		Members:            map[string]bool{"p-alice": true, "p-bob": true, "p-carol": true, "p-primary": true},
 	}
 	b.principalsCache["p-marketing"] = &jmap.Principal{
 		ID:                 "p-marketing",
@@ -149,6 +148,7 @@ func (b *PrincipalsBackend) EnsureUser(ctx context.Context, subject, password st
 	pid := jmap.Id("p-" + userid)
 
 	b.mu.Lock()
+	_, existed := b.principalsCache[pid]
 	b.principalsCache[pid] = &jmap.Principal{
 		ID:                 pid,
 		Type:               "individual",
@@ -165,8 +165,12 @@ func (b *PrincipalsBackend) EnsureUser(ctx context.Context, subject, password st
 	if allGroup, ok := b.principalsCache["p-all"]; ok && allGroup.Members != nil {
 		allGroup.Members[string(pid)] = true
 	}
-	b.state++
-	st := strconv.Itoa(b.state)
+	var st string
+	if existed {
+		st = b.tracker.Record(pid, "update")
+	} else {
+		st = b.tracker.Record(pid, "create")
+	}
 	b.mu.Unlock()
 
 	b.emitStateChange(subject, "Principal", st)
@@ -272,7 +276,7 @@ func (b *PrincipalsBackend) refreshCacheLocked(ctx context.Context) {
 			CalendarAddress:    "mailto:team@example.com",
 			MayGetAvailability: false,
 			MayShareWith:       true,
-			Members:            map[string]bool{"p-alice": true, "p-bob": true, "p-carol": true, "p-user": true},
+			Members:            map[string]bool{"p-alice": true, "p-bob": true, "p-carol": true, "p-primary": true},
 		}
 	}
 	if _, ok := newCache["p-all"]; !ok {
@@ -284,7 +288,7 @@ func (b *PrincipalsBackend) refreshCacheLocked(ctx context.Context) {
 			CalendarAddress:    "mailto:all@example.com",
 			MayGetAvailability: false,
 			MayShareWith:       true,
-			Members:            map[string]bool{"p-alice": true, "p-bob": true, "p-carol": true, "p-user": true},
+			Members:            map[string]bool{"p-alice": true, "p-bob": true, "p-carol": true, "p-primary": true},
 		}
 	}
 	if _, ok := newCache["p-marketing"]; !ok {
@@ -316,10 +320,18 @@ func (b *PrincipalsBackend) ensureCurrentPrincipal(ctx context.Context) {
 		if parts := strings.Split(subj, "@"); len(parts) > 0 {
 			userid = parts[0]
 		}
+		accID := jmap.AccountIDForSubject(email)
+		for _, existing := range b.principalsCache {
+			if existing.Email == email || existing.AccountIDs[accID] {
+				return
+			}
+		}
 		pid := jmap.Id("p-" + userid)
+		if userid == "user" {
+			pid = "p-primary"
+		}
 		if _, exists := b.principalsCache[pid]; !exists {
 			displayName := strings.Title(strings.ReplaceAll(userid, ".", " "))
-			accID := jmap.AccountIDForSubject(email)
 			b.principalsCache[pid] = &jmap.Principal{
 				ID:                 pid,
 				Type:               "individual",
@@ -342,22 +354,11 @@ func (b *PrincipalsBackend) ensureCurrentPrincipal(ctx context.Context) {
 }
 
 func (b *PrincipalsBackend) PrincipalState(ctx context.Context) string {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	return strconv.Itoa(b.state)
+	return b.tracker.State()
 }
 
 func (b *PrincipalsBackend) PrincipalChanges(ctx context.Context, sinceState string) (created, updated, destroyed []jmap.Id, newState string, hasMoreChanges bool) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	newState = strconv.Itoa(b.state)
-	if sinceState == newState {
-		return []jmap.Id{}, []jmap.Id{}, []jmap.Id{}, newState, false
-	}
-	for id := range b.principalsCache {
-		created = append(created, id)
-	}
-	return created, []jmap.Id{}, []jmap.Id{}, newState, false
+	return b.tracker.Changes(sinceState)
 }
 
 func (b *PrincipalsBackend) GetPrincipals(ctx context.Context, ids []jmap.Id) ([]*jmap.Principal, []jmap.Id, error) {
@@ -456,28 +457,69 @@ func (b *PrincipalsBackend) CreatePrincipal(ctx context.Context, p *jmap.Princip
 	if p == nil {
 		return nil, fmt.Errorf("principal is nil")
 	}
+	if p.ID == "" {
+		p.ID = jmap.Id(fmt.Sprintf("p-%d", time.Now().UnixNano()))
+	}
+	if p.Type == "" {
+		p.Type = "individual"
+	}
 	if p.Type == "group" {
 		_ = b.client.CreateGroup(ctx, p.Name)
 	} else {
-		_ = b.client.CreateUser(ctx, p.Name, p.Email, p.Email, p.Name)
+		_ = b.client.CreateUser(ctx, string(p.ID), p.Email, p.Email, p.Name)
 	}
 
 	b.mu.Lock()
-	b.refreshCacheLocked(ctx)
-	b.state++
+	if b.principalsCache == nil {
+		b.principalsCache = make(map[jmap.Id]*jmap.Principal)
+	}
+	b.principalsCache[p.ID] = p
+	st := b.tracker.Record(p.ID, "create")
+	u := p.Email
 	b.mu.Unlock()
 
+	b.emitStateChange(u, "Principal", st)
 	return p, nil
 }
 
 func (b *PrincipalsBackend) UpdatePrincipal(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.Principal, error) {
 	b.mu.Lock()
-	b.state++
+
+	p, ok := b.principalsCache[id]
+	if !ok {
+		b.mu.Unlock()
+		return nil, fmt.Errorf("principal %q not found", id)
+	}
+
+	if name, ok := patch["name"].(string); ok {
+		p.Name = name
+	}
+	if desc, ok := patch["description"].(string); ok {
+		p.Description = desc
+	}
+	if email, ok := patch["email"].(string); ok {
+		p.Email = email
+	}
+	if mayGet, ok := patch["mayGetAvailability"].(bool); ok {
+		p.MayGetAvailability = mayGet
+	}
+	if mayShare, ok := patch["mayShareWith"].(bool); ok {
+		p.MayShareWith = mayShare
+	}
+
+	st := b.tracker.Record(id, "update")
+	u := p.Email
 	b.mu.Unlock()
-	return nil, nil
+
+	b.emitStateChange(u, "Principal", st)
+	return p, nil
 }
 
 func (b *PrincipalsBackend) DeletePrincipal(ctx context.Context, id jmap.Id) (bool, error) {
+	b.mu.Lock()
+	delete(b.principalsCache, id)
+	b.tracker.Record(id, "destroy")
+	b.mu.Unlock()
 	return true, nil
 }
 
@@ -492,6 +534,9 @@ func (b *PrincipalsBackend) GetAvailability(ctx context.Context, principalID jma
 		return windows, nil
 	}
 
+	winStart, hasStart := jmap.ParseRFC3339(utcStart)
+	winEnd, hasEnd := jmap.ParseRFC3339(utcEnd)
+
 	var contexts []context.Context
 	if p != nil && len(p.AccountIDs) > 0 {
 		for accID := range p.AccountIDs {
@@ -502,25 +547,103 @@ func (b *PrincipalsBackend) GetAvailability(ctx context.Context, principalID jma
 	}
 
 	for _, pCtx := range contexts {
+		cals, err := cb.GetAllCalendars(pCtx)
+		if err != nil {
+			continue
+		}
+		calInAvail := make(map[jmap.Id]string, len(cals))
+		for _, cal := range cals {
+			calInAvail[cal.ID] = cal.IncludeInAvailability
+		}
+
 		events, err := cb.GetAllCalendarEvents(pCtx)
 		if err != nil {
 			continue
 		}
 		for _, ev := range events {
-			if ev == nil || ev.Start == "" || ev.Privacy == "secret" || ev.Status == "cancelled" || ev.FreeBusyStatus == "free" {
+			if ev == nil || ev.Start == "" {
+				continue
+			}
+			if ev.Privacy == "secret" || ev.Status == "cancelled" {
 				continue
 			}
 			fb := ev.FreeBusyStatus
 			if fb == "" {
 				fb = "busy"
 			}
-			windows = append(windows, &jmap.AvailabilityWindow{
-				UTCStart:       ev.UTCStart,
-				UTCEnd:         ev.UTCEnd,
-				FreeBusyStatus: fb,
-			})
+			if fb == "free" {
+				continue
+			}
+
+			if len(ev.CalendarIDs) > 0 {
+				included := false
+				for calID := range ev.CalendarIDs {
+					incSetting := calInAvail[calID]
+					if incSetting == "none" {
+						continue
+					}
+					if incSetting == "attending" {
+						if p != nil && isPrincipalAttending(ev, p) {
+							included = true
+							break
+						}
+						continue
+					}
+					included = true
+					break
+				}
+				if !included {
+					continue
+				}
+			}
+
+			for _, inst := range jmap.ExpandRecurrenceInstances(ev, winEnd) {
+				if hasEnd && !inst.Start.Before(winEnd) {
+					continue
+				}
+				if hasStart && !inst.End.After(winStart) {
+					continue
+				}
+				windows = append(windows, &jmap.AvailabilityWindow{
+					UTCStart:       inst.Start.UTC().Format(time.RFC3339),
+					UTCEnd:         inst.End.UTC().Format(time.RFC3339),
+					FreeBusyStatus: fb,
+				})
+			}
 		}
 	}
 
 	return windows, nil
+}
+
+func isPrincipalAttending(ev *jmap.CalendarEvent, p *jmap.Principal) bool {
+	if ev == nil || p == nil {
+		return false
+	}
+	for _, part := range ev.Participants {
+		if part == nil {
+			continue
+		}
+		matches := false
+		if p.Email != "" && strings.EqualFold(part.Email, p.Email) {
+			matches = true
+		}
+		if p.CalendarAddress != "" {
+			if strings.EqualFold(part.SendTo["imip"], p.CalendarAddress) || strings.EqualFold(part.Email, strings.TrimPrefix(p.CalendarAddress, "mailto:")) {
+				matches = true
+			}
+		}
+		if p.Name != "" && strings.EqualFold(part.Name, p.Name) {
+			matches = true
+		}
+		if matches {
+			if part.ParticipationStatus == "accepted" || part.ParticipationStatus == "attending" {
+				return true
+			}
+			if part.Roles != nil && (part.Roles["chair"] || part.Roles["organizer"]) {
+				return true
+			}
+		}
+	}
+	return false
 }

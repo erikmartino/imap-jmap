@@ -4,12 +4,13 @@ import (
 	"context"
 	"testing"
 
-	"imap-jmap/jmap/testmock"
+	"imap-jmap/jmap/managesieve"
 )
 
 // TestRFC5228_SieveLanguageValidation tests Sieve filtering language syntax validation per RFC 5228.
 func TestRFC5228_SieveLanguageValidation(t *testing.T) {
-	sieveBackend := testmock.NewMemorySieveBackend()
+	_, sieveBackend, cleanup := managesieve.NewEmbeddedBackend()
+	defer cleanup()
 
 	// Valid RFC 5228 Sieve script with fileinto and keep
 	validScript := `require ["fileinto", "reject"];

@@ -7,20 +7,16 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/testmock"
 )
 
 // TestRFC8984_AvailabilityBusyWindows verifies Principal/getAvailability emits real busy windows:
 // end = start + duration (not a zero-length window), and events that are "free", cancelled, or
 // "secret" do not contribute to the free-busy shown to other principals.
 func TestRFC8984_AvailabilityBusyWindows(t *testing.T) {
-	pb := testmock.NewMemoryPrincipalsBackend()
-	cb := testmock.NewMemoryCalendarsBackend()
-	pb.SetCalendarsBackend(cb)
-
-	srv := jmap.NewServer(nil, jmap.WithPrincipalsBackend(pb), jmap.WithCalendarsBackend(cb))
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
+	cb := srv.CalendarsBackend
 
 	// Busy 2h meeting; a free event; a secret event — all in the query window.
 	if _, err := cb.CreateCalendarEvent(seedCtx(), &jmap.CalendarEvent{
@@ -73,13 +69,11 @@ func TestRFC8984_AvailabilityBusyWindows(t *testing.T) {
 // TestRFC8984_AvailabilityCrossPrincipal verifies Principal/getAvailability resolves the target principal's
 // distinct account context and returns busy windows from that target principal's calendars.
 func TestRFC8984_AvailabilityCrossPrincipal(t *testing.T) {
-	pb := testmock.NewMemoryPrincipalsBackend()
-	cb := testmock.NewMemoryCalendarsBackend()
-	pb.SetCalendarsBackend(cb)
-
-	srv := jmap.NewServer(nil, jmap.WithPrincipalsBackend(pb), jmap.WithCalendarsBackend(cb))
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
+	pb := srv.PrincipalsBackend
+	cb := srv.CalendarsBackend
 
 	aliceAccID := jmap.AccountIDForSubject("alice@example.com")
 	alicePrincipal := &jmap.Principal{
@@ -135,13 +129,10 @@ func TestRFC8984_AvailabilityCrossPrincipal(t *testing.T) {
 // TestRFC8984_AvailabilityIncludeInAvailability verifies that the calendar-level includeInAvailability
 // setting ("all", "none", "attending") is strictly respected when computing free-busy.
 func TestRFC8984_AvailabilityIncludeInAvailability(t *testing.T) {
-	pb := testmock.NewMemoryPrincipalsBackend()
-	cb := testmock.NewMemoryCalendarsBackend()
-	pb.SetCalendarsBackend(cb)
-
-	srv := jmap.NewServer(nil, jmap.WithPrincipalsBackend(pb), jmap.WithCalendarsBackend(cb))
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
+	cb := srv.CalendarsBackend
 
 	ctx := seedCtx()
 

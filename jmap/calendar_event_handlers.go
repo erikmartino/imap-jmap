@@ -161,10 +161,10 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, p
 				if ev.Type == "" {
 					ev.Type = "Event"
 				}
-				if ev.TimeZone == "" {
+				if ev.TimeZone == "" && ev.Type == "Event" {
 					ev.TimeZone = "Etc/UTC"
 				}
-				if ev.Duration == "" {
+				if ev.Duration == "" && ev.Type == "Event" {
 					ev.Duration = "PT1H"
 				}
 				ev.Start = strings.TrimSuffix(ev.Start, "Z")

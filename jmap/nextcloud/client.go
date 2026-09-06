@@ -80,8 +80,18 @@ func NewClient(baseURL string) *Client {
 }
 
 func (c *Client) getUserAndPass(ctx context.Context) (string, string) {
-	creds, ok := jmap.CredentialsFromContext(ctx)
-	if ok && creds.Username != "" {
+	accountID, hasAccount := jmap.AccountIDFromContext(ctx)
+	creds, hasCreds := jmap.CredentialsFromContext(ctx)
+
+	if hasAccount && accountID != "" {
+		if subj, okSub := jmap.SubjectForAccountID(accountID); okSub && subj != "" {
+			if !hasCreds || creds.Username == "" || creds.Username != subj {
+				return subj, subj
+			}
+		}
+	}
+
+	if hasCreds && creds.Username != "" {
 		return creds.Username, creds.Password
 	}
 
@@ -90,8 +100,7 @@ func (c *Client) getUserAndPass(ctx context.Context) (string, string) {
 		return subject, subject
 	}
 
-	accountID, ok := jmap.AccountIDFromContext(ctx)
-	if ok && accountID != "" {
+	if hasAccount && accountID != "" {
 		if subj, okSub := jmap.SubjectForAccountID(accountID); okSub && subj != "" {
 			return subj, subj
 		}

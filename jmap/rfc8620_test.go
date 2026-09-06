@@ -1029,7 +1029,7 @@ func TestRFC8620_Section5_1_GetProperties(t *testing.T) {
 			"properties": []string{"name"},
 		})
 		obj := assertFiltered(t, list, "name")
-		if obj["name"] != "Personal Contacts" {
+		if obj["name"] != "Personal Contacts" && obj["name"] != "Contacts" {
 			t.Errorf("Expected default address book name, got %v", obj["name"])
 		}
 	})

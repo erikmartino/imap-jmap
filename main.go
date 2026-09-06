@@ -25,8 +25,8 @@ import (
 
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/imapsmtp"
+	"imap-jmap/jmap/managesieve"
 	"imap-jmap/jmap/nextcloud"
-	"imap-jmap/jmap/testmock"
 	"imap-jmap/smtp"
 )
 
@@ -203,7 +203,17 @@ func main() {
 		outboundSender.LocalName = sn
 	}
 
-	var sieveBackend jmap.SieveBackend = testmock.NewMemorySieveBackend()
+	manageSieveHost := os.Getenv("MANAGESIEVE_HOST")
+	manageSievePort := os.Getenv("MANAGESIEVE_PORT")
+	if manageSievePort == "" {
+		manageSievePort = "4190"
+	}
+	var sieveBackend jmap.SieveBackend
+	if manageSieveHost != "" {
+		sieveBackend = managesieve.NewBackend(net.JoinHostPort(manageSieveHost, manageSievePort))
+	} else {
+		_, sieveBackend, _ = managesieve.NewEmbeddedBackend()
+	}
 
 	serverOpts := []jmap.Option{
 		jmap.WithMailBackend(mailBackend),

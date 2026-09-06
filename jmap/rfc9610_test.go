@@ -7,13 +7,11 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/testmock"
 )
 
 // TestRFC9610_Capability tests urn:ietf:params:jmap:contacts capability discovery per RFC 9610 Section 2.
 func TestRFC9610_Capability(t *testing.T) {
-	contactsBackend := testmock.NewMemoryContactsBackend()
-	srv := jmap.NewServer(nil, jmap.WithContactsBackend(contactsBackend))
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -44,8 +42,7 @@ func TestRFC9610_Capability(t *testing.T) {
 
 // TestRFC9610_AddressBook_GetAndSet tests AddressBook/get and AddressBook/set per RFC 9610 Section 2.
 func TestRFC9610_AddressBook_GetAndSet(t *testing.T) {
-	contactsBackend := testmock.NewMemoryContactsBackend()
-	srv := jmap.NewServer(nil, jmap.WithContactsBackend(contactsBackend))
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -119,8 +116,7 @@ func TestRFC9610_AddressBook_GetAndSet(t *testing.T) {
 
 // TestRFC9610_Card_GetSetQuery_JSContact tests Card methods with JSContact payloads per RFC 9610 & RFC 9553.
 func TestRFC9610_Card_GetSetQuery_JSContact(t *testing.T) {
-	contactsBackend := testmock.NewMemoryContactsBackend()
-	srv := jmap.NewServer(nil, jmap.WithContactsBackend(contactsBackend))
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -319,8 +315,7 @@ func TestRFC9610_CardAndAddressBookCopy(t *testing.T) {
 // (ContactCard/*) are served, not just the legacy Card/* aliases, so a conformant client
 // never hits unknownMethod. It drives a real set -> get round trip via ContactCard/*.
 func TestRFC9610_ContactCardCanonicalNaming(t *testing.T) {
-	contactsBackend := testmock.NewMemoryContactsBackend()
-	srv := jmap.NewServer(nil, jmap.WithContactsBackend(contactsBackend))
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -369,8 +364,7 @@ func TestRFC9610_ContactCardCanonicalNaming(t *testing.T) {
 // TestRFC9610_CardCopyRoundTrip proves Card/copy actually copies an existing card (by source id,
 // with a property override) into a new object, per RFC 8620 Section 5.4.
 func TestRFC9610_CardCopyRoundTrip(t *testing.T) {
-	contactsBackend := testmock.NewMemoryContactsBackend()
-	srv := jmap.NewServer(nil, jmap.WithContactsBackend(contactsBackend))
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -435,8 +429,7 @@ func TestRFC9610_CardCopyRoundTrip(t *testing.T) {
 
 // TestRFC9610_AddressBookRightsAndDefault verifies RFC 9610 AddressBookRights names and isDefault behavior.
 func TestRFC9610_AddressBookRightsAndDefault(t *testing.T) {
-	contactsBackend := testmock.NewMemoryContactsBackend()
-	srv := jmap.NewServer(nil, jmap.WithContactsBackend(contactsBackend))
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -539,8 +532,7 @@ func TestRFC9610_AddressBookRightsAndDefault(t *testing.T) {
 
 // TestRFC9610_AddressBookDestroyRemoveContents tests onDestroyRemoveContents parameter semantics per RFC 9610.
 func TestRFC9610_AddressBookDestroyRemoveContents(t *testing.T) {
-	contactsBackend := testmock.NewMemoryContactsBackend()
-	srv := jmap.NewServer(nil, jmap.WithContactsBackend(contactsBackend))
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -611,8 +603,7 @@ func TestRFC9610_AddressBookDestroyRemoveContents(t *testing.T) {
 
 // TestRFC9610_CardQueryFilterOperatorAndConditions tests FilterOperator and all search filter conditions.
 func TestRFC9610_CardQueryFilterOperatorAndConditions(t *testing.T) {
-	contactsBackend := testmock.NewMemoryContactsBackend()
-	srv := jmap.NewServer(nil, jmap.WithContactsBackend(contactsBackend))
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 

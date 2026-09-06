@@ -150,7 +150,7 @@ func matchCalendarEventInLoc(ev *CalendarEvent, filter map[string]any, loc *time
 	return true
 }
 
-func parseRFC3339(s string) (time.Time, bool) {
+func ParseRFC3339(s string) (time.Time, bool) {
 	if t, err := time.Parse(time.RFC3339, s); err == nil {
 		return t, true
 	}
@@ -160,6 +160,10 @@ func parseRFC3339(s string) (time.Time, bool) {
 		}
 	}
 	return time.Time{}, false
+}
+
+func parseRFC3339(s string) (time.Time, bool) {
+	return ParseRFC3339(s)
 }
 
 func parseFloatingDateTime(s string) (time.Time, bool) {

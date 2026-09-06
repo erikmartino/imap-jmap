@@ -5,11 +5,13 @@ import (
 	"encoding/base64"
 	"io"
 	"net/http"
+	"runtime"
 	"testing"
 
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/imapsmtp"
-	"imap-jmap/jmap/testmock"
+	"imap-jmap/jmap/managesieve"
+	"imap-jmap/jmap/nextcloud"
 )
 
 // testUsername is the default account every test client authenticates as. The memory
@@ -68,12 +70,10 @@ func newTestServer(opts ...jmap.Option) *jmap.Server {
 	// Wire every advertised capability's backend so the default test server behaves like a
 	// real, full-featured server (no advertised method returns "unknown method").
 	gwBackend, _ := imapsmtp.NewEmbeddedBackend(testUsername)
-	fb := testmock.NewMemoryFileNodeBackend()
-	cal := testmock.NewMemoryCalendarsBackend()
-	contacts := testmock.NewMemoryContactsBackend()
-	sieve := testmock.NewMemorySieveBackend()
-	imap := testmock.NewMemoryIMAPAccessBackend()
-	memAuth := testmock.NewMemoryAuthBackend()
+	_, cal, contacts, fb, principals, cleanupNC := nextcloud.NewEmbeddedBackend(testUsername)
+	_, sieve, cleanupSieve := managesieve.NewEmbeddedBackend(testUsername)
+	imap := jmap.NewMemoryIMAPAccessBackend()
+	memAuth := jmap.NewMemoryAuthBackend()
 
 	allOpts := []jmap.Option{
 		jmap.WithMailBackend(gwBackend),
@@ -81,6 +81,7 @@ func newTestServer(opts ...jmap.Option) *jmap.Server {
 		jmap.WithFileNodeBackend(fb),
 		jmap.WithCalendarsBackend(cal),
 		jmap.WithContactsBackend(contacts),
+		jmap.WithPrincipalsBackend(principals),
 		jmap.WithSieveBackend(sieve),
 		jmap.WithIMAPAccessBackend(imap),
 		jmap.WithAuthBackend(memAuth),
@@ -88,14 +89,29 @@ func newTestServer(opts ...jmap.Option) *jmap.Server {
 	allOpts = append(allOpts, opts...)
 
 	srv := jmap.NewServer(nil, allOpts...)
-	if memAuth, ok := srv.AuthBackend.(*testmock.MemoryAuthBackend); ok {
-		memAuth.SetBackends(gwBackend, srv.BlobBackend, cal, contacts, fb)
+	if srvAuth, ok := srv.AuthBackend.(*jmap.MemoryAuthBackend); ok {
+		if srvAuth == memAuth {
+			// For standard tests, only seed mail and filenodes so calendar and contact query/sort
+			// tests start with clean, unpolluted stores.
+			srvAuth.SetBackends(gwBackend, srv.BlobBackend, nil, nil, fb)
+		} else {
+			// A custom auth backend explicitly provided by a test (e.g. TestRFCLess_FirstUseAccountSeeding)
+			// gets all backends wired for full account seeding.
+			srvAuth.SetBackends(gwBackend, srv.BlobBackend, cal, contacts, fb)
+		}
 	}
 	gwBackend.SetBroadcaster(srv.Broadcaster)
 	cal.SetBroadcaster(srv.Broadcaster)
 	contacts.SetBroadcaster(srv.Broadcaster)
+	principals.SetCalendarsBackend(cal)
+	principals.SetBroadcaster(srv.Broadcaster)
 	sieve.SetBroadcaster(srv.Broadcaster)
 	fb.SetBroadcaster(srv.Broadcaster)
+
+	runtime.SetFinalizer(srv, func(*jmap.Server) {
+		cleanupNC()
+		cleanupSieve()
+	})
 
 	return srv
 }

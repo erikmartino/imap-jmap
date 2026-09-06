@@ -11,7 +11,7 @@ import (
 
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/imapsmtp"
-	"imap-jmap/jmap/testmock"
+	"imap-jmap/jmap/managesieve"
 	jmapsmtp "imap-jmap/smtp"
 )
 
@@ -43,16 +43,17 @@ func (s *sieveTestOutboundSender) SendMail(ctx context.Context, from string, rec
 	return res
 }
 
-func setupSieveDeliveryServer(t *testing.T) (backend *imapsmtp.IMAPSMTPBackend, sieveBackend *testmock.MemorySieveBackend, outbound *sieveTestOutboundSender, addr string, cleanup func()) {
+func setupSieveDeliveryServer(t *testing.T) (backend *imapsmtp.IMAPSMTPBackend, sieveBackend jmap.SieveBackend, outbound *sieveTestOutboundSender, addr string, cleanup func()) {
 	t.Helper()
 	embeddedBackend, imapCleanup := imapsmtp.NewEmbeddedBackend("alice@example.com", "bob@example.com")
-	sieveBackend = testmock.NewMemorySieveBackend()
+	_, sieveBackend, sieveCleanup := managesieve.NewEmbeddedBackend("alice@example.com", "bob@example.com")
 	outbound = &sieveTestOutboundSender{}
 	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		imapCleanup()
+		sieveCleanup()
 		t.Fatalf("listen: %v", err)
 	}
 	addr = l.Addr().String()
@@ -69,6 +70,7 @@ func setupSieveDeliveryServer(t *testing.T) (backend *imapsmtp.IMAPSMTPBackend, 
 	cleanup = func() {
 		srv.Close()
 		imapCleanup()
+		sieveCleanup()
 	}
 	return embeddedBackend, sieveBackend, outbound, addr, cleanup
 }

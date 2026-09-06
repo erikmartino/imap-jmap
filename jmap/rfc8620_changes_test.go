@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/testmock"
 )
 
 // postMethod is a small helper to run a single JMAP method call and return the
@@ -43,8 +42,7 @@ func postMethod(t *testing.T, srv *jmap.Server, method string, args map[string]a
 // TestRFC8620_ChangesStatesAdvance verifies that set/get/changes methods no longer hardcode
 // the change state to "0" and that created objects appear in subsequent /changes per RFC 8620 Section 5.2.
 func TestRFC8620_ChangesStatesAdvance(t *testing.T) {
-	contactsBackend := testmock.NewMemoryContactsBackend()
-	srv := jmap.NewServer(nil, jmap.WithContactsBackend(contactsBackend))
+	srv := newTestServer()
 
 	// AddressBook/set must return a real oldState/newState pair.
 	setArgs := postMethod(t, srv, "AddressBook/set", map[string]any{
@@ -119,8 +117,7 @@ func TestRFC9007_MDNParseRejectsMissing(t *testing.T) {
 // TestRFC8984_CalendarStateAdvance verifies Calendar/set state tokens advance on the
 // calendar backend as well per RFC 8984.
 func TestRFC8984_CalendarStateAdvance(t *testing.T) {
-	calBackend := testmock.NewMemoryCalendarsBackend()
-	srv := jmap.NewServer(nil, jmap.WithCalendarsBackend(calBackend))
+	srv := newTestServer()
 
 	setArgs := postMethod(t, srv, "Calendar/set", map[string]any{
 		"accountId": "primary",

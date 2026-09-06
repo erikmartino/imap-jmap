@@ -7,7 +7,6 @@ import (
 
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/spectest"
-	"imap-jmap/jmap/testmock"
 )
 
 // TestRFCLess_BulwarkWebmailSequenceReplay tests the exact JMAP request sequence
@@ -19,7 +18,7 @@ func TestRFCLess_BulwarkWebmailSequenceReplay(t *testing.T) {
 	spectest.Require(t, "RFC8621", "4.5", "MUST", "Email/query returns emails matching the inMailbox filter")
 	spectest.Require(t, "RFC8621", "4.2", "MUST", "Email/get returns message details for queried email IDs")
 
-	authBackend := testmock.NewMemoryAuthBackend()
+	authBackend := jmap.NewMemoryAuthBackend()
 	srv := newTestServer(jmap.WithAuthBackend(authBackend))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()

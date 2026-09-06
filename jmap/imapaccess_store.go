@@ -1,33 +1,31 @@
-package testmock
+package jmap
 
 import (
 	"context"
 	"fmt"
 	"sync"
 	"time"
-
-	"imap-jmap/jmap"
 )
 
-// MemoryIMAPAccessBackend implements jmap.IMAPAccessBackend for in-memory IMAPAccount storage (RFC 9698).
+// MemoryIMAPAccessBackend implements IMAPAccessBackend for in-memory IMAPAccount storage (RFC 9698).
 type MemoryIMAPAccessBackend struct {
 	mu        sync.RWMutex
-	accounts  map[jmap.Id]*jmap.IMAPAccount
+	accounts  map[Id]*IMAPAccount
 	state     string
 	idCounter uint64
 }
 
-var _ jmap.IMAPAccessBackend = (*MemoryIMAPAccessBackend)(nil)
+var _ IMAPAccessBackend = (*MemoryIMAPAccessBackend)(nil)
 
 // NewMemoryIMAPAccessBackend initializes a new MemoryIMAPAccessBackend with a default IMAP account.
 func NewMemoryIMAPAccessBackend() *MemoryIMAPAccessBackend {
 	b := &MemoryIMAPAccessBackend{
-		accounts: make(map[jmap.Id]*jmap.IMAPAccount),
+		accounts: make(map[Id]*IMAPAccount),
 		state:    "imap-1",
 	}
 
 	// Create default IMAP account entry per RFC 9698
-	defaultAcc := &jmap.IMAPAccount{
+	defaultAcc := &IMAPAccount{
 		ID:       "imap-acc-1",
 		Host:     "imap.example.com",
 		Port:     993,
@@ -49,20 +47,20 @@ func (b *MemoryIMAPAccessBackend) bumpState() {
 	b.state = fmt.Sprintf("imap-%d", time.Now().UnixNano())
 }
 
-func (b *MemoryIMAPAccessBackend) GetIMAPAccounts(ctx context.Context, ids []jmap.Id) ([]*jmap.IMAPAccount, []jmap.Id, error) {
+func (b *MemoryIMAPAccessBackend) GetIMAPAccounts(ctx context.Context, ids []Id) ([]*IMAPAccount, []Id, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
 	if len(ids) == 0 {
-		var list []*jmap.IMAPAccount
+		var list []*IMAPAccount
 		for _, acc := range b.accounts {
 			list = append(list, acc)
 		}
-		return list, []jmap.Id{}, nil
+		return list, []Id{}, nil
 	}
 
-	var list []*jmap.IMAPAccount
-	var notFound []jmap.Id
+	var list []*IMAPAccount
+	var notFound []Id
 	for _, id := range ids {
 		if acc, ok := b.accounts[id]; ok {
 			list = append(list, acc)
@@ -73,18 +71,18 @@ func (b *MemoryIMAPAccessBackend) GetIMAPAccounts(ctx context.Context, ids []jma
 	return list, notFound, nil
 }
 
-func (b *MemoryIMAPAccessBackend) GetAllIMAPAccounts(ctx context.Context) ([]*jmap.IMAPAccount, error) {
+func (b *MemoryIMAPAccessBackend) GetAllIMAPAccounts(ctx context.Context) ([]*IMAPAccount, error) {
 	list, _, err := b.GetIMAPAccounts(ctx, nil)
 	return list, err
 }
 
-func (b *MemoryIMAPAccessBackend) CreateIMAPAccount(ctx context.Context, account *jmap.IMAPAccount) (*jmap.IMAPAccount, error) {
+func (b *MemoryIMAPAccessBackend) CreateIMAPAccount(ctx context.Context, account *IMAPAccount) (*IMAPAccount, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	b.idCounter++
 	if account.ID == "" {
-		account.ID = jmap.Id(fmt.Sprintf("imap-acc-%d", b.idCounter))
+		account.ID = Id(fmt.Sprintf("imap-acc-%d", b.idCounter))
 	}
 
 	if account.Host == "" {
@@ -105,7 +103,7 @@ func (b *MemoryIMAPAccessBackend) CreateIMAPAccount(ctx context.Context, account
 	return account, nil
 }
 
-func (b *MemoryIMAPAccessBackend) UpdateIMAPAccount(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.IMAPAccount, error) {
+func (b *MemoryIMAPAccessBackend) UpdateIMAPAccount(ctx context.Context, id Id, patch map[string]any) (*IMAPAccount, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -134,7 +132,7 @@ func (b *MemoryIMAPAccessBackend) UpdateIMAPAccount(ctx context.Context, id jmap
 	return acc, nil
 }
 
-func (b *MemoryIMAPAccessBackend) DeleteIMAPAccount(ctx context.Context, id jmap.Id) (bool, error) {
+func (b *MemoryIMAPAccessBackend) DeleteIMAPAccount(ctx context.Context, id Id) (bool, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 

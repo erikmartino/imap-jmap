@@ -17,8 +17,8 @@ import (
 
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/imapsmtp"
+	"imap-jmap/jmap/nextcloud"
 	"imap-jmap/jmap/spectest"
-	"imap-jmap/jmap/testmock"
 )
 
 // fakeDNS is an in-memory DNSResolver for sender-authentication tests. TXT
@@ -78,14 +78,15 @@ func (f *fakeDNS) LookupAddr(_ context.Context, name string) ([]string, error) {
 }
 
 // startAuthSession builds a ReceiverBackend with the real SPF/DKIM/DMARC
-// verifier over the given DNS, plus embedded IMAP and testmock backends, and returns a
+// verifier over the given DNS, plus embedded IMAP and Nextcloud backends, and returns a
 // session whose peer address is a non-loopback IP so the authentication gate
 // is actually exercised (loopback/local-account senders bypass it by design).
-func startAuthSession(t *testing.T, dns DNSResolver) (*Session, *testmock.MemoryCalendarsBackend, jmap.MailBackend) {
+func startAuthSession(t *testing.T, dns DNSResolver) (*Session, jmap.CalendarsBackend, jmap.MailBackend) {
 	t.Helper()
 	backend, cleanup := imapsmtp.NewEmbeddedBackend("bob@example.com", "organizer@example.com", "alice@example.com", "invitee@example.com")
 	t.Cleanup(cleanup)
-	calBackend := testmock.NewMemoryCalendarsBackend()
+	_, calBackend, _, _, _, ncCleanup := nextcloud.NewEmbeddedBackend("bob@example.com", "organizer@example.com", "alice@example.com", "invitee@example.com")
+	t.Cleanup(ncCleanup)
 	rb := NewReceiverBackend(backend, backend, calBackend)
 	rb.SenderVerifier = NewSPFDKIMDMARCVerifier(dns)
 	rb.AccountResolver = jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
@@ -139,7 +140,7 @@ func requestMsg(organizer, invitee, uid string) []byte {
 }
 
 // seedEvent creates an event on Bob's (local) account with an external attendee.
-func seedEvent(t *testing.T, calBackend *testmock.MemoryCalendarsBackend, organizer, attendee, uid string) jmap.Id {
+func seedEvent(t *testing.T, calBackend jmap.CalendarsBackend, organizer, attendee, uid string) jmap.Id {
 	t.Helper()
 	bobCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject(organizer))
 	ev, err := calBackend.CreateCalendarEvent(bobCtx, &jmap.CalendarEvent{
@@ -158,7 +159,7 @@ func seedEvent(t *testing.T, calBackend *testmock.MemoryCalendarsBackend, organi
 	return ev.ID
 }
 
-func attendanceStatus(t *testing.T, calBackend *testmock.MemoryCalendarsBackend, organizer string, id jmap.Id, attendee string) string {
+func attendanceStatus(t *testing.T, calBackend jmap.CalendarsBackend, organizer string, id jmap.Id, attendee string) string {
 	t.Helper()
 	bobCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject(organizer))
 	evs, _, err := calBackend.GetCalendarEvents(bobCtx, []jmap.Id{id})
@@ -428,7 +429,8 @@ func TestRFC6047_SenderAuth_LocalDeliveryWorksWithoutValidation(t *testing.T) {
 
 	backend, cleanup := imapsmtp.NewEmbeddedBackend("bob@example.com", "alice@example.com")
 	defer cleanup()
-	calBackend := testmock.NewMemoryCalendarsBackend()
+	_, calBackend, _, _, _, ncCleanup := nextcloud.NewEmbeddedBackend("bob@example.com", "alice@example.com")
+	defer ncCleanup()
 	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")

@@ -9,15 +9,16 @@ import (
 
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/imapsmtp"
+	"imap-jmap/jmap/nextcloud"
 	"imap-jmap/jmap/spectest"
-	"imap-jmap/jmap/testmock"
 )
 
 // schedulingTestServer returns a JMAP server backed by fresh calendar + mail backends,
 // plus the mail backend so tests can inspect the iMIP messages the server dispatched.
 func schedulingTestServer(t *testing.T) (*httptest.Server, jmap.MailBackend) {
 	t.Helper()
-	calBackend := testmock.NewMemoryCalendarsBackend()
+	_, calBackend, _, _, _, cleanupNC := nextcloud.NewEmbeddedBackend(testUsername)
+	t.Cleanup(cleanupNC)
 	mailBackend, cleanup := imapsmtp.NewEmbeddedBackend(testUsername)
 	t.Cleanup(cleanup)
 	srv := jmap.NewServer(nil, jmap.WithCalendarsBackend(calBackend), jmap.WithMailBackend(mailBackend), jmap.WithBlobBackend(mailBackend))
@@ -141,8 +142,8 @@ func TestRFC8984_SchedulingNoSupportedScheduleMethods(t *testing.T) {
 	spectest.Require(t, "draft-ietf-jmap-calendars-27", "5.9", spectest.MUST,
 		"noSupportedScheduleMethods is returned when scheduling is requested but no schedule method is available.")
 
-	// A calendar backend but NO mail backend: there is no method to send iTIP.
-	calBackend := testmock.NewMemoryCalendarsBackend()
+	_, calBackend, _, _, _, cleanupNC := nextcloud.NewEmbeddedBackend(testUsername)
+	defer cleanupNC()
 	srv := jmap.NewServer(nil, jmap.WithCalendarsBackend(calBackend))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()

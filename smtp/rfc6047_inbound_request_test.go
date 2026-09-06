@@ -11,8 +11,8 @@ import (
 
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/imapsmtp"
+	"imap-jmap/jmap/nextcloud"
 	"imap-jmap/jmap/spectest"
-	"imap-jmap/jmap/testmock"
 	jmapsmtp "imap-jmap/smtp"
 )
 
@@ -28,7 +28,8 @@ func TestRFC6047_InboundRequestFullFidelityMultipart(t *testing.T) {
 		"An inbound REQUEST imports the full event (recurrence, duration, location, participants).")
 
 	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
-	calBackend := testmock.NewMemoryCalendarsBackend()
+	_, calBackend, _, _, _, ncCleanup := nextcloud.NewEmbeddedBackend("invitee@example.com")
+	defer ncCleanup()
 	backend, cleanup := imapsmtp.NewEmbeddedBackend("invitee@example.com")
 	defer cleanup()
 	mailBackend := backend

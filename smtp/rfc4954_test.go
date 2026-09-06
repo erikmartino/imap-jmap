@@ -12,8 +12,8 @@ import (
 
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/imapsmtp"
+	"imap-jmap/jmap/nextcloud"
 	"imap-jmap/jmap/spectest"
-	"imap-jmap/jmap/testmock"
 	jmapsmtp "imap-jmap/smtp"
 )
 
@@ -31,7 +31,8 @@ func startSMTPServer(t *testing.T, opts ...jmapsmtp.Option) (string, jmap.MailBa
 
 	backend, cleanup := imapsmtp.NewEmbeddedBackend("alice@example.com", "bob@example.com", "user@example.com")
 	t.Cleanup(cleanup)
-	calBackend := testmock.NewMemoryCalendarsBackend()
+	_, calBackend, _, _, _, ncCleanup := nextcloud.NewEmbeddedBackend("alice@example.com", "bob@example.com", "user@example.com")
+	t.Cleanup(ncCleanup)
 	srv := jmapsmtp.NewServer(addr, backend, backend, calBackend, opts...)
 	go func() {
 		_ = srv.ListenAndServe()
@@ -100,7 +101,7 @@ func storedRawMessage(t *testing.T, mailBackend jmap.MailBackend, blobBackend jm
 func submissionServer(t *testing.T) (string, jmap.MailBackend, jmap.BlobBackend) {
 	return startSMTPServer(t,
 		jmapsmtp.WithTransportMode(jmapsmtp.TransportModeSubmission),
-		jmapsmtp.WithAuthenticator(jmapsmtp.NewAuthBackendAuthenticator(testmock.NewMemoryAuthBackend())),
+		jmapsmtp.WithAuthenticator(jmapsmtp.NewAuthBackendAuthenticator(jmap.NewMemoryAuthBackend())),
 		jmapsmtp.WithAccountResolver(jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}),
 	)
 }
@@ -271,7 +272,7 @@ func TestRFC4954_NoInsecureAuthConfigurationOverWire(t *testing.T) {
 
 	addr, _, _ := startSMTPServer(t,
 		jmapsmtp.WithTransportMode(jmapsmtp.TransportModeSubmission),
-		jmapsmtp.WithAuthenticator(jmapsmtp.NewAuthBackendAuthenticator(testmock.NewMemoryAuthBackend())),
+		jmapsmtp.WithAuthenticator(jmapsmtp.NewAuthBackendAuthenticator(jmap.NewMemoryAuthBackend())),
 		jmapsmtp.WithAllowInsecureAuth(false),
 	)
 	client := dialClient(t, addr)

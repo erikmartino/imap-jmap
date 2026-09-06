@@ -10,8 +10,8 @@ import (
 	"github.com/emersion/go-msgauth/dmarc"
 
 	"imap-jmap/jmap"
+	"imap-jmap/jmap/nextcloud"
 	"imap-jmap/jmap/spectest"
-	"imap-jmap/jmap/testmock"
 )
 
 // stubVerifier is a SenderVerifier stub for gate tests.
@@ -27,7 +27,7 @@ func (s *stubVerifier) Verify(_ context.Context, _ *MessageToVerify) (*SenderAut
 }
 
 func newAuthSession(verifier SenderVerifier) *Session {
-	calBackend := testmock.NewMemoryCalendarsBackend()
+	_, calBackend, _, _, _, _ := nextcloud.NewEmbeddedBackend("user@example.com")
 	backend := NewReceiverBackend(nil, nil, calBackend)
 	backend.SenderVerifier = verifier
 	backend.AccountResolver = jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}

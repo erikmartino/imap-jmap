@@ -9,8 +9,8 @@ import (
 
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/imapsmtp"
+	"imap-jmap/jmap/nextcloud"
 	"imap-jmap/jmap/spectest"
-	"imap-jmap/jmap/testmock"
 	jmapsmtp "imap-jmap/smtp"
 )
 
@@ -26,7 +26,8 @@ func TestRFC6047_InboundReplyUpdatesParticipationStatus(t *testing.T) {
 		"A REPLY updates the replying attendee's PARTSTAT (participationStatus), not the event status.")
 
 	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
-	calBackend := testmock.NewMemoryCalendarsBackend()
+	_, calBackend, _, _, _, ncCleanup := nextcloud.NewEmbeddedBackend("bob@example.com", "alice@example.com")
+	defer ncCleanup()
 	backend, cleanup := imapsmtp.NewEmbeddedBackend("bob@example.com", "alice@example.com")
 	defer cleanup()
 	mailBackend := backend

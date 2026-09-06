@@ -13,16 +13,17 @@ import (
 
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/imapsmtp"
+	"imap-jmap/jmap/nextcloud"
 	"imap-jmap/jmap/spectest"
-	"imap-jmap/jmap/testmock"
 	jmapsmtp "imap-jmap/smtp"
 )
 
-func newSecurityTestBackends(t *testing.T, users ...string) (jmap.MailBackend, jmap.BlobBackend, *testmock.MemoryCalendarsBackend) {
+func newSecurityTestBackends(t *testing.T, users ...string) (jmap.MailBackend, jmap.BlobBackend, jmap.CalendarsBackend) {
 	t.Helper()
 	backend, cleanup := imapsmtp.NewEmbeddedBackend(users...)
 	t.Cleanup(cleanup)
-	calBackend := testmock.NewMemoryCalendarsBackend()
+	_, calBackend, _, _, _, ncCleanup := nextcloud.NewEmbeddedBackend(users...)
+	t.Cleanup(ncCleanup)
 	return backend, backend, calBackend
 }
 

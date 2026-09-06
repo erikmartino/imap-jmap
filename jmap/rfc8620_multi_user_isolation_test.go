@@ -9,12 +9,11 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/testmock"
 )
 
 // TestRFC8620_Section3_6_MultiUserIsolation tests that different authenticated users have completely isolated data in memory backends per RFC 8620.
 func TestRFC8620_Section3_6_MultiUserIsolation(t *testing.T) {
-	authBackend := testmock.NewMemoryAuthBackend()
+	authBackend := jmap.NewMemoryAuthBackend()
 	srv := newTestServer(jmap.WithAuthBackend(authBackend))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()

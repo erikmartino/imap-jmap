@@ -10,12 +10,13 @@ import (
 
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/imapsmtp"
-	"imap-jmap/jmap/testmock"
+	"imap-jmap/jmap/nextcloud"
 )
 
 // TestRFC6047_AutoSendInvitationAndCancellation tests RFC 6047 iMIP email binding for invitation request & cancellation.
 func TestRFC6047_AutoSendInvitationAndCancellation(t *testing.T) {
-	calBackend := testmock.NewMemoryCalendarsBackend()
+	_, calBackend, _, _, _, cleanupNC := nextcloud.NewEmbeddedBackend(testUsername)
+	defer cleanupNC()
 	mailBackend, cleanup := imapsmtp.NewEmbeddedBackend(testUsername)
 	defer cleanup()
 	srv := jmap.NewServer(nil, jmap.WithCalendarsBackend(calBackend), jmap.WithMailBackend(mailBackend), jmap.WithBlobBackend(mailBackend))

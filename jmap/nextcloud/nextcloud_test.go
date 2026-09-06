@@ -12,10 +12,7 @@ import (
 )
 
 func getNextcloudURL() string {
-	if u := os.Getenv("NEXTCLOUD_URL"); u != "" {
-		return u
-	}
-	return "http://localhost:8088"
+	return os.Getenv("NEXTCLOUD_URL")
 }
 
 func isReachable(url string) bool {
@@ -38,8 +35,8 @@ func testContext() context.Context {
 
 func TestNextcloudCalendarsBackend(t *testing.T) {
 	url := getNextcloudURL()
-	if !isReachable(url) {
-		t.Skip("Nextcloud not reachable at " + url)
+	if url == "" || !isReachable(url) {
+		t.Skip("Nextcloud not configured via NEXTCLOUD_URL or not reachable at " + url)
 	}
 
 	client := nextcloud.NewClient(url)
@@ -103,8 +100,8 @@ func TestNextcloudCalendarsBackend(t *testing.T) {
 
 func TestNextcloudContactsBackend(t *testing.T) {
 	url := getNextcloudURL()
-	if !isReachable(url) {
-		t.Skip("Nextcloud not reachable at " + url)
+	if url == "" || !isReachable(url) {
+		t.Skip("Nextcloud not configured via NEXTCLOUD_URL or not reachable at " + url)
 	}
 
 	client := nextcloud.NewClient(url)
@@ -159,8 +156,8 @@ func TestNextcloudContactsBackend(t *testing.T) {
 
 func TestNextcloudFileNodeBackend(t *testing.T) {
 	url := getNextcloudURL()
-	if !isReachable(url) {
-		t.Skip("Nextcloud not reachable at " + url)
+	if url == "" || !isReachable(url) {
+		t.Skip("Nextcloud not configured via NEXTCLOUD_URL or not reachable at " + url)
 	}
 
 	client := nextcloud.NewClient(url)
@@ -194,3 +191,168 @@ func TestNextcloudFileNodeBackend(t *testing.T) {
 		t.Fatalf("DeleteFileNode failed: %v", err)
 	}
 }
+
+func TestEmbeddedNextcloudCalendars(t *testing.T) {
+	_, calBackend, _, _, _, cleanup := nextcloud.NewEmbeddedBackend("user@example.com")
+	defer cleanup()
+	ctx := testContext()
+
+	// 1. Get calendars
+	cals, err := calBackend.GetAllCalendars(ctx)
+	if err != nil {
+		t.Fatalf("GetAllCalendars failed: %v", err)
+	}
+	if len(cals) == 0 {
+		t.Fatalf("Expected at least 1 calendar, got 0")
+	}
+
+	// 2. Create CalendarEvent
+	ev := &jmap.CalendarEvent{
+		Title:       "Embedded Sprint Planning",
+		Description: "In-Process CalDAV Testing",
+		Start:       "2026-11-15T09:00:00Z",
+		Duration:    "PT1H",
+		CalendarIDs: map[jmap.Id]bool{cals[0].ID: true},
+	}
+	created, err := calBackend.CreateCalendarEvent(ctx, ev)
+	if err != nil {
+		t.Fatalf("CreateCalendarEvent failed: %v", err)
+	}
+	if created.ID == "" {
+		t.Fatalf("Expected created event to have ID")
+	}
+
+	// 3. Get CalendarEvent
+	fetched, notFound, err := calBackend.GetCalendarEvents(ctx, []jmap.Id{created.ID})
+	if err != nil {
+		t.Fatalf("GetCalendarEvents failed: %v", err)
+	}
+	if len(notFound) > 0 || len(fetched) == 0 {
+		t.Fatalf("GetCalendarEvents could not find created event %s (notFound=%v)", created.ID, notFound)
+	}
+	if fetched[0].Title != "Embedded Sprint Planning" {
+		t.Errorf("Expected title 'Embedded Sprint Planning', got %q", fetched[0].Title)
+	}
+
+	// 4. Query CalendarEvents
+	ids, total, err := calBackend.QueryCalendarEvents(ctx, map[string]any{
+		"text": "Sprint Planning",
+	}, nil, 0, nil, false)
+	if err != nil {
+		t.Fatalf("QueryCalendarEvents failed: %v", err)
+	}
+	if total == 0 || len(ids) == 0 {
+		t.Errorf("QueryCalendarEvents returned 0 matches for 'Sprint Planning'")
+	}
+
+	// 5. Delete CalendarEvent
+	delOk, err := calBackend.DeleteCalendarEvent(ctx, created.ID)
+	if err != nil || !delOk {
+		t.Fatalf("DeleteCalendarEvent failed: %v", err)
+	}
+}
+
+func TestEmbeddedNextcloudContacts(t *testing.T) {
+	_, _, contactsBackend, _, _, cleanup := nextcloud.NewEmbeddedBackend("user@example.com")
+	defer cleanup()
+	ctx := testContext()
+
+	// 1. Get AddressBooks
+	abs, err := contactsBackend.GetAllAddressBooks(ctx)
+	if err != nil {
+		t.Fatalf("GetAllAddressBooks failed: %v", err)
+	}
+	if len(abs) == 0 {
+		t.Fatalf("Expected at least 1 address book, got 0")
+	}
+
+	// 2. Create Card
+	card := &jmap.Card{
+		Name: &jmap.JSContactName{
+			Full: "Alice Embedded",
+		},
+		Emails: map[string]*jmap.JSContactEmailAddress{
+			"e1": {Address: "alice.emb@example.com"},
+		},
+		AddressBookIDs: map[jmap.Id]bool{abs[0].ID: true},
+	}
+	created, err := contactsBackend.CreateCard(ctx, card)
+	if err != nil {
+		t.Fatalf("CreateCard failed: %v", err)
+	}
+	if created.ID == "" {
+		t.Fatalf("Expected created card to have ID")
+	}
+
+	// 3. Get Card
+	fetched, notFound, err := contactsBackend.GetCards(ctx, []jmap.Id{created.ID})
+	if err != nil {
+		t.Fatalf("GetCards failed: %v", err)
+	}
+	if len(notFound) > 0 || len(fetched) == 0 {
+		t.Fatalf("GetCards could not find created card %s (notFound=%v)", created.ID, notFound)
+	}
+	if fetched[0].Name == nil || fetched[0].Name.Full != "Alice Embedded" {
+		t.Errorf("Expected name 'Alice Embedded', got %v", fetched[0].Name)
+	}
+
+	// 4. Delete Card
+	delOk, err := contactsBackend.DeleteCard(ctx, created.ID)
+	if err != nil || !delOk {
+		t.Fatalf("DeleteCard failed: %v", err)
+	}
+}
+
+func TestEmbeddedNextcloudFileNodes(t *testing.T) {
+	_, _, _, fileNodeBackend, _, cleanup := nextcloud.NewEmbeddedBackend("user@example.com")
+	defer cleanup()
+	ctx := testContext()
+
+	// 1. Create FileNode folder
+	folderNode := &jmap.FileNode{
+		Name:     "TestFolder",
+		IsFolder: true,
+		Type:     "folder",
+	}
+	created, err := fileNodeBackend.CreateFileNode(ctx, folderNode)
+	if err != nil {
+		t.Fatalf("CreateFileNode failed: %v", err)
+	}
+
+	// 2. Get FileNodes
+	nodes, err := fileNodeBackend.GetAllFileNodes(ctx)
+	if err != nil {
+		t.Fatalf("GetAllFileNodes failed: %v", err)
+	}
+	if len(nodes) == 0 {
+		t.Fatalf("Expected created folder to appear, got 0 nodes")
+	}
+
+	// 3. Delete FileNode folder
+	delOk, err := fileNodeBackend.DeleteFileNode(ctx, created.ID)
+	if err != nil || !delOk {
+		t.Fatalf("DeleteFileNode failed: %v", err)
+	}
+}
+
+func TestEmbeddedNextcloudPrincipals(t *testing.T) {
+	_, _, _, _, principalsBackend, cleanup := nextcloud.NewEmbeddedBackend("user@example.com")
+	defer cleanup()
+	ctx := testContext()
+
+	principals, err := principalsBackend.GetAllPrincipals(ctx)
+	if err != nil {
+		t.Fatalf("GetAllPrincipals failed: %v", err)
+	}
+	if len(principals) == 0 {
+		t.Fatalf("Expected seeded principals, got 0")
+	}
+
+	// Availability check
+	windows, err := principalsBackend.GetAvailability(ctx, principals[0].ID, "2026-11-15T00:00:00Z", "2026-11-15T23:59:59Z")
+	if err != nil {
+		t.Fatalf("GetAvailability failed: %v", err)
+	}
+	_ = windows
+}
+

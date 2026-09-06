@@ -10,7 +10,7 @@ import (
 
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/imapsmtp"
-	"imap-jmap/jmap/testmock"
+	"imap-jmap/jmap/nextcloud"
 	jmapsmtp "imap-jmap/smtp"
 )
 
@@ -165,7 +165,9 @@ func TestRFC6047_SMTPServerReceiveIMIPReply(t *testing.T) {
 	defer cleanup()
 	memBackend := backend
 	memBlobBackend := backend
-	memCalBackend := testmock.NewMemoryCalendarsBackend()
+	_, calBackend, _, _, _, ncCleanup := nextcloud.NewEmbeddedBackend("organizer@example.com", "client@example.com")
+	defer ncCleanup()
+	memCalBackend := calBackend
 
 	accountCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject("organizer@example.com"))
 

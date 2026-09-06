@@ -7,12 +7,11 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/testmock"
 )
 
 // TestRFC9698_CapabilityDiscovery tests RFC 9698 capability advertising in session.
 func TestRFC9698_CapabilityDiscovery(t *testing.T) {
-	imapBackend := testmock.NewMemoryIMAPAccessBackend()
+	imapBackend := jmap.NewMemoryIMAPAccessBackend()
 	srv := jmap.NewServer(nil, jmap.WithIMAPAccessBackend(imapBackend))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -36,7 +35,7 @@ func TestRFC9698_CapabilityDiscovery(t *testing.T) {
 
 // TestRFC9698_IMAPAccountGetSetChanges tests IMAPAccount/get, IMAPAccount/set, and IMAPAccount/changes per RFC 9698.
 func TestRFC9698_IMAPAccountGetSetChanges(t *testing.T) {
-	imapBackend := testmock.NewMemoryIMAPAccessBackend()
+	imapBackend := jmap.NewMemoryIMAPAccessBackend()
 	srv := jmap.NewServer(nil, jmap.WithIMAPAccessBackend(imapBackend))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()

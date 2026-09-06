@@ -10,21 +10,22 @@ import (
 
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/imapsmtp"
+	"imap-jmap/jmap/nextcloud"
 	"imap-jmap/jmap/spectest"
-	"imap-jmap/jmap/testmock"
 )
 
 // submissionBackend builds a ReceiverBackend on the RFC 6409 Section 3.1
 // submission transport with a real credential verifier, ready for session
 // level tests.
-func submissionBackend(t *testing.T) (*ReceiverBackend, *testmock.MemoryCalendarsBackend, jmap.MailBackend) {
+func submissionBackend(t *testing.T) (*ReceiverBackend, jmap.CalendarsBackend, jmap.MailBackend) {
 	t.Helper()
 	backend, cleanup := imapsmtp.NewEmbeddedBackend("bob@example.com", "alice@example.com", "carol@example.com", "user@example.com")
 	t.Cleanup(cleanup)
-	calBackend := testmock.NewMemoryCalendarsBackend()
+	_, calBackend, _, _, _, ncCleanup := nextcloud.NewEmbeddedBackend("bob@example.com", "alice@example.com", "carol@example.com", "user@example.com")
+	t.Cleanup(ncCleanup)
 	rb := NewReceiverBackend(backend, backend, calBackend)
 	rb.Mode = TransportModeSubmission
-	rb.Authenticator = NewAuthBackendAuthenticator(testmock.NewMemoryAuthBackend())
+	rb.Authenticator = NewAuthBackendAuthenticator(jmap.NewMemoryAuthBackend())
 	rb.AccountResolver = jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
 	return rb, calBackend, backend
 }

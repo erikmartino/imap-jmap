@@ -1,22 +1,19 @@
 package jmap
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/emersion/go-ical"
 )
 
-// This file is the JSCalendar (RFC 8984) → iCalendar (RFC 5545) serializer used to build
-// iTIP (RFC 5546) scheduling messages carried over iMIP (RFC 6047). It is intentionally
-// comprehensive so that a scheduling message is lossless for the properties real clients
-// depend on: recurrence, alarms, locations, full participant metadata, all-day/timezone
-// handling, and RFC 5545 Section 3.3.11 TEXT escaping.
-//
-// Content lines are emitted unfolded. RFC 5545 Section 3.1 folding is a SHOULD for the
-// 75-octet soft limit; every interoperable parser (including this package's own) accepts
-// unfolded lines, and not folding keeps the output stable for substring inspection.
+// This file is the JSCalendar (RFC 8984) → iCalendar (RFC 5545) serializer using github.com/emersion/go-ical.
+// It builds standard *ical.Calendar ASTs and encodes them via ical.NewEncoder for full
+// RFC 5545 line folding, escaping, parameter quoting, and CRLF formatting.
 
 // escapeICalText applies RFC 5545 Section 3.3.11 TEXT escaping: backslash, newline,
 // semicolon and comma are escaped so a value can never break the line/param structure.
@@ -81,26 +78,36 @@ func icalCompactDate(v string) string {
 	return d
 }
 
-// writeDateTimeProp writes a DTSTART/DTEND/RECURRENCE-ID property honouring all-day
+func newRawProp(name, value string) *ical.Prop {
+	p := ical.NewProp(name)
+	p.Value = value
+	return p
+}
+
+// addDateTimeProp adds a DTSTART/DTEND/RECURRENCE-ID property honouring all-day
 // (VALUE=DATE), floating, UTC (trailing Z) and zoned (TZID) representations per RFC 5545
 // Sections 3.3.4/3.3.5 and 3.8.2.
-func writeDateTimeProp(sb *strings.Builder, name, value, timeZone string, allDay bool) {
+func addDateTimeProp(comp *ical.Component, name, value, timeZone string, allDay bool) {
 	if value == "" {
 		return
 	}
+	prop := ical.NewProp(name)
 	if allDay {
-		fmt.Fprintf(sb, "%s;VALUE=DATE:%s\r\n", name, icalCompactDate(value))
+		prop.Params.Set("VALUE", "DATE")
+		prop.Value = icalCompactDate(value)
+		comp.Props.Set(prop)
 		return
 	}
 	compact := icalCompactDateTime(value)
 	cleanCompact := strings.TrimSuffix(compact, "Z")
 	switch {
 	case timeZone != "" && timeZone != "Etc/UTC" && timeZone != "UTC":
-		fmt.Fprintf(sb, "%s;TZID=%s:%s\r\n", name, timeZone, cleanCompact)
+		prop.Params.Set("TZID", timeZone)
+		prop.Value = cleanCompact
 	default:
-		// Default to UTC with Z suffix per RFC 5545 Section 3.3.5
-		fmt.Fprintf(sb, "%s:%sZ\r\n", name, cleanCompact)
+		prop.Value = cleanCompact + "Z"
 	}
+	comp.Props.Set(prop)
 }
 
 // icalRoleFor maps a JSCalendar participant's roles to an iCalendar ROLE parameter.
@@ -154,38 +161,40 @@ func icalPartStatFor(p *JSCalendarParticipant) string {
 	}
 }
 
-// writeAttendee writes one ATTENDEE property with full parameters. The basic form is
-// "ATTENDEE;CUTYPE=..;ROLE=..;PARTSTAT=..;CN=Name:mailto:addr"; RSVP / DELEGATED-* /
-// MEMBER params are added only when set so simple participants stay compact.
-func writeAttendee(sb *strings.Builder, key string, p *JSCalendarParticipant) {
+func addAttendeeProp(comp *ical.Component, key string, p *JSCalendarParticipant) {
 	addr := participantAddress(key, p)
 	if addr == "" {
 		return
 	}
-	sb.WriteString("ATTENDEE")
-	fmt.Fprintf(sb, ";CUTYPE=%s", icalCUTypeFor(p))
-	fmt.Fprintf(sb, ";ROLE=%s", icalRoleFor(p))
-	fmt.Fprintf(sb, ";PARTSTAT=%s", icalPartStatFor(p))
+	prop := ical.NewProp(ical.PropAttendee)
+	prop.Value = "mailto:" + addr
+	prop.Params.Set("CUTYPE", icalCUTypeFor(p))
+	prop.Params.Set("ROLE", icalRoleFor(p))
+	prop.Params.Set("PARTSTAT", icalPartStatFor(p))
 	if p.ExpectReply {
-		sb.WriteString(";RSVP=TRUE")
+		prop.Params.Set("RSVP", "TRUE")
 	}
 	for _, delegate := range sortedTrueKeys(p.DelegatedTo) {
-		fmt.Fprintf(sb, ";DELEGATED-TO=\"%s\"", delegate)
+		prop.Params.Add("DELEGATED-TO", delegate)
 	}
 	for _, delegator := range sortedTrueKeys(p.DelegatedFrom) {
-		fmt.Fprintf(sb, ";DELEGATED-FROM=\"%s\"", delegator)
+		prop.Params.Add("DELEGATED-FROM", delegator)
 	}
 	for _, member := range sortedTrueKeys(p.MemberOf) {
-		fmt.Fprintf(sb, ";MEMBER=\"%s\"", member)
+		prop.Params.Add("MEMBER", member)
 	}
 	if p.Name != "" {
-		fmt.Fprintf(sb, ";CN=%s", p.Name)
+		prop.Params.Set("CN", p.Name)
 	}
-	fmt.Fprintf(sb, ":mailto:%s\r\n", addr)
+	if p.ScheduleStatus != "" {
+		prop.Params.Set("SCHEDULE-STATUS", p.ScheduleStatus)
+	}
+	if key != "" {
+		prop.Params.Set("X-KEY", key)
+	}
+	comp.Props.Add(prop)
 }
 
-// sortedTrueKeys returns the true-valued keys of a JSCalendar set in sorted order, so
-// serialized output (EXDATE, CATEGORIES, DELEGATED-*, MEMBER, …) is deterministic.
 func sortedTrueKeys(m map[string]bool) []string {
 	if len(m) == 0 {
 		return nil
@@ -200,8 +209,6 @@ func sortedTrueKeys(m map[string]bool) []string {
 	return keys
 }
 
-// buildRRULE serializes a JSCalendar RecurrenceRule (RFC 8984 Section 4.3.3) into an
-// RFC 5545 RRULE value (all byX parts, interval, count/until, WKST, bySetPos).
 func buildRRULE(rule *JSCalendarRecurrenceRule) string {
 	if rule == nil || rule.Frequency == "" {
 		return ""
@@ -288,45 +295,46 @@ func joinUints(v []uint32) string {
 	return strings.Join(out, ",")
 }
 
-// writeAlarm serializes a JSCalendar Alert (RFC 8984 Section 4.5.2) into a VALARM
-// sub-component (RFC 5545 Section 3.6.6): ACTION, TRIGGER (relative offset or absolute
-// UTC), and DESCRIPTION.
-func writeAlarm(sb *strings.Builder, alert *JSCalendarAlert) {
+func buildAlarmComponent(key string, alert *JSCalendarAlert) *ical.Component {
 	if alert == nil {
-		return
+		return nil
 	}
 	action := "DISPLAY"
 	if strings.EqualFold(alert.Action, "email") {
 		action = "EMAIL"
 	}
-	sb.WriteString("BEGIN:VALARM\r\n")
-	fmt.Fprintf(sb, "ACTION:%s\r\n", action)
+	alarm := ical.NewComponent(ical.CompAlarm)
+	if key != "" {
+		alarm.Props.Set(newRawProp("X-KEY", key))
+	}
+	alarm.Props.Set(newRawProp(ical.PropAction, action))
 
 	trigger, _ := alert.Trigger.(map[string]any)
 	switch {
 	case trigger != nil && trigger["offset"] != nil:
 		offset, _ := trigger["offset"].(string)
+		tProp := newRawProp(ical.PropTrigger, offset)
 		if related, _ := trigger["relativeTo"].(string); strings.EqualFold(related, "end") {
-			fmt.Fprintf(sb, "TRIGGER;RELATED=END:%s\r\n", offset)
-		} else {
-			fmt.Fprintf(sb, "TRIGGER:%s\r\n", offset)
+			tProp.Params.Set("RELATED", "END")
 		}
+		alarm.Props.Set(tProp)
 	case trigger != nil && trigger["when"] != nil:
 		when, _ := trigger["when"].(string)
-		fmt.Fprintf(sb, "TRIGGER;VALUE=DATE-TIME:%s\r\n", icalCompactDateTime(when))
+		tProp := newRawProp(ical.PropTrigger, icalCompactDateTime(when))
+		tProp.Params.Set("VALUE", "DATE-TIME")
+		alarm.Props.Set(tProp)
 	default:
-		sb.WriteString("TRIGGER:-PT15M\r\n")
+		alarm.Props.Set(newRawProp(ical.PropTrigger, "-PT15M"))
 	}
 
 	desc := alert.Description
 	if desc == "" {
 		desc = "Reminder"
 	}
-	fmt.Fprintf(sb, "DESCRIPTION:%s\r\n", escapeICalText(desc))
-	sb.WriteString("END:VALARM\r\n")
+	alarm.Props.SetText(ical.PropDescription, desc)
+	return alarm
 }
 
-// icalStatusFor maps a JSCalendar event status to an iCalendar STATUS value.
 func icalStatusFor(status string) string {
 	switch strings.ToLower(status) {
 	case "confirmed":
@@ -339,167 +347,303 @@ func icalStatusFor(status string) string {
 	return ""
 }
 
-// writeVEVENT serializes a CalendarEvent as a full VEVENT body (no BEGIN/END), covering
-// the properties an iTIP peer needs. organizerEmail is the fallback ORGANIZER when the
-// event carries no organizer participant/replyTo. When onlyAttendee is non-empty, only
-// that participant is emitted as ATTENDEE (used for METHOD:REPLY and hideAttendees).
-func writeVEVENT(sb *strings.Builder, ev *CalendarEvent, organizerEmail, onlyAttendee, statusOverride string) {
-	uid := eventUID(ev)
-	now := time.Now().UTC().Format("20060102T150405Z")
+func buildEventComponent(ev *CalendarEvent, organizerEmail, onlyAttendee, statusOverride string) *ical.Component {
+	compName := ical.CompEvent
+	switch ev.Type {
+	case "Task":
+		compName = ical.CompToDo
+	case "Group":
+		compName = ical.CompJournal
+	}
+	comp := ical.NewComponent(compName)
+	if ev.Type != "" && ev.Type != "Event" {
+		comp.Props.SetText("X-JSCALENDAR-TYPE", ev.Type)
+	}
 
-	fmt.Fprintf(sb, "UID:%s\r\n", uid)
-	fmt.Fprintf(sb, "DTSTAMP:%s\r\n", now)
-	fmt.Fprintf(sb, "SEQUENCE:%d\r\n", ev.Sequence)
+	uid := eventUID(ev)
+	if uid == "" {
+		uid = fmt.Sprintf("event-%d", time.Now().UnixNano())
+	}
+	comp.Props.SetText(ical.PropUID, uid)
+	comp.Props.SetDateTime(ical.PropDateTimeStamp, time.Now().UTC())
+
+	seqProp := ical.NewProp(ical.PropSequence)
+	seqProp.Value = fmt.Sprintf("%d", ev.Sequence)
+	comp.Props.Set(seqProp)
+
 	if ev.Created != "" {
-		fmt.Fprintf(sb, "CREATED:%s\r\n", icalCompactDateTime(ev.Created))
+		cProp := ical.NewProp(ical.PropCreated)
+		cProp.Value = icalCompactDateTime(ev.Created)
+		comp.Props.Set(cProp)
 	}
 	if ev.Updated != "" {
-		fmt.Fprintf(sb, "LAST-MODIFIED:%s\r\n", icalCompactDateTime(ev.Updated))
+		lmProp := ical.NewProp(ical.PropLastModified)
+		lmProp.Value = icalCompactDateTime(ev.Updated)
+		comp.Props.Set(lmProp)
 	}
 	if ev.Title != "" {
-		fmt.Fprintf(sb, "SUMMARY:%s\r\n", escapeICalText(ev.Title))
+		comp.Props.SetText(ical.PropSummary, ev.Title)
 	}
 	if ev.Description != "" {
-		fmt.Fprintf(sb, "DESCRIPTION:%s\r\n", escapeICalText(ev.Description))
+		comp.Props.SetText(ical.PropDescription, ev.Description)
 	}
-	writeDateTimeProp(sb, "DTSTART", ev.Start, ev.TimeZone, ev.ShowWithoutTime)
-	if ev.ShowWithoutTime {
-		if ev.Duration != "" && !strings.Contains(ev.Duration, "T") {
-			fmt.Fprintf(sb, "DURATION:%s\r\n", ev.Duration)
-		} else {
-			fmt.Fprintf(sb, "DURATION:P1D\r\n")
+
+	if ev.Start != "" {
+		addDateTimeProp(comp, ical.PropDateTimeStart, ev.Start, ev.TimeZone, ev.ShowWithoutTime)
+	}
+	if ev.Due != "" {
+		addDateTimeProp(comp, ical.PropDue, ev.Due, ev.TimeZone, ev.ShowWithoutTime)
+	}
+	if ev.EstimatedDuration != "" {
+		comp.Props.SetText("ESTIMATED-DURATION", ev.EstimatedDuration)
+	}
+	if ev.PercentComplete > 0 || (ev.Type == "Task" && ev.PercentComplete != 0) {
+		pProp := ical.NewProp(ical.PropPercentComplete)
+		pProp.Value = fmt.Sprintf("%d", ev.PercentComplete)
+		comp.Props.Set(pProp)
+	}
+	if ev.Progress != "" {
+		comp.Props.SetText("X-PROGRESS", ev.Progress)
+		if ev.Status == "" && statusOverride == "" {
+			switch strings.ToLower(ev.Progress) {
+			case "completed":
+				comp.Props.SetText(ical.PropStatus, "COMPLETED")
+			case "in-process":
+				comp.Props.SetText(ical.PropStatus, "IN-PROCESS")
+			case "needs-action":
+				comp.Props.SetText(ical.PropStatus, "NEEDS-ACTION")
+			case "cancelled":
+				comp.Props.SetText(ical.PropStatus, "CANCELLED")
+			}
 		}
-	} else if ev.Duration != "" {
-		fmt.Fprintf(sb, "DURATION:%s\r\n", ev.Duration)
 	}
+	if ev.ProgressUpdated != "" {
+		puProp := ical.NewProp("X-PROGRESS-UPDATED")
+		puProp.Value = icalCompactDateTime(ev.ProgressUpdated)
+		comp.Props.Set(puProp)
+	}
+	if ev.Source != "" {
+		comp.Props.SetText(ical.PropSource, ev.Source)
+	}
+	if len(ev.Entries) > 0 {
+		if data, err := json.Marshal(ev.Entries); err == nil {
+			comp.Props.SetText("X-JSCALENDAR-ENTRIES", string(data))
+		}
+	}
+
+	if ev.Type != "Task" || ev.Due == "" {
+		if ev.ShowWithoutTime {
+			if ev.Duration != "" && !strings.Contains(ev.Duration, "T") {
+				comp.Props.Set(newRawProp(ical.PropDuration, ev.Duration))
+			} else {
+				comp.Props.Set(newRawProp(ical.PropDuration, "P1D"))
+			}
+		} else if ev.Duration != "" {
+			comp.Props.Set(newRawProp(ical.PropDuration, ev.Duration))
+		}
+	}
+
 	if ev.RecurrenceID != "" {
-		writeDateTimeProp(sb, "RECURRENCE-ID", ev.RecurrenceID, ev.RecurrenceIDTimeZone, ev.ShowWithoutTime)
+		addDateTimeProp(comp, ical.PropRecurrenceID, ev.RecurrenceID, ev.RecurrenceIDTimeZone, ev.ShowWithoutTime)
 	}
+
 	if len(ev.RecurrenceRules) == 0 && ev.RecurrenceRule != nil {
 		if v := buildRRULE(ev.RecurrenceRule); v != "" {
-			fmt.Fprintf(sb, "RRULE:%s\r\n", v)
+			comp.Props.Set(newRawProp(ical.PropRecurrenceRule, v))
+		}
+	} else if len(ev.RecurrenceRules) > 0 {
+		if v := buildRRULE(ev.RecurrenceRules[0]); v != "" {
+			comp.Props.Set(newRawProp(ical.PropRecurrenceRule, v))
 		}
 	}
-	for _, rule := range ev.RecurrenceRules {
-		if v := buildRRULE(rule); v != "" {
-			fmt.Fprintf(sb, "RRULE:%s\r\n", v)
-		}
-	}
+
 	if len(ev.ExcludedRecurrenceRules) == 0 && ev.ExcludedRecurrenceRule != nil {
 		if v := buildRRULE(ev.ExcludedRecurrenceRule); v != "" {
-			fmt.Fprintf(sb, "EXRULE:%s\r\n", v)
+			comp.Props.Add(newRawProp("EXRULE", v))
 		}
 	}
 	for _, rule := range ev.ExcludedRecurrenceRules {
 		if v := buildRRULE(rule); v != "" {
-			fmt.Fprintf(sb, "EXRULE:%s\r\n", v)
+			comp.Props.Add(newRawProp("EXRULE", v))
 		}
 	}
+
 	if exdates := excludedRecurrenceDates(ev); len(exdates) > 0 {
-		fmt.Fprintf(sb, "EXDATE:%s\r\n", strings.Join(exdates, ","))
+		comp.Props.Set(newRawProp(ical.PropExceptionDates, strings.Join(exdates, ",")))
 	}
+
 	status := statusOverride
 	if status == "" {
 		status = icalStatusFor(ev.Status)
 	}
 	if status != "" {
-		fmt.Fprintf(sb, "STATUS:%s\r\n", status)
+		comp.Props.SetText(ical.PropStatus, status)
 	}
+
 	switch strings.ToLower(ev.Privacy) {
 	case "private":
-		sb.WriteString("CLASS:PRIVATE\r\n")
+		comp.Props.SetText(ical.PropClass, "PRIVATE")
 	case "secret":
-		sb.WriteString("CLASS:CONFIDENTIAL\r\n")
+		comp.Props.SetText(ical.PropClass, "CONFIDENTIAL")
 	case "public":
-		sb.WriteString("CLASS:PUBLIC\r\n")
+		comp.Props.SetText(ical.PropClass, "PUBLIC")
 	}
+
 	switch strings.ToLower(ev.FreeBusyStatus) {
 	case "free":
-		sb.WriteString("TRANSP:TRANSPARENT\r\n")
+		comp.Props.Set(newRawProp("TRANSP", "TRANSPARENT"))
 	case "busy":
-		sb.WriteString("TRANSP:OPAQUE\r\n")
+		comp.Props.Set(newRawProp("TRANSP", "OPAQUE"))
 	}
+
 	if ev.Priority > 0 {
-		fmt.Fprintf(sb, "PRIORITY:%d\r\n", ev.Priority)
+		pProp := ical.NewProp(ical.PropPriority)
+		pProp.Value = fmt.Sprintf("%d", ev.Priority)
+		comp.Props.Set(pProp)
 	}
+
 	if ev.Color != "" {
-		fmt.Fprintf(sb, "COLOR:%s\r\n", ev.Color)
+		comp.Props.Set(newRawProp("COLOR", ev.Color))
 	}
-	writeLocationAndGeo(sb, ev)
+
+	addLocationAndGeo(comp, ev)
+
 	if cats := categoryList(ev); cats != "" {
-		fmt.Fprintf(sb, "CATEGORIES:%s\r\n", cats)
+		comp.Props.Set(newRawProp(ical.PropCategories, cats))
 	}
+
 	if org := organizerAddress(ev); org != "" {
-		fmt.Fprintf(sb, "ORGANIZER:mailto:%s\r\n", org)
+		orgProp := newRawProp(ical.PropOrganizer, "mailto:"+org)
+		if ev.SentBy != "" {
+			orgProp.Params.Set("SENT-BY", ev.SentBy)
+		}
+		comp.Props.Set(orgProp)
 	} else if organizerEmail != "" {
-		fmt.Fprintf(sb, "ORGANIZER:mailto:%s\r\n", organizerEmail)
+		orgProp := newRawProp(ical.PropOrganizer, "mailto:"+organizerEmail)
+		if ev.SentBy != "" {
+			orgProp.Params.Set("SENT-BY", ev.SentBy)
+		}
+		comp.Props.Set(orgProp)
+	} else if ev.SentBy != "" {
+		orgProp := newRawProp(ical.PropOrganizer, "mailto:nobody@example.com")
+		orgProp.Params.Set("SENT-BY", ev.SentBy)
+		comp.Props.Set(orgProp)
 	}
+
+	if ev.DescriptionContentType != "" && ev.DescriptionContentType != "text/plain" {
+		comp.Props.Set(newRawProp("X-DESCRIPTION-CONTENT-TYPE", ev.DescriptionContentType))
+	}
+	if ev.ShowWithoutTime {
+		comp.Props.Set(newRawProp("X-SHOW-WITHOUT-TIME", "true"))
+	}
+	if ev.Locale != "" {
+		comp.Props.Set(newRawProp("X-LOCALE", ev.Locale))
+	}
+	if ev.RequestStatus != "" {
+		comp.Props.Set(newRawProp("REQUEST-STATUS", ev.RequestStatus))
+	}
+	if ev.Method != "" {
+		comp.Props.SetText("X-JSCALENDAR-METHOD", ev.Method)
+	}
+	if ev.UseDefaultAlerts {
+		comp.Props.Set(newRawProp("X-DEFAULT-ALERTS", "true"))
+	}
+	if ev.HideAttendees {
+		comp.Props.Set(newRawProp("X-HIDE-ATTENDEES", "true"))
+	}
+	if ev.RecurrenceID != "" {
+		comp.Props.SetText("X-RECURRENCE-ID", ev.RecurrenceID)
+	}
+	if ev.RecurrenceIDTimeZone != "" {
+		comp.Props.SetText("X-RECURRENCE-ID-TZID", ev.RecurrenceIDTimeZone)
+	}
+	if len(ev.Locations) > 0 {
+		if data, err := json.Marshal(ev.Locations); err == nil {
+			comp.Props.SetText("X-JSCALENDAR-LOCATIONS", string(data))
+		}
+	}
+	if len(ev.RecurrenceOverrides) > 0 {
+		if data, err := json.Marshal(ev.RecurrenceOverrides); err == nil {
+			comp.Props.SetText("X-JSCALENDAR-RECURRENCE-OVERRIDES", string(data))
+		}
+	}
+	if len(ev.Participants) > 0 {
+		if data, err := json.Marshal(ev.Participants); err == nil {
+			comp.Props.SetText("X-JSCALENDAR-PARTICIPANTS", string(data))
+		}
+	}
+	if len(ev.Alerts) > 0 {
+		if data, err := json.Marshal(ev.Alerts); err == nil {
+			comp.Props.SetText("X-JSCALENDAR-ALERTS", string(data))
+		}
+	}
+	if len(ev.VirtualLocations) > 0 {
+		if data, err := json.Marshal(ev.VirtualLocations); err == nil {
+			comp.Props.SetText("X-JSCALENDAR-VIRTUAL-LOCATIONS", string(data))
+		}
+	}
+
 	for _, key := range sortedParticipantKeys(ev.Participants) {
 		p := ev.Participants[key]
-		if isOwnerParticipant(p) {
-			continue // the owner is the ORGANIZER, not an ATTENDEE
+		if strings.EqualFold(ev.Method, "REQUEST") && isOwnerParticipant(p) {
+			continue
 		}
 		if onlyAttendee != "" && participantAddress(key, p) != onlyAttendee {
 			continue
 		}
-		writeAttendee(sb, key, p)
+		addAttendeeProp(comp, key, p)
 	}
+
 	for _, key := range sortedLinkKeys(ev.Links) {
 		link := ev.Links[key]
 		if link != nil && link.Href != "" {
-			fmt.Fprintf(sb, "ATTACH:%s\r\n", link.Href)
+			prop := newRawProp("ATTACH", link.Href)
+			if key != "" {
+				prop.Params.Set("X-KEY", key)
+			}
+			comp.Props.Add(prop)
 		}
 	}
+
+	for _, key := range sortedVirtualLocationKeys(ev.VirtualLocations) {
+		vl := ev.VirtualLocations[key]
+		if vl != nil && vl.URI != "" {
+			prop := newRawProp("CONFERENCE", vl.URI)
+			prop.Params.Set("VALUE", "URI")
+			if key != "" {
+				prop.Params.Set("X-KEY", key)
+			}
+			comp.Props.Add(prop)
+		}
+	}
+
 	for _, key := range sortedAlertKeys(ev.Alerts) {
-		writeAlarm(sb, ev.Alerts[key])
+		if alarm := buildAlarmComponent(key, ev.Alerts[key]); alarm != nil {
+			comp.Children = append(comp.Children, alarm)
+		}
 	}
+
+	return comp
 }
 
-// EncodeCalDAVEvent builds a complete RFC 5545 / RFC 4791 VCALENDAR string for storing in CalDAV (no METHOD property).
-func EncodeCalDAVEvent(ev *CalendarEvent) string {
-	return encodeICalendar(ev, "", "", "", "")
-}
-
-// encodeICalendar builds a complete VCALENDAR (RFC 5545) carrying the event as a single
-// VEVENT, with the given iTIP METHOD (RFC 5546). onlyAttendee/statusOverride tailor the
-// component for REPLY / CANCEL.
-func encodeICalendar(ev *CalendarEvent, method, organizerEmail, onlyAttendee, statusOverride string) string {
-	var sb strings.Builder
-	sb.WriteString("BEGIN:VCALENDAR\r\n")
-	sb.WriteString("VERSION:2.0\r\n")
-	sb.WriteString("PRODID:-//IMAP-JMAP Server//NONSGML v1.0//EN\r\n")
-	sb.WriteString("CALSCALE:GREGORIAN\r\n")
-	if method != "" {
-		fmt.Fprintf(&sb, "METHOD:%s\r\n", method)
-	}
-	sb.WriteString("BEGIN:VEVENT\r\n")
-	writeVEVENT(&sb, ev, organizerEmail, onlyAttendee, statusOverride)
-	sb.WriteString("END:VEVENT\r\n")
-
-	// Emit any non-excluded recurrence overrides as additional VEVENT components
-	for recurrenceID, override := range ev.RecurrenceOverrides {
-		if excluded, _ := override["excluded"].(bool); excluded {
+func addLocationAndGeo(comp *ical.Component, ev *CalendarEvent) {
+	for _, key := range sortedLocationKeys(ev.Locations) {
+		loc := ev.Locations[key]
+		if loc == nil {
 			continue
 		}
-		ovEv := *ev
-		ovEv.RecurrenceRules = nil
-		ovEv.ExcludedRecurrenceRules = nil
-		ovEv.RecurrenceID = recurrenceID
-		if ovBytes, err := json.Marshal(override); err == nil {
-			_ = json.Unmarshal(ovBytes, &ovEv)
+		if loc.Name != "" {
+			comp.Props.SetText(ical.PropLocation, loc.Name)
 		}
-
-		sb.WriteString("BEGIN:VEVENT\r\n")
-		writeVEVENT(&sb, &ovEv, organizerEmail, onlyAttendee, statusOverride)
-		sb.WriteString("END:VEVENT\r\n")
+		if loc.Coordinates != "" {
+			geo := strings.TrimPrefix(loc.Coordinates, "geo:")
+			geo = strings.ReplaceAll(geo, ",", ";")
+			comp.Props.Set(newRawProp(ical.PropGeo, geo))
+		}
+		return
 	}
-
-	sb.WriteString("END:VCALENDAR\r\n")
-	return sb.String()
 }
 
-// excludedRecurrenceDates gathers EXDATE values from both the excluded set and any
-// recurrenceOverrides entry marked excluded:true (RFC 8984 Section 4.3.5).
 func excludedRecurrenceDates(ev *CalendarEvent) []string {
 	set := map[string]bool{}
 	for d := range ev.Excluded {
@@ -528,23 +672,57 @@ func categoryList(ev *CalendarEvent) string {
 	return strings.Join(cats, ",")
 }
 
-// writeLocationAndGeo emits the first named location as LOCATION and its coordinates as GEO.
-func writeLocationAndGeo(sb *strings.Builder, ev *CalendarEvent) {
-	for _, key := range sortedLocationKeys(ev.Locations) {
-		loc := ev.Locations[key]
-		if loc == nil {
+// CalendarEventToICalendar constructs an RFC 5545 *ical.Calendar from a JSCalendar CalendarEvent.
+func CalendarEventToICalendar(ev *CalendarEvent, method, organizerEmail, onlyAttendee, statusOverride string) *ical.Calendar {
+	cal := ical.NewCalendar()
+	prodID := "-//IMAP-JMAP Server//NONSGML v1.0//EN"
+	if ev.ProdID != "" {
+		prodID = ev.ProdID
+	}
+	cal.Props.SetText(ical.PropProductID, prodID)
+	cal.Props.SetText(ical.PropVersion, "2.0")
+	cal.Props.SetText(ical.PropCalendarScale, "GREGORIAN")
+	if method == "" && ev.Method != "" {
+		method = ev.Method
+	}
+	if method != "" {
+		cal.Props.SetText(ical.PropMethod, method)
+	}
+
+	comp := buildEventComponent(ev, organizerEmail, onlyAttendee, statusOverride)
+	cal.Children = append(cal.Children, comp)
+
+	for recurrenceID, override := range ev.RecurrenceOverrides {
+		if excluded, _ := override["excluded"].(bool); excluded {
 			continue
 		}
-		if loc.Name != "" {
-			fmt.Fprintf(sb, "LOCATION:%s\r\n", escapeICalText(loc.Name))
+		ovEv := *ev
+		ovEv.RecurrenceRules = nil
+		ovEv.ExcludedRecurrenceRules = nil
+		ovEv.RecurrenceID = recurrenceID
+		if ovBytes, err := json.Marshal(override); err == nil {
+			_ = json.Unmarshal(ovBytes, &ovEv)
 		}
-		if loc.Coordinates != "" {
-			geo := strings.TrimPrefix(loc.Coordinates, "geo:")
-			geo = strings.ReplaceAll(geo, ",", ";")
-			fmt.Fprintf(sb, "GEO:%s\r\n", geo)
-		}
-		return // one LOCATION/GEO pair is emitted (RFC 5545 allows a single LOCATION)
+
+		ovComp := buildEventComponent(&ovEv, organizerEmail, onlyAttendee, statusOverride)
+		cal.Children = append(cal.Children, ovComp)
 	}
+
+	return cal
+}
+
+// EncodeCalDAVEvent builds a complete RFC 5545 / RFC 4791 VCALENDAR string for storing in CalDAV (no METHOD property).
+func EncodeCalDAVEvent(ev *CalendarEvent) string {
+	return encodeICalendar(ev, "", "", "", "")
+}
+
+func encodeICalendar(ev *CalendarEvent, method, organizerEmail, onlyAttendee, statusOverride string) string {
+	cal := CalendarEventToICalendar(ev, method, organizerEmail, onlyAttendee, statusOverride)
+	var buf bytes.Buffer
+	if err := ical.NewEncoder(&buf).Encode(cal); err != nil {
+		return ""
+	}
+	return buf.String()
 }
 
 func sortedParticipantKeys(m map[string]*JSCalendarParticipant) []string {
@@ -557,6 +735,15 @@ func sortedParticipantKeys(m map[string]*JSCalendarParticipant) []string {
 }
 
 func sortedLinkKeys(m map[string]*JSCalendarLink) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func sortedVirtualLocationKeys(m map[string]*JSCalendarVirtualLocation) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)

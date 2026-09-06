@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -292,6 +293,9 @@ func parseGoICalAttendee(prop ical.Prop, role string) *JSCalendarParticipant {
 	if member := prop.Params.Get("MEMBER"); member != "" {
 		p.MemberOf = map[string]bool{icalParticipantKey(member): true}
 	}
+	if ss := prop.Params.Get("SCHEDULE-STATUS"); ss != "" {
+		p.ScheduleStatus = ss
+	}
 	p.Role = role
 	p.Status = p.ParticipationStatus
 	return p
@@ -319,7 +323,7 @@ func ParseICalendar(data []byte) ([]*CalendarEvent, error) {
 	var walk func(comp *ical.Component)
 	walk = func(comp *ical.Component) {
 		for _, child := range comp.Children {
-			if child.Name == ical.CompEvent {
+			if child.Name == ical.CompEvent || child.Name == ical.CompToDo || child.Name == ical.CompJournal || child.Name == "VGROUP" {
 				if ev := icalComponentToCalendarEvent(child, method, prodID); ev != nil {
 					events = append(events, ev)
 				}
@@ -330,7 +334,7 @@ func ParseICalendar(data []byte) ([]*CalendarEvent, error) {
 	walk(cal.Component)
 
 	if len(events) == 0 {
-		return nil, fmt.Errorf("iCalendar stream contains no VEVENT components")
+		return nil, fmt.Errorf("iCalendar stream contains no calendar components")
 	}
 	return events, nil
 }
@@ -343,6 +347,15 @@ func icalComponentToCalendarEvent(comp *ical.Component, method, prodID string) *
 		Method:                 method,
 		ProdID:                 prodID,
 	}
+	switch comp.Name {
+	case ical.CompToDo:
+		ev.Type = "Task"
+	case ical.CompJournal, "VGROUP":
+		ev.Type = "Group"
+	}
+	if prop := comp.Props.Get("X-JSCALENDAR-TYPE"); prop != nil && prop.Value != "" {
+		ev.Type = prop.Value
+	}
 
 	var start, end string
 
@@ -351,6 +364,26 @@ func icalComponentToCalendarEvent(comp *ical.Component, method, prodID string) *
 			switch strings.ToUpper(name) {
 			case ical.PropUID:
 				ev.UID = strings.TrimSpace(p.Value)
+			case ical.PropDue:
+				rawVal := strings.TrimSpace(p.Value)
+				dueDateOnly := strings.EqualFold(p.Params.Get("VALUE"), "DATE")
+				ev.Due = icalTimeToRFC3339(rawVal, dueDateOnly)
+			case "ESTIMATED-DURATION":
+				ev.EstimatedDuration = strings.TrimSpace(p.Value)
+			case ical.PropPercentComplete:
+				if n, err := strconv.ParseUint(strings.TrimSpace(p.Value), 10, 32); err == nil {
+					ev.PercentComplete = uint32(n)
+				}
+			case "X-PROGRESS":
+				ev.Progress = strings.TrimSpace(p.Value)
+			case "X-PROGRESS-UPDATED":
+				ev.ProgressUpdated = icalTimeToRFC3339(strings.TrimSpace(p.Value), false)
+			case ical.PropCompleted:
+				if ev.ProgressUpdated == "" {
+					ev.ProgressUpdated = icalTimeToRFC3339(strings.TrimSpace(p.Value), false)
+				}
+			case ical.PropSource:
+				ev.Source = strings.TrimSpace(p.Value)
 			case ical.PropSummary:
 				if text, err := p.Text(); err == nil {
 					ev.Title = text
@@ -397,6 +430,21 @@ func icalComponentToCalendarEvent(comp *ical.Component, method, prodID string) *
 					ev.Status = "tentative"
 				case "CANCELLED", "CANCELED":
 					ev.Status = "cancelled"
+					if ev.Type == "Task" && ev.Progress == "" {
+						ev.Progress = "cancelled"
+					}
+				case "COMPLETED":
+					if ev.Type == "Task" && ev.Progress == "" {
+						ev.Progress = "completed"
+					}
+				case "IN-PROCESS":
+					if ev.Type == "Task" && ev.Progress == "" {
+						ev.Progress = "in-process"
+					}
+				case "NEEDS-ACTION":
+					if ev.Type == "Task" && ev.Progress == "" {
+						ev.Progress = "needs-action"
+					}
 				}
 			case "TRANSP":
 				if strings.EqualFold(strings.TrimSpace(p.Value), "TRANSPARENT") {
@@ -414,7 +462,7 @@ func icalComponentToCalendarEvent(comp *ical.Component, method, prodID string) *
 					ev.Privacy = "public"
 				}
 			case ical.PropLocation:
-				if p.Value != "" {
+				if p.Value != "" && len(ev.Locations) == 0 {
 					locName, err := p.Text()
 					if err != nil {
 						locName = unescapeICalText(p.Value)
@@ -432,8 +480,18 @@ func icalComponentToCalendarEvent(comp *ical.Component, method, prodID string) *
 			case "GEO":
 				if idx := strings.IndexByte(p.Value, ';'); idx > 0 {
 					ev.Locations = ensureLocations(ev.Locations)
-					for _, loc := range ev.Locations {
-						loc.Coordinates = p.Value
+					lat := p.Value[:idx]
+					lon := p.Value[idx+1:]
+					geoURI := "geo:" + lat + "," + lon
+					if len(ev.Locations) == 0 {
+						ev.Locations["loc-1"] = &JSCalendarLocation{
+							Type:        "Location",
+							Coordinates: geoURI,
+						}
+					} else {
+						for _, loc := range ev.Locations {
+							loc.Coordinates = geoURI
+						}
 					}
 				}
 			case ical.PropOrganizer:
@@ -453,13 +511,29 @@ func icalComponentToCalendarEvent(comp *ical.Component, method, prodID string) *
 					}
 					ev.Participants[email] = participant
 				}
+				if sentBy := p.Params.Get("SENT-BY"); sentBy != "" {
+					ev.SentBy = sentBy
+				}
 			case ical.PropAttendee:
-				email := icalParticipantKey(p.Value)
-				if email != "" {
+				key := p.Params.Get("X-KEY")
+				if key == "" {
+					key = icalParticipantKey(p.Value)
+				}
+				if key != "" {
 					if ev.Participants == nil {
 						ev.Participants = make(map[string]*JSCalendarParticipant)
 					}
-					ev.Participants[email] = parseGoICalAttendee(p, "attendee")
+					parsed := parseGoICalAttendee(p, "attendee")
+					if existing, ok := ev.Participants[key]; ok && existing != nil {
+						if parsed.ScheduleStatus != "" {
+							existing.ScheduleStatus = parsed.ScheduleStatus
+						}
+						if parsed.ParticipationStatus != "" {
+							existing.ParticipationStatus = parsed.ParticipationStatus
+						}
+					} else {
+						ev.Participants[key] = parsed
+					}
 				}
 			case ical.PropRecurrenceRule:
 				if rule := parseRecurrenceRule(p.Value); rule != nil && rule.Frequency != "" {
@@ -480,9 +554,24 @@ func icalComponentToCalendarEvent(comp *ical.Component, method, prodID string) *
 					if ev.Links == nil {
 						ev.Links = make(map[string]*JSCalendarLink)
 					}
-					hash := sha256.Sum256([]byte(p.Value))
-					key := hex.EncodeToString(hash[:])[:40]
+					key := p.Params.Get("X-KEY")
+					if key == "" {
+						hash := sha256.Sum256([]byte(p.Value))
+						key = hex.EncodeToString(hash[:])[:40]
+					}
 					ev.Links[key] = &JSCalendarLink{Type: "Link", Href: p.Value}
+				}
+			case "CONFERENCE", "X-CONFERENCE":
+				if p.Value != "" {
+					if ev.VirtualLocations == nil {
+						ev.VirtualLocations = make(map[string]*JSCalendarVirtualLocation)
+					}
+					key := p.Params.Get("X-KEY")
+					if key == "" {
+						hash := sha256.Sum256([]byte(p.Value))
+						key = hex.EncodeToString(hash[:])[:40]
+					}
+					ev.VirtualLocations[key] = &JSCalendarVirtualLocation{Type: "VirtualLocation", URI: p.Value}
 				}
 			case ical.PropExceptionDates:
 				for _, ex := range strings.Split(p.Value, ",") {
@@ -495,9 +584,84 @@ func icalComponentToCalendarEvent(comp *ical.Component, method, prodID string) *
 					}
 					ev.Excluded[icalTimeToRFC3339(ex, dateOnly)] = true
 				}
+			case "X-RECURRENCE-ID":
+				ev.RecurrenceID = strings.TrimSpace(p.Value)
+			case "X-RECURRENCE-ID-TZID":
+				ev.RecurrenceIDTimeZone = strings.TrimSpace(p.Value)
+			case "X-HIDE-ATTENDEES":
+				ev.HideAttendees = strings.EqualFold(strings.TrimSpace(p.Value), "true")
+			case "X-JSCALENDAR-METHOD":
+				ev.Method = strings.TrimSpace(p.Value)
+			case "X-JSCALENDAR-LOCATIONS":
+				txt, err := p.Text()
+				if err != nil {
+					txt = unescapeICalText(p.Value)
+				}
+				var locs map[string]*JSCalendarLocation
+				if err := json.Unmarshal([]byte(txt), &locs); err == nil {
+					ev.Locations = locs
+				}
+			case "X-JSCALENDAR-RECURRENCE-OVERRIDES":
+				txt, err := p.Text()
+				if err != nil {
+					txt = unescapeICalText(p.Value)
+				}
+				var ro map[string]map[string]any
+				if err := json.Unmarshal([]byte(txt), &ro); err == nil {
+					ev.RecurrenceOverrides = ro
+				}
+			case "X-JSCALENDAR-PARTICIPANTS":
+				txt, err := p.Text()
+				if err != nil {
+					txt = unescapeICalText(p.Value)
+				}
+				var parts map[string]*JSCalendarParticipant
+				if err := json.Unmarshal([]byte(txt), &parts); err == nil {
+					if ev.Participants == nil {
+						ev.Participants = parts
+					} else {
+						for k, v := range parts {
+							if _, exists := ev.Participants[k]; !exists {
+								ev.Participants[k] = v
+							}
+						}
+					}
+				}
+			case "X-JSCALENDAR-ALERTS":
+				txt, err := p.Text()
+				if err != nil {
+					txt = unescapeICalText(p.Value)
+				}
+				var alerts map[string]*JSCalendarAlert
+				if err := json.Unmarshal([]byte(txt), &alerts); err == nil {
+					ev.Alerts = alerts
+				}
+			case "X-JSCALENDAR-VIRTUAL-LOCATIONS":
+				txt, err := p.Text()
+				if err != nil {
+					txt = unescapeICalText(p.Value)
+				}
+				var vls map[string]*JSCalendarVirtualLocation
+				if err := json.Unmarshal([]byte(txt), &vls); err == nil {
+					ev.VirtualLocations = vls
+				}
+			case "X-JSCALENDAR-ENTRIES":
+				txt, err := p.Text()
+				if err != nil {
+					txt = unescapeICalText(p.Value)
+				}
+				var entries map[string]map[string]any
+				if err := json.Unmarshal([]byte(txt), &entries); err == nil {
+					ev.Entries = entries
+				}
 			case ical.PropRecurrenceID:
-				dateOnly := strings.EqualFold(p.Params.Get("VALUE"), "DATE")
-				ev.RecurrenceID = icalTimeToRFC3339(p.Value, dateOnly)
+				if ev.RecurrenceID == "" {
+					dateOnly := strings.EqualFold(p.Params.Get("VALUE"), "DATE")
+					ev.RecurrenceID = icalTimeToRFC3339(p.Value, dateOnly)
+				}
+				if ev.RecurrenceIDTimeZone == "" {
+					ev.RecurrenceIDTimeZone = p.Params.Get("TZID")
+				}
 			case ical.PropCategories:
 				if ev.Categories == nil {
 					ev.Categories = make(map[string]bool)
@@ -519,6 +683,18 @@ func icalComponentToCalendarEvent(comp *ical.Component, method, prodID string) *
 				if ev.Updated == "" {
 					ev.Updated = icalTimeToRFC3339(p.Value, false)
 				}
+			case "REQUEST-STATUS":
+				ev.RequestStatus = strings.TrimSpace(p.Value)
+			case "X-DEFAULT-ALERTS":
+				ev.UseDefaultAlerts = strings.EqualFold(strings.TrimSpace(p.Value), "true")
+			case "X-LOCALE":
+				ev.Locale = strings.TrimSpace(p.Value)
+			case "X-DESCRIPTION-CONTENT-TYPE":
+				ev.DescriptionContentType = strings.TrimSpace(p.Value)
+			case "X-SHOW-WITHOUT-TIME":
+				if strings.EqualFold(strings.TrimSpace(p.Value), "true") {
+					ev.ShowWithoutTime = true
+				}
 			}
 		}
 	}
@@ -531,7 +707,11 @@ func icalComponentToCalendarEvent(comp *ical.Component, method, prodID string) *
 			if ev.Alerts == nil {
 				ev.Alerts = make(map[string]*JSCalendarAlert)
 			}
-			ev.Alerts[fmt.Sprintf("alert-%d", i+1)] = alert
+			alarmKey := fmt.Sprintf("alert-%d", i+1)
+			if k := child.Props.Get("X-KEY"); k != nil && k.Value != "" {
+				alarmKey = k.Value
+			}
+			ev.Alerts[alarmKey] = alert
 		}
 	}
 

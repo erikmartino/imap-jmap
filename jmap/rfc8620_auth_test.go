@@ -11,14 +11,13 @@ import (
 
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/spectest"
-	"imap-jmap/jmap/testmock"
 
 	"github.com/coder/websocket"
 )
 
 // newAuthTestServer creates a test server with MemoryAuthBackend wired in.
-func newAuthTestServer() (*jmap.Server, *testmock.MemoryAuthBackend) {
-	authBackend := testmock.NewMemoryAuthBackend()
+func newAuthTestServer() (*jmap.Server, *jmap.MemoryAuthBackend) {
+	authBackend := jmap.NewMemoryAuthBackend()
 	srv := newTestServer(jmap.WithAuthBackend(authBackend))
 	return srv, authBackend
 }
@@ -352,7 +351,7 @@ func TestAccountIDForSubject(t *testing.T) {
 
 // TestRFC8620_Auth_DerivedAccountID tests that MemoryAuthBackend returns derived accountIDs for subjects.
 func TestRFC8620_Auth_DerivedAccountID(t *testing.T) {
-	auth := testmock.NewMemoryAuthBackend()
+	auth := jmap.NewMemoryAuthBackend()
 	ctx := context.Background()
 
 	idAlice, err := auth.ValidateCredentials(ctx, "alice", "alice")
@@ -486,7 +485,7 @@ func TestRFC8620_Auth_OIDCRejectsCredentialsWithoutFallback(t *testing.T) {
 // behavior: an explicitly configured fallback backend (e.g. MemoryAuthBackend)
 // still accepts its credentials so local development and the test harness work.
 func TestRFC8620_Auth_OIDCDelegatesCredentialsToFallback(t *testing.T) {
-	fallback := testmock.NewMemoryAuthBackend()
+	fallback := jmap.NewMemoryAuthBackend()
 	oidcBackend, err := jmap.NewOIDCAuthBackend(jmap.OIDCConfig{
 		Issuer:          "https://auth.example.com",
 		FallbackBackend: fallback,

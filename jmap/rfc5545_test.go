@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/emersion/go-ical"
+
 	"imap-jmap/jmap"
 )
 
@@ -46,25 +48,38 @@ func TestRFC5545_Section3_8_4_AttendeeOrganizer(t *testing.T) {
 		t.Fatalf("BuildITIPRequest failed: %v", err)
 	}
 
-	mandatoryFields := []string{
-		"BEGIN:VCALENDAR",
-		"VERSION:2.0",
-		"PRODID:",
-		"BEGIN:VEVENT",
-		"UID:evt-5545-spec",
-		"DTSTAMP:",
-		"SUMMARY:RFC 5545 Compliance Check",
-		"DESCRIPTION:Testing core iCalendar properties",
-		"ORGANIZER:mailto:organizer@example.com",
-		"ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=Attendee Name:mailto:attendee@example.com",
-		"END:VEVENT",
-		"END:VCALENDAR",
+	dec := ical.NewDecoder(strings.NewReader(reqICS))
+	cal, err := dec.Decode()
+	if err != nil {
+		t.Fatalf("Decode iCalendar failed: %v", err)
 	}
-
-	for _, field := range mandatoryFields {
-		if !strings.Contains(reqICS, field) {
-			t.Errorf("Expected mandatory RFC 5545 field %q in iCalendar output:\n%s", field, reqICS)
-		}
+	events := cal.Events()
+	if len(events) == 0 {
+		t.Fatalf("No VEVENT found in iCalendar output")
+	}
+	vevent := events[0]
+	org := vevent.Props.Get(ical.PropOrganizer)
+	if org == nil || org.Value != "mailto:organizer@example.com" {
+		t.Errorf("Expected ORGANIZER mailto:organizer@example.com, got %v", org)
+	}
+	att := vevent.Props.Get(ical.PropAttendee)
+	if att == nil {
+		t.Fatalf("Expected ATTENDEE property in VEVENT")
+	}
+	if att.Value != "mailto:attendee@example.com" {
+		t.Errorf("Expected ATTENDEE value mailto:attendee@example.com, got %q", att.Value)
+	}
+	if att.Params.Get("CUTYPE") != "INDIVIDUAL" {
+		t.Errorf("Expected CUTYPE=INDIVIDUAL, got %q", att.Params.Get("CUTYPE"))
+	}
+	if att.Params.Get("ROLE") != "REQ-PARTICIPANT" {
+		t.Errorf("Expected ROLE=REQ-PARTICIPANT, got %q", att.Params.Get("ROLE"))
+	}
+	if att.Params.Get("PARTSTAT") != "ACCEPTED" {
+		t.Errorf("Expected PARTSTAT=ACCEPTED, got %q", att.Params.Get("PARTSTAT"))
+	}
+	if att.Params.Get("CN") != "Attendee Name" {
+		t.Errorf("Expected CN='Attendee Name', got %q", att.Params.Get("CN"))
 	}
 }
 

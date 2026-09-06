@@ -1,9 +1,12 @@
 package jmap
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/emersion/go-ical"
 )
 
 // ITIPMessage represents a parsed iTIP (RFC 5546) / iMIP (RFC 6047) scheduling message.
@@ -40,41 +43,48 @@ func BuildITIPReply(event *CalendarEvent, attendeeEmail, status string) (string,
 		return "", fmt.Errorf("event cannot be nil")
 	}
 
-	uid := eventUID(event)
-
 	partStat := strings.ToUpper(status)
 	if partStat != "ACCEPTED" && partStat != "DECLINED" && partStat != "TENTATIVE" {
 		partStat = "ACCEPTED"
 	}
 
-	nowStr := time.Now().UTC().Format("20060102T150405Z")
+	cal := ical.NewCalendar()
+	cal.Props.SetText(ical.PropProductID, "-//IMAP-JMAP Server//NONSGML v1.0//EN")
+	cal.Props.SetText(ical.PropVersion, "2.0")
+	cal.Props.SetText(ical.PropMethod, "REPLY")
 
-	var sb strings.Builder
-	sb.WriteString("BEGIN:VCALENDAR\r\n")
-	sb.WriteString("VERSION:2.0\r\n")
-	sb.WriteString("PRODID:-//IMAP-JMAP Server//NONSGML v1.0//EN\r\n")
-	sb.WriteString("METHOD:REPLY\r\n")
-	sb.WriteString("BEGIN:VEVENT\r\n")
-	fmt.Fprintf(&sb, "UID:%s\r\n", uid)
-	fmt.Fprintf(&sb, "DTSTAMP:%s\r\n", nowStr)
-	fmt.Fprintf(&sb, "SEQUENCE:%d\r\n", event.Sequence)
+	comp := ical.NewComponent(ical.CompEvent)
+	comp.Props.SetText(ical.PropUID, eventUID(event))
+	comp.Props.SetDateTime(ical.PropDateTimeStamp, time.Now().UTC())
+
+	seqProp := ical.NewProp(ical.PropSequence)
+	seqProp.Value = fmt.Sprintf("%d", event.Sequence)
+	comp.Props.Set(seqProp)
+
 	if event.Title != "" {
-		fmt.Fprintf(&sb, "SUMMARY:%s\r\n", event.Title)
+		comp.Props.SetText(ical.PropSummary, event.Title)
 	}
 	if event.Start != "" {
-		startClean := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(event.Start, "-", ""), ":", ""), ".000", "")
-		fmt.Fprintf(&sb, "DTSTART:%s\r\n", startClean)
+		addDateTimeProp(comp, ical.PropDateTimeStart, event.Start, event.TimeZone, event.ShowWithoutTime)
 	}
-	// A REPLY MUST identify the ORGANIZER whose request is being answered (RFC 5546
-	// Section 3.2.3): derive it from the event's replyTo / owner participant.
 	if org := organizerAddress(event); org != "" {
-		fmt.Fprintf(&sb, "ORGANIZER:mailto:%s\r\n", org)
+		comp.Props.Set(newRawProp(ical.PropOrganizer, "mailto:"+org))
 	}
-	fmt.Fprintf(&sb, "ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=%s:mailto:%s\r\n", partStat, attendeeEmail)
-	sb.WriteString("END:VEVENT\r\n")
-	sb.WriteString("END:VCALENDAR\r\n")
 
-	return sb.String(), nil
+	attProp := ical.NewProp(ical.PropAttendee)
+	attProp.Value = "mailto:" + attendeeEmail
+	attProp.Params.Set("CUTYPE", "INDIVIDUAL")
+	attProp.Params.Set("ROLE", "REQ-PARTICIPANT")
+	attProp.Params.Set("PARTSTAT", partStat)
+	comp.Props.Add(attProp)
+
+	cal.Children = append(cal.Children, comp)
+
+	var buf bytes.Buffer
+	if err := ical.NewEncoder(&buf).Encode(cal); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }
 
 // BuildITIPRequest generates an iCalendar RFC 5545 / RFC 5546 string for a METHOD:REQUEST.
@@ -82,11 +92,12 @@ func BuildITIPRequest(event *CalendarEvent, organizerEmail string) (string, erro
 	if event == nil {
 		return "", fmt.Errorf("event cannot be nil")
 	}
-
-	// The full JSCalendar→iCalendar serializer emits the complete VEVENT (recurrence,
-	// alarms, locations, full participant metadata, all-day/timezone handling) so the
-	// invitation is lossless for real clients.
-	return encodeICalendar(event, "REQUEST", organizerEmail, "", ""), nil
+	cal := CalendarEventToICalendar(event, "REQUEST", organizerEmail, "", "")
+	var buf bytes.Buffer
+	if err := ical.NewEncoder(&buf).Encode(cal); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }
 
 // BuildITIPCancel generates an iCalendar RFC 5545 / RFC 5546 string for a METHOD:CANCEL notice.
@@ -94,10 +105,12 @@ func BuildITIPCancel(event *CalendarEvent, organizerEmail string) (string, error
 	if event == nil {
 		return "", fmt.Errorf("event cannot be nil")
 	}
-
-	// A CANCEL obsoletes prior revisions: the full VEVENT is emitted with STATUS:CANCELLED
-	// and the carried SEQUENCE (RFC 5546 Sections 2.1.5 / 3.2.5).
-	return encodeICalendar(event, "CANCEL", organizerEmail, "", "CANCELLED"), nil
+	cal := CalendarEventToICalendar(event, "CANCEL", organizerEmail, "", "CANCELLED")
+	var buf bytes.Buffer
+	if err := ical.NewEncoder(&buf).Encode(cal); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }
 
 // BuildITIPAdd generates an iCalendar RFC 5546 string for a METHOD:ADD request.
@@ -105,28 +118,36 @@ func BuildITIPAdd(event *CalendarEvent, organizerEmail string) (string, error) {
 	if event == nil {
 		return "", fmt.Errorf("event cannot be nil")
 	}
-	ics, err := BuildITIPRequest(event, organizerEmail)
-	if err != nil {
+	cal := CalendarEventToICalendar(event, "ADD", organizerEmail, "", "")
+	var buf bytes.Buffer
+	if err := ical.NewEncoder(&buf).Encode(cal); err != nil {
 		return "", err
 	}
-	return strings.Replace(ics, "METHOD:REQUEST", "METHOD:ADD", 1), nil
+	return buf.String(), nil
 }
 
 // BuildITIPRefresh generates an iCalendar RFC 5546 string for a METHOD:REFRESH request.
 func BuildITIPRefresh(uid, attendeeEmail string) (string, error) {
-	nowStr := time.Now().UTC().Format("20060102T150405Z")
-	var sb strings.Builder
-	sb.WriteString("BEGIN:VCALENDAR\r\n")
-	sb.WriteString("VERSION:2.0\r\n")
-	sb.WriteString("PRODID:-//IMAP-JMAP Server//NONSGML v1.0//EN\r\n")
-	sb.WriteString("METHOD:REFRESH\r\n")
-	sb.WriteString("BEGIN:VEVENT\r\n")
-	fmt.Fprintf(&sb, "UID:%s\r\n", uid)
-	fmt.Fprintf(&sb, "DTSTAMP:%s\r\n", nowStr)
-	fmt.Fprintf(&sb, "ATTENDEE:mailto:%s\r\n", attendeeEmail)
-	sb.WriteString("END:VEVENT\r\n")
-	sb.WriteString("END:VCALENDAR\r\n")
-	return sb.String(), nil
+	cal := ical.NewCalendar()
+	cal.Props.SetText(ical.PropProductID, "-//IMAP-JMAP Server//NONSGML v1.0//EN")
+	cal.Props.SetText(ical.PropVersion, "2.0")
+	cal.Props.SetText(ical.PropMethod, "REFRESH")
+
+	comp := ical.NewComponent(ical.CompEvent)
+	comp.Props.SetText(ical.PropUID, uid)
+	comp.Props.SetDateTime(ical.PropDateTimeStamp, time.Now().UTC())
+
+	attProp := ical.NewProp(ical.PropAttendee)
+	attProp.Value = "mailto:" + attendeeEmail
+	comp.Props.Add(attProp)
+
+	cal.Children = append(cal.Children, comp)
+
+	var buf bytes.Buffer
+	if err := ical.NewEncoder(&buf).Encode(cal); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }
 
 // BuildITIPCounter generates an iCalendar RFC 5546 string for a METHOD:COUNTER proposal.
@@ -134,77 +155,103 @@ func BuildITIPCounter(event *CalendarEvent, attendeeEmail, proposedStart string)
 	if event == nil {
 		return "", fmt.Errorf("event cannot be nil")
 	}
-	uid := eventUID(event)
-	nowStr := time.Now().UTC().Format("20060102T150405Z")
+	cal := ical.NewCalendar()
+	cal.Props.SetText(ical.PropProductID, "-//IMAP-JMAP Server//NONSGML v1.0//EN")
+	cal.Props.SetText(ical.PropVersion, "2.0")
+	cal.Props.SetText(ical.PropMethod, "COUNTER")
 
-	var sb strings.Builder
-	sb.WriteString("BEGIN:VCALENDAR\r\n")
-	sb.WriteString("VERSION:2.0\r\n")
-	sb.WriteString("PRODID:-//IMAP-JMAP Server//NONSGML v1.0//EN\r\n")
-	sb.WriteString("METHOD:COUNTER\r\n")
-	sb.WriteString("BEGIN:VEVENT\r\n")
-	fmt.Fprintf(&sb, "UID:%s\r\n", uid)
-	fmt.Fprintf(&sb, "DTSTAMP:%s\r\n", nowStr)
+	comp := ical.NewComponent(ical.CompEvent)
+	comp.Props.SetText(ical.PropUID, eventUID(event))
+	comp.Props.SetDateTime(ical.PropDateTimeStamp, time.Now().UTC())
+
 	if event.Title != "" {
-		fmt.Fprintf(&sb, "SUMMARY:%s\r\n", event.Title)
+		comp.Props.SetText(ical.PropSummary, event.Title)
 	}
 	if proposedStart != "" {
-		startClean := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(proposedStart, "-", ""), ":", ""), ".000", "")
-		fmt.Fprintf(&sb, "DTSTART:%s\r\n", startClean)
+		addDateTimeProp(comp, ical.PropDateTimeStart, proposedStart, event.TimeZone, event.ShowWithoutTime)
 	}
-	fmt.Fprintf(&sb, "ATTENDEE:mailto:%s\r\n", attendeeEmail)
-	sb.WriteString("END:VEVENT\r\n")
-	sb.WriteString("END:VCALENDAR\r\n")
 
-	return sb.String(), nil
+	attProp := ical.NewProp(ical.PropAttendee)
+	attProp.Value = "mailto:" + attendeeEmail
+	comp.Props.Add(attProp)
+
+	cal.Children = append(cal.Children, comp)
+
+	var buf bytes.Buffer
+	if err := ical.NewEncoder(&buf).Encode(cal); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }
 
-// ParseITIPMessage parses an iCalendar RFC 5546 string and extracts key fields.
+// ParseITIPMessage parses an iCalendar RFC 5546 string and extracts key fields using go-ical.
 func ParseITIPMessage(icsContent string) (*ITIPMessage, error) {
-	lines := strings.Split(icsContent, "\n")
+	cal, err := ical.NewDecoder(strings.NewReader(icsContent)).Decode()
+	if err != nil {
+		return nil, fmt.Errorf("invalid iTIP message: %w", err)
+	}
+
 	msg := &ITIPMessage{
 		Method: "REQUEST",
 	}
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "METHOD:") {
-			msg.Method = strings.TrimPrefix(line, "METHOD:")
-		} else if strings.HasPrefix(line, "UID:") {
-			msg.UID = strings.TrimPrefix(line, "UID:")
-		} else if strings.HasPrefix(line, "SEQUENCE:") {
-			var seq uint32
-			fmt.Sscanf(strings.TrimPrefix(line, "SEQUENCE:"), "%d", &seq)
-			msg.Sequence = seq
-		} else if strings.HasPrefix(line, "SUMMARY:") {
-			msg.Summary = strings.TrimPrefix(line, "SUMMARY:")
-		} else if strings.HasPrefix(line, "DTSTART:") {
-			msg.Start = strings.TrimPrefix(line, "DTSTART:")
-		} else if strings.HasPrefix(line, "ORGANIZER:") {
-			org := strings.TrimPrefix(line, "ORGANIZER:")
-			if idx := strings.Index(org, "mailto:"); idx != -1 {
-				msg.Organizer = org[idx+7:]
-			} else {
-				msg.Organizer = org
-			}
-		} else if strings.Contains(line, "ATTENDEE;") || strings.HasPrefix(line, "ATTENDEE:") {
-			if idx := strings.Index(line, "mailto:"); idx != -1 {
-				email := line[idx+7:]
-				msg.Attendees = append(msg.Attendees, EmailAddress{Email: email})
-			}
-			if idx := strings.Index(line, "PARTSTAT="); idx != -1 {
-				part := line[idx+9:]
-				if endIdx := strings.IndexAny(part, ";:"); endIdx != -1 {
-					msg.Status = part[:endIdx]
-				} else {
-					msg.Status = part
-				}
-			}
-		}
+	if m := cal.Props.Get(ical.PropMethod); m != nil && m.Value != "" {
+		msg.Method = strings.ToUpper(m.Value)
 	}
 
+	var evComp *ical.Component
+	for _, child := range cal.Children {
+		if child.Name == ical.CompEvent {
+			evComp = child
+			break
+		}
+	}
+	if evComp == nil {
+		return nil, fmt.Errorf("invalid iTIP message: missing VEVENT")
+	}
+
+	if uidProp := evComp.Props.Get(ical.PropUID); uidProp != nil && uidProp.Value != "" {
+		msg.UID = uidProp.Value
+	}
 	if msg.UID == "" {
 		return nil, fmt.Errorf("invalid iTIP message: missing UID")
+	}
+
+	if seqProp := evComp.Props.Get(ical.PropSequence); seqProp != nil {
+		var seq uint32
+		_, _ = fmt.Sscanf(seqProp.Value, "%d", &seq)
+		msg.Sequence = seq
+	}
+	if sumProp := evComp.Props.Get(ical.PropSummary); sumProp != nil {
+		if text, err := sumProp.Text(); err == nil {
+			msg.Summary = text
+		} else {
+			msg.Summary = sumProp.Value
+		}
+	}
+	if dtStartProp := evComp.Props.Get(ical.PropDateTimeStart); dtStartProp != nil {
+		msg.Start = dtStartProp.Value
+	}
+	if dtEndProp := evComp.Props.Get(ical.PropDateTimeEnd); dtEndProp != nil {
+		msg.End = dtEndProp.Value
+	}
+	if orgProp := evComp.Props.Get(ical.PropOrganizer); orgProp != nil {
+		org := orgProp.Value
+		if strings.HasPrefix(strings.ToLower(org), "mailto:") {
+			org = org[7:]
+		}
+		msg.Organizer = org
+	}
+	for _, attProp := range evComp.Props[ical.PropAttendee] {
+		addr := attProp.Value
+		if strings.HasPrefix(strings.ToLower(addr), "mailto:") {
+			addr = addr[7:]
+		}
+		if addr != "" {
+			msg.Attendees = append(msg.Attendees, EmailAddress{Email: addr})
+		}
+		if partStat := attProp.Params.Get("PARTSTAT"); partStat != "" && msg.Status == "" {
+			msg.Status = partStat
+		}
 	}
 
 	return msg, nil

@@ -7,12 +7,10 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
-	"imap-jmap/jmap/testmock"
 )
 
 func TestRFC9610_CardQueryChanges(t *testing.T) {
-	contactsBackend := testmock.NewMemoryContactsBackend()
-	srv := jmap.NewServer(nil, jmap.WithContactsBackend(contactsBackend))
+	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
