@@ -26,6 +26,7 @@ import (
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/imapsmtp"
 	"imap-jmap/jmap/nextcloud"
+	"imap-jmap/jmap/testmock"
 	"imap-jmap/smtp"
 )
 
@@ -202,6 +203,8 @@ func main() {
 		outboundSender.LocalName = sn
 	}
 
+	var sieveBackend jmap.SieveBackend = testmock.NewMemorySieveBackend()
+
 	serverOpts := []jmap.Option{
 		jmap.WithMailBackend(mailBackend),
 		jmap.WithBlobBackend(blobBackend),
@@ -210,6 +213,7 @@ func main() {
 		jmap.WithAllowedRecipients(allowedSlice),
 		jmap.WithOutboundSender(outboundSender),
 		jmap.WithPublicBaseURL(publicURL),
+		jmap.WithSieveBackend(sieveBackend),
 	}
 	if calBackend != nil {
 		serverOpts = append(serverOpts, jmap.WithCalendarsBackend(calBackend))
@@ -241,10 +245,15 @@ func main() {
 	if pb, ok := principalsBackend.(interface{ SetBroadcaster(*jmap.Broadcaster) }); ok {
 		pb.SetBroadcaster(server.Broadcaster)
 	}
+	if sb, ok := sieveBackend.(interface{ SetBroadcaster(*jmap.Broadcaster) }); ok {
+		sb.SetBroadcaster(server.Broadcaster)
+	}
 
 	smtpServer := smtp.NewServer(smtpAddr, mailBackend, blobBackend, calBackend,
 		smtp.WithAccountResolver(accountResolver),
 		smtp.WithSenderVerifier(smtp.NewSPFDKIMDMARCVerifier()),
+		smtp.WithSieveBackend(sieveBackend),
+		smtp.WithOutboundSender(outboundSender),
 	)
 	go func() {
 		log.Printf("Starting SMTP receiver server on %s", smtpAddr)
@@ -263,6 +272,8 @@ func main() {
 		smtp.WithTransportMode(smtp.TransportModeSubmission),
 		smtp.WithAuthenticator(smtp.NewAuthBackendAuthenticator(authBackend)),
 		smtp.WithSenderVerifier(smtp.NewSPFDKIMDMARCVerifier()),
+		smtp.WithSieveBackend(sieveBackend),
+		smtp.WithOutboundSender(outboundSender),
 	)
 	go func() {
 		log.Printf("Starting SMTP submission server on %s (AUTH required)", submissionAddr)

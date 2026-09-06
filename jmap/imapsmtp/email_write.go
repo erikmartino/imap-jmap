@@ -83,6 +83,12 @@ func (b *IMAPSMTPBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jma
 		}
 	}
 
+	accountID, _ := jmap.AccountIDFromContext(ctx)
+	emailSize := uint64(len(rawBytes))
+	if err := b.checkQuota(accountID, emailSize); err != nil {
+		return nil, err
+	}
+
 	appendCmd := client.Append(folderName, int64(len(rawBytes)), appendOpts)
 	if _, err := appendCmd.Write(rawBytes); err != nil {
 		_ = appendCmd.Close()
@@ -111,7 +117,7 @@ func (b *IMAPSMTPBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jma
 	emailID := EmailIDFor(destMbID, assignedUID)
 	em.ID = emailID
 	em.BlobID = jmap.Id(emailID)
-	em.Size = uint64(len(rawBytes))
+	em.Size = emailSize
 	if em.ReceivedAt == "" {
 		em.ReceivedAt = appendOpts.Time.UTC().Format(time.RFC3339Nano)
 	}
@@ -123,8 +129,8 @@ func (b *IMAPSMTPBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jma
 		}
 	}
 
-	accountID, _ := jmap.AccountIDFromContext(ctx)
 	b.recordEmailMutation(accountID, emailID, "create")
+	b.recordEmailQuotaCreated(accountID, emailID, emailSize)
 	if originalBlobID != "" {
 		b.recordBlobRef(accountID, string(originalBlobID), emailID)
 	}
@@ -283,6 +289,8 @@ func (b *IMAPSMTPBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map
 				newID := EmailIDFor(targetMoveMbID, newUID)
 				b.trackMovedEmail(origID, newID)
 				b.trackMovedEmail(id, newID)
+				accountID, _ := jmap.AccountIDFromContext(ctx)
+				b.trackMovedEmailQuota(accountID, origID, newID)
 			}
 			b.publishStateChange(ctx)
 			emails, _, _ := b.GetEmails(ctx, []jmap.Id{origID})
@@ -352,6 +360,7 @@ func (b *IMAPSMTPBackend) DeleteEmail(ctx context.Context, id jmap.Id) (bool, er
 
 	accountID, _ := jmap.AccountIDFromContext(ctx)
 	b.recordEmailMutation(accountID, id, "destroy")
+	b.recordEmailQuotaDeleted(accountID, id)
 	b.deleteBlobRefsForEmail(accountID, id)
 	b.publishStateChange(ctx)
 	return true, nil

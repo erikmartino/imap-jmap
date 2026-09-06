@@ -13,6 +13,7 @@ type MDN struct {
 	ForEmailID             Id                `json:"forEmailId"`
 	Subject                string            `json:"subject,omitempty"`
 	Recipient              string            `json:"recipient,omitempty"`
+	FinalRecipient         string            `json:"finalRecipient,omitempty"`
 	ReportingUA            string            `json:"reportingUA,omitempty"`
 	Disposition            MDNDisposition    `json:"disposition"`
 	TextBody               string            `json:"textBody,omitempty"`

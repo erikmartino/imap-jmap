@@ -204,7 +204,7 @@
     "section": "4",
     "level": "MUST",
     "text": "MDN/parse parses an MDN blob.",
-    "tests": ["TestRFC9007_MDNParse"],
+    "tests": ["TestRFC9007_MDNParse", "TestRFC9007_MDNParse_FullConformance"],
     "status": "covered"
   },
   {

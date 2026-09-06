@@ -43,10 +43,10 @@ Previous task log preserved in [`TODO_PREVIOUS.md`](./TODO_PREVIOUS.md).
   - [x] 3.5 Support nested and patch Result References in [`jmap/server.go:resolveResultReferences`](./jmap/server.go)
 
 - [ ] **Phase 4: RFC Integration & Feature Completeness**
-  - [ ] 4.1 Real Quota accounting & `overQuota` enforcement (RFC 9425): update `Used` counters on email create/destroy and enforce limits
-  - [ ] 4.2 Sieve script execution on incoming SMTP delivery (RFC 5228 / RFC 9661): evaluate recipient's active script (`fileinto`, `discard`, `redirect`, `reject`)
-  - [ ] 4.3 VacationResponse auto-reply execution on incoming delivery (RFC 8621 §8): evaluate `isEnabled` and date range to send auto-reply
-  - [ ] 4.4 Real RFC 9007 `MDN/parse` MIME decoding (parse `multipart/report` and `message/disposition-notification`)
+  - [x] 4.1 Real Quota accounting & `overQuota` enforcement (RFC 9425): update `Used` counters on email create/destroy and enforce limits
+  - [x] 4.2 Sieve script execution on incoming SMTP delivery (RFC 5228 / RFC 9661): evaluate recipient's active script (`fileinto`, `discard`, `redirect`, `reject`)
+  - [x] 4.3 VacationResponse auto-reply execution on incoming delivery (RFC 8621 §8): evaluate `isEnabled` and date range to send auto-reply
+  - [x] 4.4 Real RFC 9007 `MDN/parse` MIME decoding (parse `multipart/report` and `message/disposition-notification`)
   - [ ] 4.5 Web Push event dispatch (RFC 8620 §7.2, RFC 8030, RFC 8291, RFC 9749): send encrypted Web Push notifications on state change
   - [ ] 4.6 Enforce `minDateTime`, `maxDateTime`, and `maxExpandedQueryDuration` on calendar queries (draft-ietf-jmap-calendars-27 §5.11)
 
@@ -154,4 +154,57 @@ Previous task log preserved in [`TODO_PREVIOUS.md`](./TODO_PREVIOUS.md).
 - **Problem**: `resolveResultReferences` only resolved top-level arguments prefixed with `#`, failing to support result references nested within filter conditions, object creations, and patch update keys.
 - **Action**: Implemented recursive `resolveValueResultReferences` traversing nested maps and arrays to resolve `#`-prefixed property references (including patch pointers like `#keywords/$flagged`) while preserving `#creationId` keys (RFC 8620 §5.3). Added duplicate property detection (`invalidArguments`) and scalar-to-array coercion for array arguments.
 - **Validation**: [`jmap/rfc8620_limits_test.go`](./jmap/rfc8620_limits_test.go) (`TestRFC8620_Section3_7_NestedResultReferences`).
+
+---
+
+### Phase 4: RFC Integration & Feature Completeness
+
+#### 4.1 Real Quota Accounting & `overQuota` Enforcement (RFC 9425) [COMPLETED]
+- **Locations**: [`jmap/quota_types.go`](./jmap/quota_types.go), [`jmap/quota_handlers.go`](./jmap/quota_handlers.go), [`jmap/imapsmtp/backend.go`](./jmap/imapsmtp/backend.go), [`jmap/imapsmtp/email_write.go`](./jmap/imapsmtp/email_write.go), [`jmap/creationref.go`](./jmap/creationref.go), [`jmap/email_ops_handlers.go`](./jmap/email_ops_handlers.go)
+- **Problem**: Quotas returned hardcoded static values without accounting for actual email count and octet usage, limits were never checked on email creation, and `overQuota` errors were not returned in `notCreated`.
+- **Action**:
+  - Added `DataTypes []string` to `Quota` struct per RFC 9425 §4.1.
+  - Implemented dynamic quota tracking (`octetsUsed`, `messagesUsed`, `octetsLimit`, `messagesLimit`, `emailSizes`) in `IMAPSMTPBackend` with `checkQuota`, `recordEmailQuotaCreated`, and `recordEmailQuotaDeleted`.
+  - Enforced `checkQuota` in `CreateEmail`, returning RFC 8620 `overQuota` `SetError` when octet or message limits are exceeded.
+  - Updated `Quota/query` filter matching (`name`, `scope`, `resourceType`, `dataTypes`) and rejected unsupported sorts per RFC 9425.
+  - Propagated `SetError` from `CreateEmail` into `notCreated` in `creationref.go` and `email_ops_handlers.go`.
+- **Validation**: Hermetic tests in [`jmap/rfc9425_quota_accounting_test.go`](./jmap/rfc9425_quota_accounting_test.go).
+
+#### 4.2 Sieve Script Execution on Incoming SMTP Delivery (RFC 5228 / RFC 9661) [COMPLETED]
+- **Locations**: [`smtp/receiver.go`](./smtp/receiver.go), [`smtp/server.go`](./smtp/server.go), [`main.go`](./main.go)
+- **Problem**: Incoming SMTP delivery always routed directly into the INBOX without executing the recipient's active Sieve filtering script.
+- **Action**:
+  - Integrated Sieve interpreter execution (`github.com/foxcpp/go-sieve`) in `smtp/receiver.go:evaluateSieve` against incoming message headers and envelope data.
+  - Handled `fileinto` action: routes email into target mailbox (creating the mailbox on the fly if needed per IMAP auto-create behavior) and cancels implicit keep in INBOX (RFC 5228 §4.1).
+  - Handled `discard` action: silently accepts incoming message with 250 OK and drops message without saving (RFC 5228 §4.3).
+  - Handled `redirect` action: cancels implicit keep and forwards raw message to external address via `OutboundSender.SendMail` (RFC 5228 §4.2).
+  - Handled `reject` / `ereject` action: returns permanent 550 SMTP rejection (`550 5.7.1 message rejected: <reason>`) per RFC 5429 §2.1.
+  - Handled `imap4flags` actions (`addflag`, `setflag`): maps Sieve flags into JMAP keywords (`$flagged`, `$seen`, etc.).
+  - Wired `WithSieveBackend` and `WithOutboundSender` into `smtp.NewServer` and `main.go`.
+- **Validation**: Hermetic tests in [`smtp/rfc5228_sieve_delivery_test.go`](./smtp/rfc5228_sieve_delivery_test.go).
+
+#### 4.3 VacationResponse Auto-Reply Execution (RFC 8621 §8) [COMPLETED]
+- **Locations**: [`smtp/receiver.go`](./smtp/receiver.go), [`smtp/server.go`](./smtp/server.go), [`jmap/imapsmtp/backend.go`](./jmap/imapsmtp/backend.go)
+- **Problem**: Recipient's `VacationResponse` setting was not evaluated on incoming delivery; out-of-office auto-replies were never dispatched.
+- **Action**:
+  - Implemented `handleVacationResponse` in `smtp/receiver.go` inspecting recipient's `VacationResponse` via `MailBackend.GetVacationResponse`.
+  - Checked `isEnabled`, date window (`fromDate` and `toDate` in RFC 3339 format), and active window validation.
+  - Constructed RFC 5322 auto-reply containing `Auto-Submitted: auto-replied`, `In-Reply-To`, and `References` headers per RFC 3834 / RFC 5230.
+  - Dispatched auto-reply via `OutboundSender.SendMail`.
+  - Enforced anti-loop / bounce suppression per RFC 3834 / RFC 5230: suppresses auto-reply when `Auto-Submitted` != "no", `Precedence: bulk|junk|list`, `List-Id` or `List-Unsubscribe` headers are present, or sender is bounce/null `<>`, `postmaster`, `mailer-daemon`, or `no-reply`.
+- **Validation**: Hermetic tests in [`smtp/rfc8621_vacation_test.go`](./smtp/rfc8621_vacation_test.go).
+
+#### 4.4 Real RFC 9007 `MDN/parse` MIME Decoding [COMPLETED]
+- **Locations**: [`jmap/mdn_types.go`](./jmap/mdn_types.go), [`jmap/mdn_parser.go`](./jmap/mdn_parser.go), [`jmap/imapsmtp/backend.go`](./jmap/imapsmtp/backend.go), [`jmap/rfc9007_test.go`](./jmap/rfc9007_test.go)
+- **Problem**: `ParseMDN` was a stub returning dummy disposition details and treating arbitrary blob contents as plain text body without verifying or parsing the standard `multipart/report; report-type=disposition-notification` or `message/disposition-notification` MIME payload.
+- **Action**:
+  - Implemented `ParseMDNFromBytes` in [`jmap/mdn_parser.go`](./jmap/mdn_parser.go) using `github.com/emersion/go-message` and `net/textproto`.
+  - Recursively walked MIME entities to extract human-readable `textBody` (`text/plain`, `text/html`) and machine-readable `message/disposition-notification` parts.
+  - Parsed and normalized RFC 8098 §3.2 disposition headers into `MDNDisposition` with strict lowercase normalization per RFC 9007 §2 (`actionMode`: `manual-action`/`automatic-action`, `sendingMode`: `mdn-sent-manually`/`mdn-sent-automatically`, `type`: `deleted`/`dispatched`/`displayed`/`processed`).
+  - Extracted `Reporting-UA`, `MDN-Gateway`, `Original-Recipient`, `Final-Recipient`, `Original-Message-ID`, `Error` list, and custom extension fields (`X-*`).
+  - Resolved `forEmailId` dynamically by matching `Original-Message-ID` against stored emails' `Message-ID` values per RFC 9007 §3.2; set to empty/null if no matching email was found.
+  - Classified non-MDN blobs as `notParsable` and non-existent blobs as `notFound` per RFC 9007 §2.2.
+- **Validation**: Updated [`jmap/rfc9007_test.go`](./jmap/rfc9007_test.go) and created dedicated [`jmap/rfc9007_mdn_parse_test.go`](./jmap/rfc9007_mdn_parse_test.go).
+
+
 

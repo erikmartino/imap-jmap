@@ -9,6 +9,7 @@ import (
 	"mime"
 	"net"
 	"net/mail"
+	"net/textproto"
 	"os"
 	"regexp"
 	"strings"
@@ -17,6 +18,8 @@ import (
 	gomail "github.com/emersion/go-message/mail"
 	"github.com/emersion/go-sasl"
 	"github.com/emersion/go-smtp"
+	"github.com/foxcpp/go-sieve"
+	"github.com/foxcpp/go-sieve/interp"
 
 	"imap-jmap/jmap"
 )
@@ -50,6 +53,8 @@ type ReceiverBackend struct {
 	MailBackend      jmap.MailBackend
 	BlobBackend      jmap.BlobBackend
 	CalendarsBackend jmap.CalendarsBackend
+	SieveBackend     jmap.SieveBackend
+	OutboundSender   jmap.OutboundMailSender
 	AccountResolver  jmap.AccountResolver
 	AccountID        string
 	// SenderVerifier authenticates the sender (SPF/DKIM/DMARC, SEC-1) before
@@ -376,23 +381,95 @@ func (s *Session) Data(r io.Reader) error {
 			}
 		}
 
-		if s.backend.MailBackend != nil && email != nil && blobStored {
-			// Deliver into the recipient's INBOX. ParseMessageToEmail assumes the
-			// memory backend's "mb-inbox" id; resolve the real INBOX mailbox id by
-			// role so gateway backends (IMAP/SMTP) append to the correct folder.
-			if inboxID := jmap.InboxMailboxID(rcptCtx, s.backend.MailBackend); inboxID != "" {
-				email.MailboxIDs = map[jmap.Id]bool{inboxID: true}
+		// 2. Evaluate Sieve script per RFC 5228 / RFC 9661
+		sieveRes, sieveErr := s.evaluateSieve(context.Background(), rcptCtx, s.from, rcptSubject, data)
+		if sieveErr != nil {
+			log.Printf("SMTP receiver: Sieve evaluation error for account %s: %v", targetAccountID, sieveErr)
+		}
+
+		if sieveRes != nil && sieveRes.reject {
+			reason := sieveRes.rejectReason
+			if reason == "" {
+				reason = "rejected by recipient filter"
 			}
-			created, err := s.backend.MailBackend.CreateEmail(rcptCtx, email)
-			if err != nil {
-				log.Printf("[MAIL INBOUND ERROR] Failed to store email for account %s: %v", targetAccountID, err)
-				if firstFailure == nil {
-					firstFailure = err
+			log.Printf("SMTP receiver: Sieve script rejected message for %s: %s", targetAccountID, reason)
+			if firstFailure == nil {
+				firstFailure = &smtp.SMTPError{
+					Code:         550,
+					EnhancedCode: smtp.EnhancedCode{5, 7, 1},
+					Message:      "message rejected: " + reason,
 				}
+			}
+			continue
+		}
+
+		if sieveRes != nil && sieveRes.discard {
+			log.Printf("SMTP receiver: Sieve script discarded message for %s", targetAccountID)
+			deliveredAny = true
+			continue
+		}
+
+		if s.backend.MailBackend != nil && email != nil && blobStored {
+			// Apply Sieve flags / keywords
+			if sieveRes != nil && len(sieveRes.flags) > 0 {
+				if email.Keywords == nil {
+					email.Keywords = make(map[string]bool)
+				}
+				for _, f := range sieveRes.flags {
+					kw := strings.ToLower(f)
+					if strings.HasPrefix(kw, "\\") {
+						kw = "$" + strings.TrimPrefix(kw, "\\")
+					}
+					email.Keywords[kw] = true
+				}
+			}
+
+			// Apply Sieve fileinto or fallback to INBOX
+			if sieveRes != nil && len(sieveRes.targetMailboxes) > 0 {
+				email.MailboxIDs = make(map[jmap.Id]bool)
+				for _, mbName := range sieveRes.targetMailboxes {
+					mbID := jmap.MailboxIDByName(rcptCtx, s.backend.MailBackend, mbName)
+					if mbID == "" {
+						if newMb, err := s.backend.MailBackend.CreateMailbox(rcptCtx, &jmap.Mailbox{Name: mbName}); err == nil && newMb != nil {
+							mbID = newMb.ID
+						} else {
+							mbID = jmap.Id("mb-" + strings.ToLower(mbName))
+						}
+					}
+					email.MailboxIDs[mbID] = true
+				}
+			} else if sieveRes != nil && len(sieveRes.redirectAddrs) > 0 {
+				// Sieve redirect without explicit keep or fileinto cancels implicit keep (RFC 5228 §4.2)
+				email = nil
 			} else {
-				log.Printf("[MAIL INBOUND] From: <%s> To: <%s> Subject: %q Size: %d bytes -> Account: %s EmailId: %s (Status: DELIVERED)",
-					s.from, strings.Join(s.to, ", "), email.Subject, len(data), targetAccountID, created.ID)
+				// Deliver into the recipient's INBOX.
+				if inboxID := jmap.InboxMailboxID(rcptCtx, s.backend.MailBackend); inboxID != "" {
+					email.MailboxIDs = map[jmap.Id]bool{inboxID: true}
+				}
+			}
+
+			// Handle Sieve redirect forwarding
+			if sieveRes != nil && len(sieveRes.redirectAddrs) > 0 {
+				for _, redirAddr := range sieveRes.redirectAddrs {
+					if s.backend.OutboundSender != nil {
+						_ = s.backend.OutboundSender.SendMail(context.Background(), s.from, []string{redirAddr}, data)
+					}
+				}
 				deliveredAny = true
+			}
+
+			if email != nil {
+				created, err := s.backend.MailBackend.CreateEmail(rcptCtx, email)
+				if err != nil {
+					log.Printf("[MAIL INBOUND ERROR] Failed to store email for account %s: %v", targetAccountID, err)
+					if firstFailure == nil {
+						firstFailure = err
+					}
+				} else {
+					log.Printf("[MAIL INBOUND] From: <%s> To: <%s> Subject: %q Size: %d bytes -> Account: %s EmailId: %s (Status: DELIVERED)",
+						s.from, strings.Join(s.to, ", "), email.Subject, len(data), targetAccountID, created.ID)
+					deliveredAny = true
+				}
 			}
 		} else if email != nil && !blobStored {
 			log.Printf("SMTP receiver: warning: skipping email creation for account %s because its blob could not be stored", targetAccountID)
@@ -401,6 +478,11 @@ func (s *Session) Data(r io.Reader) error {
 			if firstFailure == nil {
 				firstFailure = fmt.Errorf("no MailBackend configured for account %s", targetAccountID)
 			}
+		}
+
+		// Evaluate VacationResponse auto-reply (RFC 8621 Section 8)
+		if s.backend.MailBackend != nil && s.backend.OutboundSender != nil && (sieveRes == nil || (!sieveRes.discard && !sieveRes.reject)) {
+			s.handleVacationResponse(rcptCtx, s.from, rcptSubject, email, data)
 		}
 
 		// 3. Auto-process iMIP invitation responses and incoming invitations (RFC 6047 /
@@ -576,6 +658,9 @@ func (s *Session) Data(r io.Reader) error {
 			reason = firstFailure.Error()
 		}
 		log.Printf("[MAIL INBOUND REJECTED] From: <%s> To: <%s> Size: %d bytes -> Reason: %s", s.from, strings.Join(s.to, ", "), len(data), reason)
+		if smtpErr, ok := firstFailure.(*smtp.SMTPError); ok {
+			return smtpErr
+		}
 		return &smtp.SMTPError{
 			Code:         451,
 			EnhancedCode: smtp.EnhancedCode{4, 3, 0},
@@ -869,4 +954,152 @@ func (s *Session) Reset() {
 // Logout closes session (QUIT command).
 func (s *Session) Logout() error {
 	return nil
+}
+
+// sieveResult represents the evaluated outcome of an RFC 5228 Sieve script.
+type sieveResult struct {
+	discard         bool
+	reject          bool
+	rejectReason    string
+	targetMailboxes []string
+	redirectAddrs   []string
+	flags           []string
+}
+
+func (s *Session) evaluateSieve(ctx context.Context, rcptCtx context.Context, fromAddr, rcptAddr string, data []byte) (*sieveResult, error) {
+	if s.backend.SieveBackend == nil {
+		return nil, nil
+	}
+	scripts, err := s.backend.SieveBackend.GetAllSieveScripts(rcptCtx)
+	if err != nil || len(scripts) == 0 {
+		return nil, nil
+	}
+	var activeScript *jmap.SieveScript
+	for _, sc := range scripts {
+		if sc != nil && sc.IsActive {
+			activeScript = sc
+			break
+		}
+	}
+	if activeScript == nil || strings.TrimSpace(activeScript.Content) == "" {
+		return nil, nil
+	}
+
+	parsedScript, err := sieve.Load(strings.NewReader(activeScript.Content), sieve.DefaultOptions())
+	if err != nil {
+		log.Printf("SMTP receiver: failed to parse active Sieve script for %s: %v", rcptAddr, err)
+		return nil, err
+	}
+
+	parsedMail, err := mail.ReadMessage(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+
+	env := interp.EnvelopeStatic{
+		From: fromAddr,
+		To:   rcptAddr,
+	}
+	msgStatic := interp.MessageStatic{
+		Size:       len(data),
+		Header:     textproto.MIMEHeader(parsedMail.Header),
+		RawMessage: data,
+	}
+
+	runtimeData := sieve.NewRuntimeData(parsedScript, interp.DummyPolicy{}, env, msgStatic)
+	if err := parsedScript.Execute(ctx, runtimeData); err != nil {
+		log.Printf("SMTP receiver: Sieve script execution error for %s: %v", rcptAddr, err)
+		return nil, err
+	}
+
+	res := &sieveResult{}
+	for _, action := range runtimeData.AppliedActions {
+		switch act := action.(type) {
+		case interp.ActionDiscard:
+			res.discard = true
+		case interp.ActionFileInto:
+			res.targetMailboxes = append(res.targetMailboxes, act.Mailbox)
+		case interp.ActionRedirect:
+			res.redirectAddrs = append(res.redirectAddrs, act.Address)
+		case interp.ActionReject:
+			res.reject = true
+			res.rejectReason = act.Reason
+		case interp.ActionEReject:
+			res.reject = true
+			res.rejectReason = act.Reason
+		}
+	}
+	res.flags = runtimeData.Flags
+	return res, nil
+}
+
+func (s *Session) handleVacationResponse(rcptCtx context.Context, senderAddr, rcptAddr string, email *jmap.Email, data []byte) {
+	if senderAddr == "" || senderAddr == "<>" {
+		return
+	}
+	senderLower := strings.ToLower(senderAddr)
+	if strings.Contains(senderLower, "mailer-daemon") || strings.Contains(senderLower, "postmaster") || strings.Contains(senderLower, "noreply") || strings.Contains(senderLower, "no-reply") {
+		return
+	}
+
+	vr, err := s.backend.MailBackend.GetVacationResponse(rcptCtx)
+	if err != nil || vr == nil || !vr.IsEnabled {
+		return
+	}
+
+	now := time.Now().UTC()
+	if vr.FromDate != nil && *vr.FromDate != "" {
+		if t, err := time.Parse(time.RFC3339, *vr.FromDate); err == nil && now.Before(t) {
+			return
+		}
+	}
+	if vr.ToDate != nil && *vr.ToDate != "" {
+		if t, err := time.Parse(time.RFC3339, *vr.ToDate); err == nil && now.After(t) {
+			return
+		}
+	}
+
+	// Anti-loop checks per RFC 3834 / RFC 5230:
+	// If message has Auto-Submitted header (other than "no") or Precedence (bulk, junk, list), do not reply
+	parsedMail, err := mail.ReadMessage(bytes.NewReader(data))
+	if err == nil {
+		if as := parsedMail.Header.Get("Auto-Submitted"); as != "" && !strings.EqualFold(as, "no") {
+			return
+		}
+		if prec := strings.ToLower(parsedMail.Header.Get("Precedence")); prec == "bulk" || prec == "junk" || prec == "list" {
+			return
+		}
+		if parsedMail.Header.Get("List-Id") != "" || parsedMail.Header.Get("List-Unsubscribe") != "" {
+			return
+		}
+	}
+
+	subj := "Auto: Vacation Response"
+	if vr.Subject != nil && *vr.Subject != "" {
+		subj = *vr.Subject
+	} else if email != nil && email.Subject != "" {
+		subj = "Auto: " + email.Subject
+	}
+
+	body := ""
+	if vr.TextBody != nil && *vr.TextBody != "" {
+		body = *vr.TextBody
+	} else if vr.HTMLBody != nil && *vr.HTMLBody != "" {
+		body = *vr.HTMLBody
+	}
+	if body == "" {
+		body = "I am currently away and will respond when I return."
+	}
+
+	var msgIDHeader string
+	if email != nil && len(email.MessageID) > 0 {
+		msgIDHeader = fmt.Sprintf("In-Reply-To: <%s>\r\nReferences: <%s>\r\n", email.MessageID[0], email.MessageID[0])
+	}
+
+	rawReply := fmt.Sprintf("From: <%s>\r\nTo: <%s>\r\nSubject: %s\r\nDate: %s\r\nAuto-Submitted: auto-replied\r\n%sContent-Type: text/plain; charset=utf-8\r\n\r\n%s",
+		rcptAddr, senderAddr, subj, now.Format(time.RFC1123Z), msgIDHeader, body)
+
+	if s.backend.OutboundSender != nil {
+		_ = s.backend.OutboundSender.SendMail(context.Background(), rcptAddr, []string{senderAddr}, []byte(rawReply))
+	}
 }

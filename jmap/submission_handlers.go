@@ -30,6 +30,28 @@ func InboxMailboxID(ctx context.Context, backend MailBackend) Id {
 	return ""
 }
 
+// MailboxIDByName returns the ID of a mailbox matching name or role for the given context.
+func MailboxIDByName(ctx context.Context, backend MailBackend, name string) Id {
+	if backend == nil || name == "" {
+		return ""
+	}
+	mailboxes, err := backend.GetAllMailboxes(ctx)
+	if err != nil {
+		return ""
+	}
+	for _, mb := range mailboxes {
+		if mb != nil {
+			if strings.EqualFold(mb.Name, name) {
+				return mb.ID
+			}
+			if mb.Role != nil && strings.EqualFold(*mb.Role, name) {
+				return mb.ID
+			}
+		}
+	}
+	return ""
+}
+
 // submissionSortableProperties is the set of EmailSubmission properties the server supports
 // sorting on (RFC 8621 Section 7.2: emailId, threadId and sentAt MUST be supported; sentAt
 // is accepted as an alias for the sendAt property; undoStatus is also supported).

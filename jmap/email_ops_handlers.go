@@ -67,7 +67,13 @@ func handleEmailCopy(backend MailBackend) MethodHandler {
 
 				createdEM, err := backend.CreateEmail(ctx, &cp)
 				if err != nil {
-					notCreated[clientKey] = SetError{Type: "serverFail", Description: err.Error()}
+					if setErr, ok := err.(SetError); ok {
+						notCreated[clientKey] = setErr
+					} else if setErrPtr, ok := err.(*SetError); ok && setErrPtr != nil {
+						notCreated[clientKey] = *setErrPtr
+					} else {
+						notCreated[clientKey] = SetError{Type: "serverFail", Description: err.Error()}
+					}
 				} else {
 					created[clientKey] = createdEM
 					recordCreationRefs(ctx, creationRefs, clientKey, createdEM.ID)
@@ -230,7 +236,13 @@ func handleEmailImport(backend MailBackend, blobBackend BlobBackend) MethodHandl
 
 			createdEm, err := backend.CreateEmail(ctx, em)
 			if err != nil {
-				notCreated[clientKey] = SetError{Type: "invalidProperties"}
+				if setErr, ok := err.(SetError); ok {
+					notCreated[clientKey] = setErr
+				} else if setErrPtr, ok := err.(*SetError); ok && setErrPtr != nil {
+					notCreated[clientKey] = *setErrPtr
+				} else {
+					notCreated[clientKey] = SetError{Type: "invalidProperties", Description: err.Error()}
+				}
 				continue
 			}
 			created[clientKey] = map[string]any{

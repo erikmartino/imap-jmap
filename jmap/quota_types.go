@@ -9,6 +9,7 @@ type Quota struct {
 	HardLimit    uint64  `json:"hardLimit"`
 	WarnLimit    *uint64 `json:"warnLimit,omitempty"`
 	SoftLimit    *uint64 `json:"softLimit,omitempty"`
-	Scope        string  `json:"scope"` // "account", "domain", "user"
-	Description  *string `json:"description,omitempty"`
+	Scope        string   `json:"scope"` // "account", "domain", "user"
+	Description  *string  `json:"description,omitempty"`
+	DataTypes    []string `json:"dataTypes"`
 }

@@ -63,9 +63,11 @@ type IMAPSMTPBackend struct {
 	blobsMu            sync.RWMutex
 	blobs              map[string]*jmap.Blob
 	blobRefs           map[string]map[string]map[jmap.Id]bool
-	emailMutationsMu   sync.RWMutex
-	emailSeq           map[string]uint64
-	emailMutations     map[string][]itemChangeEntry
+	accountQuotasMu  sync.RWMutex
+	accountQuotas    map[string]*accountQuota
+	emailMutationsMu sync.RWMutex
+	emailSeq         map[string]uint64
+	emailMutations   map[string][]itemChangeEntry
 }
 
 var _ jmap.MailBackend = (*IMAPSMTPBackend)(nil)
@@ -98,6 +100,7 @@ func New(imapHost, smtpHost string) *IMAPSMTPBackend {
 		pushSubscriptions:      make(map[string]map[jmap.Id]*jmap.PushSubscription),
 		blobs:                  make(map[string]*jmap.Blob),
 		blobRefs:               make(map[string]map[string]map[jmap.Id]bool),
+		accountQuotas:          make(map[string]*accountQuota),
 		emailSeq:               make(map[string]uint64),
 		emailMutations:         make(map[string][]itemChangeEntry),
 	}
@@ -290,6 +293,7 @@ func (b *IMAPSMTPBackend) publishStateChange(ctx context.Context) {
 	b.broadcaster.PublishStateChange(accountID, "Email", state)
 	b.broadcaster.PublishStateChange(accountID, "Mailbox", b.MailboxState(ctx))
 	b.broadcaster.PublishStateChange(accountID, "Thread", b.ThreadState(ctx))
+	b.broadcaster.PublishStateChange(accountID, "Quota", b.QuotaState(ctx))
 }
 
 func (b *IMAPSMTPBackend) startBackgroundPoller() {
@@ -460,6 +464,130 @@ func (b *IMAPSMTPBackend) getEmailSeq(accountID string) uint64 {
 }
 
 // Quotas (RFC 9425 Section 4)
+
+type accountQuota struct {
+	mu            sync.RWMutex
+	hasLimits     bool
+	octetsLimit   uint64
+	messagesLimit uint64
+	octetsUsed    uint64
+	messagesUsed  uint64
+	emailSizes    map[jmap.Id]uint64
+}
+
+func (b *IMAPSMTPBackend) getAccountQuota(accountID string) *accountQuota {
+	b.accountQuotasMu.Lock()
+	defer b.accountQuotasMu.Unlock()
+	if b.accountQuotas == nil {
+		b.accountQuotas = make(map[string]*accountQuota)
+	}
+	aq, ok := b.accountQuotas[accountID]
+	if !ok {
+		aq = &accountQuota{
+			hasLimits:     true,
+			octetsLimit:   1073741824, // 1 GiB default
+			messagesLimit: 50000,      // 50k messages default
+			emailSizes:    make(map[jmap.Id]uint64),
+		}
+		b.accountQuotas[accountID] = aq
+	}
+	return aq
+}
+
+// SetQuotaHardLimits configures the hard quota limits for an account.
+func (b *IMAPSMTPBackend) SetQuotaHardLimits(accountID string, octetsLimit uint64, messagesLimit uint64) {
+	aq := b.getAccountQuota(accountID)
+	aq.mu.Lock()
+	aq.hasLimits = true
+	aq.octetsLimit = octetsLimit
+	aq.messagesLimit = messagesLimit
+	aq.mu.Unlock()
+
+	tracker := b.getQuotaTracker(accountID)
+	tracker.Record("quota-octets", "update")
+	tracker.Record("quota-messages", "update")
+}
+
+// SetQuotaUsage configures the current quota usage counters for an account.
+func (b *IMAPSMTPBackend) SetQuotaUsage(accountID string, octetsUsed uint64, messagesUsed uint64) {
+	aq := b.getAccountQuota(accountID)
+	aq.mu.Lock()
+	aq.octetsUsed = octetsUsed
+	aq.messagesUsed = messagesUsed
+	aq.mu.Unlock()
+
+	tracker := b.getQuotaTracker(accountID)
+	tracker.Record("quota-octets", "update")
+	tracker.Record("quota-messages", "update")
+}
+
+func (b *IMAPSMTPBackend) checkQuota(accountID string, octets uint64) error {
+	aq := b.getAccountQuota(accountID)
+	aq.mu.RLock()
+	defer aq.mu.RUnlock()
+
+	if aq.hasLimits {
+		if aq.octetsLimit > 0 && aq.octetsUsed+octets > aq.octetsLimit {
+			return jmap.SetError{
+				Type:        "overQuota",
+				Description: fmt.Sprintf("storage quota exceeded: %d + %d > %d octets", aq.octetsUsed, octets, aq.octetsLimit),
+			}
+		}
+		if aq.messagesLimit > 0 && aq.messagesUsed+1 > aq.messagesLimit {
+			return jmap.SetError{
+				Type:        "overQuota",
+				Description: fmt.Sprintf("message count quota exceeded: %d + 1 > %d messages", aq.messagesUsed, aq.messagesLimit),
+			}
+		}
+	}
+	return nil
+}
+
+func (b *IMAPSMTPBackend) recordEmailQuotaCreated(accountID string, emailID jmap.Id, size uint64) {
+	aq := b.getAccountQuota(accountID)
+	aq.mu.Lock()
+	aq.octetsUsed += size
+	aq.messagesUsed++
+	aq.emailSizes[emailID] = size
+	aq.mu.Unlock()
+
+	tracker := b.getQuotaTracker(accountID)
+	tracker.Record("quota-octets", "update")
+	tracker.Record("quota-messages", "update")
+}
+
+func (b *IMAPSMTPBackend) recordEmailQuotaDeleted(accountID string, emailID jmap.Id) {
+	aq := b.getAccountQuota(accountID)
+	aq.mu.Lock()
+	size, ok := aq.emailSizes[emailID]
+	if ok {
+		delete(aq.emailSizes, emailID)
+		if aq.octetsUsed >= size {
+			aq.octetsUsed -= size
+		} else {
+			aq.octetsUsed = 0
+		}
+	}
+	if aq.messagesUsed > 0 {
+		aq.messagesUsed--
+	}
+	aq.mu.Unlock()
+
+	tracker := b.getQuotaTracker(accountID)
+	tracker.Record("quota-octets", "update")
+	tracker.Record("quota-messages", "update")
+}
+
+func (b *IMAPSMTPBackend) trackMovedEmailQuota(accountID string, origID, newID jmap.Id) {
+	aq := b.getAccountQuota(accountID)
+	aq.mu.Lock()
+	defer aq.mu.Unlock()
+	if size, ok := aq.emailSizes[origID]; ok {
+		aq.emailSizes[newID] = size
+		delete(aq.emailSizes, origID)
+	}
+}
+
 func (b *IMAPSMTPBackend) getQuotaTracker(accountID string) *itemTracker {
 	b.quotaTrackersMu.Lock()
 	defer b.quotaTrackersMu.Unlock()
@@ -482,30 +610,41 @@ func (b *IMAPSMTPBackend) QuotaChanges(ctx context.Context, sinceState string, m
 	return b.getQuotaTracker(accountID).Changes(sinceState, maxChanges)
 }
 
-func defaultQuotas() []*jmap.Quota {
+func (b *IMAPSMTPBackend) getAccountQuotas(accountID string) []*jmap.Quota {
+	aq := b.getAccountQuota(accountID)
+	aq.mu.RLock()
+	octetsUsed := aq.octetsUsed
+	messagesUsed := aq.messagesUsed
+	octetsLimit := aq.octetsLimit
+	messagesLimit := aq.messagesLimit
+	aq.mu.RUnlock()
+
 	return []*jmap.Quota{
 		{
 			ID:           "quota-octets",
 			ResourceType: "octets",
 			Name:         "Storage",
-			Used:         1024,
-			HardLimit:    1073741824,
+			Used:         octetsUsed,
+			HardLimit:    octetsLimit,
 			Scope:        "account",
+			DataTypes:    []string{"Email"},
 		},
 		{
 			ID:           "quota-messages",
 			ResourceType: "messages",
 			Name:         "Message Count",
-			Used:         10,
-			HardLimit:    50000,
+			Used:         messagesUsed,
+			HardLimit:    messagesLimit,
 			Scope:        "account",
+			DataTypes:    []string{"Email"},
 		},
 	}
 }
 
 func (b *IMAPSMTPBackend) GetQuotas(ctx context.Context, ids []jmap.Id) ([]*jmap.Quota, []jmap.Id, error) {
-	all := defaultQuotas()
-	allMap := make(map[jmap.Id]*jmap.Quota)
+	accountID, _ := jmap.AccountIDFromContext(ctx)
+	all := b.getAccountQuotas(accountID)
+	allMap := make(map[jmap.Id]*jmap.Quota, len(all))
 	for _, q := range all {
 		allMap[q.ID] = q
 	}
@@ -522,7 +661,8 @@ func (b *IMAPSMTPBackend) GetQuotas(ctx context.Context, ids []jmap.Id) ([]*jmap
 }
 
 func (b *IMAPSMTPBackend) GetAllQuotas(ctx context.Context) ([]*jmap.Quota, error) {
-	return defaultQuotas(), nil
+	accountID, _ := jmap.AccountIDFromContext(ctx)
+	return b.getAccountQuotas(accountID), nil
 }
 
 // Identities (RFC 8621 Section 6)
@@ -767,30 +907,30 @@ func (b *IMAPSMTPBackend) ParseMDN(ctx context.Context, blobID jmap.Id) (*jmap.M
 	if err != nil || !found || blob == nil {
 		return nil, jmap.ErrBlobNotFound
 	}
-	emails, err := b.GetAllEmails(ctx)
-	var forEmailID jmap.Id
-	var subject string
-	if err == nil {
-		for _, em := range emails {
-			if em.BlobID == blobID || em.ID == blobID {
-				forEmailID = em.ID
-				subject = em.Subject
-				break
+	mdn, err := jmap.ParseMDNFromBytes(blob.Data)
+	if err != nil {
+		return nil, err
+	}
+	mdn.ID = jmap.Id("mdn-parsed-" + string(blobID))
+
+	// Match Original-Message-ID to an existing email on the server (RFC 9007 §3.2)
+	if mdn.OriginalMessageID != "" {
+		origClean := strings.Trim(strings.TrimSpace(mdn.OriginalMessageID), "<>")
+		if emails, err := b.GetAllEmails(ctx); err == nil {
+			for _, em := range emails {
+				for _, mid := range em.MessageID {
+					if strings.Trim(strings.TrimSpace(mid), "<>") == origClean {
+						mdn.ForEmailID = em.ID
+						break
+					}
+				}
+				if mdn.ForEmailID != "" {
+					break
+				}
 			}
 		}
 	}
-	return &jmap.MDN{
-		ID:          jmap.Id("mdn-parsed-" + string(blobID)),
-		ForEmailID:  forEmailID,
-		Subject:     subject,
-		ReportingUA: "imap-jmap-server/1.0",
-		Disposition: jmap.MDNDisposition{
-			ActionMode:  "automatic-action",
-			SendingMode: "MDN-sent-automatically",
-			Type:        "displayed",
-		},
-		TextBody: string(blob.Data),
-	}, nil
+	return mdn, nil
 }
 
 // PushSubscription (RFC 8620 Section 7.2)

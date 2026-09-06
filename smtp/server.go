@@ -85,6 +85,25 @@ func WithAllowInsecureAuth(allowed bool) Option {
 	}
 }
 
+// WithSieveBackend sets the SieveBackend used to evaluate recipient Sieve scripts
+// on incoming message delivery (RFC 5228 / RFC 9661).
+func WithSieveBackend(sieveBackend jmap.SieveBackend) Option {
+	return func(s *Server) {
+		if receiver, ok := s.server.Backend.(*ReceiverBackend); ok {
+			receiver.SieveBackend = sieveBackend
+		}
+	}
+}
+
+// WithOutboundSender sets the OutboundMailSender used to forward/redirect messages (RFC 5228).
+func WithOutboundSender(sender jmap.OutboundMailSender) Option {
+	return func(s *Server) {
+		if receiver, ok := s.server.Backend.(*ReceiverBackend); ok {
+			receiver.OutboundSender = sender
+		}
+	}
+}
+
 // NewServer initializes a new SMTP server instance configured for receiving mail into JMAP storage.
 func NewServer(addr string, mailBackend jmap.MailBackend, blobBackend jmap.BlobBackend, calBackend jmap.CalendarsBackend, opts ...Option) *Server {
 	backend := NewReceiverBackend(mailBackend, blobBackend, calBackend)

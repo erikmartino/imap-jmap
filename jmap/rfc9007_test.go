@@ -2,6 +2,7 @@ package jmap_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http/httptest"
 	"testing"
@@ -183,14 +184,39 @@ func TestRFC9007_MDNParse(t *testing.T) {
 	gArgs := gJmapResp.MethodResponses[0].([]any)[1].(map[string]any)
 	list := gArgs["list"].([]any)
 	firstEmail := list[0].(map[string]any)
-	targetBlobID := firstEmail["blobId"].(string)
+
+	// Store a real RFC 8098 MDN blob
+	accID := jmap.AccountIDForSubject(testUsername)
+	accCtx := jmap.ContextWithAccountID(context.Background(), accID)
+	rawMDN := []byte("From: recipient@example.com\r\n" +
+		"To: sender@example.com\r\n" +
+		"Subject: Read receipt for: World domination\r\n" +
+		"MIME-Version: 1.0\r\n" +
+		"Content-Type: multipart/report; report-type=disposition-notification; boundary=\"boundary42\"\r\n\r\n" +
+		"--boundary42\r\n" +
+		"Content-Type: text/plain; charset=utf-8\r\n\r\n" +
+		"This receipt shows that the email has been displayed.\r\n\r\n" +
+		"--boundary42\r\n" +
+		"Content-Type: message/disposition-notification\r\n\r\n" +
+		"Reporting-UA: joes-pc.cs.example.com; Foomail 97.1\r\n" +
+		"Final-Recipient: rfc822; recipient@example.com\r\n" +
+		"Original-Message-ID: <199509192301.23456@example.org>\r\n" +
+		"Disposition: manual-action/MDN-sent-manually; displayed\r\n\r\n" +
+		"--boundary42--\r\n")
+
+	mdnBlob, err := srv.BlobBackend.PutBlob(accCtx, accID, "multipart/report", rawMDN)
+	if err != nil {
+		t.Fatalf("PutBlob failed: %v", err)
+	}
+	targetBlobID := string(mdnBlob.ID)
+	nonMDNBlobID := firstEmail["blobId"].(string)
 
 	reqBody := map[string]any{
 		"using": []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.MdnCapabilityURI},
 		"methodCalls": []any{
 			[]any{"MDN/parse", map[string]any{
 				"accountId": "primary",
-				"blobIds":   []any{targetBlobID, "missing-blob-xyz"},
+				"blobIds":   []any{targetBlobID, nonMDNBlobID, "missing-blob-xyz"},
 			}, "call-1"},
 		},
 	}
@@ -223,6 +249,21 @@ func TestRFC9007_MDNParse(t *testing.T) {
 
 	if _, ok := parsedMap[targetBlobID]; !ok {
 		t.Errorf("Expected %s to be in parsed map, got %+v", targetBlobID, parsedMap)
+	} else {
+		parsedObj := parsedMap[targetBlobID].(map[string]any)
+		if parsedObj["subject"] != "Read receipt for: World domination" {
+			t.Errorf("Expected subject 'Read receipt for: World domination', got %v", parsedObj["subject"])
+		}
+		disp := parsedObj["disposition"].(map[string]any)
+		if disp["type"] != "displayed" || disp["actionMode"] != "manual-action" || disp["sendingMode"] != "mdn-sent-manually" {
+			t.Errorf("Unexpected disposition: %+v", disp)
+		}
+	}
+
+	// Non-MDN blob must be reported in notParsable (RFC 9007 §2.2)
+	notParsableRaw, _ := args["notParsable"].([]any)
+	if len(notParsableRaw) != 1 || notParsableRaw[0] != nonMDNBlobID {
+		t.Errorf("Expected %s in notParsable, got %+v", nonMDNBlobID, notParsableRaw)
 	}
 
 	// A blob id that does not exist must be reported in notFound,
