@@ -118,8 +118,15 @@ one with a grammar and tests — never hand-roll ad-hoc scanning.
 - **JMAP Push VAPID**: [RFC 9749](https://www.rfc-editor.org/rfc/rfc9749.html) — *VAPID Identification in JMAP Web Push*
 - **Web Push Protocol**: [RFC 8030](https://www.rfc-editor.org/rfc/rfc8030.html) — *Generic Event Delivery Using HTTP Push* (transport for JMAP PushSubscription per RFC 8620 §7.2)
 - **Web Push Message Encryption**: [RFC 8291](https://www.rfc-editor.org/rfc/rfc8291.html) — *Message Encryption for Web Push*
+- **HTTP Encrypted Content-Encoding**: [RFC 8188](https://www.rfc-editor.org/rfc/rfc8188.html) — *Encrypted Content-Encoding for HTTP*
+- **Web Push VAPID**: [RFC 8292](https://www.rfc-editor.org/rfc/rfc8292.html) — *Voluntary Application Server Identification (VAPID) for Web Push*
+- **OAuth 2.0 Bearer Tokens**: [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750.html) — *The OAuth 2.0 Authorization Framework: Bearer Token Usage*
 - **JMAP Keywords & Attributes**: [RFC 9979](https://www.rfc-editor.org/rfc/rfc9979.html) — *IMAP/JMAP Keywords and Mailbox Name Attributes*
 - **Sieve Language**: [RFC 5228](https://www.rfc-editor.org/rfc/rfc5228.html) — *Sieve: An Email Filtering Language*
+- **Sieve Vacation**: [RFC 5230](https://www.rfc-editor.org/rfc/rfc5230.html) — *Sieve Email Filtering: Vacation Extension*
+- **Sieve Imap4flags**: [RFC 5232](https://www.rfc-editor.org/rfc/rfc5232.html) — *Sieve Email Filtering: Imap4flags Extension*
+- **Sieve Reject**: [RFC 5429](https://www.rfc-editor.org/rfc/rfc5429.html) — *Sieve Email Filtering: Reject and Extended Reject Extensions*
+- **ManageSieve Protocol**: [RFC 5804](https://www.rfc-editor.org/rfc/rfc5804.html) — *A Protocol for Remotely Managing Sieve Scripts*
 
 #### JMAP Internet-Drafts (work in progress — verified current 2026-08-08)
 These JMAP extensions have **not** been published as RFCs yet; cite the latest draft revision.
@@ -128,10 +135,16 @@ These JMAP extensions have **not** been published as RFCs yet; cite the latest d
 
 #### Data Representation Specifications
 - **JSContact (Card Specification)**: [RFC 9553](https://www.rfc-editor.org/rfc/rfc9553.html) — *JSContact: A JSON Representation of Contact Data*
+- **JSContact vCard Extensions**: [RFC 9554](https://www.rfc-editor.org/rfc/rfc9554.html) — *vCard Format Extensions for JSContact*
+- **JSContact vCard Conversion**: [RFC 9555](https://www.rfc-editor.org/rfc/rfc9555.html) — *JSContact: Converting between vCard and JSContact*
 - **JSCalendar (Calendar Specification)**: [RFC 8984](https://www.rfc-editor.org/rfc/rfc8984.html) — *JSCalendar: A JSON Representation of Calendar Data*
+- **JSON Pointer**: [RFC 6901](https://www.rfc-editor.org/rfc/rfc6901.html) — *JavaScript Object Notation (JSON) Pointer*
+- **Internet Date/Time**: [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339.html) — *Date and Time on the Internet: Timestamps*
+- **iCalendar/vCard Caret Encoding**: [RFC 6868](https://www.rfc-editor.org/rfc/rfc6868.html) — *Parameter Value Round-Tripping in the iCalendar and vCard Formats*
 
 #### CardDAV & CalDAV Protocol Specifications
 - **WebDAV Base**: [RFC 4918](https://www.rfc-editor.org/rfc/rfc4918.html) — *HTTP Extensions for Web Distributed Authoring and Versioning (WebDAV)*
+- **WebDAV ACL**: [RFC 3744](https://www.rfc-editor.org/rfc/rfc3744.html) — *Web Distributed Authoring and Versioning (WebDAV) Access Control Protocol*
 - **CardDAV**: [RFC 6352](https://www.rfc-editor.org/rfc/rfc6352.html) — *CardDAV: vCard Extensions to WebDAV*
 - **CalDAV**: [RFC 4791](https://www.rfc-editor.org/rfc/rfc4791.html) — *CalDAV: Calendaring Extensions to WebDAV*
 - **CalDAV Scheduling**: [RFC 6638](https://www.rfc-editor.org/rfc/rfc6638.html) — *CalDAV Scheduling Extensions to iTIP*
@@ -144,14 +157,21 @@ These JMAP extensions have **not** been published as RFCs yet; cite the latest d
 #### IMAP Protocol & Message Specifications
 - **IMAP4rev1**: [RFC 3501](https://www.rfc-editor.org/rfc/rfc3501.html) — *INTERNET MESSAGE ACCESS PROTOCOL - VERSION 4rev1*
 - **IMAP4rev2**: [RFC 9051](https://www.rfc-editor.org/rfc/rfc9051.html) — *Internet Message Access Protocol (IMAP) - Version 4rev2*
+- **IMAP ACL**: [RFC 4314](https://www.rfc-editor.org/rfc/rfc4314.html) — *IMAP4 Access Control List (ACL) Extension*
+- **IMAP SORT & THREAD**: [RFC 5256](https://www.rfc-editor.org/rfc/rfc5256.html) — *Internet Message Access Protocol - SORT and THREAD Extensions*
 - **IMAP CONDSTORE & QRESYNC**: [RFC 7162](https://www.rfc-editor.org/rfc/rfc7162.html) — *IMAP Extensions: Quick Mailbox Resynchronization (QRESYNC) and Conditional STORE (CONDSTORE)*
 - **IMAP IDLE**: [RFC 2177](https://www.rfc-editor.org/rfc/rfc2177.html) — *IMAP4 IDLE command*
 - **IMAP MOVE**: [RFC 6851](https://www.rfc-editor.org/rfc/rfc6851.html) — *Internet Message Access Protocol (IMAP) - MOVE Extension*
 - **IMAP SPECIAL-USE**: [RFC 6154](https://www.rfc-editor.org/rfc/rfc6154.html) — *IMAP LIST Extension for Special-Use Mailboxes*
 - **IMAP UIDPLUS**: [RFC 4315](https://www.rfc-editor.org/rfc/rfc4315.html) — *Internet Message Access Protocol (IMAP) - UIDPLUS extension*
 - **IMAP Keywords**: [RFC 5788](https://www.rfc-editor.org/rfc/rfc5788.html) — *IMAP Keyword Extension*
+- **ARPA Internet Text Messages**: [RFC 822](https://www.rfc-editor.org/rfc/rfc822.html) — *Standard for ARPA Internet Text Messages*
 - **Internet Message Format**: [RFC 5322](https://www.rfc-editor.org/rfc/rfc5322.html) — *Internet Message Format*
 - **MIME Media Types**: [RFC 2045](https://www.rfc-editor.org/rfc/rfc2045.html) — *Multipurpose Internet Mail Extensions (MIME) Part One*
+- **MIME Media Types (Subtypes)**: [RFC 2046](https://www.rfc-editor.org/rfc/rfc2046.html) — *Multipurpose Internet Mail Extensions (MIME) Part Two: Media Types*
+- **MIME Non-ASCII Headers**: [RFC 2047](https://www.rfc-editor.org/rfc/rfc2047.html) — *MIME Part Three: Message Header Extensions for Non-ASCII Text*
+- **Email Auto-Responses**: [RFC 3834](https://www.rfc-editor.org/rfc/rfc3834.html) — *Recommendations for Automatic Responses to Electronic Mail*
+- **Message Disposition Notifications**: [RFC 8098](https://www.rfc-editor.org/rfc/rfc8098.html) — *Message Disposition Notification*
 
 #### SMTP & Mail Transport Specifications
 - **SMTP**: [RFC 5321](https://www.rfc-editor.org/rfc/rfc5321.html) — *Simple Mail Transfer Protocol*
@@ -160,7 +180,13 @@ These JMAP extensions have **not** been published as RFCs yet; cite the latest d
 - **SMTP STARTTLS**: [RFC 3207](https://www.rfc-editor.org/rfc/rfc3207.html) — *SMTP Service Extension for Secure SMTP over Transport Layer Security*
 - **SMTP SIZE Extension**: [RFC 1870](https://www.rfc-editor.org/rfc/rfc1870.html) — *SMTP Service Extension for Message Size Declaration*
 - **SMTP DSN (Delivery Status Notifications)**: [RFC 3461](https://www.rfc-editor.org/rfc/rfc3461.html) — *Simple Mail Transfer Protocol (SMTP) Service Extension for Delivery Status Notifications*
+- **Enhanced Mail System Status Codes**: [RFC 3463](https://www.rfc-editor.org/rfc/rfc3463.html) — *Enhanced Mail System Status Codes*
 - **SMTP Internationalized Email (UTF8):** [RFC 6531](https://www.rfc-editor.org/rfc/rfc6531.html) — *SMTP Extension for Internationalized Email*
+- **Sender Policy Framework (SPF)**: [RFC 7208](https://www.rfc-editor.org/rfc/rfc7208.html) — *Sender Policy Framework (SPF) for Authorizing Use of Domains in Email*
+- **DKIM Signatures**: [RFC 6376](https://www.rfc-editor.org/rfc/rfc6376.html) — *DomainKeys Identified Mail (DKIM) Signatures*
+- **DMARC Authentication**: [RFC 7489](https://www.rfc-editor.org/rfc/rfc7489.html) — *Domain-based Message Authentication, Reporting, and Conformance (DMARC)*
+- **Internet Host Requirements**: [RFC 1123](https://www.rfc-editor.org/rfc/rfc1123.html) — *Requirements for Internet Hosts -- Application and Support*
+- **Domain Names Specification**: [RFC 1035](https://www.rfc-editor.org/rfc/rfc1035.html) — *Domain Names - Implementation and Specification*
 
 ---
 
