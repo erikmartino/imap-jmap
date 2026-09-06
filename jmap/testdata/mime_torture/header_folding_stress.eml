@@ -1,0 +1,66 @@
+From: torture-sender@example.com
+To: torture-recipient@example.com
+Subject: Header Folding Stress Test
+Date: Sun, 06 Sep 2026 22:00:00 +0000
+Message-ID: <header-folding-1@example.com>
+MIME-Version: 1.0
+X-Folded-Spaces: fold-line-0-value
+ fold-line-1-value
+ fold-line-2-value
+ fold-line-3-value
+ fold-line-4-value
+ fold-line-5-value
+ fold-line-6-value
+ fold-line-7-value
+ fold-line-8-value
+ fold-line-9-value
+ fold-line-10-value
+ fold-line-11-value
+ fold-line-12-value
+ fold-line-13-value
+ fold-line-14-value
+ fold-line-15-value
+ fold-line-16-value
+ fold-line-17-value
+ fold-line-18-value
+ fold-line-19-value
+ fold-line-20-value
+ fold-line-21-value
+ fold-line-22-value
+ fold-line-23-value
+ fold-line-24-value
+ fold-line-25-value
+ fold-line-26-value
+ fold-line-27-value
+ fold-line-28-value
+ fold-line-29-value
+ fold-line-30-value
+ fold-line-31-value
+ fold-line-32-value
+ fold-line-33-value
+ fold-line-34-value
+ fold-line-35-value
+ fold-line-36-value
+ fold-line-37-value
+ fold-line-38-value
+ fold-line-39-value
+ fold-line-40-value
+ fold-line-41-value
+ fold-line-42-value
+ fold-line-43-value
+ fold-line-44-value
+ fold-line-45-value
+ fold-line-46-value
+ fold-line-47-value
+ fold-line-48-value
+ fold-line-49-value
+X-Folded-Tabs:
+	tab-1
+	tab-2
+	tab-3
+Subject:NoSpaceAfterColonSubject
+X-Subject-Encoded: =?UTF-8?B?U3ViamVjdCB3aXRoIOKCrCBzeW1ib2w=?= and =?ISO-8859-1?Q?Caf=E9?=
+X-Encoded-Adjacent: =?UTF-8?B?SGVsbG8=?=   =?UTF-8?B?V29ybGQ=?=
+Content-Type: text/plain; charset=utf-8
+
+Body of header folding stress test.

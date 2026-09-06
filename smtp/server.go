@@ -104,6 +104,16 @@ func WithOutboundSender(sender jmap.OutboundMailSender) Option {
 	}
 }
 
+// WithMaxMessageBytes sets the maximum accepted message size in bytes.
+func WithMaxMessageBytes(max int64) Option {
+	return func(s *Server) {
+		s.server.MaxMessageBytes = max
+		if receiver, ok := s.server.Backend.(*ReceiverBackend); ok {
+			receiver.MaxMessageSize = max
+		}
+	}
+}
+
 // NewServer initializes a new SMTP server instance configured for receiving mail into JMAP storage.
 func NewServer(addr string, mailBackend jmap.MailBackend, blobBackend jmap.BlobBackend, calBackend jmap.CalendarsBackend, opts ...Option) *Server {
 	backend := NewReceiverBackend(mailBackend, blobBackend, calBackend)
@@ -114,7 +124,7 @@ func NewServer(addr string, mailBackend jmap.MailBackend, blobBackend jmap.BlobB
 	s.Domain = "localhost"
 	s.ReadTimeout = 30 * time.Second
 	s.WriteTimeout = 30 * time.Second
-	s.MaxMessageBytes = 32 * 1024 * 1024 // 32MB max message size
+	s.MaxMessageBytes = 50 * 1024 * 1024 // 50MB max message size per RFC limits
 	s.MaxRecipients = 50
 	s.AllowInsecureAuth = true
 

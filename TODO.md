@@ -50,5 +50,19 @@ Following the successful retirement of `jmap/memory/` in favor of `imapsmtp` in 
   - 55/55 vectors passing (100% green) in external test suite.
   - Vendored all 55 vectors in `jmap/vcardconv/vectors_test.go` with RFC 9553 / RFC 9554 / RFC 9555 `spectest.Require` citations.
   - Added requirement traceability matrix in `docs/conformance/jscontact.json` gated by `TestSpecCoverage`.
-- [ ] **2.2 MIME Torture Test Suite**
-  - Execute malformed/nested MIME torture suite against `Email/parse` and `smtp.Receiver`.
+- [x] **2.2 MIME Torture Test Suite**
+  - Vendored canonical MIME torture test vectors into `jmap/testdata/mime_torture/`:
+    - Mark Crispin's original multi-media demonstration (`crispin_torture.eml`).
+    - Ryan Finnie's MIME torture test v1.0 (`rf_mime_torture.eml`).
+    - 25-level deeply nested alternating multiparts (`deep_nested_multiparts.eml`).
+    - Malformed boundaries: missing boundary, empty boundary, unterminated boundary, dashes only.
+    - Mixed and overlapping CTEs: 7bit, 8bit UTF-8, QP, base64, unknown CTE, corrupt base64/QP.
+    - Header folding stress (50+ line folds, tab folds, no-space after colon, RFC 2047 encoded-words).
+    - Header injection resistance (CRLF encoded injection neutralization).
+    - Circular and deeply recursive `message/rfc822` encapsulation.
+    - Obsolete RFC 822 CFWS syntax and address comments.
+    - Adversarial payloads (null bytes, 50KB lines, 200+ headers).
+  - Executed `TestEmailParse_MIMETorture` and `TestEmailParse_AdversarialEdgeCases` in `jmap/` testing `Email/parse` and `ParseRFC822` (100% green, 0 panics).
+  - Executed `TestSMTPReceiver_MIMETorture` and `TestSMTPReceiver_OversizedMessageDATA` in `smtp/` testing inbound SMTP handling over live TCP socket (100% green, 0 panics).
+  - Hardened `smtp.ParseMessageToEmail` with bounded `MaxMIMEParts` recursion protection and `strconv.Itoa` part formatting.
+  - Added requirement traceability in `docs/conformance/jmap-mail.json` and `docs/conformance/smtp.json` gated by `TestSpecCoverage`.

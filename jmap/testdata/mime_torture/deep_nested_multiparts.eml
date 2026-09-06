@@ -1,0 +1,109 @@
+From: torture-sender@example.com
+To: torture-recipient@example.com
+Subject: Deeply Nested Multiparts (25 levels)
+Date: Sun, 06 Sep 2026 22:00:00 +0000
+Message-ID: <deep-nest-torture-1@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="nest-b-1"
+
+--nest-b-1
+Content-Type: multipart/alternative; boundary="nest-b-2"
+
+--nest-b-2
+Content-Type: multipart/related; boundary="nest-b-3"
+
+--nest-b-3
+Content-Type: multipart/mixed; boundary="nest-b-4"
+
+--nest-b-4
+Content-Type: multipart/alternative; boundary="nest-b-5"
+
+--nest-b-5
+Content-Type: multipart/related; boundary="nest-b-6"
+
+--nest-b-6
+Content-Type: multipart/mixed; boundary="nest-b-7"
+
+--nest-b-7
+Content-Type: multipart/alternative; boundary="nest-b-8"
+
+--nest-b-8
+Content-Type: multipart/related; boundary="nest-b-9"
+
+--nest-b-9
+Content-Type: multipart/mixed; boundary="nest-b-10"
+
+--nest-b-10
+Content-Type: multipart/alternative; boundary="nest-b-11"
+
+--nest-b-11
+Content-Type: multipart/related; boundary="nest-b-12"
+
+--nest-b-12
+Content-Type: multipart/mixed; boundary="nest-b-13"
+
+--nest-b-13
+Content-Type: multipart/alternative; boundary="nest-b-14"
+
+--nest-b-14
+Content-Type: multipart/related; boundary="nest-b-15"
+
+--nest-b-15
+Content-Type: multipart/mixed; boundary="nest-b-16"
+
+--nest-b-16
+Content-Type: multipart/alternative; boundary="nest-b-17"
+
+--nest-b-17
+Content-Type: multipart/related; boundary="nest-b-18"
+
+--nest-b-18
+Content-Type: multipart/mixed; boundary="nest-b-19"
+
+--nest-b-19
+Content-Type: multipart/alternative; boundary="nest-b-20"
+
+--nest-b-20
+Content-Type: multipart/related; boundary="nest-b-21"
+
+--nest-b-21
+Content-Type: multipart/mixed; boundary="nest-b-22"
+
+--nest-b-22
+Content-Type: multipart/alternative; boundary="nest-b-23"
+
+--nest-b-23
+Content-Type: multipart/related; boundary="nest-b-24"
+
+--nest-b-24
+Content-Type: multipart/mixed; boundary="nest-b-25"
+
+--nest-b-25
+Content-Type: text/plain; charset=utf-8
+
+Innermost leaf content at recursion depth 25.
+--nest-b-25--
+--nest-b-24--
+--nest-b-23--
+--nest-b-22--
+--nest-b-21--
+--nest-b-20--
+--nest-b-19--
+--nest-b-18--
+--nest-b-17--
+--nest-b-16--
+--nest-b-15--
+--nest-b-14--
+--nest-b-13--
+--nest-b-12--
+--nest-b-11--
+--nest-b-10--
+--nest-b-9--
+--nest-b-8--
+--nest-b-7--
+--nest-b-6--
+--nest-b-5--
+--nest-b-4--
+--nest-b-3--
+--nest-b-2--
+--nest-b-1--

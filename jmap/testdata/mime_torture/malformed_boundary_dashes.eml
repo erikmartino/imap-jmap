@@ -1,0 +1,13 @@
+From: torture-sender@example.com
+To: torture-recipient@example.com
+Subject: Malformed Boundary - Dashes Only
+Date: Sun, 06 Sep 2026 22:00:00 +0000
+Message-ID: <boundary-dashes-1@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="----"
+
+------
+Content-Type: text/plain
+
+Part delimited by dashes-only boundary.
+--------

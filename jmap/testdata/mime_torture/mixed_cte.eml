@@ -1,0 +1,45 @@
+From: torture-sender@example.com
+To: torture-recipient@example.com
+Subject: Mixed Content-Transfer-Encoding Stress Test
+Date: Sun, 06 Sep 2026 22:00:00 +0000
+Message-ID: <mixed-cte-1@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="cte-boundary-123"
+
+--cte-boundary-123
+Content-Type: text/plain; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+Standard 7bit plain text line.
+--cte-boundary-123
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+Raw UTF-8 8bit text: åäö ★ éè
+--cte-boundary-123
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+Valid QP with soft line breaks=
+ and hex escaped characters like =E2=82=AC (Euro).
+--cte-boundary-123
+Content-Type: application/octet-stream; name="data.bin"
+Content-Transfer-Encoding: base64
+
+SGVsbG8gV29ybGQhIFRoaXMgaXMgdmFsaWQgYmFzZTY0IGRhdGEu
+--cte-boundary-123
+Content-Type: text/plain
+Content-Transfer-Encoding: x-unknown-rot13
+
+Uryyb Jbeyq - Unknown CTE should be treated gracefully.
+--cte-boundary-123
+Content-Type: text/plain
+Content-Transfer-Encoding: base64
+
+!!corrupted-base64-not-valid-chars===
+--cte-boundary-123
+Content-Type: text/plain
+Content-Transfer-Encoding: quoted-printable
+
+Corrupted QP line with invalid =ZZ escape and trailing =
+--cte-boundary-123--

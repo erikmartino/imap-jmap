@@ -1,0 +1,9 @@
+From: torture-sender@example.com
+To: torture-recipient@example.com
+Subject: Malformed Boundary - Empty Boundary Parameter
+Date: Sun, 06 Sep 2026 22:00:00 +0000
+Message-ID: <boundary-empty-1@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary=""
+
+This multipart header has an empty string boundary parameter.

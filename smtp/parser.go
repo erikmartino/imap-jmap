@@ -5,6 +5,7 @@ import (
 	"io"
 	"mime"
 	"net/mail"
+	"strconv"
 	"strings"
 	"time"
 
@@ -69,13 +70,16 @@ func ParseMessageToEmail(raw []byte, blobID jmap.Id) (*jmap.Email, error) {
 	partCounter := 0
 
 	for {
+		if partCounter >= MaxMIMEParts {
+			break
+		}
 		p, err := mr.NextPart()
 		if err != nil {
 			break
 		}
 
 		partCounter++
-		partID := string(rune('0' + partCounter))
+		partID := strconv.Itoa(partCounter)
 
 		dispHeader := p.Header.Get("Content-Disposition")
 		disp, dispParams, _ := mime.ParseMediaType(dispHeader)

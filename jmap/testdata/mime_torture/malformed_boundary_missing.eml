@@ -1,0 +1,13 @@
+From: torture-sender@example.com
+To: torture-recipient@example.com
+Subject: Malformed Boundary - Missing Boundary Parameter
+Date: Sun, 06 Sep 2026 22:00:00 +0000
+Message-ID: <boundary-missing-1@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed;
+
+This multipart header has no boundary parameter at all.
+--something
+Content-Type: text/plain
+
+Payload text.

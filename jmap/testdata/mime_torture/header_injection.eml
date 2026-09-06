@@ -1,0 +1,9 @@
+From: attacker@example.com
+To: victim@example.com
+Subject: =?utf-8?q?Harmless_Subject=0D=0ABcc:_injected-victim@example.com=0D=0AX-Injected:_true?=
+Date: Sun, 06 Sep 2026 22:00:00 +0000
+Message-ID: <header-injection-1@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain
+
+Testing header injection resistance with encoded-words.

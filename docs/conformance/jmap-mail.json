@@ -4,7 +4,7 @@
     "section": "5",
     "level": "MUST",
     "text": "MIME multipart messages are parsed into a nested body-part structure.",
-    "tests": ["TestRFC2045_MIMEPartStructure"],
+    "tests": ["TestEmailParse_MIMETorture", "TestRFC2045_MIMEPartStructure"],
     "status": "covered"
   },
   {
@@ -12,7 +12,7 @@
     "section": "3.6",
     "level": "MUST",
     "text": "RFC 5322 messages are parsed into JMAP Email header/address/subject/date fields.",
-    "tests": ["TestRFC5322_MessageParsing"],
+    "tests": ["TestEmailParse_MIMETorture", "TestRFC5322_MessageParsing"],
     "status": "covered"
   },
   {
@@ -132,7 +132,7 @@
     "section": "4.8",
     "level": "MUST",
     "text": "Email/parse parses blobs into Email objects; error paths are handled.",
-    "tests": ["TestRFC8621_Section4_8_EmailParse"],
+    "tests": ["TestEmailParse_AdversarialEdgeCases", "TestEmailParse_MIMETorture", "TestRFC8621_Section4_8_EmailParse"],
     "status": "covered"
   },
   {

@@ -1,0 +1,11 @@
+From: "Alice User" (Comment 1) <alice@example.com>
+To: (Recip comment) Bob User <bob@example.com>
+Cc: <@route1.org,@route2.org:carol@example.com>
+Bcc: EmptyGroup:;
+Date: 06 Sep 26 22:00:00 EST
+Subject: Obsolete RFC 822 Syntax Test
+Message-ID: <obsolete-syntax-1@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Body with obsolete header formats tested.

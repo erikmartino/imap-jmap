@@ -76,6 +76,8 @@ type ReceiverBackend struct {
 	// ServerName is the receiving host name used in the RFC 5321 Section 4.4
 	// "Received:" trace header prepended to every accepted message.
 	ServerName string
+	// MaxMessageSize sets the maximum accepted message size in DATA (default MaxSMTPMessageSize).
+	MaxMessageSize int64
 }
 
 // NewReceiverBackend initializes a new SMTP ReceiverBackend linked to JMAP backends.
@@ -266,18 +268,22 @@ const (
 
 // Data handles DATA command per RFC 5321, storing raw blob and JMAP Email object per RFC 8620 & RFC 8621.
 func (s *Session) Data(r io.Reader) error {
-	lr := io.LimitReader(r, MaxSMTPMessageSize+1)
+	maxSize := int64(MaxSMTPMessageSize)
+	if s.backend != nil && s.backend.MaxMessageSize > 0 {
+		maxSize = s.backend.MaxMessageSize
+	}
+	lr := io.LimitReader(r, maxSize+1)
 	data, err := io.ReadAll(lr)
 	if err != nil {
 		return err
 	}
-	if len(data) > MaxSMTPMessageSize {
+	if int64(len(data)) > maxSize {
 		log.Printf("SMTP receiver: rejected oversized message from %s (%d bytes > %d bytes limit)",
-			s.remoteAddr, len(data), MaxSMTPMessageSize)
+			s.remoteAddr, len(data), maxSize)
 		return &smtp.SMTPError{
 			Code:         552,
 			EnhancedCode: smtp.EnhancedCode{5, 3, 4},
-			Message:      fmt.Sprintf("Message size exceeds maximum limit of %d bytes", MaxSMTPMessageSize),
+			Message:      fmt.Sprintf("Message size exceeds maximum limit of %d bytes", maxSize),
 		}
 	}
 	log.Printf("SMTP receiver: DATA from %s (helo=%q, envelope from=%q, recipients=%v, size=%d bytes)",

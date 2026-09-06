@@ -1,0 +1,41 @@
+From: outer-sender@example.com
+To: outer-recipient@example.com
+Subject: Encapsulated RFC822 Level 1
+Date: Sun, 06 Sep 2026 22:00:00 +0000
+Message-ID: <outer-level-1@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="outer-bound"
+
+--outer-bound
+Content-Type: text/plain
+
+Outer message body.
+--outer-bound
+Content-Type: message/rfc822
+
+From: middle-sender@example.com
+To: middle-recipient@example.com
+Subject: Encapsulated RFC822 Level 2
+Date: Sun, 06 Sep 2026 21:00:00 +0000
+Message-ID: <middle-level-2@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="middle-bound"
+
+--middle-bound
+Content-Type: text/plain
+
+Middle message body.
+--middle-bound
+Content-Type: message/rfc822
+
+From: inner-sender@example.com
+To: inner-recipient@example.com
+Subject: Encapsulated RFC822 Level 3
+Date: Sun, 06 Sep 2026 20:00:00 +0000
+Message-ID: <inner-level-3@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain
+
+Innermost message body.
+--middle-bound--
+--outer-bound--

@@ -68,7 +68,7 @@
     "section": "3.7",
     "level": "MUST",
     "text": "A receiving SMTP server must not reply 250 to DATA when the message could not be stored for any recipient; it must return a failure reply.",
-    "tests": ["TestRFC5321_DataStorageFailureReturns451"],
+    "tests": ["TestRFC5321_DataStorageFailureReturns451", "TestSMTPReceiver_MIMETorture", "TestSMTPReceiver_OversizedMessageDATA"],
     "status": "covered"
   },
   {
