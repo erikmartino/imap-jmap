@@ -6,8 +6,6 @@
 3. *RFC 2119 requirement implementation & traceability*.
 4. *Standard parsers & encoders only — never ad-hoc parsing*.
 
-Previous task logs and completed milestones preserved in [`TODO_PREVIOUS.md`](./TODO_PREVIOUS.md).
-
 ---
 
 ## Active Roadmap
