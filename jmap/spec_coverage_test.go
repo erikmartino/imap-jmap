@@ -41,6 +41,7 @@ var conformanceMatrices = []struct {
 }{
 	{"../docs/conformance/jmap-calendars.json", "."},
 	{"../docs/conformance/jmap-mail.json", "."},
+	{"../docs/conformance/jscontact.json", "./vcardconv"},
 	{"../docs/conformance/smtp.json", "../smtp"},
 }
 

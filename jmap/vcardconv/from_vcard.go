@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/emersion/go-vcard"
 )
@@ -38,8 +39,8 @@ func repairVCard(text string) (string, error) {
 	var out []string
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
-		for i+1 < len(lines) && (strings.HasPrefix(lines[i+1], " ") || strings.HasPrefix(lines[i+1], "\t")) {
-			line += strings.TrimLeft(lines[i+1], " \t")
+		for i+1 < len(lines) && len(lines[i+1]) > 0 && (lines[i+1][0] == ' ' || lines[i+1][0] == '\t') {
+			line += lines[i+1][1:]
 			i++
 		}
 		out = append(out, repairLine(line))
@@ -126,7 +127,7 @@ func cardToJSCard(card vcard.Card) (map[string]any, error) {
 	if pid := card.Value(vcard.FieldProductID); pid != "" {
 		out["prodId"] = pid
 	}
-	if lang := card.Value(vcard.FieldLanguage); lang != "" {
+	if lang := card.Value("LANGUAGE"); lang != "" {
 		out["language"] = lang
 	}
 	if rev := card.Value(vcard.FieldRevision); rev != "" {
@@ -193,35 +194,26 @@ func unescapeJSONText(s string) string {
 }
 
 func timestampToISO(ts string) (string, bool) {
-	if len(ts) < 15 {
+	ts = strings.TrimSpace(ts)
+	if ts == "" {
 		return "", false
 	}
-	// Basic form: YYYYMMDDTHHMMSS[Z]
-	if len(ts) == 15 && ts[14] == 'Z' {
-		ts = ts[:14] + "00" + "Z"
+	if t, err := time.Parse(time.RFC3339, ts); err == nil {
+		return t.UTC().Format("2006-01-02T15:04:05Z"), true
 	}
-	if len(ts) == 18 {
-		ts = ts[:14] + ts[14:16] + "Z"
+	formats := []string{
+		"20060102T150405Z0700",
+		"20060102T150405Z07",
+		"20060102T150405Z",
+		"20060102T150405",
+		"2006-01-02T15:04:05",
 	}
-	if len(ts) != 20 || ts[8] != 'T' {
-		return "", false
+	for _, f := range formats {
+		if t, err := time.Parse(f, ts); err == nil {
+			return t.UTC().Format("2006-01-02T15:04:05Z"), true
+		}
 	}
-	y, err1 := strconv.Atoi(ts[0:4])
-	mo, err2 := strconv.Atoi(ts[4:6])
-	d, err3 := strconv.Atoi(ts[6:8])
-	h, err4 := strconv.Atoi(ts[9:11])
-	mi, err5 := strconv.Atoi(ts[11:13])
-	s, err6 := strconv.Atoi(ts[13:15])
-	if err1 != nil || err2 != nil || err3 != nil || err4 != nil || err5 != nil || err6 != nil {
-		return "", false
-	}
-	_ = y
-	_ = mo
-	_ = d
-	_ = h
-	_ = mi
-	_ = s
-	return fmt.Sprintf("%s-%s-%sT%s:%s:%sZ", ts[0:4], ts[4:6], ts[6:8], ts[9:11], ts[11:13], ts[13:15]), true
+	return "", false
 }
 
 // ---- name / FN / N --------------------------------------------------------
@@ -281,57 +273,38 @@ func applyNames(out map[string]any, card vcard.Card) {
 		name := nameFromGroup(g)
 		if g.base {
 			if name != nil {
-				if _, hasComps := name["components"]; !hasComps && g.fn != nil && g.fn.Value != "" {
-					fnVal := strings.TrimSpace(g.fn.Value)
-					parts := strings.Fields(fnVal)
-					if len(parts) == 1 {
-						name["components"] = []any{map[string]any{"kind": "given", "value": parts[0]}}
-					} else if len(parts) >= 2 {
-						name["components"] = []any{
-							map[string]any{"kind": "given", "value": parts[0]},
-							map[string]any{"kind": "surname", "value": strings.Join(parts[1:], " ")},
-						}
-					}
-				}
 				if _, hasFull := name["full"]; !hasFull && g.fn != nil {
-					name["full"] = g.fn.Value
+					if !strings.EqualFold(param(g.fn, "DERIVED"), "true") && strings.TrimSpace(g.fn.Value) != "" {
+						name["full"] = g.fn.Value
+					}
 				}
 				out["name"] = name
-			} else if g.fn != nil {
-				// Only FN, no N: populate full and derive components.
-				fnVal := strings.TrimSpace(g.fn.Value)
-				nameObj := map[string]any{"full": fnVal}
-				parts := strings.Fields(fnVal)
-				if len(parts) == 1 {
-					nameObj["components"] = []any{map[string]any{"kind": "given", "value": parts[0]}}
-				} else if len(parts) >= 2 {
-					nameObj["components"] = []any{
-						map[string]any{"kind": "given", "value": parts[0]},
-						map[string]any{"kind": "surname", "value": strings.Join(parts[1:], " ")},
-					}
-				}
-				out["name"] = nameObj
+			} else if g.fn != nil && strings.TrimSpace(g.fn.Value) != "" && !strings.EqualFold(param(g.fn, "DERIVED"), "true") {
+				// Only FN, no N: populate full (RFC 9555 §2.5.2). Do NOT fabricate components!
+				out["name"] = map[string]any{"full": g.fn.Value}
 			}
 			continue
 		}
-		if name == nil || name == nil && g.fn == nil {
+		if name == nil && (g.fn == nil || strings.TrimSpace(g.fn.Value) == "" || strings.EqualFold(param(g.fn, "DERIVED"), "true")) {
 			continue
 		}
 		langs := mapFieldOrEmpty(out, "localizations")
 		if langs == nil {
 			langs = map[string]any{}
 		}
-		if name == nil {
-			continue
-		}
-		if comps, ok := name["components"]; ok {
-			patch := map[string]any{}
-			if out["name"] != nil {
+		patch := map[string]any{}
+		if name != nil {
+			if comps, ok := name["components"]; ok {
 				patch["name/components"] = comps
 			}
-			langs[g.lang] = patch
 		}
-		out["localizations"] = langs
+		if g.fn != nil && strings.TrimSpace(g.fn.Value) != "" && !strings.EqualFold(param(g.fn, "DERIVED"), "true") {
+			patch["name/full"] = g.fn.Value
+		}
+		if len(patch) > 0 {
+			langs[g.lang] = patch
+			out["localizations"] = langs
+		}
 	}
 }
 
@@ -348,36 +321,21 @@ func nameFromGroup(g *nameGroup) map[string]any {
 	name := map[string]any{}
 
 	comps := parsed.components
-	if parsed.isOrdered || parsed.hasSeparators {
-		name["isOrdered"] = true
-		if parsed.hasDefaultSeparator {
-			name["defaultSeparator"] = parsed.defaultSeparator
-		}
-	} else {
-		name["isOrdered"] = false
-	}
 	orderedComps := []any{}
 	for _, c := range comps {
 		obj := map[string]any{"kind": c.kind, "value": c.value}
 		orderedComps = append(orderedComps, obj)
 	}
-	if len(orderedComps) == 0 && g.fn != nil && g.fn.Value != "" {
-		fnVal := strings.TrimSpace(g.fn.Value)
-		parts := strings.Fields(fnVal)
-		if len(parts) == 1 {
-			orderedComps = append(orderedComps, map[string]any{"kind": "given", "value": parts[0]})
-		} else if len(parts) >= 2 {
-			orderedComps = append(orderedComps,
-				map[string]any{"kind": "given", "value": parts[0]},
-				map[string]any{"kind": "surname", "value": strings.Join(parts[1:], " ")},
-			)
-		}
-	}
 	if len(orderedComps) > 0 {
 		name["components"] = orderedComps
-	}
-	if g.fn != nil && g.fn.Value != "" {
-		name["full"] = g.fn.Value
+		if parsed.isOrdered || parsed.hasSeparators {
+			name["isOrdered"] = true
+			if parsed.hasDefaultSeparator {
+				name["defaultSeparator"] = parsed.defaultSeparator
+			}
+		} else {
+			name["isOrdered"] = false
+		}
 	}
 
 	if parsed.sortAs != nil {
@@ -395,21 +353,23 @@ func nameFromGroup(g *nameGroup) map[string]any {
 				byKind[c.kind] = c.value
 			}
 			compsOut := make([]any, 0, len(orderedComps))
-			for i, c := range orderedComps {
+			for _, c := range orderedComps {
 				obj := c.(map[string]any)
 				if pv, ok := byKind[obj["kind"].(string)]; ok {
 					obj["phonetic"] = pv
 				}
 				compsOut = append(compsOut, obj)
-				_ = i
 			}
 			name["components"] = compsOut
 		}
 	}
 
-	// full from the FN of the same group, unless it is derived.
-	if g.fn != nil && !hasParam(g.fn, "DERIVED") {
+	// full from the FN of the same group, unless it is derived or empty.
+	if g.fn != nil && !strings.EqualFold(param(g.fn, "DERIVED"), "true") && strings.TrimSpace(g.fn.Value) != "" {
 		name["full"] = g.fn.Value
+	}
+	if len(name) == 0 {
+		return nil
 	}
 	return name
 }
@@ -458,22 +418,28 @@ func parseNameField(f *vcard.Field) parsedName {
 					comps = append(comps, component{kind: "separator", value: c.value})
 					continue
 				}
-				var value string
+				var vals []string
 				switch c.kind {
 				case "surname":
-					value = strings.Join(surname, ",")
+					vals = surname
 				case "surname2":
-					value = strings.Join(s2, ",")
+					vals = s2
 				case "given":
-					value = strings.Join(given, ",")
+					vals = given
 				case "given2":
-					value = strings.Join(given2, ",")
+					vals = given2
 				case "title":
-					value = strings.Join(prefix, ",")
+					vals = prefix
 				case "credential":
-					value = strings.Join(credential, ",")
+					vals = credential
 				case "generation":
-					value = strings.Join(gen, ",")
+					vals = gen
+				}
+				var value string
+				if c.secondary < len(vals) {
+					value = vals[c.secondary]
+				} else if len(vals) > 0 {
+					value = strings.Join(vals, ",")
 				}
 				if value != "" {
 					comps = append(comps, component{kind: c.kind, value: value})
@@ -623,9 +589,8 @@ func applyOrganizationsAndTitles(out map[string]any, card vcard.Card) {
 			}
 			_, lang := fieldGroup(f)
 			if lang != "" {
-				if !applyLocalizationPatch(out, lang, "titles/"+id+"/name", f.Value) {
-					continue
-				}
+				applyLocalizationPatch(out, lang, "titles/"+id+"/name", f.Value)
+				continue
 			}
 			titles[id] = obj
 		}
@@ -640,7 +605,7 @@ func applyOrganizationsAndTitles(out map[string]any, card vcard.Card) {
 
 // applyLocalizationPatch records a localized property value under
 // localizations[lang][path] and reports whether it was recorded.
-func applyLocalizationPatch(out map[string]any, lang, path, value string) bool {
+func applyLocalizationPatch(out map[string]any, lang, path string, value any) bool {
 	langs := mapFieldOrEmpty(out, "localizations")
 	if langs == nil {
 		langs = map[string]any{}
@@ -653,6 +618,28 @@ func applyLocalizationPatch(out map[string]any, lang, path, value string) bool {
 	langs[lang] = patch
 	out["localizations"] = langs
 	return true
+}
+
+func groupLabels(card vcard.Card) map[string]string {
+	labels := map[string]string{}
+	for _, prop := range []string{"X-ABLABEL", "X-ABLabel", "x-ablabel"} {
+		for _, f := range card[prop] {
+			if f.Group != "" && f.Value != "" {
+				labels[f.Group] = f.Value
+			}
+		}
+	}
+	return labels
+}
+
+func resolveLabel(f *vcard.Field, abLabels map[string]string) string {
+	if l := param(f, "LABEL"); l != "" {
+		return l
+	}
+	if f.Group != "" && abLabels[f.Group] != "" {
+		return abLabels[f.Group]
+	}
+	return ""
 }
 
 // ---- emails / phones ------------------------------------------------------
@@ -678,11 +665,12 @@ func nextID(m map[string]any, prefix string) string {
 
 func applyEmails(out map[string]any, card vcard.Card) {
 	emails := map[string]any{}
+	abLabels := groupLabels(card)
 	for _, f := range card[vcard.FieldEmail] {
 		id := propID(out, "emails", "EMAIL", f)
 		obj := map[string]any{"address": f.Value}
 		applyContextsAndPref(obj, f)
-		if label := param(f, "LABEL"); label != "" {
+		if label := resolveLabel(f, abLabels); label != "" {
 			obj["label"] = label
 		}
 		emails[id] = obj
@@ -694,6 +682,7 @@ func applyEmails(out map[string]any, card vcard.Card) {
 
 func applyPhones(out map[string]any, card vcard.Card) {
 	phones := map[string]any{}
+	abLabels := groupLabels(card)
 	for _, f := range card[vcard.FieldTelephone] {
 		id := propID(out, "phones", "TEL", f)
 		obj := map[string]any{"number": f.Value}
@@ -708,7 +697,7 @@ func applyPhones(out map[string]any, card vcard.Card) {
 		if len(features) > 0 {
 			obj["features"] = features
 		}
-		if label := param(f, "LABEL"); label != "" {
+		if label := resolveLabel(f, abLabels); label != "" {
 			obj["label"] = label
 		}
 		phones[id] = obj
@@ -769,36 +758,32 @@ func applyContextsAndPref(obj map[string]any, f *vcard.Field) {
 
 func applyOnlineServices(out map[string]any, card vcard.Card) {
 	services := map[string]any{}
-	labels := map[string]string{}
-	for _, f := range card["X-SOCIALPROFILE"] {
-		labels[f.Group] = param(f, "LABEL")
-	}
-	for _, f := range card["IMPP"] {
-		labels[f.Group] = param(f, "LABEL")
-	}
+	abLabels := groupLabels(card)
 	for _, f := range card["IMPP"] {
 		id := propID(out, "onlineServices", "IMPP", f)
 		obj := map[string]any{"uri": f.Value, "vCardName": "impp"}
 		applyContextsAndPref(obj, f)
-		if label := labels[f.Group]; label != "" {
+		if label := resolveLabel(f, abLabels); label != "" {
 			obj["label"] = label
 		}
 		services[id] = obj
 	}
-	for _, f := range card["X-SOCIALPROFILE"] {
-		id := propID(out, "onlineServices", "X-SOCIALPROFILE", f)
-		obj := map[string]any{"uri": f.Value}
-		if svc := param(f, "SERVICE-TYPE"); svc != "" {
-			obj["service"] = svc
+	for _, name := range []string{"SOCIALPROFILE", "X-SOCIALPROFILE"} {
+		for _, f := range card[name] {
+			id := propID(out, "onlineServices", name, f)
+			obj := map[string]any{"uri": f.Value}
+			if svc := param(f, "SERVICE-TYPE"); svc != "" {
+				obj["service"] = svc
+			}
+			if user := param(f, "USERNAME"); user != "" {
+				obj["user"] = user
+			}
+			applyContextsAndPref(obj, f)
+			if label := resolveLabel(f, abLabels); label != "" {
+				obj["label"] = label
+			}
+			services[id] = obj
 		}
-		if user := param(f, "USERNAME"); user != "" {
-			obj["user"] = user
-		}
-		applyContextsAndPref(obj, f)
-		if label := labels[f.Group]; label != "" {
-			obj["label"] = label
-		}
-		services[id] = obj
 	}
 	if len(services) > 0 {
 		out["onlineServices"] = services
@@ -807,6 +792,7 @@ func applyOnlineServices(out map[string]any, card vcard.Card) {
 
 func applyLinks(out map[string]any, card vcard.Card) {
 	links := map[string]any{}
+	abLabels := groupLabels(card)
 	for _, name := range []string{"URL", "CONTACT-URI"} {
 		for _, f := range card[name] {
 			id := propID(out, "links", name, f)
@@ -815,6 +801,9 @@ func applyLinks(out map[string]any, card vcard.Card) {
 				obj["kind"] = "contact"
 			}
 			applyContextsAndPref(obj, f)
+			if label := resolveLabel(f, abLabels); label != "" {
+				obj["label"] = label
+			}
 			links[id] = obj
 		}
 	}
@@ -825,16 +814,23 @@ func applyLinks(out map[string]any, card vcard.Card) {
 
 func applyCalendars(out map[string]any, card vcard.Card) {
 	calendars := map[string]any{}
+	abLabels := groupLabels(card)
 	for _, f := range card[vcard.FieldCalendarURI] {
 		id := propID(out, "calendars", "CALURI", f)
 		obj := map[string]any{"kind": "calendar", "uri": f.Value}
 		applyContextsAndPref(obj, f)
+		if label := resolveLabel(f, abLabels); label != "" {
+			obj["label"] = label
+		}
 		calendars[id] = obj
 	}
 	for _, f := range card[vcard.FieldFreeOrBusyURL] {
 		id := propID(out, "calendars", "FBURL", f)
 		obj := map[string]any{"kind": "freeBusy", "uri": f.Value}
 		applyContextsAndPref(obj, f)
+		if label := resolveLabel(f, abLabels); label != "" {
+			obj["label"] = label
+		}
 		calendars[id] = obj
 	}
 	if len(calendars) > 0 {
@@ -844,11 +840,12 @@ func applyCalendars(out map[string]any, card vcard.Card) {
 
 func applySchedulingAddresses(out map[string]any, card vcard.Card) {
 	sched := map[string]any{}
+	abLabels := groupLabels(card)
 	for _, f := range card[vcard.FieldCalendarAddressURI] {
 		id := propID(out, "schedulingAddresses", "CALADRURI", f)
 		obj := map[string]any{"uri": f.Value}
 		applyContextsAndPref(obj, f)
-		if label := param(f, "LABEL"); label != "" {
+		if label := resolveLabel(f, abLabels); label != "" {
 			obj["label"] = label
 		}
 		sched[id] = obj
@@ -863,6 +860,7 @@ func applySchedulingAddresses(out map[string]any, card vcard.Card) {
 func applyAddresses(out map[string]any, card vcard.Card) {
 	addresses := map[string]any{}
 	byGroup := map[string]string{}
+	abLabels := groupLabels(card)
 
 	// ADR fields are processed in (ALTID, LANGUAGE) groups so localizations
 	// can be reconstructed; the base variant (no LANGUAGE) builds the address.
@@ -877,17 +875,15 @@ func applyAddresses(out map[string]any, card vcard.Card) {
 	}
 	for _, v := range variants {
 		f := v.field
+		id := param(f, "PROP-ID")
+		if id == "" {
+			id = propID(out, "addresses", "ADR", f)
+		}
+		obj := addressFromField(f, abLabels)
 		if v.lang != "" {
-			obj := addressFromField(f)
-			if full, ok := obj["full"]; ok && full != "" {
-				id := param(f, "PROP-ID")
-				if applyLocalizationPatch(out, v.lang, "addresses/"+id+"/full", full.(string)) {
-				}
-			}
+			applyLocalizationPatch(out, v.lang, "addresses/"+id, obj)
 			continue
 		}
-		id := propID(out, "addresses", "ADR", f)
-		obj := addressFromField(f)
 		if f.Group != "" {
 			byGroup[f.Group] = id
 		}
@@ -899,7 +895,7 @@ func applyAddresses(out map[string]any, card vcard.Card) {
 	_ = byGroup
 }
 
-func addressFromField(f *vcard.Field) map[string]any {
+func addressFromField(f *vcard.Field, abLabels map[string]string) map[string]any {
 	obj := map[string]any{}
 	raw := strings.Split(f.Value, ";")
 	get := func(i int) string {
@@ -908,102 +904,108 @@ func addressFromField(f *vcard.Field) map[string]any {
 		}
 		return raw[i]
 	}
-	hasNewFields := len(raw) > 7 && strings.Join(raw[7:], "") != ""
-
-	comps := []any{}
-	street := splitComma(get(2))
-	ext := splitComma(get(1))
-	if hasNewFields {
-		// New-style fields (room..direction) take precedence; legacy
-		// street/ext values are ignored when present (RFC 9554 §2.1).
-		posKinds := map[int]string{
-			7: "room", 8: "apartment", 9: "floor", 10: "number",
-			11: "name", 12: "building", 13: "block", 14: "subdistrict",
-			15: "district", 16: "landmark", 17: "direction",
-		}
-		var all []component
-		for i := 7; i < len(raw) && i <= 17; i++ {
-			kind := posKinds[i]
-			for _, v := range splitComma(raw[i]) {
-				if v != "" {
-					all = append(all, component{kind: kind, value: v})
-				}
-			}
-		}
-		// Prefix the classic single-value fields while preserving their
-		// structured-value order.
-		var prefix []component
-		if v := get(3); v != "" {
-			prefix = append(prefix, component{kind: "locality", value: v})
-		}
-		if v := get(4); v != "" {
-			prefix = append(prefix, component{kind: "region", value: v})
-		}
-		if v := get(5); v != "" {
-			prefix = append(prefix, component{kind: "postcode", value: v})
-		}
-		if v := get(6); v != "" {
-			prefix = append(prefix, component{kind: "country", value: v})
-		}
-		if v := get(0); v != "" {
-			prefix = append(prefix, component{kind: "postOfficeBox", value: v})
-		}
-		all = append(prefix, all...)
-		for _, c := range all {
-			comps = append(comps, map[string]any{"kind": c.kind, "value": c.value})
-		}
-	} else {
-		add := func(kind, value string) {
-			for _, v := range splitComma(value) {
-				if v != "" {
-					comps = append(comps, map[string]any{"kind": kind, "value": v})
-				}
-			}
-		}
-		add("postOfficeBox", get(0))
-		add("room", get(7))
-		add("apartment", get(8))
-		add("floor", get(9))
-		add("number", get(10))
-		add("name", get(11))
-		add("building", get(12))
-		add("block", get(13))
-		add("subdistrict", get(14))
-		add("district", get(15))
-		add("landmark", get(16))
-		add("direction", get(17))
-		// Legacy street and ext values are decomposed into the new fields.
-		add("number", get(2))
-		add("name", get(2))
-		add("block", get(2))
-		add("direction", get(2))
-		add("landmark", get(2))
-		add("subdistrict", get(2))
-		add("district", get(2))
-		_ = ext
-		_ = street
-	}
-
-	if len(comps) > 0 {
-		obj["components"] = comps
-	}
-	if full := param(f, "LABEL"); full != "" {
-		obj["full"] = full
-	}
-	if tz := param(f, "TZ"); tz != "" {
-		obj["timeZone"] = tz
-	}
-	applyContextsAndPref(obj, f)
 
 	jscomps := joinParams(f.Params["JSCOMPS"])
+	var comps []any
 	if jscomps != "" {
 		if entries, err := decodeJSCOMPS(jscomps, addrKindByPos); err == nil {
 			obj["isOrdered"] = true
 			if entries.defaultSeparator != "" || strings.HasPrefix(jscomps, "s,") {
 				obj["defaultSeparator"] = entries.defaultSeparator
 			}
+			for _, entry := range entries.order {
+				if entry.kind == "separator" {
+					comps = append(comps, map[string]any{"kind": "separator", "value": entry.value})
+					continue
+				}
+				vals := splitComma(get(entry.pos))
+				var val string
+				if entry.secondary < len(vals) {
+					val = vals[entry.secondary]
+				} else if len(vals) > 0 {
+					val = strings.Join(vals, ",")
+				}
+				if val != "" {
+					comps = append(comps, map[string]any{"kind": entry.kind, "value": val})
+				}
+			}
 		}
 	}
+
+	if comps == nil {
+		hasNewFields := len(raw) > 7 && strings.Join(raw[7:], "") != ""
+		if hasNewFields {
+			posKinds := map[int]string{
+				7: "room", 8: "apartment", 9: "floor", 10: "number",
+				11: "name", 12: "building", 13: "block", 14: "subdistrict",
+				15: "district", 16: "landmark", 17: "direction",
+			}
+			var all []component
+			for i := 7; i < len(raw) && i <= 17; i++ {
+				kind := posKinds[i]
+				for _, v := range splitComma(raw[i]) {
+					if v != "" {
+						all = append(all, component{kind: kind, value: v})
+					}
+				}
+			}
+			var prefix []component
+			if v := get(3); v != "" {
+				prefix = append(prefix, component{kind: "locality", value: v})
+			}
+			if v := get(4); v != "" {
+				prefix = append(prefix, component{kind: "region", value: v})
+			}
+			if v := get(5); v != "" {
+				prefix = append(prefix, component{kind: "postcode", value: v})
+			}
+			if v := get(6); v != "" {
+				prefix = append(prefix, component{kind: "country", value: v})
+			}
+			if v := get(0); v != "" {
+				prefix = append(prefix, component{kind: "postOfficeBox", value: v})
+			}
+			all = append(prefix, all...)
+			for _, c := range all {
+				comps = append(comps, map[string]any{"kind": c.kind, "value": c.value})
+			}
+		} else {
+			add := func(kind, value string) {
+				for _, v := range splitComma(value) {
+					if v != "" {
+						comps = append(comps, map[string]any{"kind": kind, "value": v})
+					}
+				}
+			}
+			add("postOfficeBox", get(0))
+			add("room", get(7))
+			add("apartment", get(8))
+			add("floor", get(9))
+			add("number", get(10))
+			add("name", get(11))
+			add("building", get(12))
+			add("block", get(13))
+			add("subdistrict", get(14))
+			add("district", get(15))
+			add("landmark", get(16))
+			add("direction", get(17))
+			add("locality", get(3))
+			add("region", get(4))
+			add("postcode", get(5))
+			add("country", get(6))
+		}
+	}
+
+	if len(comps) > 0 {
+		obj["components"] = comps
+	}
+	if full := resolveLabel(f, abLabels); full != "" {
+		obj["full"] = full
+	}
+	if tz := param(f, "TZ"); tz != "" {
+		obj["timeZone"] = tz
+	}
+	applyContextsAndPref(obj, f)
 	return obj
 }
 
@@ -1159,11 +1161,9 @@ func applyRelatedTo(out map[string]any, card vcard.Card) {
 		obj := map[string]any{}
 		types := map[string]any{}
 		for _, t := range f.Params.Types() {
-			types[t] = true
+			types[strings.ToLower(t)] = true
 		}
-		if len(types) > 0 {
-			obj["relation"] = types
-		}
+		obj["relation"] = types
 		related[f.Value] = obj
 	}
 	if len(related) > 0 {
@@ -1220,15 +1220,23 @@ func applyAnniversaries(out map[string]any, card vcard.Card) {
 }
 
 func parseAnniversaryDate(v string) map[string]any {
-	if len(v) >= 15 && v[8] == 'T' {
+	v = strings.TrimSpace(v)
+	if strings.Contains(v, "T") {
 		if iso, ok := timestampToISO(v); ok {
 			return map[string]any{"@type": "Timestamp", "utc": iso}
 		}
 	}
-	if len(v) >= 8 {
-		if y, err1 := strconv.Atoi(v[0:4]); err1 == nil {
-			mo, err2 := strconv.Atoi(v[4:6])
-			d, err3 := strconv.Atoi(v[6:8])
+	clean := strings.ReplaceAll(v, "-", "")
+	if strings.HasPrefix(clean, "--") && len(clean) == 6 {
+		if mo, err2 := strconv.Atoi(clean[2:4]); err2 == nil {
+			if d, err3 := strconv.Atoi(clean[4:6]); err3 == nil {
+				return map[string]any{"@type": "PartialDate", "month": mo, "day": d}
+			}
+		}
+	} else if len(clean) >= 8 {
+		if y, err1 := strconv.Atoi(clean[0:4]); err1 == nil {
+			mo, err2 := strconv.Atoi(clean[4:6])
+			d, err3 := strconv.Atoi(clean[6:8])
 			if err2 == nil && err3 == nil {
 				return map[string]any{"@type": "PartialDate", "year": y, "month": mo, "day": d}
 			}

@@ -1,0 +1,1232 @@
+[
+  {
+    "id": "addresses_components",
+    "jprops": {
+      "addresses": {
+        "a1": {
+          "components": [
+            {
+              "kind": "apartment",
+              "value": "apartment-val"
+            },
+            {
+              "kind": "block",
+              "value": "block-val"
+            },
+            {
+              "kind": "building",
+              "value": "building-val"
+            },
+            {
+              "kind": "country",
+              "value": "country-val"
+            },
+            {
+              "kind": "direction",
+              "value": "direction-val"
+            },
+            {
+              "kind": "district",
+              "value": "district-val"
+            },
+            {
+              "kind": "floor",
+              "value": "floor-val"
+            },
+            {
+              "kind": "landmark",
+              "value": "landmark-val"
+            },
+            {
+              "kind": "locality",
+              "value": "locality-val"
+            },
+            {
+              "kind": "name",
+              "value": "name-val"
+            },
+            {
+              "kind": "number",
+              "value": "number-val"
+            },
+            {
+              "kind": "postcode",
+              "value": "postcode-val"
+            },
+            {
+              "kind": "postOfficeBox",
+              "value": "postOfficeBox-val"
+            },
+            {
+              "kind": "region",
+              "value": "region-val"
+            },
+            {
+              "kind": "room",
+              "value": "room-val"
+            },
+            {
+              "kind": "subdistrict",
+              "value": "subdistrict-val"
+            }
+          ]
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "addresses_defaultseparator_rfc6868",
+    "jprops": {
+      "addresses": {
+        "a1": {
+          "components": [
+            {
+              "kind": "name",
+              "value": "name"
+            },
+            {
+              "kind": "region",
+              "value": "region"
+            }
+          ],
+          "defaultSeparator": "\nx^y\"z",
+          "isOrdered": true
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "addresses_localizations",
+    "jprops": {
+      "addresses": {
+        "k26": {
+          "components": [
+            {
+              "kind": "block",
+              "value": "2-7"
+            },
+            {
+              "kind": "separator",
+              "value": "-"
+            },
+            {
+              "kind": "number",
+              "value": "2"
+            },
+            {
+              "kind": "separator",
+              "value": " "
+            },
+            {
+              "kind": "district",
+              "value": "Marunouchi"
+            },
+            {
+              "kind": "locality",
+              "value": "Chiyoda-ku"
+            },
+            {
+              "kind": "region",
+              "value": "Tokyo"
+            },
+            {
+              "kind": "separator",
+              "value": " "
+            },
+            {
+              "kind": "postcode",
+              "value": "100-8994"
+            }
+          ],
+          "defaultSeparator": ", ",
+          "full": "2-7-2 Marunouchi, Chiyoda-ku, Tokyo 100-8994",
+          "isOrdered": true
+        }
+      },
+      "localizations": {
+        "jp": {
+          "addresses/k26": {
+            "components": [
+              {
+                "kind": "region",
+                "value": "東京都"
+              },
+              {
+                "kind": "locality",
+                "value": "千代田区"
+              },
+              {
+                "kind": "district",
+                "value": "丸ノ内"
+              },
+              {
+                "kind": "block",
+                "value": "2-7"
+              },
+              {
+                "kind": "separator",
+                "value": "-"
+              },
+              {
+                "kind": "number",
+                "value": "2"
+              },
+              {
+                "kind": "postcode",
+                "value": "〒100-8994"
+              }
+            ],
+            "defaultSeparator": "",
+            "full": "〒100-8994東京都千代田区丸ノ内2-7-2",
+            "isOrdered": true
+          }
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "anniversaries",
+    "jprops": {
+      "anniversaries": {
+        "k8": {
+          "kind": "birth",
+          "date": {
+            "year": 1953,
+            "month": 4,
+            "day": 15
+          }
+        },
+        "k9": {
+          "kind": "death",
+          "date": {
+            "@type": "Timestamp",
+            "utc": "2019-10-15T23:10:00Z"
+          },
+          "place": {
+            "full": "4445 Tree Street\nNew England, ND 58647\nUSA"
+          }
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "calendars",
+    "jprops": {
+      "calendars": {
+        "calA": {
+          "kind": "calendar",
+          "uri": "webcal://calendar.example.com/calA.ics"
+        },
+        "project-a": {
+          "kind": "freeBusy",
+          "uri": "https://calendar.example.com/busy/project-a"
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "created",
+    "jprops": {
+      "created": "2022-09-30T14:35:10Z"
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "cryptoKeys",
+    "jprops": {
+      "cryptoKeys": {
+        "mykey1": {
+          "uri": "https://www.example.com/keys/jdoe.cer"
+        },
+        "mykey2": {
+          "uri": "https://example.com/bar.key"
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "cryptoKeys_datauri",
+    "jprops": {
+      "cryptoKeys": {
+        "mykey2": {
+          "uri": "data:application/pgp-keys;base64,LS0tLS1CRUdJTiBSU0EgUFVCTElDIEtFWS0tLS0tCk1JSUJDZ0tDQVFFQSt4R1ovd2N6OXVnRnBQMDdOc3BvNlUxN2wwWWhGaUZweHhVNHBUazNMaWZ6OVIzenNJc3UKRVJ3dGE3K2ZXSWZ4T28yMDhldHQvamhza2lWb2RTRXQzUUJHaDRYQmlweVdvcEt3WjkzSEhhRFZaQUFMaS8yQQoreFRCdFdkRW83WEdVdWpLRHZDMi9hWkt1a2ZqcE9pVUk4QWhMQWZqbWxjRC9VWjFRUGgwbUhzZ2xSTkNtcEN3Cm13U1hBOVZObWh6K1BpQitEbWw0V1duS1cvVkhvMnVqVFh4cTcrZWZNVTRIMmZueTNTZTNLWU9zRlBGR1oxVE4KUVNZbEZ1U2hXckhQdGlMbVVkUG9QNkNWMm1NTDF0aytsN0RJSXFYclFoTFVLREFDZU01cm9NeDBrTGhVV0I4UAorMHVqMUNObE5ONEpSWmxDN3hGZnFpTWJGUlU5WjRONll3SURBUUFCCi0tLS0tRU5EIFJTQSBQVUJMSUMgS0VZLS0tLS0K"
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "directories",
+    "jprops": {
+      "directories": {
+        "dir1": {
+          "kind": "entry",
+          "uri": "https://dir.example.com/addrbook/jdoe/Jean%20Dupont.vcf"
+        },
+        "dir2": {
+          "kind": "directory",
+          "uri": "ldap://ldap.example/o=Example%20Tech,ou=Engineering",
+          "pref": 1
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "emails",
+    "jprops": {
+      "emails": {
+        "e1": {
+          "contexts": {
+            "work": true
+          },
+          "address": "jqpublic@xyz.example.com"
+        },
+        "e2": {
+          "address": "jane_doe@example.com",
+          "pref": 1
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "extra",
+    "jprops": {
+      "name": {
+        "full": "Jane"
+      },
+      "extra": "reserved"
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": [
+      "extra"
+    ]
+  },
+  {
+    "id": "extra_nested",
+    "jprops": {
+      "name": {
+        "full": "Jane",
+        "extra": "reserved"
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": [
+      "name/extra"
+    ]
+  },
+  {
+    "id": "extra_patched",
+    "jprops": {
+      "name": {
+        "full": "Jane"
+      },
+      "localizations": {
+        "de": {
+          "name/extra": "reserved"
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": [
+      "localizations/de/name~1extra"
+    ]
+  },
+  {
+    "id": "keywords",
+    "jprops": {
+      "keywords": {
+        "internet": true,
+        "IETF": true
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "kind_group",
+    "jprops": {
+      "kind": "group",
+      "members": {
+        "urn:uuid:03a0e51f-d1aa-4385-8a53-e29025acd8af": true
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "language",
+    "jprops": {
+      "language": "de-AT"
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "links",
+    "jprops": {
+      "links": {
+        "link1": {
+          "uri": "https://example.com"
+        },
+        "link3": {
+          "kind": "contact",
+          "uri": "mailto:contact@example.com",
+          "pref": 1
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "localizations_overwrite",
+    "jprops": {
+      "name": {
+        "components": [
+          {
+            "kind": "title",
+            "value": "Mr."
+          },
+          {
+            "kind": "given",
+            "value": "Ivan"
+          },
+          {
+            "kind": "given2",
+            "value": "Petrovich"
+          },
+          {
+            "kind": "surname",
+            "value": "Vasiliev"
+          }
+        ]
+      },
+      "localizations": {
+        "uk-Cyrl": {
+          "name": {
+            "components": [
+              {
+                "kind": "title",
+                "value": "г-н"
+              },
+              {
+                "kind": "given",
+                "value": "Иван"
+              },
+              {
+                "kind": "given2",
+                "value": "Петрович"
+              },
+              {
+                "kind": "surname",
+                "value": "Васильев"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "localizations_patch",
+    "jprops": {
+      "name": {
+        "full": "Gabriel García Márquez"
+      },
+      "titles": {
+        "t1": {
+          "kind": "title",
+          "name": "novelist"
+        }
+      },
+      "localizations": {
+        "es": {
+          "titles/t1/name": "autor"
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "media",
+    "jprops": {
+      "media": {
+        "res45": {
+          "kind": "sound",
+          "uri": "CID:JOHNQ.part8.19960229T080000.xyzMail@example.com"
+        },
+        "res47": {
+          "kind": "logo",
+          "uri": "https://www.example.com/pub/logos/abccorp.jpg"
+        },
+        "res1": {
+          "kind": "photo",
+          "uri": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAASABIAAD/"
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "name_components",
+    "jprops": {
+      "name": {
+        "components": [
+          {
+            "kind": "title",
+            "value": "Ms."
+          },
+          {
+            "kind": "given",
+            "value": "Mary Jean"
+          },
+          {
+            "kind": "given2",
+            "value": "Elizabeth"
+          },
+          {
+            "kind": "surname",
+            "value": "van Halen"
+          },
+          {
+            "kind": "surname2",
+            "value": "Barrientos"
+          },
+          {
+            "kind": "generation",
+            "value": "III"
+          },
+          {
+            "kind": "separator",
+            "value": ", "
+          },
+          {
+            "kind": "credential",
+            "value": "PhD"
+          }
+        ],
+        "isOrdered": true
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "name_defaultSeparator",
+    "jprops": {
+      "name": {
+        "defaultSeparator": "X",
+        "components": [
+          {
+            "kind": "given",
+            "value": "Jane"
+          },
+          {
+            "kind": "surname",
+            "value": "Doe"
+          }
+        ],
+        "isOrdered": true
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "name_fullname_only",
+    "jprops": {
+      "name": {
+        "full": "Mr. John Q. Public, Esq."
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "name_given",
+    "jprops": {
+      "name": {
+        "components": [
+          {
+            "kind": "given",
+            "value": "Jane"
+          }
+        ]
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "name_localizations",
+    "jprops": {
+      "name": {
+        "components": [
+          {
+            "kind": "title",
+            "value": "title"
+          },
+          {
+            "kind": "given",
+            "value": "given"
+          },
+          {
+            "kind": "given2",
+            "value": "given2"
+          },
+          {
+            "kind": "surname",
+            "value": "surname"
+          },
+          {
+            "kind": "surname2",
+            "value": "surname2"
+          },
+          {
+            "kind": "credential",
+            "value": "credential"
+          },
+          {
+            "kind": "generation",
+            "value": "generation"
+          }
+        ]
+      },
+      "localizations": {
+        "de": {
+          "name/components": [
+            {
+              "kind": "title",
+              "value": "anrede"
+            },
+            {
+              "kind": "given",
+              "value": "vorname"
+            },
+            {
+              "kind": "given2",
+              "value": "vorname2"
+            },
+            {
+              "kind": "surname",
+              "value": "nachname"
+            },
+            {
+              "kind": "surname2",
+              "value": "nachname2"
+            },
+            {
+              "kind": "credential",
+              "value": "titel"
+            },
+            {
+              "kind": "generation",
+              "value": "generation"
+            }
+          ]
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "name_phonetic",
+    "jprops": {
+      "name": {
+        "components": [
+          {
+            "kind": "given",
+            "value": "John",
+            "phonetic": "/d͡ʒɑn/"
+          },
+          {
+            "kind": "surname",
+            "value": "Smith",
+            "phonetic": "/smɪθ/"
+          }
+        ],
+        "phoneticSystem": "ipa"
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "name_phonetic_ordered",
+    "jprops": {
+      "name": {
+        "components": [
+          {
+            "kind": "given",
+            "value": "John",
+            "phonetic": "/d͡ʒɑn/"
+          },
+          {
+            "kind": "surname",
+            "value": "Smith",
+            "phonetic": "/smɪθ/"
+          }
+        ],
+        "phoneticSystem": "ipa",
+        "isOrdered": true
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "name_sortAs",
+    "jprops": {
+      "name": {
+        "components": [
+          {
+            "kind": "given",
+            "value": "Robert"
+          },
+          {
+            "kind": "given2",
+            "value": "Pau"
+          },
+          {
+            "kind": "surname",
+            "value": "Shou Chang"
+          }
+        ],
+        "sortAs": {
+          "surname": "Pau Shou Chang",
+          "given": "Robert"
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "name_surname",
+    "jprops": {
+      "name": {
+        "components": [
+          {
+            "kind": "given",
+            "value": "Jane"
+          },
+          {
+            "kind": "surname",
+            "value": "Doe"
+          }
+        ]
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "name_surname2",
+    "jprops": {
+      "name": {
+        "components": [
+          {
+            "kind": "given",
+            "value": "Diego"
+          },
+          {
+            "kind": "surname",
+            "value": "Rivera"
+          },
+          {
+            "kind": "surname2",
+            "value": "Barrientos"
+          }
+        ],
+        "isOrdered": true
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "name_surname_whitespace",
+    "jprops": {
+      "name": {
+        "components": [
+          {
+            "kind": "given",
+            "value": "Vincent"
+          },
+          {
+            "kind": "surname",
+            "value": "van Gogh"
+          }
+        ],
+        "isOrdered": true
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "nicknames",
+    "jprops": {
+      "nicknames": {
+        "n1": {
+          "name": "Johnny"
+        },
+        "n2": {
+          "name": "The John",
+          "contexts": {
+            "work": true
+          }
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "notes",
+    "jprops": {
+      "notes": {
+        "n1": {
+          "note": "Open office hours are 1600 to 1715 EST, Mon-Fri",
+          "created": "2022-11-23T15:01:32Z",
+          "author": {
+            "name": "John"
+          }
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "onlineServices",
+    "jprops": {
+      "onlineServices": {
+        "x1": {
+          "uri": "xmpp:alice@example.com",
+          "vCardName": "impp"
+        },
+        "x2": {
+          "service": "Mastodon",
+          "user": "@alice@example2.com",
+          "uri": "https://example2.com/@alice",
+          "label": "foo"
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "organizations",
+    "jprops": {
+      "organizations": {
+        "o1": {
+          "name": "ABC, Inc.",
+          "units": [
+            {
+              "name": "North American Division"
+            },
+            {
+              "name": "Marketing"
+            }
+          ],
+          "sortAs": "ABC"
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "personalInfo",
+    "jprops": {
+      "personalInfo": {
+        "pi2": {
+          "kind": "expertise",
+          "value": "chemistry",
+          "level": "high"
+        },
+        "pi1": {
+          "kind": "hobby",
+          "value": "reading",
+          "level": "high"
+        },
+        "pi6": {
+          "kind": "interest",
+          "value": "r&b music",
+          "level": "medium"
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "phones",
+    "jprops": {
+      "phones": {
+        "tel0": {
+          "contexts": {
+            "private": true
+          },
+          "features": {
+            "voice": true
+          },
+          "number": "tel:+1-555-555-5555;ext=5555",
+          "pref": 1
+        },
+        "tel3": {
+          "contexts": {
+            "work": true
+          },
+          "number": "tel:+1-201-555-0123"
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "preferredLanguages",
+    "jprops": {
+      "preferredLanguages": {
+        "l1": {
+          "language": "en",
+          "contexts": {
+            "work": true
+          },
+          "pref": 1
+        },
+        "l2": {
+          "language": "fr",
+          "contexts": {
+            "work": true
+          },
+          "pref": 2
+        },
+        "l3": {
+          "language": "fr",
+          "contexts": {
+            "private": true
+          }
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "prodId",
+    "jprops": {
+      "prodId": "ACME Contacts App version 1.23.5"
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "relatedTo",
+    "jprops": {
+      "relatedTo": {
+        "urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6": {
+          "relation": {
+            "friend": true
+          }
+        },
+        "8cacdfb7d1ffdb59@example.com": {
+          "relation": {}
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "schedulingAddresses",
+    "jprops": {
+      "schedulingAddresses": {
+        "sched1": {
+          "uri": "mailto:janedoe@example.com"
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "schedulingAddresses_label",
+    "jprops": {
+      "schedulingAddresses": {
+        "sched1": {
+          "uri": "mailto:janedoe@example.com",
+          "label": "bar",
+          "contexts": {
+            "work": true
+          },
+          "pref": 3
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "speakToAs",
+    "jprops": {
+      "speakToAs": {
+        "grammaticalGender": "neuter",
+        "pronouns": {
+          "k19": {
+            "pronouns": "they/them",
+            "pref": 2
+          },
+          "k32": {
+            "pronouns": "xe/xir",
+            "pref": 1
+          }
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "titles",
+    "jprops": {
+      "titles": {
+        "le9": {
+          "kind": "title",
+          "name": "Research Scientist"
+        },
+        "k2": {
+          "kind": "role",
+          "name": "Project Leader",
+          "organizationId": "o2"
+        }
+      },
+      "organizations": {
+        "o2": {
+          "name": "ABC"
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "uid_text",
+    "jprops": {
+      "uid": "hello@example.com"
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "uid_uri",
+    "jprops": {
+      "uid": "ldap:///o=University%20of%20Michigan,c=US"
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "uid_urn",
+    "jprops": {
+      "uid": "urn:uuid:a8325755-a21d-456a-bb8b-8dc75165164c"
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "unknownProp",
+    "jprops": {
+      "foo": "bar"
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "updated",
+    "jprops": {
+      "updated": "2021-10-31T22:27:10Z"
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "vCardParams",
+    "jprops": {
+      "emails": {
+        "e1": {
+          "address": "jqpublic@xyz.example.com",
+          "vCardParams": {
+            "x-foo": "bar"
+          }
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "vCardProps",
+    "jprops": {
+      "vCardProps": [
+        [
+          "x-foo",
+          {
+            "group": "item2",
+            "pref": 1
+          },
+          "unknown",
+          "bar"
+        ]
+      ]
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "vCardProps_iana",
+    "jprops": {
+      "name": {
+        "full": "Jane Doe"
+      },
+      "vCardProps": [
+        [
+          "photo",
+          {},
+          "uri",
+          "https://example.com/hello.jpg"
+        ]
+      ]
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": true,
+    "invalid_props": []
+  },
+  {
+    "id": "vendorSpecific",
+    "jprops": {
+      "example.com:foo": "bar",
+      "name": {
+        "full": "Jane Doe",
+        "example.com:foo2": {
+          "bar": "baz"
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": []
+  },
+  {
+    "id": "wrongCaseProp",
+    "jprops": {
+      "nickNames": {
+        "n1": {
+          "name": "Johnny"
+        },
+        "n2": {
+          "name": "The John",
+          "contexts": {
+            "work": true
+          }
+        }
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": [
+      "nickNames"
+    ]
+  },
+  {
+    "id": "wrongCaseProp2",
+    "jprops": {
+      "name": {
+        "full": "Jane",
+        "Full": "Jane"
+      }
+    },
+    "skip_to_vcard": false,
+    "skip_from_vcard": false,
+    "invalid_props": [
+      "name/Full"
+    ]
+  }
+]

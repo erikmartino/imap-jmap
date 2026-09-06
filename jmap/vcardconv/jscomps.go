@@ -137,8 +137,10 @@ func buildJSCOMPS(comps []component, defaultSeparator string, hasDefaultSeparato
 
 // component is a (kind, value) pair used while assembling JSCOMPS.
 type component struct {
-	kind  string
-	value string
+	kind      string
+	value     string
+	pos       int
+	secondary int
 }
 
 // jscompsEntries is the decoded content of a JSCOMPS parameter value.
@@ -165,15 +167,29 @@ func decodeJSCOMPS(value string, posByKind map[int]string) (jscompsEntries, erro
 			out.order = append(out.order, component{kind: "separator", value: unescapeJSCOMPSVerb(e[2:])})
 			continue
 		}
-		pos, err := strconv.Atoi(e)
+		posStr := e
+		secStr := ""
+		if comma := strings.IndexByte(e, ','); comma != -1 {
+			posStr = e[:comma]
+			secStr = e[comma+1:]
+		}
+		pos, err := strconv.Atoi(posStr)
 		if err != nil {
 			return out, errInvalidJSCOMPS
+		}
+		sec := 0
+		if secStr != "" {
+			s, err := strconv.Atoi(secStr)
+			if err != nil {
+				return out, errInvalidJSCOMPS
+			}
+			sec = s
 		}
 		kind, ok := posByKind[pos]
 		if !ok {
 			return out, errInvalidJSCOMPS
 		}
-		out.order = append(out.order, component{kind: kind})
+		out.order = append(out.order, component{kind: kind, pos: pos, secondary: sec})
 	}
 	return out, nil
 }

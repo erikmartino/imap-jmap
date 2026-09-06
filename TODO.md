@@ -45,7 +45,10 @@ Following the successful retirement of `jmap/memory/` in favor of `imapsmtp` in 
 ---
 
 ### Phase 2: External Test Suites & Conformance Verification
-- [ ] **2.1 `jmapio/jscontact-tests` (Python)**
+- [x] **2.1 `jmapio/jscontact-tests` (Python)**
   - Execute JSContact ↔ vCard conversion vectors against `/convert` endpoint (RFC 9553 / RFC 9555).
+  - 55/55 vectors passing (100% green) in external test suite.
+  - Vendored all 55 vectors in `jmap/vcardconv/vectors_test.go` with RFC 9553 / RFC 9554 / RFC 9555 `spectest.Require` citations.
+  - Added requirement traceability matrix in `docs/conformance/jscontact.json` gated by `TestSpecCoverage`.
 - [ ] **2.2 MIME Torture Test Suite**
   - Execute malformed/nested MIME torture suite against `Email/parse` and `smtp.Receiver`.

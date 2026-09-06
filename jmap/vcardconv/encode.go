@@ -15,6 +15,7 @@ package vcardconv
 import (
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // vcardField is a single vCard property line (group, name, parameters, value).
@@ -23,6 +24,7 @@ type vcardField struct {
 	Name   string
 	Params []vcardParam
 	Value  string
+	Raw    bool
 }
 
 // paramMode controls how a parameter value is rendered.
@@ -50,14 +52,18 @@ type vcardParam struct {
 }
 
 // isSafeParamChar reports whether c is a vCard 4.0 SAFE-CHAR (RFC 6350 §3.3):
-// WSP / %x21 / %x23-7E / NON-ASCII.
+// WSP / %x21 / %x23-2B / %x2D-39 / %x3C-7E / NON-ASCII. (excludes DQUOTE, ":", ";", ",")
 func isSafeParamChar(c rune) bool {
 	switch {
 	case c == ' ' || c == '\t':
 		return true
 	case c == 0x21:
 		return true
-	case c >= 0x23 && c <= 0x7E:
+	case c >= 0x23 && c <= 0x2B:
+		return true
+	case c >= 0x2D && c <= 0x39:
+		return true
+	case c >= 0x3C && c <= 0x7E:
 		return true
 	case c >= 0x80:
 		return true
@@ -197,18 +203,30 @@ func encodeLine(f vcardField) string {
 		b.WriteString(encodeValue(p.Value, p.Mode))
 	}
 	b.WriteByte(':')
-	b.WriteString(escapeText(f.Value))
+	if f.Raw {
+		b.WriteString(f.Value)
+	} else {
+		b.WriteString(escapeText(f.Value))
+	}
 
 	line := b.String()
 	if len(line) <= foldLen {
 		return line
 	}
 	// Fold at 75 octets: a CRLF followed by a single space continues the line.
+	// Care MUST be taken not to fold in the middle of a UTF-8 multi-octet character (RFC 6350 §3.2).
 	var folded strings.Builder
 	for len(line) > foldLen {
-		folded.WriteString(line[:foldLen])
+		cut := foldLen
+		for cut > 0 && !utf8.RuneStart(line[cut]) {
+			cut--
+		}
+		if cut == 0 {
+			cut = foldLen
+		}
+		folded.WriteString(line[:cut])
 		folded.WriteString("\r\n ")
-		line = line[foldLen:]
+		line = line[cut:]
 	}
 	folded.WriteString(line)
 	return folded.String()

@@ -51,28 +51,28 @@ func (c *converter) convertCard() []vcardField {
 	card := c.card
 
 	if uid := strField(card, "uid"); uid != "" {
-		fields = append(fields, vcardField{Name: "UID", Value: uid})
+		fields = append(fields, vcardField{Name: "UID", Value: uid, Raw: true})
 	} else {
-		fields = append(fields, vcardField{Name: "UID", Value: newUID()})
+		fields = append(fields, vcardField{Name: "UID", Value: newUID(), Raw: true})
 	}
 	if kind := strField(card, "kind"); kind != "" {
-		fields = append(fields, vcardField{Name: "KIND", Value: kind})
+		fields = append(fields, vcardField{Name: "KIND", Value: kind, Raw: true})
 	}
 	if prodID := strField(card, "prodId"); prodID != "" {
-		fields = append(fields, vcardField{Name: "PRODID", Value: prodID})
+		fields = append(fields, vcardField{Name: "PRODID", Value: prodID, Raw: true})
 	}
 	if created := strField(card, "created"); created != "" {
 		if ts, ok := toVCardTimestamp(created); ok {
-			fields = append(fields, vcardField{Name: "CREATED", Params: []vcardParam{{Name: "VALUE", Value: "timestamp"}}, Value: ts})
+			fields = append(fields, vcardField{Name: "CREATED", Params: []vcardParam{{Name: "VALUE", Value: "timestamp"}}, Value: ts, Raw: true})
 		}
 	}
 	if updated := strField(card, "updated"); updated != "" {
 		if ts, ok := toVCardTimestamp(updated); ok {
-			fields = append(fields, vcardField{Name: "REV", Value: ts})
+			fields = append(fields, vcardField{Name: "REV", Value: ts, Raw: true})
 		}
 	}
 	if lang := strField(card, "language"); lang != "" {
-		fields = append(fields, vcardField{Name: "LANGUAGE", Value: lang})
+		fields = append(fields, vcardField{Name: "LANGUAGE", Value: lang, Raw: true})
 	}
 	if version := strField(card, "version"); version != "" {
 		fields = append(fields, jspropVersion(version))
@@ -129,10 +129,47 @@ func (c *converter) convertNames() []vcardField {
 		// FN is mandatory in vCard; without a JSContact name it is empty.
 		return []vcardField{{Name: "FN"}}
 	}
-	fields := c.convertVariants(nameToVCard)
-	// If no localized variant changed the name, emit only the base FN (no
-	// redundant LANGUAGE/ALTID copies).
+	var localizedLangs []string
+	for _, lang := range c.langVariants() {
+		patched := c.patchedCard(lang)
+		if !reflect.DeepEqual(patched["name"], c.card["name"]) {
+			localizedLangs = append(localizedLangs, lang)
+		}
+	}
+
+	altID := ""
+	if len(localizedLangs) > 0 {
+		altID = "1"
+	}
+
+	var fields []vcardField
+	fields = append(fields, nameToVCard(c.card, "", altID)...)
+	for _, lang := range localizedLangs {
+		patched := c.patchedCard(lang)
+		fields = append(fields, nameToVCard(patched, lang, altID)...)
+	}
 	return fields
+}
+
+// escapeComponentValue escapes characters inside an individual component or subcomponent:
+// backslash, newline, comma, and semicolon.
+func escapeComponentValue(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case '\\':
+			b.WriteString("\\\\")
+		case '\n':
+			b.WriteString("\\n")
+		case ',':
+			b.WriteString("\\,")
+		case ';':
+			b.WriteString("\\;")
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // nameToVCard emits FN and N (plus a phonetic N) for the name on card.
@@ -147,17 +184,6 @@ func nameToVCard(card map[string]any, language, altID string) []vcardField {
 
 	full := strField(name, "full")
 	comps := nameComponents(name)
-	if len(comps) == 0 && full != "" {
-		parts := strings.Fields(full)
-		if len(parts) == 1 {
-			comps = []nameComponent{{kind: "given", value: parts[0]}}
-		} else if len(parts) >= 2 {
-			comps = []nameComponent{
-				{kind: "given", value: parts[0]},
-				{kind: "surname", value: strings.Join(parts[1:], " ")},
-			}
-		}
-	}
 	switch {
 	case full != "":
 		fields = append(fields, vcardField{Name: "FN", Params: params, Value: full})
@@ -168,27 +194,35 @@ func nameToVCard(card map[string]any, language, altID string) []vcardField {
 		fields = append(fields, vcardField{Name: "FN", Params: params})
 	}
 
-	if !needsExtendedN(name, comps, altID) {
-		fields = append(fields, vcardField{Name: "N", Params: params, Value: nameNValue(name, comps, false)})
-	} else {
-		n := append([]vcardParam{}, params...)
-		if jscomps := jscompsForName(name, comps); jscomps != "" {
-			n = append(n, vcardParam{Name: "JSCOMPS", Value: jscomps, Mode: paramQuotedAlways})
+	if len(comps) > 0 {
+		hasPhonetic := strField(name, "phoneticSystem") != "" && hasPhonetics(comps)
+		nAltID := altID
+		if hasPhonetic && nAltID == "" {
+			nAltID = "1"
 		}
-		if sortAs := mapFieldOrEmpty(name, "sortAs"); len(sortAs) > 0 {
-			n = append(n, vcardParam{Name: "SORT-AS", Value: sortAsString(sortAs)})
+		nParams := languageParams(language, nAltID)
+		if !needsExtendedN(name, comps, nAltID) {
+			fields = append(fields, vcardField{Name: "N", Params: nParams, Value: nameNValue(name, comps, false), Raw: true})
+		} else {
+			n := append([]vcardParam{}, nParams...)
+			if jscomps := jscompsForName(name, comps); jscomps != "" {
+				n = append(n, vcardParam{Name: "JSCOMPS", Value: jscomps, Mode: paramQuotedAlways})
+			}
+			if sortAs := mapFieldOrEmpty(name, "sortAs"); len(sortAs) > 0 {
+				n = append(n, vcardParam{Name: "SORT-AS", Value: sortAsString(sortAs)})
+			}
+			fields = append(fields, vcardField{Name: "N", Params: n, Value: nameNValue(name, comps, true), Raw: true})
 		}
-		fields = append(fields, vcardField{Name: "N", Params: n, Value: nameNValue(name, comps, true)})
-	}
 
-	// Phonetic representation: a second N sharing the ALTID with the
-	// PHONETIC parameter set to the phoneticSystem.
-	if phonetic := strField(name, "phoneticSystem"); phonetic != "" && hasPhonetics(comps) {
-		pParams := append(languageParams("", altID), vcardParam{Name: "PHONETIC", Value: phonetic})
-		if jscomps := jscompsForName(name, comps); jscomps != "" && isOrdered(name) {
-			pParams = append(pParams, vcardParam{Name: "JSCOMPS", Value: jscomps, Mode: paramQuotedAlways})
+		// Phonetic representation: a second N sharing the ALTID with the
+		// PHONETIC parameter set to the phoneticSystem.
+		if hasPhonetic {
+			pParams := append(languageParams("", nAltID), vcardParam{Name: "PHONETIC", Value: strField(name, "phoneticSystem")})
+			if jscomps := jscompsForName(name, comps); jscomps != "" && isOrdered(name) {
+				pParams = append(pParams, vcardParam{Name: "JSCOMPS", Value: jscomps, Mode: paramQuotedAlways})
+			}
+			fields = append(fields, vcardField{Name: "N", Params: pParams, Value: phoneticNValue(comps), Raw: true})
 		}
-		fields = append(fields, vcardField{Name: "N", Params: pParams, Value: phoneticNValue(comps)})
 	}
 	return fields
 }
@@ -356,21 +390,22 @@ func splitNameComponents(comps []nameComponent) (family, given, given2, title, s
 		if comp.kind == "separator" {
 			continue
 		}
+		val := escapeComponentValue(comp.value)
 		switch comp.kind {
 		case "surname":
-			family = append(family, comp.value)
+			family = append(family, val)
 		case "given":
-			given = append(given, comp.value)
+			given = append(given, val)
 		case "given2":
-			given2 = append(given2, comp.value)
+			given2 = append(given2, val)
 		case "title":
-			title = append(title, comp.value)
+			title = append(title, val)
 		case "credential":
-			suffix = append(suffix, comp.value)
+			suffix = append(suffix, val)
 		case "generation":
-			generation = append(generation, comp.value)
+			generation = append(generation, val)
 		case "surname2":
-			s2 = append(s2, comp.value)
+			s2 = append(s2, val)
 		}
 	}
 	return
@@ -384,7 +419,7 @@ func phoneticNValue(comps []nameComponent) string {
 		if comp.kind == "separator" {
 			continue
 		}
-		v := comp.phonetic
+		v := escapeComponentValue(comp.phonetic)
 		switch comp.kind {
 		case "surname":
 			family = append(family, v)
@@ -574,12 +609,13 @@ func (c *converter) convertPhones() []vcardField {
 			Name:   "TEL",
 			Params: params,
 			Value:  strField(obj, "number"),
+			Raw:    true,
 		})
 	}
 	return fields
 }
 
-// commonParams renders PROP-ID, PREF, TYPE (contexts and features) and
+// commonParams renders PROP-ID, PREF, TYPE (contexts and features combined) and
 // vCardParams for an object.
 func commonParams(obj map[string]any, id string) []vcardParam {
 	var params []vcardParam
@@ -589,17 +625,30 @@ func commonParams(obj map[string]any, id string) []vcardParam {
 	if pref, ok := numField(obj, "pref"); ok && pref > 0 {
 		params = append(params, vcardParam{Name: "PREF", Value: strconv.FormatUint(pref, 10)})
 	}
-	params = append(params, contextParams(obj)...)
+	var types []string
+	ctx := mapFieldOrEmpty(obj, "contexts")
+	for _, k := range sortedKeys(ctx) {
+		if b, _ := ctx[k].(bool); !b {
+			continue
+		}
+		switch k {
+		case "work":
+			types = append(types, "WORK")
+		case "private":
+			types = append(types, "HOME")
+		default:
+			types = append(types, strings.ToUpper(k))
+		}
+	}
 	if features := mapFieldOrEmpty(obj, "features"); len(features) > 0 {
-		var types []string
 		for _, k := range sortedKeys(features) {
 			if b, _ := features[k].(bool); b {
 				types = append(types, strings.ToUpper(featureToType(k)))
 			}
 		}
-		if len(types) > 0 {
-			params = append(params, vcardParam{Name: "TYPE", Value: strings.Join(types, ","), Mode: paramUnquoted})
-		}
+	}
+	if len(types) > 0 {
+		params = append(params, vcardParam{Name: "TYPE", Value: strings.Join(types, ","), Mode: paramUnquoted})
 	}
 	params = append(params, vcardParamsOf(obj)...)
 	return params
@@ -769,7 +818,20 @@ func (c *converter) convertSchedulingAddresses() []vcardField {
 // ---- addresses ------------------------------------------------------------
 
 func (c *converter) convertAddresses() []vcardField {
-	return c.convertVariants(func(card map[string]any, lang, altID string) []vcardField {
+	var localizedLangs []string
+	for _, lang := range c.langVariants() {
+		patched := c.patchedCard(lang)
+		if !reflect.DeepEqual(patched["addresses"], c.card["addresses"]) {
+			localizedLangs = append(localizedLangs, lang)
+		}
+	}
+
+	altID := ""
+	if len(localizedLangs) > 0 {
+		altID = "1"
+	}
+
+	convertAddrs := func(card map[string]any, lang, alt string) []vcardField {
 		var fields []vcardField
 		for _, id := range sortedKeys(mapFieldOrEmpty(card, "addresses")) {
 			obj := mapAt(card, "addresses", id)
@@ -781,8 +843,9 @@ func (c *converter) convertAddresses() []vcardField {
 				Name:   "ADR",
 				Params: commonParams(obj, id),
 				Value:  addressNValue(obj, comps),
+				Raw:    true,
 			}
-			f.Params = append(f.Params, languageParams(lang, altID)...)
+			f.Params = append(f.Params, languageParams(lang, alt)...)
 			if full := strField(obj, "full"); full != "" {
 				f.Params = append(f.Params, vcardParam{Name: "LABEL", Value: full})
 			}
@@ -795,7 +858,15 @@ func (c *converter) convertAddresses() []vcardField {
 			fields = append(fields, f)
 		}
 		return fields
-	})
+	}
+
+	var fields []vcardField
+	fields = append(fields, convertAddrs(c.card, "", altID)...)
+	for _, lang := range localizedLangs {
+		patched := c.patchedCard(lang)
+		fields = append(fields, convertAddrs(patched, lang, altID)...)
+	}
+	return fields
 }
 
 func jscompsForAddress(obj map[string]any, comps []addressComponent) string {
@@ -841,7 +912,8 @@ func addressNValue(addr map[string]any, comps []addressComponent) string {
 		if c.kind == "separator" {
 			continue
 		}
-		byKind[c.kind] = append(byKind[c.kind], c.value)
+		val := escapeComponentValue(c.value)
+		byKind[c.kind] = append(byKind[c.kind], val)
 	}
 	get := func(kind string) string { return strings.Join(byKind[kind], ",") }
 
@@ -1026,13 +1098,13 @@ func (c *converter) convertKeywords() []vcardField {
 	var values []string
 	for _, k := range sortedKeys(kw) {
 		if b, _ := kw[k].(bool); b {
-			values = append(values, k)
+			values = append(values, escapeComponentValue(k))
 		}
 	}
 	if len(values) == 0 {
 		return nil
 	}
-	return []vcardField{{Name: "CATEGORIES", Value: strings.Join(values, ",")}}
+	return []vcardField{{Name: "CATEGORIES", Value: strings.Join(values, ","), Raw: true}}
 }
 
 func (c *converter) convertMembers() []vcardField {
@@ -1040,7 +1112,7 @@ func (c *converter) convertMembers() []vcardField {
 	var fields []vcardField
 	for _, k := range sortedKeys(members) {
 		if b, _ := members[k].(bool); b {
-			fields = append(fields, vcardField{Name: "MEMBER", Value: k})
+			fields = append(fields, vcardField{Name: "MEMBER", Value: k, Raw: true})
 		}
 	}
 	return fields
@@ -1053,7 +1125,7 @@ func (c *converter) convertRelatedTo() []vcardField {
 		if obj == nil {
 			continue
 		}
-		f := vcardField{Name: "RELATED", Value: key}
+		f := vcardField{Name: "RELATED", Value: key, Raw: true}
 		if rel := mapFieldOrEmpty(obj, "relation"); len(rel) > 0 {
 			var types []string
 			for _, k := range sortedKeys(rel) {
@@ -1266,6 +1338,7 @@ func jspropField(ptr string, value any) vcardField {
 		Name:   "JSPROP",
 		Params: []vcardParam{{Name: "JSPTR", Value: ptr}, {Name: "VALUE", Value: "TEXT"}},
 		Value:  string(b),
+		Raw:    true,
 	}
 }
 
@@ -1274,6 +1347,7 @@ func jspropVersion(version string) vcardField {
 		Name:   "JSPROP",
 		Params: []vcardParam{{Name: "JSPTR", Value: "version"}, {Name: "VALUE", Value: "TEXT"}},
 		Value:  jsonString(version),
+		Raw:    true,
 	}
 }
 
