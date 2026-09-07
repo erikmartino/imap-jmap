@@ -329,6 +329,12 @@ func (b *IMAPSMTPBackend) EmailChanges(ctx context.Context, sinceState string, m
 	var destroyed []jmap.Id
 
 	for id := range createdSet {
+		mbID, _, err := ParseEmailID(id)
+		if err == nil && (mbID == "mb-trash" || mbID == "mb-drafts") {
+			if emails, _, err := b.GetEmails(ctx, []jmap.Id{id}); err == nil && len(emails) == 0 {
+				continue
+			}
+		}
 		created = append(created, id)
 	}
 	for id := range updatedSet {

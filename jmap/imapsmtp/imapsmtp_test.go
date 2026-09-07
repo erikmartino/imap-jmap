@@ -1,6 +1,7 @@
 package imapsmtp
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/emersion/go-imap/v2"
 	"imap-jmap/jmap"
 )
 
@@ -290,6 +292,166 @@ func TestBlobStorage(t *testing.T) {
 	fetchedBlob, ok, err := be.GetBlob(ctx, "user-account", blob.ID)
 	if err != nil || !ok || string(fetchedBlob.Data) != string(data) {
 		t.Fatalf("GetBlob failed: ok=%t, err=%v, data=%s", ok, err, string(fetchedBlob.Data))
+	}
+}
+
+func TestBlobStorage_TrashStagingAndEmailAttachmentRecovery(t *testing.T) {
+	be, cleanup := NewEmbeddedBackend("user@example.com")
+	defer cleanup()
+	ctx := testContext()
+	accountID := string(jmap.AccountIDForSubject("user@example.com"))
+
+	// 1. Fresh upload: verify staged in Trash and marked as read (\Seen)
+	uploadData := []byte("Fresh upload staged in trash folder")
+	blob, err := be.PutBlob(ctx, accountID, "text/plain", uploadData)
+	if err != nil {
+		t.Fatalf("PutBlob failed: %v", err)
+	}
+	if blob.ID == "" || blob.Size != int64(len(uploadData)) {
+		t.Fatalf("invalid blob: %+v", blob)
+	}
+
+	// Verify Trash folder status: NumUnseen must be 0 (marked as read)
+	client, err := be.pool.GetClientForContext(ctx)
+	if err != nil {
+		t.Fatalf("GetClientForContext failed: %v", err)
+	}
+	statusCmd := client.Status("Trash", &imap.StatusOptions{NumMessages: true, NumUnseen: true})
+	statusData, err := statusCmd.Wait()
+	if err != nil {
+		t.Fatalf("Status Trash failed: %v", err)
+	}
+	if statusData.NumUnseen != nil && *statusData.NumUnseen != 0 {
+		t.Errorf("Expected 0 unread messages in Trash, got %d", *statusData.NumUnseen)
+	}
+
+	// Verify the message in Trash has \Seen flag
+	if _, err := client.Select("Trash", nil).Wait(); err != nil {
+		t.Fatalf("Select Trash failed: %v", err)
+	}
+	searchCmd := client.UIDSearch(&imap.SearchCriteria{
+		Header: []imap.SearchCriteriaHeaderField{{Key: "Subject", Value: blobStagingMarker}},
+	}, nil)
+	searchData, err := searchCmd.Wait()
+	if err != nil {
+		t.Fatalf("Search Trash failed: %v", err)
+	}
+	uids := searchData.AllUIDs()
+	if len(uids) == 0 {
+		t.Fatalf("Expected at least 1 staging message in Trash, got 0")
+	}
+
+	var uidSet imap.UIDSet
+	uidSet.AddNum(uids[0])
+	fetchCmd := client.Fetch(uidSet, &imap.FetchOptions{Flags: true})
+	msgs, err := fetchCmd.Collect()
+	if err != nil || len(msgs) == 0 {
+		t.Fatalf("Fetch flags failed: %v", err)
+	}
+	hasSeen := false
+	for _, f := range msgs[0].Flags {
+		if f == imap.FlagSeen {
+			hasSeen = true
+			break
+		}
+	}
+	if !hasSeen {
+		t.Errorf("Expected staging message to have \\Seen flag, got flags: %v", msgs[0].Flags)
+	}
+	be.pool.ReleaseClient(ctx, client)
+
+	// 2. Clear in-memory blob cache and recover from Trash
+	be.blobsMu.Lock()
+	be.blobs = make(map[string]*jmap.Blob)
+	be.blobsMu.Unlock()
+
+	recovered, ok, err := be.GetBlob(ctx, accountID, blob.ID)
+	if err != nil || !ok || recovered == nil {
+		t.Fatalf("Failed to recover blob from Trash after clearing memory cache: ok=%v, err=%v", ok, err)
+	}
+	if !bytes.Equal(recovered.Data, uploadData) {
+		t.Errorf("Recovered data mismatch: got %q, want %q", string(recovered.Data), string(uploadData))
+	}
+	if recovered.Type != "text/plain" {
+		t.Errorf("Recovered type mismatch: got %q, want %q", recovered.Type, "text/plain")
+	}
+
+	// 3. Attach blob to an email and verify on-demand extraction from RFC822 email payload
+	attData := []byte("%PDF-1.4 Fake PDF blob attachment content")
+	attBlob, err := be.PutBlob(ctx, accountID, "application/pdf", attData)
+	if err != nil {
+		t.Fatalf("PutBlob attachment failed: %v", err)
+	}
+
+	pIDText := "1"
+	pIDAtt := "2"
+	fn := "document.pdf"
+	blobIDVal := jmap.Id(attBlob.ID)
+	email := &jmap.Email{
+		MailboxIDs: map[jmap.Id]bool{MailboxIDForName("INBOX"): true},
+		From:       []jmap.EmailAddress{{Name: "Sender", Email: "user@example.com"}},
+		To:         []jmap.EmailAddress{{Name: "Recipient", Email: "recipient@example.com"}},
+		Subject:    "Email with PDF attachment",
+		BodyValues: map[string]jmap.EmailBodyValue{
+			"1": {Value: "Please find attached document."},
+			"2": {Value: string(attData)},
+		},
+		TextBody: []jmap.EmailBodyPart{
+			{PartID: &pIDText, Type: "text/plain"},
+		},
+		Attachments: []jmap.EmailBodyPart{
+			{PartID: &pIDAtt, BlobID: &blobIDVal, Type: "application/pdf", Name: &fn},
+		},
+	}
+	_, err = be.CreateEmail(ctx, email)
+	if err != nil {
+		t.Fatalf("CreateEmail failed: %v", err)
+	}
+
+	// Purge all staging messages from Trash to simulate expiration
+	be.sweepBlobStaging(ctx, true)
+
+	// Clear memory cache completely
+	be.blobsMu.Lock()
+	be.blobs = make(map[string]*jmap.Blob)
+	be.blobRefs = make(map[string]map[string]map[jmap.Id]bool)
+	be.blobsMu.Unlock()
+
+	// Verify attachment is extracted directly from the email on IMAP without staging copy
+	recoveredAtt, ok, err := be.GetBlob(ctx, accountID, attBlob.ID)
+	if err != nil || !ok || recoveredAtt == nil {
+		t.Fatalf("Failed to extract blob from email attachment: ok=%v, err=%v", ok, err)
+	}
+	if !bytes.Equal(recoveredAtt.Data, attData) {
+		t.Errorf("Recovered attachment data mismatch: got %q, want %q", string(recoveredAtt.Data), string(attData))
+	}
+	if recoveredAtt.Type != "application/pdf" {
+		t.Errorf("Recovered attachment type mismatch: got %q, want %q", recoveredAtt.Type, "application/pdf")
+	}
+
+	// 4. Multi-upload session: multiple uploads survive memory purge and do not overwrite each other
+	upload1 := []byte("Multi-upload blob payload 1")
+	upload2 := []byte("Multi-upload blob payload 2")
+	b1, err := be.PutBlob(ctx, accountID, "text/plain", upload1)
+	if err != nil {
+		t.Fatalf("PutBlob 1 failed: %v", err)
+	}
+	b2, err := be.PutBlob(ctx, accountID, "text/plain", upload2)
+	if err != nil {
+		t.Fatalf("PutBlob 2 failed: %v", err)
+	}
+
+	be.blobsMu.Lock()
+	be.blobs = make(map[string]*jmap.Blob)
+	be.blobsMu.Unlock()
+
+	rec1, ok1, err1 := be.GetBlob(ctx, accountID, b1.ID)
+	if err1 != nil || !ok1 || !bytes.Equal(rec1.Data, upload1) {
+		t.Fatalf("Multi-upload recovery b1 failed: ok=%v, err=%v", ok1, err1)
+	}
+	rec2, ok2, err2 := be.GetBlob(ctx, accountID, b2.ID)
+	if err2 != nil || !ok2 || !bytes.Equal(rec2.Data, upload2) {
+		t.Fatalf("Multi-upload recovery b2 failed: ok=%v, err=%v", ok2, err2)
 	}
 }
 

@@ -1101,3 +1101,58 @@ func normalizeToLF(s string) string {
 	s = strings.ReplaceAll(s, "\r", "\n")
 	return s
 }
+
+// ExtractBlobFromRFC822 walks an RFC 822 MIME message and extracts the body bytes
+// and content-type of the part whose SHA-256 hash matches targetBlobID.
+// If targetBlobID matches the hash of the whole message, it returns the whole message.
+func ExtractBlobFromRFC822(raw []byte, targetBlobID string) ([]byte, string, bool) {
+	if len(raw) == 0 {
+		return nil, "", false
+	}
+	wholeHash := sha256.Sum256(raw)
+	if hex.EncodeToString(wholeHash[:]) == targetBlobID {
+		return raw, "message/rfc822", true
+	}
+
+	e, err := message.Read(bytes.NewReader(raw))
+	if err != nil {
+		return nil, "", false
+	}
+
+	return findMIMEPartBlob(e, targetBlobID)
+}
+
+func findMIMEPartBlob(e *message.Entity, targetBlobID string) ([]byte, string, bool) {
+	if mr := e.MultipartReader(); mr != nil {
+		for {
+			part, err := mr.NextPart()
+			if err != nil {
+				break
+			}
+			if data, cType, found := findMIMEPartBlob(part, targetBlobID); found {
+				return data, cType, true
+			}
+		}
+		return nil, "", false
+	}
+
+	bodyBytes, err := io.ReadAll(e.Body)
+	if err != nil {
+		return nil, "", false
+	}
+
+	sum := sha256.Sum256(bodyBytes)
+	if hex.EncodeToString(sum[:]) == targetBlobID {
+		mediaType := "application/octet-stream"
+		if customCT := e.Header.Get("X-JMAP-Content-Type"); customCT != "" {
+			mediaType = customCT
+		} else if ct := e.Header.Get("Content-Type"); ct != "" {
+			if mt, _, err := mime.ParseMediaType(ct); err == nil && mt != "" {
+				mediaType = strings.ToLower(mt)
+			}
+		}
+		return bodyBytes, mediaType, true
+	}
+
+	return nil, "", false
+}

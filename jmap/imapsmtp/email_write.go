@@ -57,14 +57,13 @@ func (b *IMAPSMTPBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jma
 		em.MailboxIDs = map[jmap.Id]bool{destMbID: true}
 	}
 
+	accountID, _ := jmap.AccountIDFromContext(ctx)
 	var rawBytes []byte
 	originalBlobID := em.BlobID
 	if em.BlobID != "" {
-		b.blobsMu.RLock()
-		if blob, ok := b.blobs[string(em.BlobID)]; ok && len(blob.Data) > 0 {
+		if blob, ok, err := b.GetBlob(ctx, accountID, string(em.BlobID)); err == nil && ok && blob != nil && len(blob.Data) > 0 {
 			rawBytes = blob.Data
 		}
-		b.blobsMu.RUnlock()
 	}
 	if len(rawBytes) == 0 {
 		rawBytes = jmap.FormatEmailRFC822(em)
@@ -83,7 +82,6 @@ func (b *IMAPSMTPBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jma
 		}
 	}
 
-	accountID, _ := jmap.AccountIDFromContext(ctx)
 	emailSize := uint64(len(rawBytes))
 	if err := b.checkQuota(accountID, emailSize); err != nil {
 		return nil, err

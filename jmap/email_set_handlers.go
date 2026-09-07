@@ -36,10 +36,8 @@ func handleEmailSet(backend MailBackend, blobBackend BlobBackend) MethodHandler 
 					return "", *setErr
 				}
 				subject, _ := emData["subject"].(string)
-				blobIDStr, _ := emData["blobId"].(string)
-				if blobIDStr == "" {
-					blobIDStr = fmt.Sprintf("blob-%d", time.Now().UnixNano())
-				}
+				passedBlobID, _ := emData["blobId"].(string)
+				blobIDStr := passedBlobID
 				receivedAt, _ := emData["receivedAt"].(string)
 				if receivedAt == "" {
 					receivedAt = time.Now().UTC().Format(time.RFC3339)
@@ -409,7 +407,7 @@ func handleEmailSet(backend MailBackend, blobBackend BlobBackend) MethodHandler 
 				}
 				em.Size = totalSize
 
-				if blobBackend != nil {
+				if blobBackend != nil && em.BlobID != "" {
 					if _, found, _ := blobBackend.GetBlob(ctx, accountID, string(em.BlobID)); !found {
 						blobBackend.PutBlob(ctx, accountID, string(em.BlobID), make([]byte, em.Size))
 					}
