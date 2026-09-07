@@ -125,6 +125,16 @@ func (b *IMAPSMTPBackend) CreateSubmission(ctx context.Context, sub *jmap.EmailS
 	} else if len(em.From) > 0 {
 		from = em.From[0].Email
 	}
+	if from == "" {
+		if subj, ok := jmap.SubjectFromContext(ctx); ok && subj != "" {
+			from = subj
+		} else if accID, ok := jmap.AccountIDFromContext(ctx); ok && accID != "" {
+			if s, ok := jmap.SubjectForAccountID(accID); ok {
+				from = s
+			}
+		}
+	}
+	from = strings.Trim(from, "<>")
 
 	var recipients []string
 	if sub.Envelope != nil && len(sub.Envelope.RcptTo) > 0 {
@@ -143,9 +153,24 @@ func (b *IMAPSMTPBackend) CreateSubmission(ctx context.Context, sub *jmap.EmailS
 		}
 	}
 
-	// Dispatch over SMTP if configured and recipients exist and have not already been delivered
-	if b.smtpHost != "" && len(recipients) > 0 && len(sub.DeliveryStatus) == 0 {
-		if err := b.pool.SendMail(ctx, from, recipients, rawBytes); err != nil {
+	var toSend []string
+	for _, rcpt := range recipients {
+		clean := strings.Trim(strings.TrimSpace(rcpt), "<>")
+		if clean == "" {
+			continue
+		}
+		if st, ok := sub.DeliveryStatus[clean]; ok && st.Delivered == "failed" {
+			continue
+		}
+		if st, ok := sub.DeliveryStatus[rcpt]; ok && st.Delivered == "failed" {
+			continue
+		}
+		toSend = append(toSend, clean)
+	}
+
+	// Dispatch over SMTP if configured and recipients exist
+	if b.smtpHost != "" && len(toSend) > 0 {
+		if err := b.pool.SendMail(ctx, from, toSend, rawBytes); err != nil {
 			return nil, fmt.Errorf("failed to send outbound email via SMTP: %w", err)
 		}
 	}
@@ -164,14 +189,15 @@ func (b *IMAPSMTPBackend) CreateSubmission(ctx context.Context, sub *jmap.EmailS
 	}
 
 	if sub.DeliveryStatus == nil {
-		deliv := make(map[string]jmap.DeliveryStatus)
-		for _, rcpt := range recipients {
-			deliv[rcpt] = jmap.DeliveryStatus{
+		sub.DeliveryStatus = make(map[string]jmap.DeliveryStatus)
+	}
+	for _, rcpt := range recipients {
+		if _, ok := sub.DeliveryStatus[rcpt]; !ok {
+			sub.DeliveryStatus[rcpt] = jmap.DeliveryStatus{
 				Delivered: "yes",
 				SmtpReply: "250 2.0.0 OK message queued",
 			}
 		}
-		sub.DeliveryStatus = deliv
 	}
 
 	accountID, _ := jmap.AccountIDFromContext(ctx)

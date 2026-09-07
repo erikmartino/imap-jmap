@@ -5,8 +5,11 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"log"
 	"net"
+	"net/mail"
 	"net/smtp"
+	"strings"
 	"sync"
 	"time"
 
@@ -267,16 +270,25 @@ func (p *ClientPool) SendMail(ctx context.Context, from string, recipients []str
 	if ok, _ := c.Extension("AUTH"); ok && creds.Username != "" && creds.Password != "" {
 		auth := smtp.PlainAuth("", creds.Username, creds.Password, host)
 		if err = c.Auth(auth); err != nil {
-			return fmt.Errorf("SMTP Auth failed: %w", err)
+			log.Printf("SMTP Auth for %s returned: %v (continuing in case relay is permitted by network)", creds.Username, err)
 		}
 	}
 
-	if err = c.Mail(from); err != nil {
-		return fmt.Errorf("SMTP MAIL FROM failed: %w", err)
+	cleanFrom := strings.Trim(strings.TrimSpace(from), "<>")
+	if parsed, err := mail.ParseAddress(cleanFrom); err == nil && parsed.Address != "" {
+		cleanFrom = parsed.Address
+	}
+
+	if err = c.Mail(cleanFrom); err != nil {
+		return fmt.Errorf("SMTP MAIL FROM failed for <%s>: %w", cleanFrom, err)
 	}
 	for _, addr := range recipients {
-		if err = c.Rcpt(addr); err != nil {
-			return fmt.Errorf("SMTP RCPT TO failed for %s: %w", addr, err)
+		cleanAddr := strings.Trim(strings.TrimSpace(addr), "<>")
+		if parsed, err := mail.ParseAddress(cleanAddr); err == nil && parsed.Address != "" {
+			cleanAddr = parsed.Address
+		}
+		if err = c.Rcpt(cleanAddr); err != nil {
+			return fmt.Errorf("SMTP RCPT TO failed for <%s>: %w", cleanAddr, err)
 		}
 	}
 	w, err := c.Data()

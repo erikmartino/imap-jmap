@@ -276,58 +276,110 @@ func handleEmailSubmissionSet(backend MailBackend, blobBackend BlobBackend, reso
 				}
 
 				accountEmail, _ := SubjectForAccountID(accountID)
-				for _, rcpt := range recipients {
-					rcptClean := strings.TrimSpace(rcpt)
-					if rcptClean == "" {
-						continue
-					}
-					targetAccountID, local := activeResolver.ResolveAccountID(ctx, rcptClean)
-					if !local && accountEmail != "" && strings.Contains(accountEmail, "@") && strings.Contains(rcptClean, "@") {
-						senderParts := strings.Split(accountEmail, "@")
-						rcptParts := strings.Split(rcptClean, "@")
-						if len(senderParts) == 2 && len(rcptParts) == 2 && strings.EqualFold(senderParts[1], rcptParts[1]) {
-							targetAccountID = AccountIDForSubject(rcptClean)
-							local = true
+				hasSMTPServer := false
+				if smtpBe, ok := backend.(SMTPAvailableBackend); ok && smtpBe.HasSMTPServer() {
+					hasSMTPServer = true
+				}
+
+				if hasSMTPServer {
+					// Route all deliveries through the outer SMTP server (e.g. Postfix).
+					// The outer SMTP server delivers local recipients to Dovecot via LMTP
+					// (creating clean, unread, non-draft messages and running Sieve scripts),
+					// and relays external recipients. Avoids in-process loopback in imap-jmap.
+					for _, rcpt := range recipients {
+						rcptClean := strings.TrimSpace(rcpt)
+						if rcptClean == "" {
+							continue
 						}
-					}
-					log.Printf("EmailSubmission/set: recipient %q resolved local=%v account=%q", rcptClean, local, targetAccountID)
-					if local {
-						// Do NOT inherit the submitting account's context: it carries the
-						// sender's credentials (and accountID), which gateway backends use
-						// to pick the Dovecot login — the delivered copy would land in the
-						// sender's mailbox. A fresh context keyed only by the recipient's
-						// accountID makes GetClientForContext resolve the recipient.
-						rcptCtx := ContextWithAccountID(context.Background(), targetAccountID)
-						if targetEmail != nil {
-							copyEmail := *targetEmail
-							copyEmail.ID = ""
-							// Resolve the recipient's INBOX mailbox id by role rather than
-							// assuming a backend-specific id: the memory backend uses
-							// "mb-inbox", gateway backends (IMAP/SMTP) derive it from the
-							// folder name. A hardcoded id would append into a nonexistent
-							// folder and fail local delivery.
-							inboxID := InboxMailboxID(rcptCtx, backend)
-							if inboxID == "" {
-								log.Printf("EmailSubmission/set: local delivery to %q failed: no INBOX mailbox for account", rcptClean)
+						targetAccountID, local := activeResolver.ResolveAccountID(ctx, rcptClean)
+						if !local && accountEmail != "" && strings.Contains(accountEmail, "@") && strings.Contains(rcptClean, "@") {
+							senderParts := strings.Split(accountEmail, "@")
+							rcptParts := strings.Split(rcptClean, "@")
+							if len(senderParts) == 2 && len(rcptParts) == 2 && strings.EqualFold(senderParts[1], rcptParts[1]) {
+								targetAccountID = AccountIDForSubject(rcptClean)
+								local = true
+							}
+						}
+						if !local {
+							isAllowed := false
+							if allowedRecipients == nil || len(allowedRecipients) == 0 || allowedRecipients["*"] {
+								isAllowed = true
+							} else if allowedRecipients[strings.ToLower(rcptClean)] {
+								isAllowed = true
+							}
+
+							if !isAllowed {
+								log.Printf("EmailSubmission/set: recipient %q is external and NOT allow-listed; refused", rcptClean)
 								deliveryStatus[rcptClean] = DeliveryStatus{
 									Delivered: "failed",
-									SmtpReply: "451 4.3.0 local delivery failed: no INBOX mailbox",
+									SmtpReply: "550 5.7.1 Recipient not in allow-list",
 								}
 								continue
 							}
-							copyEmail.MailboxIDs = map[Id]bool{inboxID: true}
-							// Delivered copy in recipient inbox must not inherit sender's draft keywords
-							copyEmail.Keywords = make(map[string]bool)
-							deliveredCopy, err := backend.CreateEmail(rcptCtx, &copyEmail)
-							if err != nil {
-								log.Printf("EmailSubmission/set: local delivery to %q failed: %v", rcptClean, err)
-								deliveryStatus[rcptClean] = DeliveryStatus{
-									Delivered: "failed",
-									SmtpReply: "451 4.3.0 local delivery failed: " + err.Error(),
+						}
+						_ = targetAccountID
+						deliverableCount++
+					}
+				} else {
+					for _, rcpt := range recipients {
+						rcptClean := strings.TrimSpace(rcpt)
+						if rcptClean == "" {
+							continue
+						}
+						targetAccountID, local := activeResolver.ResolveAccountID(ctx, rcptClean)
+						if !local && accountEmail != "" && strings.Contains(accountEmail, "@") && strings.Contains(rcptClean, "@") {
+							senderParts := strings.Split(accountEmail, "@")
+							rcptParts := strings.Split(rcptClean, "@")
+							if len(senderParts) == 2 && len(rcptParts) == 2 && strings.EqualFold(senderParts[1], rcptParts[1]) {
+								targetAccountID = AccountIDForSubject(rcptClean)
+								local = true
+							}
+						}
+						log.Printf("EmailSubmission/set: recipient %q resolved local=%v account=%q", rcptClean, local, targetAccountID)
+						if local {
+							// Do NOT inherit the submitting account's context: it carries the
+							// sender's credentials (and accountID), which gateway backends use
+							// to pick the Dovecot login — the delivered copy would land in the
+							// sender's mailbox. A fresh context keyed only by the recipient's
+							// accountID makes GetClientForContext resolve the recipient.
+							rcptCtx := ContextWithAccountID(context.Background(), targetAccountID)
+							if targetEmail != nil {
+								copyEmail := *targetEmail
+								copyEmail.ID = ""
+								// Resolve the recipient's INBOX mailbox id by role rather than
+								// assuming a backend-specific id: the memory backend uses
+								// "mb-inbox", gateway backends (IMAP/SMTP) derive it from the
+								// folder name. A hardcoded id would append into a nonexistent
+								// folder and fail local delivery.
+								inboxID := InboxMailboxID(rcptCtx, backend)
+								if inboxID == "" {
+									log.Printf("EmailSubmission/set: local delivery to %q failed: no INBOX mailbox for account", rcptClean)
+									deliveryStatus[rcptClean] = DeliveryStatus{
+										Delivered: "failed",
+										SmtpReply: "451 4.3.0 local delivery failed: no INBOX mailbox",
+									}
+									continue
+								}
+								copyEmail.MailboxIDs = map[Id]bool{inboxID: true}
+								// Delivered copy in recipient inbox must not inherit sender's draft keywords
+								copyEmail.Keywords = make(map[string]bool)
+								deliveredCopy, err := backend.CreateEmail(rcptCtx, &copyEmail)
+								if err != nil {
+									log.Printf("EmailSubmission/set: local delivery to %q failed: %v", rcptClean, err)
+									deliveryStatus[rcptClean] = DeliveryStatus{
+										Delivered: "failed",
+										SmtpReply: "451 4.3.0 local delivery failed: " + err.Error(),
+									}
+								} else {
+									log.Printf("EmailSubmission/set: delivered copy of email %s to %q (account %s, new email %s)",
+										emailID, rcptClean, targetAccountID, deliveredCopy.ID)
+									deliveryStatus[rcptClean] = DeliveryStatus{
+										Delivered: "yes",
+										SmtpReply: "250 2.0.0 OK local delivery",
+									}
+									deliverableCount++
 								}
 							} else {
-								log.Printf("EmailSubmission/set: delivered copy of email %s to %q (account %s, new email %s)",
-									emailID, rcptClean, targetAccountID, deliveredCopy.ID)
 								deliveryStatus[rcptClean] = DeliveryStatus{
 									Delivered: "yes",
 									SmtpReply: "250 2.0.0 OK local delivery",
@@ -335,85 +387,79 @@ func handleEmailSubmissionSet(backend MailBackend, blobBackend BlobBackend, reso
 								deliverableCount++
 							}
 						} else {
-							deliveryStatus[rcptClean] = DeliveryStatus{
-								Delivered: "yes",
-								SmtpReply: "250 2.0.0 OK local delivery",
+							isAllowed := false
+							if allowedRecipients == nil || len(allowedRecipients) == 0 || allowedRecipients["*"] {
+								isAllowed = true
+							} else if allowedRecipients[strings.ToLower(rcptClean)] {
+								isAllowed = true
 							}
-							deliverableCount++
-						}
-					} else {
-						isAllowed := false
-						if allowedRecipients == nil || len(allowedRecipients) == 0 || allowedRecipients["*"] {
-							isAllowed = true
-						} else if allowedRecipients[strings.ToLower(rcptClean)] {
-							isAllowed = true
-						}
 
-						if isAllowed {
-							log.Printf("EmailSubmission/set: recipient %q is external and allowed; relaying via MX", rcptClean)
-							externalRecipients = append(externalRecipients, rcptClean)
-						} else {
-							log.Printf("EmailSubmission/set: recipient %q is external and NOT allow-listed; refused", rcptClean)
-							deliveryStatus[rcptClean] = DeliveryStatus{
-								Delivered: "failed",
-								SmtpReply: "550 5.7.1 Recipient not in allow-list",
+							if isAllowed {
+								log.Printf("EmailSubmission/set: recipient %q is external and allowed; relaying via MX", rcptClean)
+								externalRecipients = append(externalRecipients, rcptClean)
+							} else {
+								log.Printf("EmailSubmission/set: recipient %q is external and NOT allow-listed; refused", rcptClean)
+								deliveryStatus[rcptClean] = DeliveryStatus{
+									Delivered: "failed",
+									SmtpReply: "550 5.7.1 Recipient not in allow-list",
+								}
 							}
 						}
 					}
-				}
 
-				// Relay allow-listed external recipients to their domain's MX servers
-				// (RFC 5321 Section 5.1).
-				if len(externalRecipients) > 0 {
-					var rawBytes []byte
-					if targetEmail != nil {
-						if targetEmail.BlobID != "" && blobBackend != nil {
-							principalAccountID, _ := AccountIDFromContext(ctx)
-							if blob, found, err := blobBackend.GetBlob(ctx, principalAccountID, string(targetEmail.BlobID)); err == nil && found && blob != nil {
-								rawBytes = blob.Data
+					// Relay allow-listed external recipients to their domain's MX servers
+					// (RFC 5321 Section 5.1).
+					if len(externalRecipients) > 0 {
+						var rawBytes []byte
+						if targetEmail != nil {
+							if targetEmail.BlobID != "" && blobBackend != nil {
+								principalAccountID, _ := AccountIDFromContext(ctx)
+								if blob, found, err := blobBackend.GetBlob(ctx, principalAccountID, string(targetEmail.BlobID)); err == nil && found && blob != nil {
+									rawBytes = blob.Data
+								}
+							}
+							if len(rawBytes) == 0 {
+								rawBytes = FormatEmailRFC822(targetEmail)
 							}
 						}
-						if len(rawBytes) == 0 {
-							rawBytes = FormatEmailRFC822(targetEmail)
-						}
-					}
 
-					if outbound != nil && len(rawBytes) > 0 {
-						mailFrom := ""
-						if env != nil && env.MailFrom.Email != "" {
-							mailFrom = env.MailFrom.Email
-						} else if len(targetEmail.From) > 0 {
-							mailFrom = targetEmail.From[0].Email
-						}
-						results := outbound.SendMail(ctx, mailFrom, externalRecipients, rawBytes)
-						for _, rcpt := range externalRecipients {
-							res, ok := results[rcpt]
-							status := "failed"
-							if !ok {
-								res = OutboundDeliveryResult{Delivered: false, SmtpReply: "451 4.3.0 no delivery result from outbound relay"}
+						if outbound != nil && len(rawBytes) > 0 {
+							mailFrom := ""
+							if env != nil && env.MailFrom.Email != "" {
+								mailFrom = env.MailFrom.Email
+							} else if len(targetEmail.From) > 0 {
+								mailFrom = targetEmail.From[0].Email
 							}
-							if res.Delivered {
-								status = "yes"
+							results := outbound.SendMail(ctx, mailFrom, externalRecipients, rawBytes)
+							for _, rcpt := range externalRecipients {
+								res, ok := results[rcpt]
+								status := "failed"
+								if !ok {
+									res = OutboundDeliveryResult{Delivered: false, SmtpReply: "451 4.3.0 no delivery result from outbound relay"}
+								}
+								if res.Delivered {
+									status = "yes"
+									deliverableCount++
+								}
+								deliveryStatus[rcpt] = DeliveryStatus{Delivered: status, SmtpReply: res.SmtpReply}
+							}
+							log.Printf("EmailSubmission/set: external delivery results: %v", deliveryStatus)
+						} else if outbound == nil {
+							// In environments without a configured outbound sender (e.g. basic in-memory test server),
+							// allow-listed external recipients are accepted and queued.
+							for _, rcpt := range externalRecipients {
+								deliveryStatus[rcpt] = DeliveryStatus{
+									Delivered: "yes",
+									SmtpReply: "250 2.0.0 OK queued external",
+								}
 								deliverableCount++
 							}
-							deliveryStatus[rcpt] = DeliveryStatus{Delivered: status, SmtpReply: res.SmtpReply}
-						}
-						log.Printf("EmailSubmission/set: external delivery results: %v", deliveryStatus)
-					} else if outbound == nil {
-						// In environments without a configured outbound sender (e.g. basic in-memory test server),
-						// allow-listed external recipients are accepted and queued.
-						for _, rcpt := range externalRecipients {
-							deliveryStatus[rcpt] = DeliveryStatus{
-								Delivered: "yes",
-								SmtpReply: "250 2.0.0 OK queued external",
-							}
-							deliverableCount++
-						}
-					} else {
-						for _, rcpt := range externalRecipients {
-							deliveryStatus[rcpt] = DeliveryStatus{
-								Delivered: "failed",
-								SmtpReply: "554 5.3.4 referenced message unavailable",
+						} else {
+							for _, rcpt := range externalRecipients {
+								deliveryStatus[rcpt] = DeliveryStatus{
+									Delivered: "failed",
+									SmtpReply: "554 5.3.4 referenced message unavailable",
+								}
 							}
 						}
 					}
@@ -463,6 +509,11 @@ func handleEmailSubmissionSet(backend MailBackend, blobBackend BlobBackend, reso
 				if err != nil {
 					log.Printf("[MAIL OUTBOUND ERROR] Account: %s EmailId: %s: failed to create submission %q: %v", accountID, emailID, clientKey, err)
 					return "", err
+				}
+				if sub != nil && sub.DeliveryStatus != nil {
+					for rcpt, st := range sub.DeliveryStatus {
+						deliveryStatus[rcpt] = st
+					}
 				}
 				for rcpt, st := range deliveryStatus {
 					log.Printf("[MAIL OUTBOUND] Account: %s From: <%s> To: <%s> Subject: %q -> SubmissionId: %s EmailId: %s (Status: %s, SmtpReply: %q)",

@@ -83,6 +83,12 @@ type MailBackend interface {
 	DeletePushSubscription(ctx context.Context, id Id) (bool, error)
 }
 
+// SMTPAvailableBackend is an optional interface that MailBackend implementations can fulfill
+// to indicate whether an outer SMTP server is available for outbound message dispatch.
+type SMTPAvailableBackend interface {
+	HasSMTPServer() bool
+}
+
 // BlobBackend defines the storage interface for binary blobs per RFC 8620 Section 6 and RFC 9404.
 type BlobBackend interface {
 	PutBlob(ctx context.Context, accountID, contentType string, data []byte) (*Blob, error)

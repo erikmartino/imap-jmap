@@ -5,13 +5,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"imap-jmap/jmap"
+	"imap-jmap/jmap/imapsmtp"
 )
 
 // TestEmailSubmissionSetDestroyTests tests EmailSubmission/set create, destroy, and error paths per RFC 8621 Section 7.3.
@@ -1253,4 +1256,145 @@ func TestEmailSubmission_OnSuccessUpdateEmail_DraftToSent(t *testing.T) {
 		t.Errorf("Expected thread to contain exactly 1 email ID, got: %+v", threads)
 	}
 }
+
+// TestEmailSubmission_OuterSMTPServerDelivery verifies that when an outer SMTP server is configured,
+// EmailSubmission/set routes all messages through it via SMTP rather than performing in-process IMAP loopback.
+func TestEmailSubmission_OuterSMTPServerDelivery(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to listen: %v", err)
+	}
+	defer l.Close()
+
+	var smtpMu sync.Mutex
+	var receivedFrom string
+	var receivedRcpt []string
+	var receivedData []byte
+
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				r := bufio.NewReader(c)
+				w := bufio.NewWriter(c)
+				writeLine := func(s string) {
+					w.WriteString(s + "\r\n")
+					w.Flush()
+				}
+				writeLine("220 mock-outer-smtp ESMTP")
+				for {
+					line, err := r.ReadString('\n')
+					if err != nil {
+						return
+					}
+					line = strings.TrimRight(line, "\r\n")
+					upper := strings.ToUpper(line)
+					if strings.HasPrefix(upper, "EHLO") || strings.HasPrefix(upper, "HELO") {
+						writeLine("250-mock-outer-smtp")
+						writeLine("250 8BITMIME")
+					} else if strings.HasPrefix(upper, "MAIL FROM:") {
+						smtpMu.Lock()
+						raw := strings.TrimSpace(line[len("MAIL FROM:"):])
+						if idx := strings.Index(raw, ">"); idx != -1 && strings.HasPrefix(raw, "<") {
+							receivedFrom = raw[1:idx]
+						} else if idx := strings.Index(raw, " "); idx != -1 {
+							receivedFrom = strings.Trim(raw[:idx], "<> ")
+						} else {
+							receivedFrom = strings.Trim(raw, "<> ")
+						}
+						smtpMu.Unlock()
+						writeLine("250 2.1.0 Sender OK")
+					} else if strings.HasPrefix(upper, "RCPT TO:") {
+						smtpMu.Lock()
+						receivedRcpt = append(receivedRcpt, strings.Trim(strings.TrimPrefix(line, "RCPT TO:"), "<> "))
+						smtpMu.Unlock()
+						writeLine("250 2.1.5 Recipient OK")
+					} else if upper == "DATA" {
+						writeLine("354 Start mail input")
+						var body bytes.Buffer
+						for {
+							dataLine, err := r.ReadString('\n')
+							if err != nil {
+								return
+							}
+							if dataLine == ".\r\n" || dataLine == ".\n" {
+								break
+							}
+							body.WriteString(dataLine)
+						}
+						smtpMu.Lock()
+						receivedData = body.Bytes()
+						smtpMu.Unlock()
+						writeLine("250 2.0.0 OK: message queued")
+					} else if upper == "QUIT" {
+						writeLine("221 2.0.0 Bye")
+						return
+					} else {
+						writeLine("502 Command not implemented")
+					}
+				}
+			}(conn)
+		}
+	}()
+
+	srv := newTestServer()
+	if imapBackend, ok := srv.MailBackend.(*imapsmtp.IMAPSMTPBackend); ok {
+		imapBackend.SetSMTPAddr(l.Addr().String())
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	part1 := "1"
+	em, err := srv.MailBackend.CreateEmail(seedCtx(), &jmap.Email{
+		MailboxIDs: map[jmap.Id]bool{"mb-drafts": true},
+		Subject:    "Outer SMTP Test Subject",
+		From:       []jmap.EmailAddress{{Email: "sender@example.com"}},
+		To:         []jmap.EmailAddress{{Email: "recipient@example.com"}},
+		BodyValues: map[string]jmap.EmailBodyValue{"1": {Value: "Hello outer SMTP"}},
+		TextBody:   []jmap.EmailBodyPart{{PartID: &part1, Type: "text/plain"}},
+	})
+	if err != nil {
+		t.Fatalf("Failed to create email: %v", err)
+	}
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.SubmissionCapabilityURI}
+	calls := []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sub1": map[string]any{
+					"emailId":    string(em.ID),
+					"identityId": "id-primary",
+				},
+			},
+		}, "c1"},
+	}
+
+	res := postJMAP(t, ts.URL, using, calls)
+	if len(res.MethodResponses) < 1 {
+		t.Fatalf("Expected responses for EmailSubmission/set")
+	}
+	created, _ := res.MethodResponses[0].Args["created"].(map[string]any)
+	if created["sub1"] == nil {
+		t.Fatalf("Submission creation failed: %v", res.MethodResponses[0].Args)
+	}
+
+	smtpMu.Lock()
+	defer smtpMu.Unlock()
+
+	if receivedFrom != "sender@example.com" && receivedFrom != "user@example.com" {
+		t.Errorf("Expected receivedFrom sender@example.com or user@example.com, got %q", receivedFrom)
+	}
+	if len(receivedRcpt) != 1 || receivedRcpt[0] != "recipient@example.com" {
+		t.Errorf("Expected receivedRcpt [recipient@example.com], got %v", receivedRcpt)
+	}
+	if !bytes.Contains(receivedData, []byte("Outer SMTP Test Subject")) {
+		t.Errorf("Expected receivedData to contain subject, got: %s", string(receivedData))
+	}
+}
+
 

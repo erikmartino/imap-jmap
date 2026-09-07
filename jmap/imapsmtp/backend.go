@@ -73,6 +73,12 @@ var _ jmap.MailBackend = (*IMAPSMTPBackend)(nil)
 var _ jmap.BlobBackend = (*IMAPSMTPBackend)(nil)
 var _ jmap.BlobReferenceBackend = (*IMAPSMTPBackend)(nil)
 var _ jmap.SubscriptionListener = (*IMAPSMTPBackend)(nil)
+var _ jmap.SMTPAvailableBackend = (*IMAPSMTPBackend)(nil)
+
+// HasSMTPServer reports whether an outer SMTP server address is configured.
+func (b *IMAPSMTPBackend) HasSMTPServer() bool {
+	return b.smtpHost != ""
+}
 
 // New creates a new IMAP/SMTP gateway backend.
 func New(imapHost, smtpHost string) *IMAPSMTPBackend {
