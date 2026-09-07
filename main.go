@@ -189,6 +189,9 @@ func main() {
 			accountCtx := jmap.ContextWithAccountID(context.Background(), accountID)
 			accountCtx = jmap.ContextWithSubject(accountCtx, subject)
 			accountCtx = jmap.ContextWithCredentials(accountCtx, subject, subject)
+			if mailBackend != nil {
+				jmap.SeedStandardMailboxes(accountCtx, mailBackend)
+			}
 			if ncPb, ok := principalsBackend.(*nextcloud.PrincipalsBackend); ok {
 				_ = ncPb.EnsureUser(accountCtx, subject, subject)
 			}

@@ -96,8 +96,9 @@ func (b *IMAPSMTPBackend) GetEmails(ctx context.Context, ids []jmap.Id) ([]*jmap
 	mailboxUIDs := make(map[jmap.Id][]uint32)
 	var notFound []jmap.Id
 
+	accountID, _ := jmap.AccountIDFromContext(ctx)
 	for _, id := range ids {
-		resolved := b.resolveMovedEmailID(id)
+		resolved := b.resolveMovedEmailID(accountID, id)
 		if resolved != id {
 			aliasToOriginal[resolved] = id
 		}

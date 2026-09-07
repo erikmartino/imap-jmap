@@ -43,7 +43,7 @@ type IMAPSMTPBackend struct {
 	identities   map[string]map[jmap.Id]*jmap.Identity
 
 	movedMu  sync.RWMutex
-	movedIDs map[jmap.Id]jmap.Id
+	movedIDs map[string]map[jmap.Id]jmap.Id
 
 	mailboxMu              sync.RWMutex
 	mailboxMovedIDs        map[jmap.Id]jmap.Id
@@ -90,7 +90,7 @@ func New(imapHost, smtpHost string) *IMAPSMTPBackend {
 		submissions:            make(map[string]map[jmap.Id]*jmap.EmailSubmission),
 		subTrackers:            make(map[string]*subTracker),
 		identities:             make(map[string]map[jmap.Id]*jmap.Identity),
-		movedIDs:               make(map[jmap.Id]jmap.Id),
+		movedIDs:               make(map[string]map[jmap.Id]jmap.Id),
 		mailboxMovedIDs:        make(map[jmap.Id]jmap.Id),
 		mailboxParentOverrides: make(map[string]map[jmap.Id]*jmap.Id),
 		quotaTrackers:          make(map[string]*itemTracker),
@@ -106,26 +106,40 @@ func New(imapHost, smtpHost string) *IMAPSMTPBackend {
 	}
 }
 
-func (b *IMAPSMTPBackend) trackMovedEmail(oldID, newID jmap.Id) {
+func (b *IMAPSMTPBackend) trackMovedEmail(accountID string, oldID, newID jmap.Id) {
 	b.movedMu.Lock()
 	defer b.movedMu.Unlock()
 	if b.movedIDs == nil {
-		b.movedIDs = make(map[jmap.Id]jmap.Id)
+		b.movedIDs = make(map[string]map[jmap.Id]jmap.Id)
 	}
-	for k, v := range b.movedIDs {
+	accMoved := b.movedIDs[accountID]
+	if accMoved == nil {
+		accMoved = make(map[jmap.Id]jmap.Id)
+		b.movedIDs[accountID] = accMoved
+	}
+	for k, v := range accMoved {
 		if v == oldID {
-			b.movedIDs[k] = newID
+			accMoved[k] = newID
 		}
 	}
-	b.movedIDs[oldID] = newID
+	accMoved[oldID] = newID
 }
 
-func (b *IMAPSMTPBackend) resolveMovedEmailID(id jmap.Id) jmap.Id {
+func (b *IMAPSMTPBackend) resolveMovedEmailID(accountID string, id jmap.Id) jmap.Id {
 	b.movedMu.RLock()
 	defer b.movedMu.RUnlock()
 	curr := id
-	for next, ok := b.movedIDs[curr]; ok; next, ok = b.movedIDs[curr] {
-		curr = next
+	if b.movedIDs != nil {
+		if accMoved, ok := b.movedIDs[accountID]; ok {
+			visited := make(map[jmap.Id]bool)
+			for next, ok := accMoved[curr]; ok; next, ok = accMoved[curr] {
+				if visited[curr] {
+					break
+				}
+				visited[curr] = true
+				curr = next
+			}
+		}
 	}
 	switch curr {
 	case "email-1", "email-seed-1":

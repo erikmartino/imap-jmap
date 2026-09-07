@@ -232,24 +232,7 @@ The server provides a native WebSocket transport endpoint at `/jmap/ws` implemen
 
 ---
 
-## 11. S/MIME Signature Verification Test Suite (RFC 9219)
-
-Tests the `Email/verifySmime` method and S/MIME status properties against canonical Cryptographic Message Syntax (CMS / PKCS#7) test vectors derived from NIST PKI and OpenSSL suites:
-
-* **Scope**:
-  * Valid opaque and detached signatures (`multipart/signed`, `application/pkcs7-mime`).
-  * Expired, not-yet-valid, or self-signed certificates without trusted roots (`failed: expired`, `failed: untrusted`).
-  * Revocation verification via CRL / OCSP checks (`failed: revoked`).
-  * Message body tampering detection (altered whitespace, modified characters, spliced headers).
-  * Digest and signature algorithm coverage (RSA, ECDSA with SHA-256, SHA-384, SHA-512).
-* **Internal Go Tests**:
-  ```bash
-  go test -v -run "TestRFC9219" ./jmap
-  ```
-
----
-
-## 12. Email Authentication Conformance: SPF, DKIM & DMARC (RFC 7208 / 6376 / 7489)
+## 11. Email Authentication Conformance: SPF, DKIM & DMARC (RFC 7208 / 6376 / 7489)
 
 The inbound SMTP receiver enforces sender verification prior to mailbox delivery and iTIP calendar invitation ingestion:
 
@@ -265,7 +248,7 @@ The inbound SMTP receiver enforces sender verification prior to mailbox delivery
 
 ---
 
-## 13. Web Push ECE Encryption & VAPID Test Vectors (RFC 8291 / RFC 9749)
+## 12. Web Push ECE Encryption & VAPID Test Vectors (RFC 8291 / RFC 9749)
 
 Verifies outgoing push notification encryption and voluntary application server identification for `PushSubscription` resources:
 
@@ -278,9 +261,10 @@ Verifies outgoing push notification encryption and voluntary application server 
   go test -v -run "TestRFC8291|TestRFC8620_WebPush" ./jmap
   ```
 
+
 ---
 
-## 14. Dovecot Pigeonhole Sieve Test Suite (RFC 5228 / 5230 / 5232 / 5429 / 5804 / 9661)
+## 13. Dovecot Pigeonhole Sieve Test Suite (RFC 5228 / 5230 / 5232 / 5429 / 5804 / 9661)
 
 Verifies Sieve script evaluation on inbound SMTP message delivery and ManageSieve protocol operations against canonical test vectors from the Dovecot Pigeonhole suite:
 

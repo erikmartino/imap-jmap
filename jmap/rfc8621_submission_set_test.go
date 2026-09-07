@@ -1234,5 +1234,23 @@ func TestEmailSubmission_OnSuccessUpdateEmail_DraftToSent(t *testing.T) {
 	if updatedEmail.Keywords["$draft"] {
 		t.Errorf("Expected $draft keyword to be removed after send")
 	}
+
+	// Verify that Sent mailbox contains exactly 1 email (no duplicate copy in Sent)
+	sentEmails, totalSent, err := srv.MailBackend.QueryEmails(seedCtx(), map[string]any{"inMailbox": "mb-sent"}, nil, 0, nil)
+	if err != nil {
+		t.Fatalf("QueryEmails for mb-sent failed: %v", err)
+	}
+	if totalSent != 1 || len(sentEmails) != 1 {
+		t.Errorf("Expected exactly 1 email in mb-sent, got total=%d, ids=%v", totalSent, sentEmails)
+	}
+
+	// Verify that Thread/get contains exactly 1 email in emailIds (not duplicated as children)
+	threads, _, err := srv.MailBackend.GetThreads(seedCtx(), []jmap.Id{updatedEmail.ThreadID})
+	if err != nil {
+		t.Fatalf("GetThreads failed: %v", err)
+	}
+	if len(threads) != 1 || len(threads[0].EmailIDs) != 1 {
+		t.Errorf("Expected thread to contain exactly 1 email ID, got: %+v", threads)
+	}
 }
 

@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/emersion/go-imap/v2"
 	"imap-jmap/jmap"
 )
 
@@ -144,26 +143,10 @@ func (b *IMAPSMTPBackend) CreateSubmission(ctx context.Context, sub *jmap.EmailS
 		}
 	}
 
-	// Dispatch over SMTP if configured and recipients exist
-	if b.smtpHost != "" && len(recipients) > 0 {
+	// Dispatch over SMTP if configured and recipients exist and have not already been delivered
+	if b.smtpHost != "" && len(recipients) > 0 && len(sub.DeliveryStatus) == 0 {
 		if err := b.pool.SendMail(ctx, from, recipients, rawBytes); err != nil {
 			return nil, fmt.Errorf("failed to send outbound email via SMTP: %w", err)
-		}
-	}
-
-	// Append to IMAP Sent folder if available, unless email is already exclusively in Sent
-	isAlreadyInSent := len(em.MailboxIDs) == 1 && em.MailboxIDs["mb-sent"]
-	if !isAlreadyInSent {
-		client, err := b.pool.GetClientForContext(ctx)
-		if err == nil {
-			defer client.Close()
-			appendCmd := client.Append("Sent", int64(len(rawBytes)), &imap.AppendOptions{
-				Flags: []imap.Flag{imap.FlagSeen},
-				Time:  time.Now(),
-			})
-			_, _ = appendCmd.Write(rawBytes)
-			_ = appendCmd.Close()
-			_, _ = appendCmd.Wait()
 		}
 	}
 
@@ -180,14 +163,16 @@ func (b *IMAPSMTPBackend) CreateSubmission(ctx context.Context, sub *jmap.EmailS
 		sub.ThreadID = em.ThreadID
 	}
 
-	deliv := make(map[string]jmap.DeliveryStatus)
-	for _, rcpt := range recipients {
-		deliv[rcpt] = jmap.DeliveryStatus{
-			Delivered: "yes",
-			SmtpReply: "250 2.0.0 OK message queued",
+	if sub.DeliveryStatus == nil {
+		deliv := make(map[string]jmap.DeliveryStatus)
+		for _, rcpt := range recipients {
+			deliv[rcpt] = jmap.DeliveryStatus{
+				Delivered: "yes",
+				SmtpReply: "250 2.0.0 OK message queued",
+			}
 		}
+		sub.DeliveryStatus = deliv
 	}
-	sub.DeliveryStatus = deliv
 
 	accountID, _ := jmap.AccountIDFromContext(ctx)
 	b.submissionsMu.Lock()

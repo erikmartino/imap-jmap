@@ -104,7 +104,7 @@ func NewEmbeddedBackend(usernames ...string) (*IMAPSMTPBackend, func()) {
 		_ = server.Serve(listener)
 	}()
 
-	backend := New(listener.Addr().String(), "127.0.0.1:2525")
+	backend := New(listener.Addr().String(), "")
 
 	cleanup := func() {
 		_ = backend.Close()

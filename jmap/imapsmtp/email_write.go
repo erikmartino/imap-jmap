@@ -154,7 +154,8 @@ func (b *IMAPSMTPBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jma
 // UpdateEmail modifies keywords or moves an email to another IMAP mailbox.
 func (b *IMAPSMTPBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.Email, error) {
 	origID := id
-	id = b.resolveMovedEmailID(id)
+	accountID, _ := jmap.AccountIDFromContext(ctx)
+	id = b.resolveMovedEmailID(accountID, id)
 	mbID, uid, err := ParseEmailID(id)
 	if err != nil {
 		return nil, err
@@ -285,9 +286,8 @@ func (b *IMAPSMTPBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map
 			}
 			if newUID > 0 {
 				newID := EmailIDFor(targetMoveMbID, newUID)
-				b.trackMovedEmail(origID, newID)
-				b.trackMovedEmail(id, newID)
-				accountID, _ := jmap.AccountIDFromContext(ctx)
+				b.trackMovedEmail(accountID, origID, newID)
+				b.trackMovedEmail(accountID, id, newID)
 				b.trackMovedEmailQuota(accountID, origID, newID)
 			}
 			b.publishStateChange(ctx)
@@ -307,7 +307,6 @@ func (b *IMAPSMTPBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map
 
 	// Fetch updated message
 	emails, _, err := b.GetEmails(ctx, []jmap.Id{origID})
-	accountID, _ := jmap.AccountIDFromContext(ctx)
 	b.recordEmailMutation(accountID, origID, "update")
 	b.publishStateChange(ctx)
 	if err == nil && len(emails) > 0 {
@@ -319,7 +318,8 @@ func (b *IMAPSMTPBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map
 
 // DeleteEmail removes an email from IMAP via \Deleted flag and EXPUNGE.
 func (b *IMAPSMTPBackend) DeleteEmail(ctx context.Context, id jmap.Id) (bool, error) {
-	id = b.resolveMovedEmailID(id)
+	accountID, _ := jmap.AccountIDFromContext(ctx)
+	id = b.resolveMovedEmailID(accountID, id)
 	mbID, uid, err := ParseEmailID(id)
 	if err != nil {
 		return false, err
@@ -356,7 +356,6 @@ func (b *IMAPSMTPBackend) DeleteEmail(ctx context.Context, id jmap.Id) (bool, er
 		return false, fmt.Errorf("failed to expunge deleted email: %w", err)
 	}
 
-	accountID, _ := jmap.AccountIDFromContext(ctx)
 	b.recordEmailMutation(accountID, id, "destroy")
 	b.recordEmailQuotaDeleted(accountID, id)
 	b.deleteBlobRefsForEmail(accountID, id)

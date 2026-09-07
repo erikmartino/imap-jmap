@@ -196,7 +196,7 @@ func SeedAccountSampleData(ctx context.Context, accountID string, mb MailBackend
 	}
 
 	if mb != nil {
-		seedStandardMailboxes(accountCtx, mb)
+		SeedStandardMailboxes(accountCtx, mb)
 
 		// Resolve the real mailbox IDs by role.
 		roleIDs := make(map[string]Id)
@@ -330,9 +330,9 @@ func SeedAccountSampleData(ctx context.Context, accountID string, mb MailBackend
 	}
 }
 
-// seedStandardMailboxes ensures all standard role mailboxes expected by a mail
+// SeedStandardMailboxes ensures all standard role mailboxes expected by a mail
 // client exist on a newly seeded account (idempotent helper).
-func seedStandardMailboxes(ctx context.Context, mb MailBackend) {
+func SeedStandardMailboxes(ctx context.Context, mb MailBackend) {
 	existing, err := mb.GetAllMailboxes(ctx)
 	if err != nil {
 		return
