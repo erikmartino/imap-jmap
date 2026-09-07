@@ -316,6 +316,8 @@ func handleEmailSubmissionSet(backend MailBackend, blobBackend BlobBackend, reso
 								continue
 							}
 							copyEmail.MailboxIDs = map[Id]bool{inboxID: true}
+							// Delivered copy in recipient inbox must not inherit sender's draft keywords
+							copyEmail.Keywords = make(map[string]bool)
 							deliveredCopy, err := backend.CreateEmail(rcptCtx, &copyEmail)
 							if err != nil {
 								log.Printf("EmailSubmission/set: local delivery to %q failed: %v", rcptClean, err)

@@ -147,7 +147,18 @@ func TestNextcloudContactsBackend(t *testing.T) {
 		t.Errorf("Expected name 'Bob Nextcloud', got %v", fetched[0].Name)
 	}
 
-	// 4. Delete Card
+	// 4. Update Card
+	updated, err := backend.UpdateCard(ctx, created.ID, map[string]any{
+		"name/full": "Bob Nextcloud Updated",
+	})
+	if err != nil {
+		t.Fatalf("UpdateCard failed: %v", err)
+	}
+	if updated.Name == nil || updated.Name.Full != "Bob Nextcloud Updated" {
+		t.Errorf("Expected updated name 'Bob Nextcloud Updated', got %v", updated.Name)
+	}
+
+	// 5. Delete Card
 	delOk, err := backend.DeleteCard(ctx, created.ID)
 	if err != nil || !delOk {
 		t.Fatalf("DeleteCard failed: %v", err)

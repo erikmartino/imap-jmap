@@ -27,6 +27,7 @@ type ContactsBackend struct {
 	abTrackers          map[string]*jmap.ChangeTracker
 	cardTrackers        map[string]*jmap.ChangeTracker
 	abPaths             map[string]map[jmap.Id]string
+	cardPaths           map[string]map[jmap.Id]string
 	homeSets            map[string]string
 	defaultAddressBooks map[string]jmap.Id
 	absCache            map[string][]*jmap.AddressBook
@@ -42,6 +43,7 @@ func NewContactsBackend(client *Client) *ContactsBackend {
 		abTrackers:          make(map[string]*jmap.ChangeTracker),
 		cardTrackers:        make(map[string]*jmap.ChangeTracker),
 		abPaths:             make(map[string]map[jmap.Id]string),
+		cardPaths:           make(map[string]map[jmap.Id]string),
 		homeSets:            make(map[string]string),
 		defaultAddressBooks: make(map[string]jmap.Id),
 		absCache:            make(map[string][]*jmap.AddressBook),
@@ -478,6 +480,10 @@ func (b *ContactsBackend) GetCards(ctx context.Context, ids []jmap.Id) ([]*jmap.
 						card.AddressBookIDs["ab-default"] = true
 					}
 					b.mu.Lock()
+					if b.cardPaths[u] == nil {
+						b.cardPaths[u] = make(map[jmap.Id]string)
+					}
+					b.cardPaths[u][cardID] = ao.Path
 					b.cardsCache[u][cardID] = &card
 					b.mu.Unlock()
 				}
@@ -577,13 +583,46 @@ func (b *ContactsBackend) CreateCard(ctx context.Context, card *jmap.Card) (*jma
 		return nil, fmt.Errorf("failed to decode vcard: %w", decErr)
 	}
 
-	cardPath := strings.TrimRight(abPath, "/") + "/" + string(card.ID) + ".vcf"
+	b.mu.RLock()
+	var cardPath string
+	if b.cardPaths[u] != nil {
+		cardPath = b.cardPaths[u][card.ID]
+	}
+	b.mu.RUnlock()
+
+	if cardPath == "" {
+		filename := string(card.ID)
+		if !strings.HasSuffix(filename, ".vcf") {
+			filename += ".vcf"
+		}
+		cardPath = strings.TrimRight(abPath, "/") + "/" + filename
+	}
+
 	_, putErr := cardClient.PutAddressObject(ctx, cardPath, cardObj)
+	if putErr != nil {
+		// If CardDAV returns a UID conflict (e.g. 409 Conflict with <no-uid-conflict><href>...</href>),
+		// a card with this UID already exists at that specific href in Nextcloud CardDAV.
+		// Retry the PUT directly to that conflicting href to update the existing card.
+		if strings.Contains(putErr.Error(), "no-uid-conflict") || strings.Contains(putErr.Error(), "UidConflict") {
+			conflictHref := extractConflictHref(putErr.Error())
+			if conflictHref != "" {
+				_, retryErr := cardClient.PutAddressObject(ctx, conflictHref, cardObj)
+				if retryErr == nil {
+					putErr = nil
+					cardPath = conflictHref
+				}
+			}
+		}
+	}
 	if putErr != nil {
 		return nil, fmt.Errorf("failed to put address object via carddav client: %w", putErr)
 	}
 
 	b.mu.Lock()
+	if b.cardPaths[u] == nil {
+		b.cardPaths[u] = make(map[jmap.Id]string)
+	}
+	b.cardPaths[u][card.ID] = cardPath
 	if b.cardsCache[u] == nil {
 		b.cardsCache[u] = make(map[jmap.Id]*jmap.Card)
 	}
@@ -693,9 +732,22 @@ func (b *ContactsBackend) UpdateCard(ctx context.Context, id jmap.Id, patch map[
 	if oldAbID != "" && newAbID != "" && oldAbID != newAbID {
 		cardClient, u, cErr := b.client.CardDAV(ctx)
 		if cErr == nil {
-			homeSet := b.getAddressBookHomeSet(ctx, cardClient, u)
-			oldPath := strings.TrimRight(b.getABPath(u, jmap.Id(oldAbID), homeSet), "/") + "/" + string(id) + ".vcf"
+			b.mu.RLock()
+			oldPath := ""
+			if b.cardPaths[u] != nil {
+				oldPath = b.cardPaths[u][id]
+			}
+			b.mu.RUnlock()
+			if oldPath == "" {
+				homeSet := b.getAddressBookHomeSet(ctx, cardClient, u)
+				oldPath = strings.TrimRight(b.getABPath(u, jmap.Id(oldAbID), homeSet), "/") + "/" + string(id) + ".vcf"
+			}
 			_ = cardClient.RemoveAll(ctx, oldPath)
+			b.mu.Lock()
+			if b.cardPaths[u] != nil {
+				delete(b.cardPaths[u], id)
+			}
+			b.mu.Unlock()
 		}
 	}
 
@@ -722,12 +774,24 @@ func (b *ContactsBackend) DeleteCard(ctx context.Context, id jmap.Id) (bool, err
 		break
 	}
 
-	homeSet := b.getAddressBookHomeSet(ctx, cardClient, u)
-	abPath := b.getABPath(u, jmap.Id(abID), homeSet)
-	cardPath := strings.TrimRight(abPath, "/") + "/" + string(id) + ".vcf"
+	b.mu.RLock()
+	var cardPath string
+	if b.cardPaths[u] != nil {
+		cardPath = b.cardPaths[u][id]
+	}
+	b.mu.RUnlock()
+
+	if cardPath == "" {
+		homeSet := b.getAddressBookHomeSet(ctx, cardClient, u)
+		abPath := b.getABPath(u, jmap.Id(abID), homeSet)
+		cardPath = strings.TrimRight(abPath, "/") + "/" + string(id) + ".vcf"
+	}
 	_ = cardClient.RemoveAll(ctx, cardPath)
 
 	b.mu.Lock()
+	if b.cardPaths[u] != nil {
+		delete(b.cardPaths[u], id)
+	}
 	if b.cardsCache[u] != nil {
 		delete(b.cardsCache[u], id)
 	}
@@ -736,6 +800,32 @@ func (b *ContactsBackend) DeleteCard(ctx context.Context, id jmap.Id) (bool, err
 
 	b.emitStateChange(u, "Card", st)
 	return true, nil
+}
+
+func extractConflictHref(errStr string) string {
+	sIdx := strings.Index(errStr, "<href")
+	if sIdx == -1 {
+		sIdx = strings.Index(errStr, ":href")
+		if sIdx != -1 {
+			open := strings.LastIndex(errStr[:sIdx], "<")
+			if open != -1 {
+				sIdx = open
+			}
+		}
+	}
+	if sIdx == -1 {
+		return ""
+	}
+	closeTag := strings.Index(errStr[sIdx:], ">")
+	if closeTag == -1 {
+		return ""
+	}
+	valStart := sIdx + closeTag + 1
+	eIdx := strings.Index(errStr[valStart:], "</")
+	if eIdx == -1 {
+		return ""
+	}
+	return strings.TrimSpace(errStr[valStart : valStart+eIdx])
 }
 
 func (b *ContactsBackend) QueryCards(ctx context.Context, filter map[string]any, comparators []jmap.Comparator, position int, limit *uint64) ([]jmap.Id, int, error) {
