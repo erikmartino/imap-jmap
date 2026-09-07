@@ -455,9 +455,7 @@ func (b *ContactsBackend) GetCards(ctx context.Context, ids []jmap.Id) ([]*jmap.
 			if ao.Card == nil {
 				continue
 			}
-			name := path.Base(ao.Path)
-			rawID := strings.TrimSuffix(name, ".vcf")
-			cardID := jmap.Id(rawID)
+			cardID := jmap.Id(path.Base(ao.Path))
 
 			if len(ids) > 0 && !idMap[cardID] {
 				continue
@@ -591,11 +589,7 @@ func (b *ContactsBackend) CreateCard(ctx context.Context, card *jmap.Card) (*jma
 	b.mu.RUnlock()
 
 	if cardPath == "" {
-		filename := string(card.ID)
-		if !strings.HasSuffix(filename, ".vcf") {
-			filename += ".vcf"
-		}
-		cardPath = strings.TrimRight(abPath, "/") + "/" + filename
+		cardPath = strings.TrimRight(abPath, "/") + "/" + string(card.ID)
 	}
 
 	_, putErr := cardClient.PutAddressObject(ctx, cardPath, cardObj)
@@ -740,7 +734,7 @@ func (b *ContactsBackend) UpdateCard(ctx context.Context, id jmap.Id, patch map[
 			b.mu.RUnlock()
 			if oldPath == "" {
 				homeSet := b.getAddressBookHomeSet(ctx, cardClient, u)
-				oldPath = strings.TrimRight(b.getABPath(u, jmap.Id(oldAbID), homeSet), "/") + "/" + string(id) + ".vcf"
+				oldPath = strings.TrimRight(b.getABPath(u, jmap.Id(oldAbID), homeSet), "/") + "/" + string(id)
 			}
 			_ = cardClient.RemoveAll(ctx, oldPath)
 			b.mu.Lock()
@@ -784,7 +778,7 @@ func (b *ContactsBackend) DeleteCard(ctx context.Context, id jmap.Id) (bool, err
 	if cardPath == "" {
 		homeSet := b.getAddressBookHomeSet(ctx, cardClient, u)
 		abPath := b.getABPath(u, jmap.Id(abID), homeSet)
-		cardPath = strings.TrimRight(abPath, "/") + "/" + string(id) + ".vcf"
+		cardPath = strings.TrimRight(abPath, "/") + "/" + string(id)
 	}
 	_ = cardClient.RemoveAll(ctx, cardPath)
 
