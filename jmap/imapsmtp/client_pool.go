@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"net/mail"
 	"net/smtp"
@@ -266,12 +265,18 @@ func (p *ClientPool) SendMail(ctx context.Context, from string, recipients []str
 		}
 	}
 
-	creds, _ := jmap.CredentialsFromContext(ctx)
-	if ok, _ := c.Extension("AUTH"); ok && creds.Username != "" && creds.Password != "" {
-		auth := smtp.PlainAuth("", creds.Username, creds.Password, host)
-		if err = c.Auth(auth); err != nil {
-			log.Printf("SMTP Auth for %s returned: %v (continuing in case relay is permitted by network)", creds.Username, err)
-		}
+	creds, err := extractCredentials(ctx)
+	if err != nil {
+		return fmt.Errorf("unauthorized: missing credentials for authenticated SMTP send: %w", err)
+	}
+
+	if ok, _ := c.Extension("AUTH"); !ok {
+		return fmt.Errorf("SMTP server %s does not support AUTH", p.smtpAddr)
+	}
+
+	auth := &plainAuth{username: creds.Username, password: creds.Password}
+	if err = c.Auth(auth); err != nil {
+		return fmt.Errorf("SMTP authentication failed for %s: %w", creds.Username, err)
 	}
 
 	cleanFrom := strings.Trim(strings.TrimSpace(from), "<>")
@@ -304,3 +309,41 @@ func (p *ClientPool) SendMail(ctx context.Context, from string, recipients []str
 
 	return c.Quit()
 }
+
+func extractCredentials(ctx context.Context) (jmap.AuthCredentials, error) {
+	creds, ok := jmap.CredentialsFromContext(ctx)
+	if !ok || creds.Username == "" || creds.Password == "" {
+		subject, hasSubject := jmap.SubjectFromContext(ctx)
+		if hasSubject && subject != "" {
+			creds = jmap.AuthCredentials{Username: subject, Password: subject}
+		} else {
+			accountID, hasAccount := jmap.AccountIDFromContext(ctx)
+			if hasAccount && accountID != "" {
+				if sub, ok := jmap.SubjectForAccountID(accountID); ok && sub != "" {
+					creds = jmap.AuthCredentials{Username: sub, Password: sub}
+				}
+			}
+		}
+	}
+	if creds.Username == "" || creds.Password == "" {
+		return jmap.AuthCredentials{}, errors.New("unauthorized: missing credentials in context")
+	}
+	return creds, nil
+}
+
+type plainAuth struct {
+	identity, username, password string
+}
+
+func (a *plainAuth) Start(server *smtp.ServerInfo) (string, []byte, error) {
+	resp := []byte(a.identity + "\x00" + a.username + "\x00" + a.password)
+	return "PLAIN", resp, nil
+}
+
+func (a *plainAuth) Next(fromServer []byte, more bool) ([]byte, error) {
+	if more {
+		return nil, errors.New("unexpected server challenge")
+	}
+	return nil, nil
+}
+

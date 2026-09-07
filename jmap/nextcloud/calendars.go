@@ -1016,9 +1016,17 @@ func (b *CalendarsBackend) UpdateCalendarEvent(ctx context.Context, id jmap.Id, 
 
 	newCalID := ""
 	for cid, isSet := range ev.CalendarIDs {
-		if isSet && cid != "" && cid != "cal-default" {
+		if isSet && cid != "" && cid != "cal-default" && string(cid) != oldCalID {
 			newCalID = string(cid)
 			break
+		}
+	}
+	if newCalID == "" {
+		for cid, isSet := range ev.CalendarIDs {
+			if isSet && cid != "" && cid != "cal-default" {
+				newCalID = string(cid)
+				break
+			}
 		}
 	}
 	if newCalID == "" {
@@ -1036,6 +1044,8 @@ func (b *CalendarsBackend) UpdateCalendarEvent(ctx context.Context, id jmap.Id, 
 			oldPath := strings.TrimRight(b.getCalPath(u, jmap.Id(oldCalID), homeSet), "/") + "/" + string(id) + ".ics"
 			_ = calClient.RemoveAll(ctx, oldPath)
 		}
+		delete(ev.CalendarIDs, jmap.Id(oldCalID))
+		ev.CalendarIDs[jmap.Id(newCalID)] = true
 	}
 
 	return b.CreateCalendarEvent(ctx, ev)

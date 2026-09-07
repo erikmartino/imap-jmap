@@ -1271,6 +1271,8 @@ func TestEmailSubmission_OuterSMTPServerDelivery(t *testing.T) {
 	var receivedRcpt []string
 	var receivedData []byte
 
+	var authSuccess bool
+
 	go func() {
 		for {
 			conn, err := l.Accept()
@@ -1295,7 +1297,13 @@ func TestEmailSubmission_OuterSMTPServerDelivery(t *testing.T) {
 					upper := strings.ToUpper(line)
 					if strings.HasPrefix(upper, "EHLO") || strings.HasPrefix(upper, "HELO") {
 						writeLine("250-mock-outer-smtp")
-						writeLine("250 8BITMIME")
+						writeLine("250-8BITMIME")
+						writeLine("250 AUTH PLAIN")
+					} else if strings.HasPrefix(upper, "AUTH PLAIN") {
+						smtpMu.Lock()
+						authSuccess = true
+						smtpMu.Unlock()
+						writeLine("235 2.7.0 Authentication successful")
 					} else if strings.HasPrefix(upper, "MAIL FROM:") {
 						smtpMu.Lock()
 						raw := strings.TrimSpace(line[len("MAIL FROM:"):])
@@ -1395,6 +1403,97 @@ func TestEmailSubmission_OuterSMTPServerDelivery(t *testing.T) {
 	if !bytes.Contains(receivedData, []byte("Outer SMTP Test Subject")) {
 		t.Errorf("Expected receivedData to contain subject, got: %s", string(receivedData))
 	}
+	if !authSuccess {
+		t.Errorf("Expected SMTP authentication to occur successfully")
+	}
 }
+
+// TestEmailSubmission_OuterSMTP_AuthFailure verifies that when outer SMTP authentication fails,
+// EmailSubmission/set returns notCreated and refuses unauthenticated delivery.
+func TestEmailSubmission_OuterSMTP_AuthFailure(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to listen: %v", err)
+	}
+	defer l.Close()
+
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				r := bufio.NewReader(c)
+				w := bufio.NewWriter(c)
+				writeLine := func(s string) {
+					w.WriteString(s + "\r\n")
+					w.Flush()
+				}
+				writeLine("220 mock-outer-smtp ESMTP")
+				for {
+					line, err := r.ReadString('\n')
+					if err != nil {
+						return
+					}
+					upper := strings.ToUpper(strings.TrimRight(line, "\r\n"))
+					if strings.HasPrefix(upper, "EHLO") || strings.HasPrefix(upper, "HELO") {
+						writeLine("250-mock-outer-smtp")
+						writeLine("250-8BITMIME")
+						writeLine("250 AUTH PLAIN")
+					} else if strings.HasPrefix(upper, "AUTH PLAIN") {
+						writeLine("535 5.7.8 Authentication credentials invalid")
+					} else if upper == "QUIT" {
+						writeLine("221 2.0.0 Bye")
+						return
+					} else {
+						writeLine("502 Command not implemented")
+					}
+				}
+			}(conn)
+		}
+	}()
+
+	srv := newTestServer()
+	if imapBackend, ok := srv.MailBackend.(*imapsmtp.IMAPSMTPBackend); ok {
+		imapBackend.SetSMTPAddr(l.Addr().String())
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	em, err := srv.MailBackend.CreateEmail(seedCtx(), &jmap.Email{
+		MailboxIDs: map[jmap.Id]bool{"mb-drafts": true},
+		Subject:    "Auth Fail Test",
+		From:       []jmap.EmailAddress{{Email: "sender@example.com"}},
+		To:         []jmap.EmailAddress{{Email: "recipient@example.com"}},
+	})
+	if err != nil {
+		t.Fatalf("Failed to create email: %v", err)
+	}
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.SubmissionCapabilityURI}
+	calls := []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sub1": map[string]any{
+					"emailId":    string(em.ID),
+					"identityId": "id-primary",
+				},
+			},
+		}, "c1"},
+	}
+
+	res := postJMAP(t, ts.URL, using, calls)
+	if len(res.MethodResponses) < 1 {
+		t.Fatalf("Expected responses for EmailSubmission/set")
+	}
+	notCreated, _ := res.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if notCreated["sub1"] == nil {
+		t.Fatalf("Expected submission creation to fail due to SMTP auth rejection, got: %v", res.MethodResponses[0].Args)
+	}
+}
+
 
 

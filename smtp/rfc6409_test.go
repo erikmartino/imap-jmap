@@ -24,7 +24,7 @@ func TestRFC6409_MessageSubmission(t *testing.T) {
 	addr := l.Addr().String()
 	_ = l.Close()
 
-	srv := jmapsmtp.NewServer(addr, backend, backend, nil)
+	srv := jmapsmtp.NewServer(addr, backend, backend, nil, jmapsmtp.WithTransportMode(jmapsmtp.TransportModeSubmission))
 	go func() { _ = srv.ListenAndServe() }()
 	defer srv.Close()
 	time.Sleep(50 * time.Millisecond)

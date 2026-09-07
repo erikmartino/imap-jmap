@@ -54,6 +54,13 @@ func TestCalendarEvent_UpdateWithLeadingSlashJSONPointers(t *testing.T) {
 	}
 	eventMap := created["c1"].(map[string]any)
 	eventID := eventMap["id"].(string)
+	initCalID := "cal-default"
+	if cids, ok := eventMap["calendarIds"].(map[string]any); ok {
+		for cid := range cids {
+			initCalID = cid
+			break
+		}
+	}
 
 	// 3. Patch using leading slash JSON Pointers (/title, /description, /calendarIds/<workCalID>, /utcStart, /utcEnd)
 	updateReq := []any{
@@ -64,7 +71,8 @@ func TestCalendarEvent_UpdateWithLeadingSlashJSONPointers(t *testing.T) {
 					"/title":                        "Updated Title with Slash",
 					"/description":                  "Updated Description with Slash",
 					"/calendarIds/" + workCalID:     true,
-					"/calendarIds/cal-default":     false,
+					"/calendarIds/" + initCalID:     false,
+					"/calendarIds/cal-default":      false,
 					"/utcStart":                     "2026-09-01T08:00:00Z",
 					"/utcEnd":                       "2026-09-01T09:00:00Z",
 					"/isDraft":                      false,
@@ -107,8 +115,8 @@ func TestCalendarEvent_UpdateWithLeadingSlashJSONPointers(t *testing.T) {
 		t.Errorf("expected description 'Updated Description with Slash', got %v", ev["description"])
 	}
 	calIDs, _ := ev["calendarIds"].(map[string]any)
-	if calIDs == nil || calIDs[workCalID] != true || calIDs["cal-default"] == true {
-		t.Errorf("expected calendarIds to have %s=true and cal-default removed/false, got: %+v", workCalID, calIDs)
+	if calIDs == nil || calIDs[workCalID] != true || calIDs[initCalID] == true || calIDs["cal-default"] == true {
+		t.Errorf("expected calendarIds to have %s=true and %s removed/false, got: %+v", workCalID, initCalID, calIDs)
 	}
 }
 

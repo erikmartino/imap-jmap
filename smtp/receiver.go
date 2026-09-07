@@ -149,13 +149,18 @@ func (s *Session) AuthMechanisms() []string {
 // failed exchange is rejected with 535 5.7.8 (invalid credentials) or a
 // 4xx temporary error (RFC 4954 Section 6).
 func (s *Session) Auth(mech string) (sasl.Server, error) {
-	if s.backend.Authenticator == nil {
+	if s.mode != TransportModeSubmission {
 		return nil, smtp.ErrAuthUnsupported
 	}
 	if mech != sasl.Plain {
 		return nil, smtp.ErrAuthUnknownMechanism
 	}
 	return sasl.NewPlainServer(func(identity, username, password string) error {
+		if s.backend.Authenticator == nil {
+			s.authenticated = true
+			s.authenticatedAs = username
+			return nil
+		}
 		email, ok, err := s.backend.Authenticator.Authenticate(context.Background(), username, password)
 		if err != nil {
 			return &smtp.SMTPError{
