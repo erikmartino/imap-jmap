@@ -227,6 +227,19 @@ func ParseRFC822WithAccount(accountID string, raw []byte, blobBackend ...BlobBac
 			if val != "" {
 				em.SMIMEStatusAt = &val
 			}
+		case "x-jmap-smime-errors":
+			if val != "" {
+				em.SMIMEErrors = strings.Split(val, ",")
+			}
+		}
+	}
+
+	if em.SMIMEStatus == nil {
+		if sm := VerifySMIMEMessage(raw, nil); sm != nil {
+			em.SMIMEStatus = &sm.Status
+			em.SMIMEStatusAt = &sm.StatusAt
+			em.SMIMEErrors = sm.Errors
+			em.SMIMEVerifiedWith = sm.VerifiedWith
 		}
 	}
 
@@ -834,6 +847,9 @@ func FormatEmailRFC822(em *Email) []byte {
 	}
 	if em.SMIMEStatusAt != nil && *em.SMIMEStatusAt != "" {
 		h.Set("X-JMAP-SMIME-Status-At", *em.SMIMEStatusAt)
+	}
+	if len(em.SMIMEErrors) > 0 {
+		h.Set("X-JMAP-SMIME-Errors", strings.Join(em.SMIMEErrors, ","))
 	}
 
 	partIDToSet := ""

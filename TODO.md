@@ -10,6 +10,26 @@
 
 ## Active Roadmap
 
+### Phase 2: External Conformance Test Suites & Protocol Verification
+- [x] **2.3 Autobahn WebSocket Test Suite (RFC 8887 / RFC 6455)**
+  - Implemented comprehensive WebSocket framing, binary frame rejection (§4.3.1), clean close handshakes 1000/1001 (§4.1), ping/pong heartbeats (§4.1), request pipelining (§4.3.2), and `maxSizeRequest` limits (§4.3.4) in [`jmap/rfc8887_autobahn_test.go`](./jmap/rfc8887_autobahn_test.go) and [`jmap/rfc8887_test.go`](./jmap/rfc8887_test.go).
+  - Registered normative requirements in [`spec/jmap_websockets.go`](./spec/jmap_websockets.go).
+- [x] **2.4 S/MIME Signature Verification Test Suite (RFC 9219 / RFC 8551)**
+  - Implemented real S/MIME PKCS#7/CMS `SignedData` ASN.1 parser, certificate chain validation, and digest verification (RSA, ECDSA with SHA-256/384/512) in [`jmap/smime.go`](./jmap/smime.go).
+  - Exposed verification results on `Email/get` (`smimeStatus`, `smimeStatusAtDelivery`, `smimeErrors`, `smimeVerifiedAt`, `smimeVerifiedWith`) and `Email/verifySmime`, with `Email/query` `smimeStatus` filtering in [`jmap/imapsmtp/email_read.go`](./jmap/imapsmtp/email_read.go).
+  - Tested canonical NIST/OpenSSL-grade CMS vectors in [`jmap/rfc9219_vectors_test.go`](./jmap/rfc9219_vectors_test.go) (valid opaque/detached, untrusted cert warning, expired cert, tampered body, malformed signature, unsigned null return).
+- [x] **2.5 Email Authentication Conformance: SPF, DKIM & DMARC (RFC 7208 / 6376 / 7489 / 8601)**
+  - Validated SPF evaluation mechanisms, DKIM header/body canonicalization, and DMARC alignment/policy enforcement.
+  - Implemented RFC 8601 `Authentication-Results:` trace header generation in [`smtp/sender_auth.go`](./smtp/sender_auth.go) and prepending upon delivery in [`smtp/receiver.go`](./smtp/receiver.go), covered by [`smtp/sender_auth_internal_test.go`](./smtp/sender_auth_internal_test.go).
+- [x] **2.6 Web Push ECE Encryption & VAPID Test Vectors (RFC 8291 / RFC 9749)**
+  - Validated RFC 8291 Appendix A known-answer test (KAT) vectors with ECDH P-256 HKDF-SHA256 and AES-128-GCM payload encryption in [`jmap/webpush_test.go`](./jmap/webpush_test.go).
+  - Covered VAPID ES256 ECDSA JWT authorization headers, subscription lifecycle, and gone (`404`/`410`) cleanup.
+- [x] **2.7 Dovecot Pigeonhole Sieve Test Suite (RFC 5228 / 5230 / 5232 / 5429 / 5804 / 9661)**
+  - Covered inbound Sieve script execution (`fileinto`, `discard`, `redirect`, `reject`, `imap4flags`) in [`smtp/rfc5228_sieve_delivery_test.go`](./smtp/rfc5228_sieve_delivery_test.go) and syntax validation in [`jmap/rfc5228_test.go`](./jmap/rfc5228_test.go).
+  - Tested remote ManageSieve server/client in [`jmap/managesieve/managesieve_test.go`](./jmap/managesieve/managesieve_test.go) and JMAP Sieve script CRUD/filtering in [`jmap/rfc9661_*.go`](./jmap).
+
+---
+
 ### Phase 3: JMAP for Tasks (`draft-ietf-jmap-tasks` / RFC 8984 JSCalendar §5)
 Bridge Nextcloud CalDAV `VTODO` collections and tasks to JMAP Tasks:
 

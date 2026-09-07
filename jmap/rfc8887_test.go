@@ -9,12 +9,16 @@ import (
 	"time"
 
 	"imap-jmap/jmap"
+	"imap-jmap/jmap/spectest"
 
 	"github.com/coder/websocket"
 )
 
 // TestRFC8887_SessionCapability tests that urn:ietf:params:jmap:websocket is present in the session per RFC 8887 Section 3.
 func TestRFC8887_SessionCapability(t *testing.T) {
+	spectest.Require(t, "RFC8887", "3", spectest.MUST,
+		"The urn:ietf:params:jmap:websocket capability is advertised in the session.")
+
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -50,6 +54,9 @@ func TestRFC8887_SessionCapability(t *testing.T) {
 
 // TestRFC8887_WebSocketJMAPRequest tests a JMAP Request/Response cycle over the WebSocket endpoint per RFC 8887 Section 4.3.2.
 func TestRFC8887_WebSocketJMAPRequest(t *testing.T) {
+	spectest.Require(t, "RFC8887", "4.3.2", spectest.MUST,
+		"The client sends a Request object over the WebSocket connection, and the server responds with a Response object.")
+
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -107,6 +114,9 @@ func TestRFC8887_WebSocketJMAPRequest(t *testing.T) {
 
 // TestRFC8887_WebSocketPushEnable tests WebSocketPushEnable and StateChange delivery per RFC 8887 Section 4.3.5.
 func TestRFC8887_WebSocketPushEnable(t *testing.T) {
+	spectest.Require(t, "RFC8887", "4.3.5.2", spectest.MUST,
+		"A WebSocketPushEnable object enables push notifications for specified data types or all types if omitted.")
+
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -191,6 +201,9 @@ func TestRFC8887_WebSocketPushEnable(t *testing.T) {
 
 // TestRFC8887_WebSocketInvalidCapability tests that unknown capabilities return an error per RFC 8887 Section 4.3.4.
 func TestRFC8887_WebSocketInvalidCapability(t *testing.T) {
+	spectest.Require(t, "RFC8887", "4.3.4", spectest.MUST,
+		"Requests using unsupported capabilities return a RequestError object.")
+
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -241,6 +254,9 @@ func newTestServerWithBroadcast() *jmap.Server {
 
 // TestRFC8887_WebSocketPushDisable tests WebSocketPushDisable per RFC 8887 Section 4.3.5.3.
 func TestRFC8887_WebSocketPushDisable(t *testing.T) {
+	spectest.Require(t, "RFC8887", "4.3.5.3", spectest.MUST,
+		"A WebSocketPushDisable object disables push notifications over the WebSocket connection.")
+
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()

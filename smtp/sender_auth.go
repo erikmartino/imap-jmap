@@ -98,6 +98,27 @@ type SenderAuthResult struct {
 	Reason            string
 }
 
+// AuthenticationResultsHeader formats an RFC 8601 Authentication-Results header.
+func (r *SenderAuthResult) AuthenticationResultsHeader(authServID string, fromDomain string) string {
+	var parts []string
+	if r.SPF != "" {
+		parts = append(parts, "spf="+r.SPF)
+	}
+	if r.DKIM != "" {
+		parts = append(parts, "dkim="+r.DKIM)
+	}
+	if r.DMARC != "" {
+		parts = append(parts, "dmarc="+r.DMARC)
+	}
+	if len(parts) == 0 {
+		return fmt.Sprintf("Authentication-Results: %s; none\r\n", authServID)
+	}
+	if fromDomain != "" {
+		return fmt.Sprintf("Authentication-Results: %s; %s (header.from=%s)\r\n", authServID, strings.Join(parts, "; "), fromDomain)
+	}
+	return fmt.Sprintf("Authentication-Results: %s; %s\r\n", authServID, strings.Join(parts, "; "))
+}
+
 // SPFDKIMDMARCVerifier implements SenderVerifier by combining SPF (RFC 7208),
 // DKIM (RFC 6376), and DMARC (RFC 7489) sender authentication:
 //

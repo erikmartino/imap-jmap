@@ -506,6 +506,12 @@ func buildIMAPSearchCriteria(filter map[string]any) *imap.SearchCriteria {
 			crit.Since = t
 		}
 	}
+	if smimeStatus, ok := filter["smimeStatus"].(string); ok && smimeStatus != "" {
+		crit.Header = append(crit.Header, imap.SearchCriteriaHeaderField{
+			Key:   "X-JMAP-SMIME-Status",
+			Value: smimeStatus,
+		})
+	}
 	return crit
 }
 
@@ -776,6 +782,7 @@ func (b *IMAPSMTPBackend) VerifySmime(ctx context.Context, ids []jmap.Id) (map[j
 		res[em.ID] = &jmap.SmimeVerificationResult{
 			SmimeStatus:       st,
 			SmimeStatusAt:     stAt,
+			SmimeErrors:       em.SMIMEErrors,
 			SmimeVerifiedWith: em.SMIMEVerifiedWith,
 		}
 	}

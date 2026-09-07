@@ -1,0 +1,60 @@
+package spec
+
+var JMAPWebSocketsRequirements = []Requirement{
+	{
+		Spec:    "RFC8887",
+		Section: "3",
+		Level:   MUST,
+		Text:    "The urn:ietf:params:jmap:websocket capability is advertised in the session.",
+		Tests:   []string{"TestRFC8887_SessionCapability"},
+		Status:  Covered,
+	},
+	{
+		Spec:    "RFC8887",
+		Section: "4.1",
+		Level:   MUST,
+		Text:    "WebSocket transport supports standard WebSocket ping/pong framing and clean close handshakes.",
+		Tests:   []string{"TestRFC8887_Autobahn_CloseHandshakes", "TestRFC8887_Autobahn_PingPong"},
+		Status:  Covered,
+	},
+	{
+		Spec:    "RFC8887",
+		Section: "4.3.1",
+		Level:   MUST,
+		Text:    "Only text frames are used for JMAP messages over WebSocket; binary frames are ignored.",
+		Tests:   []string{"TestRFC8887_Autobahn_BinaryFrameIgnored"},
+		Status:  Covered,
+	},
+	{
+		Spec:    "RFC8887",
+		Section: "4.3.2",
+		Level:   MUST,
+		Text:    "JMAP Request and Response objects are sent over WebSocket, supporting request pipelining.",
+		Tests:   []string{"TestRFC8887_Autobahn_PipelinedRequests", "TestRFC8887_WebSocketJMAPRequest"},
+		Status:  Covered,
+	},
+	{
+		Spec:    "RFC8887",
+		Section: "4.3.4",
+		Level:   MUST,
+		Text:    "Malformed JSON or oversized messages return RequestError with type notJSON or limit.",
+		Tests:   []string{"TestRFC8887_Autobahn_InvalidJSON", "TestRFC8887_Autobahn_MaxSizeRequestLimit", "TestRFC8887_WebSocketInvalidCapability"},
+		Status:  Covered,
+	},
+	{
+		Spec:    "RFC8887",
+		Section: "4.3.5.2",
+		Level:   MUST,
+		Text:    "A WebSocketPushEnable object enables push notifications for specified data types or all types if omitted.",
+		Tests:   []string{"TestRFC8887_WebSocketPushEnable"},
+		Status:  Covered,
+	},
+	{
+		Spec:    "RFC8887",
+		Section: "4.3.5.3",
+		Level:   MUST,
+		Text:    "A WebSocketPushDisable object disables push notifications over the WebSocket connection.",
+		Tests:   []string{"TestRFC8887_WebSocketPushDisable"},
+		Status:  Covered,
+	},
+}

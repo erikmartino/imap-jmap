@@ -12,6 +12,7 @@ import (
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/imapsmtp"
 	"imap-jmap/jmap/managesieve"
+	"imap-jmap/jmap/spectest"
 	jmapsmtp "imap-jmap/smtp"
 )
 
@@ -78,6 +79,9 @@ func setupSieveDeliveryServer(t *testing.T) (backend *imapsmtp.IMAPSMTPBackend, 
 // TestRFC5228_SieveFileinto verifies that fileinto directs the incoming message
 // into the specified folder and cancels implicit keep in INBOX (RFC 5228 Section 4.1).
 func TestRFC5228_SieveFileinto(t *testing.T) {
+	spectest.Require(t, "RFC5228", "4.1", spectest.MUST,
+		"The fileinto action files the message into the specified mailbox.")
+
 	backend, sieveBackend, _, addr, cleanup := setupSieveDeliveryServer(t)
 	defer cleanup()
 
@@ -148,6 +152,9 @@ if header :contains "subject" "Receipt" {
 // TestRFC5228_SieveDiscard verifies that discard quietly drops the incoming message
 // without an error reply and without storing it (RFC 5228 Section 4.3).
 func TestRFC5228_SieveDiscard(t *testing.T) {
+	spectest.Require(t, "RFC5228", "4.3", spectest.MUST,
+		"The discard action silently drops the message without delivery.")
+
 	backend, sieveBackend, _, addr, cleanup := setupSieveDeliveryServer(t)
 	defer cleanup()
 
@@ -192,6 +199,9 @@ func TestRFC5228_SieveDiscard(t *testing.T) {
 // TestRFC5228_SieveRedirect verifies that redirect forwards the incoming message
 // via OutboundSender and cancels implicit keep in recipient's Inbox (RFC 5228 Section 4.2).
 func TestRFC5228_SieveRedirect(t *testing.T) {
+	spectest.Require(t, "RFC5228", "4.2", spectest.MUST,
+		"The redirect action forwards the message to another email address.")
+
 	backend, sieveBackend, outbound, addr, cleanup := setupSieveDeliveryServer(t)
 	defer cleanup()
 
@@ -253,6 +263,9 @@ func TestRFC5228_SieveRedirect(t *testing.T) {
 // TestRFC5228_SieveReject verifies that reject returns a permanent 550 SMTP rejection
 // (RFC 5429 Section 2.1).
 func TestRFC5228_SieveReject(t *testing.T) {
+	spectest.Require(t, "RFC5429", "2", spectest.MUST,
+		"The reject action terminates delivery and rejects the message with an SMTP error response.")
+
 	_, sieveBackend, _, addr, cleanup := setupSieveDeliveryServer(t)
 	defer cleanup()
 
@@ -294,6 +307,9 @@ if header :contains "subject" "BlockedContent" {
 // TestRFC5228_SieveAddFlag verifies that flags added by Sieve script are applied
 // as keywords to the delivered message (RFC 5232 imap4flags).
 func TestRFC5228_SieveAddFlag(t *testing.T) {
+	spectest.Require(t, "RFC5232", "3", spectest.MUST,
+		"The addflag and setflag actions add or replace IMAP flags and keywords on the message.")
+
 	backend, sieveBackend, _, addr, cleanup := setupSieveDeliveryServer(t)
 	defer cleanup()
 

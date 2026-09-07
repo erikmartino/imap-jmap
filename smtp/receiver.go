@@ -308,6 +308,23 @@ func (s *Session) Data(r io.Reader) error {
 	// the message headers, recording where it came from, the receiving host, and when.
 	data = append([]byte(s.buildReceivedHeader()), data...)
 
+	// Prepend an RFC 8601 Section 3 trace ("Authentication-Results:") header if a verifier is configured.
+	if s.backend.SenderVerifier != nil {
+		if res, err := s.backend.SenderVerifier.Verify(context.Background(), &MessageToVerify{
+			RawMessage:   rawData,
+			EnvelopeFrom: s.from,
+			ClientIP:     remoteIP(s.remoteAddr),
+			HeloName:     s.helo,
+		}); err == nil && res != nil {
+			fromDom, _ := extractFromDomain(rawData)
+			authServ := s.backend.ServerName
+			if authServ == "" {
+				authServ = "localhost"
+			}
+			data = append([]byte(res.AuthenticationResultsHeader(authServ, fromDom)), data...)
+		}
+	}
+
 	// 1. Determine target accountIDs per recipient
 	targetAccountIDs := make(map[string]bool)
 	if s.backend.AccountResolver != nil {

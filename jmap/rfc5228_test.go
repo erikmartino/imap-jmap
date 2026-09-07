@@ -5,10 +5,14 @@ import (
 	"testing"
 
 	"imap-jmap/jmap/managesieve"
+	"imap-jmap/jmap/spectest"
 )
 
 // TestRFC5228_SieveLanguageValidation tests Sieve filtering language syntax validation per RFC 5228.
 func TestRFC5228_SieveLanguageValidation(t *testing.T) {
+	spectest.Require(t, "RFC5228", "2", spectest.MUST,
+		"Sieve script language syntax and commands are parsed and validated.")
+
 	_, sieveBackend, cleanup := managesieve.NewEmbeddedBackend()
 	defer cleanup()
 

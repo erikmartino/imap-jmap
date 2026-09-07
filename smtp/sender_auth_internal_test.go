@@ -220,3 +220,27 @@ func (emptyDNS) LookupMX(context.Context, string) ([]*net.MX, error) {
 func (emptyDNS) LookupAddr(context.Context, string) ([]string, error) {
 	return nil, &net.DNSError{Err: "no such host", IsNotFound: true}
 }
+
+func TestRFC8601_AuthenticationResultsHeader(t *testing.T) {
+	spectest.Require(t, "RFC8601", "3", spectest.MUST,
+		"Authentication-Results header indicates message authentication status.")
+
+	res := &SenderAuthResult{
+		AuthAuthenticated: true,
+		SPF:               "pass",
+		DKIM:              "pass",
+		DMARC:             "pass",
+	}
+
+	hdr := res.AuthenticationResultsHeader("mx.example.com", "example.org")
+	if !strings.HasPrefix(hdr, "Authentication-Results: mx.example.com;") {
+		t.Errorf("Unexpected header prefix: %s", hdr)
+	}
+	if !strings.Contains(hdr, "spf=pass") || !strings.Contains(hdr, "dkim=pass") || !strings.Contains(hdr, "dmarc=pass") {
+		t.Errorf("Header missing mechanisms: %s", hdr)
+	}
+	if !strings.Contains(hdr, "header.from=example.org") {
+		t.Errorf("Header missing header.from: %s", hdr)
+	}
+}
+
