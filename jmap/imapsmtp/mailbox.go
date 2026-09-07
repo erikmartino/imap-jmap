@@ -315,12 +315,6 @@ func (b *IMAPSMTPBackend) GetMailboxes(ctx context.Context, ids []jmap.Id) ([]*j
 
 // CreateMailbox creates a new IMAP mailbox.
 func (b *IMAPSMTPBackend) CreateMailbox(ctx context.Context, mb *jmap.Mailbox) (*jmap.Mailbox, error) {
-	client, err := b.pool.GetClientForContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer b.pool.ReleaseClient(ctx, client)
-
 	folderName := mb.Name
 	if mb.ParentID != nil {
 		parentName, err := NameForMailboxID(*mb.ParentID)
@@ -329,9 +323,20 @@ func (b *IMAPSMTPBackend) CreateMailbox(ctx context.Context, mb *jmap.Mailbox) (
 		}
 	}
 
+	client, err := b.pool.GetClientForContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	if err := client.Create(folderName, nil).Wait(); err != nil {
+		b.pool.ReleaseClient(ctx, client)
 		return nil, fmt.Errorf("failed to create IMAP mailbox %s: %w", folderName, err)
 	}
+
+	if mb.IsSubscribed {
+		_ = client.Subscribe(folderName).Wait()
+	}
+	b.pool.ReleaseClient(ctx, client)
 
 	mb.ID = MailboxIDForName(folderName)
 	accountID, _ := jmap.AccountIDFromContext(ctx)
@@ -339,21 +344,13 @@ func (b *IMAPSMTPBackend) CreateMailbox(ctx context.Context, mb *jmap.Mailbox) (
 		b.setMailboxSortOrder(accountID, mb.ID, mb.SortOrder)
 	}
 	b.setMailboxSubscribed(accountID, mb.ID, mb.IsSubscribed)
-	if mb.IsSubscribed {
-		_ = client.Subscribe(folderName).Wait()
-	}
+
 	b.publishStateChange(ctx)
 	return mb, nil
 }
 
 // UpdateMailbox renames an IMAP mailbox or updates its metadata.
 func (b *IMAPSMTPBackend) UpdateMailbox(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.Mailbox, error) {
-	client, err := b.pool.GetClientForContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer b.pool.ReleaseClient(ctx, client)
-
 	accountID, _ := jmap.AccountIDFromContext(ctx)
 	origID := id
 	id = b.resolveMovedMailboxID(id)
@@ -450,9 +447,16 @@ func (b *IMAPSMTPBackend) UpdateMailbox(ctx context.Context, id jmap.Id, patch m
 	}
 
 	if newFolderPath != currentFolder {
+		client, err := b.pool.GetClientForContext(ctx)
+		if err != nil {
+			return nil, err
+		}
 		if err := client.Rename(currentFolder, newFolderPath, nil).Wait(); err != nil {
+			b.pool.ReleaseClient(ctx, client)
 			return nil, fmt.Errorf("failed to rename IMAP mailbox: %w", err)
 		}
+		b.pool.ReleaseClient(ctx, client)
+
 		newID := MailboxIDForName(newFolderPath)
 		b.trackMovedMailbox(origID, newID)
 		b.trackMovedMailbox(id, newID)
@@ -479,12 +483,6 @@ func (b *IMAPSMTPBackend) UpdateMailbox(ctx context.Context, id jmap.Id, patch m
 
 // DeleteMailbox deletes an IMAP mailbox.
 func (b *IMAPSMTPBackend) DeleteMailbox(ctx context.Context, id jmap.Id, onDestroyRemoveMessages bool) (bool, error) {
-	client, err := b.pool.GetClientForContext(ctx)
-	if err != nil {
-		return false, err
-	}
-	defer b.pool.ReleaseClient(ctx, client)
-
 	origID := id
 	id = b.resolveMovedMailboxID(id)
 
@@ -519,9 +517,15 @@ func (b *IMAPSMTPBackend) DeleteMailbox(ctx context.Context, id jmap.Id, onDestr
 		}
 	}
 
+	client, err := b.pool.GetClientForContext(ctx)
+	if err != nil {
+		return false, err
+	}
 	if err := client.Delete(folderToDelete).Wait(); err != nil {
+		b.pool.ReleaseClient(ctx, client)
 		return false, fmt.Errorf("failed to delete IMAP mailbox %s: %w", folderToDelete, err)
 	}
+	b.pool.ReleaseClient(ctx, client)
 
 	b.publishStateChange(ctx)
 	return true, nil

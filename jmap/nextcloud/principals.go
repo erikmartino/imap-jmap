@@ -16,6 +16,7 @@ type PrincipalsBackend struct {
 	client          *Client
 	calBackend      jmap.CalendarsBackend
 	mu              sync.RWMutex
+	refreshMu       sync.Mutex
 	principalsCache map[jmap.Id]*jmap.Principal
 	tracker         *jmap.ChangeTracker
 	broadcaster     *jmap.Broadcaster
@@ -103,9 +104,7 @@ func NewPrincipalsBackend(client *Client, calBackend jmap.CalendarsBackend) *Pri
 			_ = client.EnsureUserInTeam(ctx, u.userid, u.email, u.email, u.displayname)
 		}
 
-		b.mu.Lock()
-		b.refreshCacheLocked(ctx)
-		b.mu.Unlock()
+		b.refreshCache(ctx)
 	}()
 
 	return b
@@ -185,7 +184,10 @@ func (b *PrincipalsBackend) EnsureUser(ctx context.Context, subject, password st
 	return nil
 }
 
-func (b *PrincipalsBackend) refreshCacheLocked(ctx context.Context) {
+func (b *PrincipalsBackend) refreshCache(ctx context.Context) {
+	b.refreshMu.Lock()
+	defer b.refreshMu.Unlock()
+
 	userIDs, err := b.client.GetUsers(ctx)
 	if err != nil {
 		return
@@ -304,7 +306,16 @@ func (b *PrincipalsBackend) refreshCacheLocked(ctx context.Context) {
 		}
 	}
 
-	b.principalsCache = newCache
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for k, v := range newCache {
+		if existing, exists := b.principalsCache[k]; exists && existing.Type == "group" {
+			for m := range existing.Members {
+				v.Members[m] = true
+			}
+		}
+		b.principalsCache[k] = v
+	}
 }
 
 func (b *PrincipalsBackend) ensureCurrentPrincipal(ctx context.Context) {
@@ -367,11 +378,12 @@ func (b *PrincipalsBackend) GetPrincipals(ctx context.Context, ids []jmap.Id) ([
 		return list, []jmap.Id{}, err
 	}
 
-	b.mu.Lock()
-	if len(b.principalsCache) == 0 {
-		b.refreshCacheLocked(ctx)
+	b.mu.RLock()
+	empty := len(b.principalsCache) == 0
+	b.mu.RUnlock()
+	if empty {
+		b.refreshCache(ctx)
 	}
-	b.mu.Unlock()
 
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -402,11 +414,12 @@ func (b *PrincipalsBackend) GetPrincipals(ctx context.Context, ids []jmap.Id) ([
 func (b *PrincipalsBackend) GetAllPrincipals(ctx context.Context) ([]*jmap.Principal, error) {
 	b.ensureCurrentPrincipal(ctx)
 
-	b.mu.Lock()
-	if len(b.principalsCache) == 0 {
-		b.refreshCacheLocked(ctx)
+	b.mu.RLock()
+	empty := len(b.principalsCache) == 0
+	b.mu.RUnlock()
+	if empty {
+		b.refreshCache(ctx)
 	}
-	b.mu.Unlock()
 
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -421,11 +434,12 @@ func (b *PrincipalsBackend) GetAllPrincipals(ctx context.Context) ([]*jmap.Princ
 func (b *PrincipalsBackend) QueryPrincipals(ctx context.Context, filter map[string]any, position int, limit *uint64) ([]jmap.Id, int, error) {
 	b.ensureCurrentPrincipal(ctx)
 
-	b.mu.Lock()
-	if len(b.principalsCache) == 0 {
-		b.refreshCacheLocked(ctx)
+	b.mu.RLock()
+	empty := len(b.principalsCache) == 0
+	b.mu.RUnlock()
+	if empty {
+		b.refreshCache(ctx)
 	}
-	b.mu.Unlock()
 
 	b.mu.RLock()
 	defer b.mu.RUnlock()

@@ -8,10 +8,21 @@ import (
 	"net"
 	"net/smtp"
 	"sync"
+	"time"
 
 	"github.com/emersion/go-imap/v2/imapclient"
 	"imap-jmap/jmap"
 )
+
+const (
+	maxConnsPerUser     = 6
+	maxIdleConnsPerUser = 4
+)
+
+type userConnectionPool struct {
+	sem  chan struct{}
+	idle []*imapclient.Client
+}
 
 // ClientPool manages active IMAP and SMTP connections for user accounts. The
 // gateway only ever authenticates to the upstream IMAP server with the
@@ -21,13 +32,13 @@ type ClientPool struct {
 	imapAddr string
 	smtpAddr string
 	mu       sync.Mutex
-	idle     map[string][]*imapclient.Client
+	users    map[string]*userConnectionPool
 }
 
 func NewClientPool(imapAddr string) *ClientPool {
 	return &ClientPool{
 		imapAddr: imapAddr,
-		idle:     make(map[string][]*imapclient.Client),
+		users:    make(map[string]*userConnectionPool),
 	}
 }
 
@@ -35,8 +46,23 @@ func NewClientPoolWithSMTP(imapAddr, smtpAddr string) *ClientPool {
 	return &ClientPool{
 		imapAddr: imapAddr,
 		smtpAddr: smtpAddr,
-		idle:     make(map[string][]*imapclient.Client),
+		users:    make(map[string]*userConnectionPool),
 	}
+}
+
+func (p *ClientPool) getUserPool(key string) *userConnectionPool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	uPool, ok := p.users[key]
+	if !ok {
+		uPool = &userConnectionPool{
+			sem:  make(chan struct{}, maxConnsPerUser),
+			idle: make([]*imapclient.Client, 0, maxIdleConnsPerUser),
+		}
+		p.users[key] = uPool
+	}
+	return uPool
 }
 
 // Close closes all pooled IMAP client connections.
@@ -44,11 +70,11 @@ func (p *ClientPool) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	for k, list := range p.idle {
-		for _, c := range list {
+	for _, uPool := range p.users {
+		for _, c := range uPool.idle {
 			_ = c.Close()
 		}
-		delete(p.idle, k)
+		uPool.idle = nil
 	}
 	return nil
 }
@@ -114,36 +140,67 @@ func (p *ClientPool) ReleaseClientForUser(username, password string, client *ima
 	}
 
 	key := username + ":" + password
+	uPool := p.getUserPool(key)
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	// Keep up to 8 idle connections per user
-	if len(p.idle[key]) < 8 {
-		p.idle[key] = append(p.idle[key], client)
+	if len(uPool.idle) < maxIdleConnsPerUser {
+		uPool.idle = append(uPool.idle, client)
+		p.mu.Unlock()
 	} else {
+		p.mu.Unlock()
 		_ = client.Close()
+	}
+
+	select {
+	case <-uPool.sem:
+	default:
 	}
 }
 
 // GetClient establishes or reuses an authenticated IMAP client connection using the provided credentials.
 func (p *ClientPool) GetClient(ctx context.Context, username, password string) (*imapclient.Client, error) {
 	key := username + ":" + password
+	uPool := p.getUserPool(key)
+
+	select {
+	case uPool.sem <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(30 * time.Second):
+		return nil, errors.New("timeout waiting for available IMAP connection in pool")
+	}
+
+	releaseSlot := func() {
+		select {
+		case <-uPool.sem:
+		default:
+		}
+	}
 
 	p.mu.Lock()
-	if list := p.idle[key]; len(list) > 0 {
-		c := list[len(list)-1]
-		p.idle[key] = list[:len(list)-1]
+	for len(uPool.idle) > 0 {
+		c := uPool.idle[len(uPool.idle)-1]
+		uPool.idle = uPool.idle[:len(uPool.idle)-1]
 		p.mu.Unlock()
 
 		if err := c.Noop().Wait(); err == nil {
 			return c, nil
 		}
 		_ = c.Close()
-	} else {
-		p.mu.Unlock()
+		p.mu.Lock()
+	}
+	p.mu.Unlock()
+
+	client, err := p.dialAndLogin(username, password)
+	if err != nil {
+		releaseSlot()
+		return nil, err
 	}
 
+	return client, nil
+}
+
+func (p *ClientPool) dialAndLogin(username, password string) (*imapclient.Client, error) {
 	var client *imapclient.Client
 	host, port, err := net.SplitHostPort(p.imapAddr)
 	if err != nil {

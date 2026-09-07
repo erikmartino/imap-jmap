@@ -50,7 +50,8 @@ func (s *Server) HandleEventSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sub := s.Broadcaster.Subscribe()
+	principalAccountID, _ := AccountIDFromContext(r.Context())
+	sub := s.Broadcaster.Subscribe(principalAccountID)
 	defer s.Broadcaster.Unsubscribe(sub)
 
 	pingTicker := time.NewTicker(time.Duration(pingSec) * time.Second)
@@ -64,7 +65,6 @@ func (s *Server) HandleEventSource(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	principalAccountID, _ := AccountIDFromContext(r.Context())
 	subject, _ := SubjectFromContext(r.Context())
 	ctx := r.Context()
 	for {

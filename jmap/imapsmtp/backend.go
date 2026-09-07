@@ -3,7 +3,6 @@ package imapsmtp
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -24,9 +23,9 @@ type IMAPSMTPBackend struct {
 
 	accountsMu     sync.Mutex
 	activeAccounts map[string]jmap.AuthCredentials
-	idleWatchers   map[string]bool
+	idleMu         sync.Mutex
+	idleWatchers   map[string]*idleWatcherEntry
 	lastStates     map[string]string
-	pollerStarted  bool
 
 	// lastSweep tracks when blob staging was last swept per account so the lazy
 	// sweep on read paths runs at most every blobStagingSweepInterval. The sweep
@@ -73,6 +72,7 @@ type IMAPSMTPBackend struct {
 var _ jmap.MailBackend = (*IMAPSMTPBackend)(nil)
 var _ jmap.BlobBackend = (*IMAPSMTPBackend)(nil)
 var _ jmap.BlobReferenceBackend = (*IMAPSMTPBackend)(nil)
+var _ jmap.SubscriptionListener = (*IMAPSMTPBackend)(nil)
 
 // New creates a new IMAP/SMTP gateway backend.
 func New(imapHost, smtpHost string) *IMAPSMTPBackend {
@@ -84,7 +84,7 @@ func New(imapHost, smtpHost string) *IMAPSMTPBackend {
 		ctx:                    ctx,
 		cancel:                 cancel,
 		activeAccounts:         make(map[string]jmap.AuthCredentials),
-		idleWatchers:           make(map[string]bool),
+		idleWatchers:           make(map[string]*idleWatcherEntry),
 		lastStates:             make(map[string]string),
 		lastSweep:              make(map[string]time.Time),
 		submissions:            make(map[string]map[jmap.Id]*jmap.EmailSubmission),
@@ -261,16 +261,45 @@ func (b *IMAPSMTPBackend) Close() error {
 	return nil
 }
 
-// SetBroadcaster attaches a Broadcaster for push notifications and starts the background IMAP poller.
+// SetBroadcaster attaches a Broadcaster for push notifications and registers as a SubscriptionListener.
 func (b *IMAPSMTPBackend) SetBroadcaster(bc *jmap.Broadcaster) {
 	b.broadcaster = bc
-	b.startBackgroundPoller()
+	if bc != nil {
+		bc.AddSubscriptionListener(b)
+	}
+}
+
+// OnSubscribe is invoked when a push subscriber (e.g. WebSocket / EventSource) connects for an account.
+func (b *IMAPSMTPBackend) OnSubscribe(accountID string) {
+	b.accountsMu.Lock()
+	if accountID == "" {
+		for acct, creds := range b.activeAccounts {
+			b.startIdleWatcher(acct, creds)
+		}
+		b.accountsMu.Unlock()
+		return
+	}
+	creds, ok := b.activeAccounts[accountID]
+	b.accountsMu.Unlock()
+	if ok {
+		b.startIdleWatcher(accountID, creds)
+	}
+}
+
+// OnUnsubscribe is invoked when all push subscribers disconnect for an account.
+func (b *IMAPSMTPBackend) OnUnsubscribe(accountID string) {
+	if accountID == "" {
+		b.idleMu.Lock()
+		for acct := range b.idleWatchers {
+			b.stopIdleWatcher(acct)
+		}
+		b.idleMu.Unlock()
+		return
+	}
+	b.stopIdleWatcher(accountID)
 }
 
 func (b *IMAPSMTPBackend) RecordAccount(ctx context.Context) {
-	if b.broadcaster == nil {
-		return
-	}
 	accountID, ok := jmap.AccountIDFromContext(ctx)
 	if !ok || accountID == "" {
 		return
@@ -290,8 +319,10 @@ func (b *IMAPSMTPBackend) RecordAccount(ctx context.Context) {
 	b.activeAccounts[accountID] = creds
 	b.accountsMu.Unlock()
 
-	// Ensure active IMAP IDLE (RFC 2177) connection for real-time upstream push
-	b.ensureIdleWatcher(accountID, creds)
+	// Only start IDLE watcher if this account has active push subscribers (e.g. WebSocket / EventSource)
+	if b.broadcaster != nil && b.broadcaster.HasSubscribersForAccount(accountID) {
+		b.startIdleWatcher(accountID, creds)
+	}
 }
 
 func (b *IMAPSMTPBackend) publishStateChange(ctx context.Context) {
@@ -302,63 +333,16 @@ func (b *IMAPSMTPBackend) publishStateChange(ctx context.Context) {
 	if !ok || accountID == "" {
 		return
 	}
-	b.RecordAccount(ctx)
-	state := b.EmailState(ctx)
-	b.broadcaster.PublishStateChange(accountID, "Email", state)
-	b.broadcaster.PublishStateChange(accountID, "Mailbox", b.MailboxState(ctx))
-	b.broadcaster.PublishStateChange(accountID, "Thread", b.ThreadState(ctx))
-	b.broadcaster.PublishStateChange(accountID, "Quota", b.QuotaState(ctx))
-}
-
-func (b *IMAPSMTPBackend) startBackgroundPoller() {
-	b.accountsMu.Lock()
-	if b.pollerStarted {
-		b.accountsMu.Unlock()
+	// If nobody is listening for push events for this account, skip querying IMAP state
+	if !b.broadcaster.HasSubscribersForAccount(accountID) {
 		return
 	}
-	b.pollerStarted = true
-	b.accountsMu.Unlock()
-
-	go func() {
-		ticker := time.NewTicker(1500 * time.Millisecond)
-		defer ticker.Stop()
-		for range ticker.C {
-			if b.broadcaster == nil {
-				continue
-			}
-			b.accountsMu.Lock()
-			accounts := make(map[string]jmap.AuthCredentials, len(b.activeAccounts))
-			for k, v := range b.activeAccounts {
-				accounts[k] = v
-			}
-			b.accountsMu.Unlock()
-
-			for accountID, creds := range accounts {
-				ctx := jmap.ContextWithAccountID(context.Background(), accountID)
-				ctx = jmap.ContextWithCredentials(ctx, creds.Username, creds.Password)
-				ctx = jmap.ContextWithSubject(ctx, creds.Username)
-
-				cs, err := b.GetCurrentCompositeState(ctx)
-				if err != nil {
-					continue
-				}
-				token := cs.Encode()
-
-				b.accountsMu.Lock()
-				last := b.lastStates[accountID]
-				changed := last != "" && last != token
-				b.lastStates[accountID] = token
-				b.accountsMu.Unlock()
-
-				if changed {
-					slog.Debug("IMAP background change detected", "accountID", accountID, "newState", token)
-					b.broadcaster.PublishStateChange(accountID, "Email", token)
-					b.broadcaster.PublishStateChange(accountID, "Mailbox", token)
-					b.broadcaster.PublishStateChange(accountID, "Thread", token)
-				}
-			}
-		}
-	}()
+	b.RecordAccount(ctx)
+	state := b.State(ctx)
+	b.broadcaster.PublishStateChange(accountID, "Email", state)
+	b.broadcaster.PublishStateChange(accountID, "Mailbox", state)
+	b.broadcaster.PublishStateChange(accountID, "Thread", state)
+	b.broadcaster.PublishStateChange(accountID, "Quota", b.QuotaState(ctx))
 }
 
 // Pool returns the underlying ClientPool.

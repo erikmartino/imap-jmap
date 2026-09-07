@@ -134,7 +134,14 @@ func (b *IMAPSMTPBackend) maybeSweepBlobStaging(ctx context.Context) {
 	}
 	b.lastSweep[accountID] = time.Now()
 	b.sweepMu.Unlock()
-	b.sweepBlobStaging(ctx, false)
+
+	creds, _ := jmap.CredentialsFromContext(ctx)
+	go func() {
+		bgCtx := jmap.ContextWithAccountID(context.Background(), accountID)
+		bgCtx = jmap.ContextWithCredentials(bgCtx, creds.Username, creds.Password)
+		bgCtx = jmap.ContextWithSubject(bgCtx, creds.Username)
+		b.sweepBlobStaging(bgCtx, false)
+	}()
 }
 
 // sweepBlobStaging deletes [JMAP-BLOB:] staging messages from the account's

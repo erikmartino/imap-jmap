@@ -12,33 +12,41 @@ import (
 	"imap-jmap/jmap"
 )
 
-// ensureIdleWatcher ensures a dedicated IMAP IDLE (RFC 2177) connection is active for the account.
-func (b *IMAPSMTPBackend) ensureIdleWatcher(accountID string, creds jmap.AuthCredentials) {
-	b.accountsMu.Lock()
+type idleWatcherEntry struct {
+	cancel context.CancelFunc
+}
+
+// startIdleWatcher starts a dedicated IMAP IDLE (RFC 2177) connection for the account.
+func (b *IMAPSMTPBackend) startIdleWatcher(accountID string, creds jmap.AuthCredentials) {
+	b.idleMu.Lock()
 	if b.idleWatchers == nil {
-		b.idleWatchers = make(map[string]bool)
+		b.idleWatchers = make(map[string]*idleWatcherEntry)
 	}
-	if b.idleWatchers[accountID] {
-		b.accountsMu.Unlock()
+	if _, exists := b.idleWatchers[accountID]; exists {
+		b.idleMu.Unlock()
 		return
 	}
-	b.idleWatchers[accountID] = true
-	b.accountsMu.Unlock()
+
+	idleCtx, cancel := context.WithCancel(b.ctx)
+	b.idleWatchers[accountID] = &idleWatcherEntry{cancel: cancel}
+	b.idleMu.Unlock()
+
+	slog.Info("Starting on-demand IMAP IDLE watcher for push subscriber", "accountID", accountID, "user", creds.Username)
 
 	go func() {
 		for {
-			if b.ctx.Err() != nil {
+			if idleCtx.Err() != nil {
 				return
 			}
-			err := b.runIdleLoop(accountID, creds)
-			if b.ctx.Err() != nil {
+			err := b.runIdleLoop(idleCtx, accountID, creds)
+			if idleCtx.Err() != nil {
 				return
 			}
 			if err != nil {
 				slog.Debug("IMAP IDLE watcher connection disconnected, reconnecting in 3s", "accountID", accountID, "error", err)
 			}
 			select {
-			case <-b.ctx.Done():
+			case <-idleCtx.Done():
 				return
 			case <-time.After(3 * time.Second):
 			}
@@ -46,8 +54,23 @@ func (b *IMAPSMTPBackend) ensureIdleWatcher(accountID string, creds jmap.AuthCre
 	}()
 }
 
+// stopIdleWatcher terminates the active IMAP IDLE watcher when no push subscribers remain.
+func (b *IMAPSMTPBackend) stopIdleWatcher(accountID string) {
+	b.idleMu.Lock()
+	entry, exists := b.idleWatchers[accountID]
+	if exists {
+		delete(b.idleWatchers, accountID)
+	}
+	b.idleMu.Unlock()
+
+	if exists && entry != nil && entry.cancel != nil {
+		slog.Info("Stopping IMAP IDLE watcher as all push subscribers disconnected", "accountID", accountID)
+		entry.cancel()
+	}
+}
+
 // runIdleLoop maintains an active IMAP IDLE session per RFC 2177.
-func (b *IMAPSMTPBackend) runIdleLoop(accountID string, creds jmap.AuthCredentials) error {
+func (b *IMAPSMTPBackend) runIdleLoop(idleCtx context.Context, accountID string, creds jmap.AuthCredentials) error {
 	notifyCh := make(chan struct{}, 10)
 	triggerNotify := func() {
 		select {
@@ -122,7 +145,7 @@ func (b *IMAPSMTPBackend) runIdleLoop(accountID string, creds jmap.AuthCredentia
 		keepaliveTimer := time.NewTimer(15 * time.Minute)
 
 		select {
-		case <-b.ctx.Done():
+		case <-idleCtx.Done():
 			_ = idleCmd.Close()
 			_ = idleCmd.Wait()
 			keepaliveTimer.Stop()

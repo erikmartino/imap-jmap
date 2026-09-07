@@ -138,3 +138,28 @@ func collectTestNames(t *testing.T, dir string) map[string]bool {
 	}
 	return names
 }
+
+// TestSpecMarkdownGolden ensures docs/SPEC_COVERAGE.md is up-to-date with spec.Matrices.
+// When UPDATE_DOCS=1 is set, it regenerates docs/SPEC_COVERAGE.md.
+// In normal test runs, it fails if the file on disk differs from the generated markdown.
+func TestSpecMarkdownGolden(t *testing.T) {
+	docPath := filepath.Join("..", "docs", "SPEC_COVERAGE.md")
+	generated := spec.GenerateMarkdown(spec.Matrices)
+
+	if os.Getenv("UPDATE_DOCS") == "1" {
+		if err := os.WriteFile(docPath, []byte(generated), 0644); err != nil {
+			t.Fatalf("Failed to write %s: %v", docPath, err)
+		}
+		t.Logf("Successfully updated %s", docPath)
+		return
+	}
+
+	existing, err := os.ReadFile(docPath)
+	if err != nil {
+		t.Fatalf("%s does not exist. Run with UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec to create it: %v", docPath, err)
+	}
+
+	if string(existing) != generated {
+		t.Fatalf("%s is out of date with spec.Matrices. Run with UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec to regenerate.", docPath)
+	}
+}

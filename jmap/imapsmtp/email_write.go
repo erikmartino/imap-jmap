@@ -39,7 +39,6 @@ func (b *IMAPSMTPBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jma
 	if err != nil {
 		return nil, err
 	}
-	defer b.pool.ReleaseClient(ctx, client)
 
 	destMbID := jmap.Id("")
 	for mbID := range em.MailboxIDs {
@@ -84,20 +83,24 @@ func (b *IMAPSMTPBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jma
 
 	emailSize := uint64(len(rawBytes))
 	if err := b.checkQuota(accountID, emailSize); err != nil {
+		b.pool.ReleaseClient(ctx, client)
 		return nil, err
 	}
 
 	appendCmd := client.Append(folderName, int64(len(rawBytes)), appendOpts)
 	if _, err := appendCmd.Write(rawBytes); err != nil {
 		_ = appendCmd.Close()
+		b.pool.ReleaseClient(ctx, client)
 		return nil, fmt.Errorf("failed to write append bytes: %w", err)
 	}
 	if err := appendCmd.Close(); err != nil {
+		b.pool.ReleaseClient(ctx, client)
 		return nil, fmt.Errorf("failed to close append command: %w", err)
 	}
 
 	appendData, err := appendCmd.Wait()
 	if err != nil {
+		b.pool.ReleaseClient(ctx, client)
 		return nil, fmt.Errorf("failed to append message to IMAP %s: %w", folderName, err)
 	}
 
@@ -111,6 +114,7 @@ func (b *IMAPSMTPBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jma
 			assignedUID = uint32(status.UIDNext - 1)
 		}
 	}
+	b.pool.ReleaseClient(ctx, client)
 
 	emailID := EmailIDFor(destMbID, assignedUID)
 	em.ID = emailID
@@ -170,9 +174,9 @@ func (b *IMAPSMTPBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map
 	if err != nil {
 		return nil, err
 	}
-	defer b.pool.ReleaseClient(ctx, client)
 
 	if _, err := client.Select(folderName, nil).Wait(); err != nil {
+		b.pool.ReleaseClient(ctx, client)
 		return nil, fmt.Errorf("failed to select folder %s: %w", folderName, err)
 	}
 
@@ -266,6 +270,7 @@ func (b *IMAPSMTPBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map
 			moveCmd := client.Move(uidSet, newFolderName)
 			moveData, err := moveCmd.Wait()
 			if err != nil {
+				b.pool.ReleaseClient(ctx, client)
 				return nil, fmt.Errorf("failed to move message to %s: %w", newFolderName, err)
 			}
 			var newUID uint32
@@ -284,13 +289,14 @@ func (b *IMAPSMTPBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map
 					}
 				}
 			}
+			b.pool.ReleaseClient(ctx, client)
+
 			if newUID > 0 {
 				newID := EmailIDFor(targetMoveMbID, newUID)
 				b.trackMovedEmail(accountID, origID, newID)
 				b.trackMovedEmail(accountID, id, newID)
 				b.trackMovedEmailQuota(accountID, origID, newID)
 			}
-			b.publishStateChange(ctx)
 			emails, _, _ := b.GetEmails(ctx, []jmap.Id{origID})
 			accountID, _ := jmap.AccountIDFromContext(ctx)
 			b.recordEmailMutation(accountID, origID, "update")
@@ -304,6 +310,8 @@ func (b *IMAPSMTPBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map
 			}, nil
 		}
 	}
+
+	b.pool.ReleaseClient(ctx, client)
 
 	// Fetch updated message
 	emails, _, err := b.GetEmails(ctx, []jmap.Id{origID})
@@ -334,9 +342,9 @@ func (b *IMAPSMTPBackend) DeleteEmail(ctx context.Context, id jmap.Id) (bool, er
 	if err != nil {
 		return false, err
 	}
-	defer b.pool.ReleaseClient(ctx, client)
 
 	if _, err := client.Select(folderName, nil).Wait(); err != nil {
+		b.pool.ReleaseClient(ctx, client)
 		return false, fmt.Errorf("failed to select folder %s: %w", folderName, err)
 	}
 
@@ -349,12 +357,15 @@ func (b *IMAPSMTPBackend) DeleteEmail(ctx context.Context, id jmap.Id) (bool, er
 		Silent: true,
 	}, nil)
 	if _, err := storeCmd.Collect(); err != nil {
+		b.pool.ReleaseClient(ctx, client)
 		return false, fmt.Errorf("failed to flag email as deleted: %w", err)
 	}
 
 	if _, err := client.Expunge().Collect(); err != nil {
+		b.pool.ReleaseClient(ctx, client)
 		return false, fmt.Errorf("failed to expunge deleted email: %w", err)
 	}
+	b.pool.ReleaseClient(ctx, client)
 
 	b.recordEmailMutation(accountID, id, "destroy")
 	b.recordEmailQuotaDeleted(accountID, id)

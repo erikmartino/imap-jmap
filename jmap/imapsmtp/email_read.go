@@ -218,25 +218,35 @@ func (b *IMAPSMTPBackend) GetEmails(ctx context.Context, ids []jmap.Id) ([]*jmap
 
 // GetAllEmails fetches all emails across all IMAP mailboxes.
 func (b *IMAPSMTPBackend) GetAllEmails(ctx context.Context) ([]*jmap.Email, error) {
-	mailboxes, err := b.GetAllMailboxes(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	client, err := b.pool.GetClientForContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer b.pool.ReleaseClient(ctx, client)
 
+	listCmd := client.List("", "*", nil)
+	mailboxesData, err := listCmd.Collect()
+	if err != nil {
+		return nil, err
+	}
+
 	var allEmails []*jmap.Email
 	bodySection := &imap.FetchItemBodySection{Peek: true}
 
-	for _, mb := range mailboxes {
-		folderName, err := NameForMailboxID(mb.ID)
-		if err != nil {
+	for _, m := range mailboxesData {
+		hasNoSelect := false
+		for _, attr := range m.Attrs {
+			if attr == imap.MailboxAttrNoSelect {
+				hasNoSelect = true
+				break
+			}
+		}
+		if hasNoSelect {
 			continue
 		}
+
+		folderName := m.Mailbox
+		mbID := MailboxIDForName(folderName)
 
 		selectCmd := client.Select(folderName, nil)
 		selectData, err := selectCmd.Wait()
@@ -266,7 +276,7 @@ func (b *IMAPSMTPBackend) GetAllEmails(ctx context.Context) ([]*jmap.Email, erro
 				continue
 			}
 
-			emailID := EmailIDFor(mb.ID, uint32(msg.UID))
+			emailID := EmailIDFor(mbID, uint32(msg.UID))
 			em, err := jmap.ParseRFC822(rawBytes)
 			if err != nil {
 				continue
@@ -277,7 +287,7 @@ func (b *IMAPSMTPBackend) GetAllEmails(ctx context.Context) ([]*jmap.Email, erro
 
 			em.ID = emailID
 			em.BlobID = jmap.Id(emailID)
-			em.MailboxIDs = map[jmap.Id]bool{mb.ID: true}
+			em.MailboxIDs = map[jmap.Id]bool{mbID: true}
 			em.Keywords = MapIMAPFlagsToKeywords(msg.Flags)
 			if !msg.InternalDate.IsZero() {
 				em.ReceivedAt = msg.InternalDate.UTC().Format(time.RFC3339Nano)
@@ -549,20 +559,29 @@ func (b *IMAPSMTPBackend) QueryEmails(ctx context.Context, filter map[string]any
 	}
 	defer b.pool.ReleaseClient(ctx, client)
 
-	// List all mailboxes to establish available search scope
-	var allFolderNames []string
-	mailboxes, err := b.GetAllMailboxes(ctx)
-	if err != nil {
-		return nil, 0, err
-	}
-	for _, mb := range mailboxes {
-		name, err := NameForMailboxID(mb.ID)
-		if err == nil {
-			allFolderNames = append(allFolderNames, name)
+	var targetFolders []string
+	targetFolders = extractTargetFolders(filter, nil)
+	if len(targetFolders) == 0 {
+		listCmd := client.List("", "*", nil)
+		mailboxesData, err := listCmd.Collect()
+		if err != nil {
+			return nil, 0, err
 		}
+		var allFolderNames []string
+		for _, m := range mailboxesData {
+			hasNoSelect := false
+			for _, attr := range m.Attrs {
+				if attr == imap.MailboxAttrNoSelect {
+					hasNoSelect = true
+					break
+				}
+			}
+			if !hasNoSelect {
+				allFolderNames = append(allFolderNames, m.Mailbox)
+			}
+		}
+		targetFolders = extractTargetFolders(filter, allFolderNames)
 	}
-
-	targetFolders := extractTargetFolders(filter, allFolderNames)
 	searchCriteria := buildIMAPSearchCriteria(filter)
 
 	var beforeTime, afterTime *time.Time

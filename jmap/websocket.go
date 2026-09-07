@@ -139,7 +139,7 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 			pushTypes = pushEnable.DataTypes
 			pushEnabled = true
-			pushCh = s.Broadcaster.Subscribe()
+			pushCh = s.Broadcaster.Subscribe(accountID)
 			startPushLoop(pushCh)
 
 		case "WebSocketPushDisable":

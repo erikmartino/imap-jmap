@@ -45,6 +45,7 @@ services:
       - JMAP_SERVER_URL=https://localhost:8443
       - ALLOW_CUSTOM_JMAP_ENDPOINT=true
       - STALWART_EXTENSIONS=false
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
     depends_on:
       - imap-jmap
     restart: unless-stopped

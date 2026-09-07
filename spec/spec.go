@@ -1,5 +1,7 @@
 package spec
 
+//go:generate env UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden .
+
 // Level is an RFC 2119 / RFC 8174 requirement level.
 type Level string
 

@@ -186,12 +186,10 @@ func main() {
 		inner:  authBackend,
 		seeded: make(map[string]bool),
 		seedFn: func(ctx context.Context, accountID, subject string) {
-			accountCtx := jmap.ContextWithAccountID(context.Background(), accountID)
+			accountCtx := jmap.ContextWithAccountID(ctx, accountID)
 			accountCtx = jmap.ContextWithSubject(accountCtx, subject)
 			accountCtx = jmap.ContextWithCredentials(accountCtx, subject, subject)
-			if mailBackend != nil {
-				jmap.SeedStandardMailboxes(accountCtx, mailBackend)
-			}
+			jmap.SeedAccountSampleData(accountCtx, accountID, mailBackend, blobBackend, calBackend, contactsBackend, fileNodeBackend)
 			if ncPb, ok := principalsBackend.(*nextcloud.PrincipalsBackend); ok {
 				_ = ncPb.EnsureUser(accountCtx, subject, subject)
 			}
@@ -381,7 +379,9 @@ func (s *seedingAuthBackend) maybeSeed(accountID, subject string) {
 	}
 	s.seeded[accountID] = true
 	s.mu.Unlock()
-	s.seedFn(context.Background(), accountID, subject)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	s.seedFn(ctx, accountID, subject)
 }
 
 // defaultCacheDir returns a platform-appropriate directory for persistent cache files.
