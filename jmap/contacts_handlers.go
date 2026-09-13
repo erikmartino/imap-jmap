@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+
+	"imap-jmap/jmap/jmapcopy"
 )
 
 // RegisterContactsHandlers registers RFC 9610 JMAP for Contacts method handlers into MethodRegistry.
@@ -496,10 +498,10 @@ func handleCardQueryChanges(backend ContactsBackend) MethodHandler {
 // card by id, optionally overriding properties, and is recreated in the target account.
 func handleCardCopy(backend ContactsBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
-		accountID, fromAccountID := ResolveCopyAccountIDs(args)
+		accountID, fromAccountID := jmapcopy.ResolveCopyAccountIDs(args)
 		srcCtx := SourceAccountContext(ctx, args)
 
-		oldState, errInv := ValidateCopyStates(ctx, srcCtx, args, backend.CardState, backend.CardState)
+		oldState, errInv := jmapcopy.ValidateCopyStates(ctx, srcCtx, args, backend.CardState, backend.CardState)
 		if errInv != nil {
 			return errInv.Name, errInv.Args
 		}
@@ -562,10 +564,10 @@ func handleCardCopy(backend ContactsBackend) MethodHandler {
 // handleAddressBookCopy implements AddressBook/copy as a server extension per RFC 8620 Section 5.4.
 func handleAddressBookCopy(backend ContactsBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
-		accountID, fromAccountID := ResolveCopyAccountIDs(args)
+		accountID, fromAccountID := jmapcopy.ResolveCopyAccountIDs(args)
 		srcCtx := SourceAccountContext(ctx, args)
 
-		oldState, errInv := ValidateCopyStates(ctx, srcCtx, args, backend.AddressBookState, backend.AddressBookState)
+		oldState, errInv := jmapcopy.ValidateCopyStates(ctx, srcCtx, args, backend.AddressBookState, backend.AddressBookState)
 		if errInv != nil {
 			return errInv.Name, errInv.Args
 		}
