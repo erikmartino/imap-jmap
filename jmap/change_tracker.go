@@ -1,63 +1,21 @@
 package jmap
 
 import (
-	"fmt"
-	"strings"
-	"sync"
+	"imap-jmap/jmap/jmappush"
 )
 
-// ChangeEntry records a single state mutation so that /changes requests
-// (RFC 8620 Section 5.2) can be answered.
-type ChangeEntry struct {
-	Action string // "create", "update", "destroy"
-	ID     Id
-	State  uint64 // the state token produced by this mutation
-}
+// ChangeEntry records a single state mutation per RFC 8620 Section 5.2.
+type ChangeEntry = jmappush.ChangeEntry
 
-// ChangeTracker maintains a monotonically increasing state token and a bounded
-// history of changes. Old history entries beyond maxKeep are discarded to keep
-// memory bounded; /changes requests older than the retained window report
-// hasMoreChanges so the client can re-fetch the full state.
-type ChangeTracker struct {
-	mu      sync.RWMutex
-	counter uint64
-	history []ChangeEntry
-	maxKeep int
-}
+// ChangeTracker maintains a monotonically increasing state token and bounded history.
+type ChangeTracker = jmappush.ChangeTracker
 
-// NewChangeTracker initializes a change tracker retaining up to maxKeep entries
-// before discarding the oldest.
 func NewChangeTracker(maxKeep int) *ChangeTracker {
-	if maxKeep <= 0 {
-		maxKeep = 1000
-	}
-	return &ChangeTracker{
-		history: make([]ChangeEntry, 0, 16),
-		maxKeep: maxKeep,
-	}
+	return jmappush.NewChangeTracker(maxKeep)
 }
 
-// State returns the current opaque state token.
-func (t *ChangeTracker) State() string {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	return fmt.Sprintf("~%d", t.counter)
-}
-
-// ParseNumericStateToken parses the numeric component of an opaque state token.
-// Missing state tokens (empty or "0") are treated as the initial state.
 func ParseNumericStateToken(s string) (uint64, bool) {
-	s = strings.TrimSpace(s)
-	if s == "" || s == "0" {
-		return 0, true
-	}
-	s = strings.TrimPrefix(s, "~")
-	s = strings.TrimPrefix(s, "state-")
-	var n uint64
-	if _, err := fmt.Sscanf(s, "%d", &n); err != nil {
-		return 0, false
-	}
-	return n, true
+	return jmappush.ParseNumericStateToken(s)
 }
 
 // Record registers a change for the given id/action and returns the new state

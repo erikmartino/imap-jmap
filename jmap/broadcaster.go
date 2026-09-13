@@ -2,13 +2,12 @@ package jmap
 
 import (
 	"sync"
+
+	"imap-jmap/jmap/jmappush"
 )
 
 // StateChange represents an RFC 8620 Section 7.1 StateChange event payload.
-type StateChange struct {
-	Type    string                       `json:"@type"`
-	Changed map[string]map[string]string `json:"changed"` // accountID -> typeName -> stateToken
-}
+type StateChange = jmappush.StateChange
 
 // StateChangeListener is called whenever a StateChange is published.
 type StateChangeListener func(accountID, typeName, newState string)
