@@ -8,7 +8,7 @@ import (
 )
 
 // GenerateMarkdown renders all specification matrices into a comprehensive
-// Markdown document including an executive summary and requirement tables.
+// Markdown document including an executive summary and requirement tables grouped by RFC and Section.
 func GenerateMarkdown(matrices []Matrix) string {
 	var buf bytes.Buffer
 
@@ -77,7 +77,15 @@ func GenerateMarkdown(matrices []Matrix) string {
 	for _, m := range matrices {
 		covered := 0
 		hasNotes := false
-		for _, r := range m.Requirements {
+		
+		// Sort copy of requirements by (Spec, Section)
+		reqs := make([]Requirement, len(m.Requirements))
+		copy(reqs, m.Requirements)
+		sort.SliceStable(reqs, func(i, j int) bool {
+			return rowOrder(reqs[i], reqs[j]) < 0
+		})
+
+		for _, r := range reqs {
 			if r.Status == Covered {
 				covered++
 			}
@@ -85,7 +93,7 @@ func GenerateMarkdown(matrices []Matrix) string {
 				hasNotes = true
 			}
 		}
-		total := len(m.Requirements)
+		total := len(reqs)
 		pct := 0.0
 		if total > 0 {
 			pct = (float64(covered) / float64(total)) * 100.0
@@ -103,7 +111,7 @@ func GenerateMarkdown(matrices []Matrix) string {
 			buf.WriteString("| :--- | :---: | :---: | :--- | :---: | :--- |\n")
 		}
 
-		for _, r := range m.Requirements {
+		for _, r := range reqs {
 			statusBadge := "✅ Covered"
 			switch r.Status {
 			case Gap:
@@ -138,6 +146,50 @@ func GenerateMarkdown(matrices []Matrix) string {
 	}
 
 	return buf.String()
+}
+
+func rowOrder(a, b Requirement) int {
+	if a.Spec != b.Spec {
+		return strings.Compare(a.Spec, b.Spec)
+	}
+	return sectionCompare(a.Section, b.Section)
+}
+
+func sectionCompare(a, b string) int {
+	as, bs := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(as) && i < len(bs); i++ {
+		var an, bn int
+		aerr := parseNum(as[i], &an)
+		berr := parseNum(bs[i], &bn)
+		if aerr && berr {
+			if an != bn {
+				if an < bn {
+					return -1
+				}
+				return 1
+			}
+			continue
+		}
+		if c := strings.Compare(as[i], bs[i]); c != 0 {
+			return c
+		}
+	}
+	return len(as) - len(bs)
+}
+
+func parseNum(s string, out *int) bool {
+	n := 0
+	if len(s) == 0 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+		n = n*10 + int(s[i]-'0')
+	}
+	*out = n
+	return true
 }
 
 // formatSpecURL returns the direct internet URL for a given spec and section.
