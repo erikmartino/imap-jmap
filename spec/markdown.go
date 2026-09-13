@@ -122,14 +122,15 @@ func GenerateMarkdown(matrices []Matrix) string {
 			}
 
 			cleanText := escapeMarkdown(r.Text)
+			specLink := formatSpecURL(r.Spec, r.Section)
 
 			if hasNotes {
 				cleanNote := escapeMarkdown(r.Note)
-				buf.WriteString(fmt.Sprintf("| %s | %s | `%s` | %s | %s | %s | %s |\n",
-					r.Spec, r.Section, r.Level, cleanText, statusBadge, testsStr, cleanNote))
+				buf.WriteString(fmt.Sprintf("| %s | [%s](%s) | `%s` | %s | %s | %s | %s |\n",
+					r.Spec, r.Section, specLink, r.Level, cleanText, statusBadge, testsStr, cleanNote))
 			} else {
-				buf.WriteString(fmt.Sprintf("| %s | %s | `%s` | %s | %s | %s |\n",
-					r.Spec, r.Section, r.Level, cleanText, statusBadge, testsStr))
+				buf.WriteString(fmt.Sprintf("| %s | [%s](%s) | `%s` | %s | %s | %s |\n",
+					r.Spec, r.Section, specLink, r.Level, cleanText, statusBadge, testsStr))
 			}
 		}
 
@@ -137,6 +138,23 @@ func GenerateMarkdown(matrices []Matrix) string {
 	}
 
 	return buf.String()
+}
+
+// formatSpecURL returns the direct internet URL for a given spec and section.
+func formatSpecURL(specName, section string) string {
+	specNameUpper := strings.ToUpper(strings.TrimSpace(specName))
+	sectionClean := strings.TrimSpace(section)
+
+	if strings.HasPrefix(specNameUpper, "RFC") {
+		num := strings.TrimPrefix(specNameUpper, "RFC")
+		return fmt.Sprintf("https://www.rfc-editor.org/rfc/rfc%s.html#section-%s", num, sectionClean)
+	}
+
+	if strings.HasPrefix(specName, "draft-") {
+		return fmt.Sprintf("https://datatracker.ietf.org/doc/html/%s#section-%s", specName, sectionClean)
+	}
+
+	return fmt.Sprintf("https://www.rfc-editor.org/rfc/%s.html#section-%s", strings.ToLower(specName), sectionClean)
 }
 
 func escapeMarkdown(s string) string {
