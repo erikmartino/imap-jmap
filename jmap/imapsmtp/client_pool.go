@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/emersion/go-imap/v2/imapclient"
+	"imap-jmap/imap"
 	"imap-jmap/jmap"
 )
 
@@ -203,42 +204,11 @@ func (p *ClientPool) GetClient(ctx context.Context, username, password string) (
 }
 
 func (p *ClientPool) dialAndLogin(username, password string) (*imapclient.Client, error) {
-	var client *imapclient.Client
-	host, port, err := net.SplitHostPort(p.imapAddr)
+	c, err := imap.Dial(p.imapAddr, username, password)
 	if err != nil {
-		host = p.imapAddr
-		port = "993"
+		return nil, err
 	}
-
-	if port == "993" {
-		c, err := imapclient.DialTLS(p.imapAddr, &imapclient.Options{
-			TLSConfig: &tls.Config{InsecureSkipVerify: true, ServerName: host},
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to dial TLS IMAP server %s: %w", p.imapAddr, err)
-		}
-		client = c
-	} else {
-		// Attempt STARTTLS first
-		c, err := imapclient.DialStartTLS(p.imapAddr, &imapclient.Options{
-			TLSConfig: &tls.Config{InsecureSkipVerify: true, ServerName: host},
-		})
-		if err != nil {
-			// Fallback to insecure plain TCP
-			c, err = imapclient.DialInsecure(p.imapAddr, &imapclient.Options{})
-			if err != nil {
-				return nil, fmt.Errorf("failed to connect to IMAP server %s: %w", p.imapAddr, err)
-			}
-		}
-		client = c
-	}
-
-	if err := client.Login(username, password).Wait(); err != nil {
-		_ = client.Close()
-		return nil, fmt.Errorf("IMAP login failed for user %s: %w", username, err)
-	}
-
-	return client, nil
+	return c.Client, nil
 }
 
 // SendMail delivers a raw MIME message via upstream SMTP using context credentials.

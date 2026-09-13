@@ -2,8 +2,6 @@ package jmap
 
 import (
 	"errors"
-	"fmt"
-	"regexp"
 
 	"imap-jmap/jmap/jmapcore"
 )
@@ -55,3 +53,25 @@ func IsResultReference(m map[string]any) bool {
 func EvaluateJSONPointer(data any, pointer string) (any, error) {
 	return jmapcore.EvaluateJSONPointer(data, pointer)
 }
+
+// MethodErrorArgs returns argument map for a standard method error per RFC 8620 Section 3.6.2.
+var MethodErrorArgs = jmapcore.MethodErrorArgs
+
+func InvalidArgumentsErrorArgs(properties []string, description string) map[string]any {
+	args := MethodErrorArgs(MethodErrorInvalidArguments, description)
+	if len(properties) > 0 {
+		args["properties"] = properties
+	}
+	return args
+}
+
+const (
+	ErrorLimit             = jmapcore.ErrorLimit
+	ErrorNotJSON           = jmapcore.ErrorNotJSON
+	ErrorInvalidJSON       = jmapcore.ErrorInvalidJSON
+	ErrorNotRequest        = jmapcore.ErrorNotRequest
+	ErrorUnknownCapability = jmapcore.ErrorUnknownCapability
+)
+
+
+
