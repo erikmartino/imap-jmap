@@ -23,7 +23,7 @@ This report maps official IETF RFC normative clauses across all registered domai
 
 | Spec | Section | Level | Requirement Description | Test File & Function | Production Implementation |
 | :--- | :---: | :---: | :--- | :--- | :--- |
-| **RFC 5545** | 3.3.11 | `MUST` | TEXT values escape backslash, comma, semicolon and newline on write and unescape on read. | [`TestRFC5545_TextEscapingRoundTrip`](../jmap/rfc8984_test.go) | [`jmap/nextcloud/calendars.go`](../jmap/nextcloud/calendars.go) |
+| **RFC 5545** | 3.3.11 | `MUST` | TEXT values escape backslash, comma, semicolon and newline on write and unescape on read. | [`TestRFC5545_TextEscapingRoundTrip`](../jmap/rfc5546_roundtrip_test.go) | [`jmap/ical_text_escaping.go`](../jmap/ical_text_escaping.go) |
 | **RFC 5545** | 3.6.1 | `MUST` | VEVENT properties (recurrence, participants, alarms, location, timezone, duration) round-trip losslessly to and from JSCalendar. | [`TestRFC5546_ITIPRoundTripFullFidelity`](../jmap/rfc8984_test.go) | [`jmap/nextcloud/calendars.go`](../jmap/nextcloud/calendars.go) |
 | **RFC 5546** | 2.1.5 | `MUST` | iTIP messages use the event's uid (with SEQUENCE) as the cross-system correlation key, not the server-assigned JMAP id. | [`TestRFC5546_ITIPUsesEventUIDAndSequence`](../jmap/rfc8984_test.go) | [`jmap/nextcloud/calendars.go`](../jmap/nextcloud/calendars.go) |
 | **RFC 5546** | 3.2.2 | `MUST` | A REQUEST invitation carries the event's UID, SEQUENCE, ORGANIZER, and ATTENDEE lines. | [`TestRFC5546_BuildRequestAndCancel`](../jmap/rfc8984_test.go) | [`jmap/nextcloud/calendars.go`](../jmap/nextcloud/calendars.go) |
