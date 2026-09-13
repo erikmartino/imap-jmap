@@ -102,18 +102,34 @@ func TestSpecCoverage(t *testing.T) {
 // 2. Test -> Spec: Every spectest.RequireID call in test code must exist in the canonical matrix (flagging typos and stale IDs).
 // 3. No Untracked Tests: Any test matching TestRFC* or feature suites must cite at least one valid spec clause ID.
 func TestSpecCoverageBidirectional(t *testing.T) {
-	// For now, this is a placeholder that logs the current state
-	t.Log("Bi-directional conformance enforcement: Not yet fully implemented")
-	
-	// Collect all clause IDs from the spec matrices
 	matrixClauseIDs := collectMatrixClauseIDs()
-	
-	// Log the number of clauses found
-	clauseCount := 0
-	for range matrixClauseIDs {
-		clauseCount++
+	totalCitations := 0
+
+	for _, m := range spec.Matrices {
+		testDir := m.TestDir
+		switch testDir {
+		case "jmap":
+			testDir = "."
+		case "jmap/vcardconv":
+			testDir = "./vcardconv"
+		case "smtp":
+			testDir = "../smtp"
+		default:
+			testDir = filepath.Join("..", testDir)
+		}
+
+		testClauseIDs := collectTestClauseIDs(t, testDir)
+		for testName, clauses := range testClauseIDs {
+			for clauseID := range clauses {
+				totalCitations++
+				if !isValidClauseID(clauseID, matrixClauseIDs) {
+					t.Errorf("%s in %s references unknown or invalid spec clause ID %q", testName, m.Name, clauseID)
+				}
+			}
+		}
 	}
-	t.Logf("Found %d clause IDs in spec matrices", clauseCount)
+
+	t.Logf("Bi-directional conformance check complete: verified %d clause ID citations against matrices", totalCitations)
 }
 
 // collectMatrixClauseIDs collects all clause IDs from the spec matrices
@@ -136,15 +152,73 @@ func collectMatrixClauseIDs() map[string]bool {
 	return clauseIDs
 }
 
-// collectTestClauseIDs scans all test files for spectest.RequireID calls
-func collectTestClauseIDs(t *testing.T) map[string]map[string]bool {
-	// This is a simplified version - in a real implementation, we would parse the AST
-	// to find all calls to spectest.RequireID and extract the clauseID argument.
-	// For now, we'll return an empty map as this would require more complex AST parsing.
-	
-	// For the initial implementation, we'll just return an empty map
-	// The actual implementation would use AST parsing to find RequireID calls
-	return make(map[string]map[string]bool)
+// collectTestClauseIDs scans all test files in testDir for spectest.RequireID calls via AST parsing.
+func collectTestClauseIDs(t *testing.T, dir string) map[string]map[string]bool {
+	// testToClauseIDs maps testFunctionName -> set of clauseIDs cited
+	result := make(map[string]map[string]bool)
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read test dir %s: %v", dir, err)
+	}
+
+	fset := token.NewFileSet()
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		path := filepath.Join(dir, e.Name())
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Recv != nil || !strings.HasPrefix(fn.Name.Name, "Test") {
+				continue
+			}
+
+			testName := fn.Name.Name
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				// Check for spectest.RequireID or RequireID call
+				var isRequireID bool
+				if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+					if pkgIdent, ok := sel.X.(*ast.Ident); ok && pkgIdent.Name == "spectest" && sel.Sel.Name == "RequireID" {
+						isRequireID = true
+					}
+				} else if ident, ok := call.Fun.(*ast.Ident); ok && ident.Name == "RequireID" {
+					isRequireID = true
+				}
+
+				if isRequireID && len(call.Args) >= 2 {
+					// Second argument (index 1) for spectest.RequireID(t, clauseID, text)
+					// or first argument (index 0) if called as RequireID(clauseID, text)
+					var clauseID string
+					argIndex := 1
+					if len(call.Args) == 2 {
+						argIndex = 0
+					}
+					if lit, ok := call.Args[argIndex].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+						clauseID, _ = strconv.Unquote(lit.Value)
+					}
+					if clauseID != "" {
+						if result[testName] == nil {
+							result[testName] = make(map[string]bool)
+						}
+						result[testName][clauseID] = true
+					}
+				}
+				return true
+			})
+		}
+	}
+
+	return result
 }
 
 // generateClauseIDFromRequirement generates a clause ID from a requirement
