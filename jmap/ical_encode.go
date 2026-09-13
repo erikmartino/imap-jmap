@@ -15,41 +15,6 @@ import (
 // It builds standard *ical.Calendar ASTs and encodes them via ical.NewEncoder for full
 // RFC 5545 line folding, escaping, parameter quoting, and CRLF formatting.
 
-// escapeICalText applies RFC 5545 Section 3.3.11 TEXT escaping: backslash, newline,
-// semicolon and comma are escaped so a value can never break the line/param structure.
-func escapeICalText(s string) string {
-	r := strings.NewReplacer(
-		`\`, `\\`,
-		"\r\n", `\n`,
-		"\n", `\n`,
-		"\r", `\n`,
-		`;`, `\;`,
-		`,`, `\,`,
-	)
-	return r.Replace(s)
-}
-
-// unescapeICalText reverses escapeICalText for values read back from iCalendar.
-func unescapeICalText(s string) string {
-	var b strings.Builder
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\\' && i+1 < len(s) {
-			switch s[i+1] {
-			case 'n', 'N':
-				b.WriteByte('\n')
-			case '\\', ';', ',':
-				b.WriteByte(s[i+1])
-			default:
-				b.WriteByte(s[i+1])
-			}
-			i++
-			continue
-		}
-		b.WriteByte(s[i])
-	}
-	return b.String()
-}
-
 // icalCompactDateTime turns an RFC 3339 / JSCalendar date-time string into the compact
 // iCalendar form ("2026-09-01T10:00:00Z" -> "20260901T100000Z", floating kept floating).
 func icalCompactDateTime(v string) string {

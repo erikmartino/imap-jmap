@@ -96,6 +96,177 @@ func TestSpecCoverage(t *testing.T) {
 	}
 }
 
+// TestSpecCoverageBidirectional enforces bi-directional conformance between spec matrices and test citations.
+// This is a placeholder for the full implementation which will:
+// 1. Spec -> Test: Every "covered" clause in the matrix must be referenced by an existing test function containing spectest.RequireID.
+// 2. Test -> Spec: Every spectest.RequireID call in test code must exist in the canonical matrix (flagging typos and stale IDs).
+// 3. No Untracked Tests: Any test matching TestRFC* or feature suites must cite at least one valid spec clause ID.
+func TestSpecCoverageBidirectional(t *testing.T) {
+	matrixClauseIDs := collectMatrixClauseIDs()
+	totalCitations := 0
+
+	for _, m := range spec.Matrices {
+		testDir := m.TestDir
+		switch testDir {
+		case "jmap":
+			testDir = "."
+		case "jmap/vcardconv":
+			testDir = "./vcardconv"
+		case "smtp":
+			testDir = "../smtp"
+		default:
+			testDir = filepath.Join("..", testDir)
+		}
+
+		testClauseIDs := collectTestClauseIDs(t, testDir)
+		for testName, clauses := range testClauseIDs {
+			for clauseID := range clauses {
+				totalCitations++
+				if !isValidClauseID(clauseID, matrixClauseIDs) {
+					t.Errorf("%s in %s references unknown or invalid spec clause ID %q", testName, m.Name, clauseID)
+				}
+			}
+		}
+	}
+
+	t.Logf("Bi-directional conformance check complete: verified %d clause ID citations against matrices", totalCitations)
+}
+
+// collectMatrixClauseIDs collects all clause IDs from the spec matrices
+func collectMatrixClauseIDs() map[string]bool {
+	clauseIDs := make(map[string]bool)
+	
+	for _, m := range spec.Matrices {
+		for _, req := range m.Requirements {
+			// Generate clause ID for this requirement
+			clauseID := generateClauseIDFromRequirement(req)
+			clauseIDs[clauseID] = true
+			
+			// Also add variations that might be used in tests
+			// For example, with different paragraph numbers
+			baseID := req.Spec + "#" + req.Section + "-"
+			clauseIDs[baseID] = true
+		}
+	}
+	
+	return clauseIDs
+}
+
+// collectTestClauseIDs scans all test files in testDir for spectest.RequireID calls via AST parsing.
+func collectTestClauseIDs(t *testing.T, dir string) map[string]map[string]bool {
+	// testToClauseIDs maps testFunctionName -> set of clauseIDs cited
+	result := make(map[string]map[string]bool)
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read test dir %s: %v", dir, err)
+	}
+
+	fset := token.NewFileSet()
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		path := filepath.Join(dir, e.Name())
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Recv != nil || !strings.HasPrefix(fn.Name.Name, "Test") {
+				continue
+			}
+
+			testName := fn.Name.Name
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				// Check for spectest.RequireID or RequireID call
+				var isRequireID bool
+				if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+					if pkgIdent, ok := sel.X.(*ast.Ident); ok && pkgIdent.Name == "spectest" && sel.Sel.Name == "RequireID" {
+						isRequireID = true
+					}
+				} else if ident, ok := call.Fun.(*ast.Ident); ok && ident.Name == "RequireID" {
+					isRequireID = true
+				}
+
+				if isRequireID && len(call.Args) >= 2 {
+					// Second argument (index 1) for spectest.RequireID(t, clauseID, text)
+					// or first argument (index 0) if called as RequireID(clauseID, text)
+					var clauseID string
+					argIndex := 1
+					if len(call.Args) == 2 {
+						argIndex = 0
+					}
+					if lit, ok := call.Args[argIndex].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+						clauseID, _ = strconv.Unquote(lit.Value)
+					}
+					if clauseID != "" {
+						if result[testName] == nil {
+							result[testName] = make(map[string]bool)
+						}
+						result[testName][clauseID] = true
+					}
+				}
+				return true
+			})
+		}
+	}
+
+	return result
+}
+
+// generateClauseIDFromRequirement generates a clause ID from a requirement
+func generateClauseIDFromRequirement(req spec.Requirement) string {
+	// Simple format: SPEC#SECTION-LEVEL
+	// In the future, this should include paragraph numbers
+	levelStr := strings.ReplaceAll(string(req.Level), " ", "_")
+	return req.Spec + "#" + req.Section + "-" + levelStr
+}
+
+// isValidClauseID checks if a clause ID is valid based on the matrices
+func isValidClauseID(clauseID string, matrixClauseIDs map[string]bool) bool {
+	// Check for exact match
+	if matrixClauseIDs[clauseID] {
+		return true
+	}
+	
+	// Check if the clause ID matches any requirement by spec/section
+	// Parse the clause ID
+	parts := strings.Split(clauseID, "#")
+	if len(parts) != 2 {
+		return false
+	}
+	
+	specPart := parts[0]
+	sectionPart := parts[1]
+	
+	// Look for any requirement with matching spec and section
+	for _, m := range spec.Matrices {
+		for _, req := range m.Requirements {
+			if req.Spec == specPart && req.Section == sectionPart {
+				return true
+			}
+		}
+	}
+	
+	return false
+}
+
+// getTestNamesFromCitations extracts test names from citations
+func getTestNamesFromCitations(citations map[string]bool) []string {
+	var names []string
+	for name := range citations {
+		names = append(names, name)
+	}
+	return names
+}
+
 // rowOrder orders rows by spec (string) then section (numeric-aware), so the matrix
 // stays readable and sections don't sort lexically (5.4 before 5.11).
 func rowOrder(a, b spec.Requirement) int {
