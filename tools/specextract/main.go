@@ -515,27 +515,22 @@ func outputGo(w io.Writer, documents []RFCDocument) {
 		
 		fmt.Fprintf(w, "var %s = []Requirement{\n", varName)
 		
-		for i, clause := range doc.Clauses {
-			// Escape quotes in text
-			text := strings.ReplaceAll(clause.Text, `"`, `\"`)
-			text = strings.ReplaceAll(text, "\n", " ")
+		for _, clause := range doc.Clauses {
+			text := strings.ReplaceAll(clause.Text, "\n", " ")
 			text = strings.ReplaceAll(text, "\r", "")
+			text = strings.TrimSpace(text)
 			
+			note := fmt.Sprintf("Extracted by specextract from %s §%s [p%d]", clause.Spec, clause.Section, clause.ParaNum)
+
 			fmt.Fprintf(w, "\t{\n")
-			fmt.Fprintf(w, "\t\tSpec:    \"%s\",\n", clause.Spec)
-			fmt.Fprintf(w, "\t\tSection: \"%s\",\n", clause.Section)
-			fmt.Fprintf(w, "\t\tLevel:   Level(\"%s\"),\n", clause.Level)
-			fmt.Fprintf(w, "\t\tText:    \"%s\",\n", text)
-			fmt.Fprintf(w, "\t\tTests:   []string{}, // TODO: Add test references\n")
-			fmt.Fprintf(w, "\t\tStatus:  Gap, // TODO: Update status\n")
-			fmt.Fprintf(w, "\t\tNote:    \"Extracted by specextract from %s §%s [p%d]\",\n", 
-				clause.Spec, clause.Section, clause.ParaNum)
-			
-			if i < len(doc.Clauses)-1 {
-				fmt.Fprintf(w, "\t},\n")
-			} else {
-				fmt.Fprintf(w, "\t}\n")
-			}
+			fmt.Fprintf(w, "\t\tSpec:    %q,\n", clause.Spec)
+			fmt.Fprintf(w, "\t\tSection: %q,\n", clause.Section)
+			fmt.Fprintf(w, "\t\tLevel:   Level(%q),\n", clause.Level)
+			fmt.Fprintf(w, "\t\tText:    %q,\n", text)
+			fmt.Fprintf(w, "\t\tTests:   []string{},\n")
+			fmt.Fprintf(w, "\t\tStatus:  Gap,\n")
+			fmt.Fprintf(w, "\t\tNote:    %q,\n", note)
+			fmt.Fprintf(w, "\t},\n")
 		}
 		
 		fmt.Fprintf(w, "}\n\n")
