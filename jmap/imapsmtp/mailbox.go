@@ -2,96 +2,28 @@ package imapsmtp
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"path"
 	"sort"
 	"strings"
 
-	"github.com/emersion/go-imap/v2"
+	imappkg "imap-jmap/imap"
 	"imap-jmap/jmap"
 )
 
 // MailboxIDForName converts an IMAP folder name to a JMAP Mailbox ID.
 func MailboxIDForName(name string) jmap.Id {
-	switch strings.ToLower(name) {
-	case "inbox":
-		return "mb-inbox"
-	case "drafts":
-		return "mb-drafts"
-	case "sent":
-		return "mb-sent"
-	case "trash":
-		return "mb-trash"
-	case "junk":
-		return "mb-junk"
-	case "archive":
-		return "mb-archive"
-	}
-	return jmap.Id(base64.RawURLEncoding.EncodeToString([]byte(name)))
+	return jmap.Id(imappkg.MailboxIDForName(name))
 }
 
 // NameForMailboxID converts a JMAP Mailbox ID back to an IMAP folder name.
 func NameForMailboxID(id jmap.Id) (string, error) {
-	switch id {
-	case "mb-inbox":
-		return "INBOX", nil
-	case "mb-drafts":
-		return "Drafts", nil
-	case "mb-sent":
-		return "Sent", nil
-	case "mb-trash":
-		return "Trash", nil
-	case "mb-junk":
-		return "Junk", nil
-	case "mb-archive":
-		return "Archive", nil
-	}
-	b, err := base64.RawURLEncoding.DecodeString(string(id))
-	if err != nil {
-		return "", fmt.Errorf("invalid mailbox id: %w", err)
-	}
-	return string(b), nil
+	return imappkg.NameForMailboxID(string(id))
 }
 
 // DetectRole determines the JMAP role for an IMAP mailbox from its name and attributes.
-func DetectRole(name string, attrs []imap.MailboxAttr) string {
-	for _, attr := range attrs {
-		switch attr {
-		case imap.MailboxAttrDrafts:
-			return "drafts"
-		case imap.MailboxAttrSent:
-			return "sent"
-		case imap.MailboxAttrTrash:
-			return "trash"
-		case imap.MailboxAttrJunk:
-			return "junk"
-		case imap.MailboxAttrArchive:
-			return "archive"
-		}
-	}
-
-	lower := strings.ToLower(name)
-	switch {
-	case strings.EqualFold(name, "INBOX"):
-		return "inbox"
-	case strings.Contains(lower, "draft"):
-		return "drafts"
-	case strings.Contains(lower, "sent"):
-		return "sent"
-	case strings.Contains(lower, "trash") || strings.Contains(lower, "bin") || strings.Contains(lower, "deleted"):
-		return "trash"
-	case strings.Contains(lower, "junk") || strings.Contains(lower, "spam"):
-		return "junk"
-	case strings.Contains(lower, "archive"):
-		return "archive"
-	case strings.Contains(lower, "outbox"):
-		return "outbox"
-	case strings.Contains(lower, "template"):
-		return "templates"
-	default:
-		return ""
-	}
+func DetectRole(name string, attrs []string) string {
+	return imappkg.DetectRole(name, attrs)
 }
 
 // GetAllMailboxes retrieves all mailboxes from upstream IMAP.
@@ -108,49 +40,31 @@ func (b *IMAPSMTPBackend) GetAllMailboxes(ctx context.Context) ([]*jmap.Mailbox,
 	}
 	defer b.pool.ReleaseClient(ctx, client)
 
-	listCmd := client.List("", "*", nil)
-	mailboxesData, err := listCmd.Collect()
+	folders, err := client.ListFolders("", "*")
 	if err != nil {
 		return nil, fmt.Errorf("failed to list mailboxes: %w", err)
 	}
 
 	var result []*jmap.Mailbox
-	for _, m := range mailboxesData {
+	for _, fi := range folders {
 		hasNoSelect := false
-		for _, attr := range m.Attrs {
-			if attr == imap.MailboxAttrNoSelect {
+		for _, attr := range fi.Attrs {
+			if strings.EqualFold(attr, "\\NoSelect") {
 				hasNoSelect = true
 				break
 			}
 		}
 
-		total := uint64(0)
-		unread := uint64(0)
-		if !hasNoSelect {
-			statusCmd := client.Status(m.Mailbox, &imap.StatusOptions{
-				NumMessages: true,
-				NumUnseen:   true,
-				UIDNext:     true,
-				UIDValidity: true,
-			})
-			statusData, statusErr := statusCmd.Wait()
-			if statusErr == nil && statusData != nil {
-				if statusData.NumMessages != nil {
-					total = uint64(*statusData.NumMessages)
-				}
-				if statusData.NumUnseen != nil {
-					unread = uint64(*statusData.NumUnseen)
-				}
-			}
-		}
+		total := uint64(fi.Messages)
+		unread := uint64(fi.Unseen)
 
-		name := m.Mailbox
+		name := fi.Name
 		mbID := MailboxIDForName(name)
-		role := DetectRole(name, m.Attrs)
+		role := DetectRole(name, fi.Attrs)
 
 		var parentID *jmap.Id
-		if m.Delim != 0 {
-			delimStr := string(m.Delim)
+		if fi.Delimiter != 0 {
+			delimStr := string(fi.Delimiter)
 			if idx := strings.LastIndex(name, delimStr); idx > 0 {
 				parentName := name[:idx]
 				pID := MailboxIDForName(parentName)
@@ -159,8 +73,8 @@ func (b *IMAPSMTPBackend) GetAllMailboxes(ctx context.Context) ([]*jmap.Mailbox,
 		}
 
 		dispName := name
-		if parentID != nil && m.Delim != 0 {
-			delimStr := string(m.Delim)
+		if parentID != nil && fi.Delimiter != 0 {
+			delimStr := string(fi.Delimiter)
 			parts := strings.Split(name, delimStr)
 			dispName = parts[len(parts)-1]
 		}
@@ -328,13 +242,13 @@ func (b *IMAPSMTPBackend) CreateMailbox(ctx context.Context, mb *jmap.Mailbox) (
 		return nil, err
 	}
 
-	if err := client.Create(folderName, nil).Wait(); err != nil {
+	if err := client.Create(folderName); err != nil {
 		b.pool.ReleaseClient(ctx, client)
 		return nil, fmt.Errorf("failed to create IMAP mailbox %s: %w", folderName, err)
 	}
 
 	if mb.IsSubscribed {
-		_ = client.Subscribe(folderName).Wait()
+		_ = client.Subscribe(folderName)
 	}
 	b.pool.ReleaseClient(ctx, client)
 
@@ -451,7 +365,7 @@ func (b *IMAPSMTPBackend) UpdateMailbox(ctx context.Context, id jmap.Id, patch m
 		if err != nil {
 			return nil, err
 		}
-		if err := client.Rename(currentFolder, newFolderPath, nil).Wait(); err != nil {
+		if err := client.Rename(currentFolder, newFolderPath); err != nil {
 			b.pool.ReleaseClient(ctx, client)
 			return nil, fmt.Errorf("failed to rename IMAP mailbox: %w", err)
 		}
@@ -521,7 +435,7 @@ func (b *IMAPSMTPBackend) DeleteMailbox(ctx context.Context, id jmap.Id, onDestr
 	if err != nil {
 		return false, err
 	}
-	if err := client.Delete(folderToDelete).Wait(); err != nil {
+	if err := client.Delete(folderToDelete); err != nil {
 		b.pool.ReleaseClient(ctx, client)
 		return false, fmt.Errorf("failed to delete IMAP mailbox %s: %w", folderToDelete, err)
 	}

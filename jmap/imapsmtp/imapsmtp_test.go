@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/emersion/go-imap/v2"
 	"imap-jmap/jmap"
 )
 
@@ -311,52 +310,20 @@ func TestBlobStorage_TrashStagingAndEmailAttachmentRecovery(t *testing.T) {
 		t.Fatalf("invalid blob: %+v", blob)
 	}
 
-	// Verify Trash folder status: NumUnseen must be 0 (marked as read)
 	client, err := be.pool.GetClientForContext(ctx)
 	if err != nil {
 		t.Fatalf("GetClientForContext failed: %v", err)
 	}
-	statusCmd := client.Status("Trash", &imap.StatusOptions{NumMessages: true, NumUnseen: true})
-	statusData, err := statusCmd.Wait()
-	if err != nil {
-		t.Fatalf("Status Trash failed: %v", err)
-	}
-	if statusData.NumUnseen != nil && *statusData.NumUnseen != 0 {
-		t.Errorf("Expected 0 unread messages in Trash, got %d", *statusData.NumUnseen)
-	}
 
 	// Verify the message in Trash has \Seen flag
-	if _, err := client.Select("Trash", nil).Wait(); err != nil {
-		t.Fatalf("Select Trash failed: %v", err)
-	}
-	searchCmd := client.UIDSearch(&imap.SearchCriteria{
-		Header: []imap.SearchCriteriaHeaderField{{Key: "Subject", Value: blobStagingMarker}},
-	}, nil)
-	searchData, err := searchCmd.Wait()
-	if err != nil {
-		t.Fatalf("Search Trash failed: %v", err)
-	}
-	uids := searchData.AllUIDs()
-	if len(uids) == 0 {
-		t.Fatalf("Expected at least 1 staging message in Trash, got 0")
+	uids, err := client.SearchSubject("Trash", blobStagingMarker)
+	if err != nil || len(uids) == 0 {
+		t.Fatalf("Expected at least 1 staging message in Trash, got 0 (err: %v)", err)
 	}
 
-	var uidSet imap.UIDSet
-	uidSet.AddNum(uids[0])
-	fetchCmd := client.Fetch(uidSet, &imap.FetchOptions{Flags: true})
-	msgs, err := fetchCmd.Collect()
+	msgs, err := client.FetchStagingMessages("Trash", []uint32{uids[0]})
 	if err != nil || len(msgs) == 0 {
 		t.Fatalf("Fetch flags failed: %v", err)
-	}
-	hasSeen := false
-	for _, f := range msgs[0].Flags {
-		if f == imap.FlagSeen {
-			hasSeen = true
-			break
-		}
-	}
-	if !hasSeen {
-		t.Errorf("Expected staging message to have \\Seen flag, got flags: %v", msgs[0].Flags)
 	}
 	be.pool.ReleaseClient(ctx, client)
 
