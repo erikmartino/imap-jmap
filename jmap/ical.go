@@ -495,21 +495,41 @@ func icalComponentToCalendarEvent(comp *ical.Component, method, prodID string) *
 					}
 				}
 			case ical.PropOrganizer:
+				if strings.HasPrefix(p.Value, "mailto:") {
+					ev.OrganizerCalendarAddress = p.Value
+				} else if p.Value != "" {
+					ev.OrganizerCalendarAddress = "mailto:" + p.Value
+				}
 				email := icalParticipantKey(p.Value)
 				if email != "" {
-					if ev.Participants == nil {
-						ev.Participants = make(map[string]*JSCalendarParticipant)
+					found := false
+					for _, existing := range ev.Participants {
+						if strings.EqualFold(existing.Email, email) || strings.EqualFold(existing.CalendarAddress, "mailto:"+email) {
+							if existing.Roles == nil {
+								existing.Roles = make(map[string]bool)
+							}
+							existing.Roles["owner"] = true
+							existing.Role = "owner"
+							found = true
+							break
+						}
 					}
-					participant := &JSCalendarParticipant{
-						Type:  "Participant",
-						Email: email,
-						Roles: map[string]bool{"owner": true},
-						Role:  "owner",
+					if !found {
+						if ev.Participants == nil {
+							ev.Participants = make(map[string]*JSCalendarParticipant)
+						}
+						participant := &JSCalendarParticipant{
+							Type:            "Participant",
+							Email:           email,
+							CalendarAddress: "mailto:" + email,
+							Roles:           map[string]bool{"owner": true},
+							Role:            "owner",
+						}
+						if cn := p.Params.Get("CN"); cn != "" {
+							participant.Name = cn
+						}
+						ev.Participants[email] = participant
 					}
-					if cn := p.Params.Get("CN"); cn != "" {
-						participant.Name = cn
-					}
-					ev.Participants[email] = participant
 				}
 				if sentBy := p.Params.Get("SENT-BY"); sentBy != "" {
 					ev.SentBy = sentBy
@@ -666,9 +686,13 @@ func icalComponentToCalendarEvent(comp *ical.Component, method, prodID string) *
 				if ev.Categories == nil {
 					ev.Categories = make(map[string]bool)
 				}
+				if ev.Keywords == nil {
+					ev.Keywords = make(map[string]bool)
+				}
 				for _, cat := range strings.Split(p.Value, ",") {
 					if cat = strings.TrimSpace(unescapeICalText(cat)); cat != "" {
 						ev.Categories[cat] = true
+						ev.Keywords[cat] = true
 					}
 				}
 			case ical.PropSequence:

@@ -66,6 +66,9 @@ const AvailabilityCapabilityURI = "urn:ietf:params:jmap:principals:availability"
 // still include it in the "using" array of API requests, so the server MUST accept it there.
 const PrincipalsOwnerCapabilityURI = "urn:ietf:params:jmap:principals:owner"
 
+// SharingCapabilityURI is the standard JMAP Sharing capability URI defined in RFC 9670 Section 5.
+const SharingCapabilityURI = "urn:ietf:params:jmap:sharing"
+
 // PrincipalCapability defines the capability object for "urn:ietf:params:jmap:principals".
 type PrincipalCapability struct {
 	MaxAvailabilityDuration string `json:"maxAvailabilityDuration"`
@@ -240,6 +243,7 @@ func sessionFor(baseURL, username, accountID string) *Session {
 			MaxAvailabilityDuration: "P30D",
 		},
 		AvailabilityCapabilityURI: struct{}{},
+		SharingCapabilityURI:      struct{}{},
 	}
 
 	accounts := map[string]Account{
@@ -326,6 +330,7 @@ func sessionFor(baseURL, username, accountID string) *Session {
 				MaxAvailabilityDuration: "P30D",
 			},
 			AvailabilityCapabilityURI: struct{}{},
+			SharingCapabilityURI:      struct{}{},
 		},
 		Accounts: accounts,
 		PrimaryAccounts: map[string]string{
@@ -345,6 +350,7 @@ func sessionFor(baseURL, username, accountID string) *Session {
 			FileNodeCapabilityURI:         accountID,
 			PrincipalsCapabilityURI:       accountID,
 			AvailabilityCapabilityURI:     accountID,
+			SharingCapabilityURI:          accountID,
 		},
 		Username:       username,
 		APIURL:         baseURL + "/jmap",

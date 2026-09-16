@@ -53,6 +53,8 @@ func (s *Server) HandleEventSource(w http.ResponseWriter, r *http.Request) {
 	principalAccountID, _ := AccountIDFromContext(r.Context())
 	sub := s.Broadcaster.Subscribe(principalAccountID)
 	defer s.Broadcaster.Unsubscribe(sub)
+	subAlerts := s.Broadcaster.SubscribeAlerts(principalAccountID)
+	defer s.Broadcaster.UnsubscribeAlerts(subAlerts)
 
 	pingTicker := time.NewTicker(time.Duration(pingSec) * time.Second)
 	defer pingTicker.Stop()
@@ -78,6 +80,30 @@ func (s *Server) HandleEventSource(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			flusher.Flush()
+
+		case alert, ok := <-subAlerts:
+			if !ok {
+				return
+			}
+			if typesParam != "*" && !filterTypes["CalendarAlert"] {
+				continue
+			}
+			targetAlert := *alert
+			if principalAccountID != "" {
+				targetAlert.AccountID = principalAccountID
+			}
+			dataBytes, err := json.Marshal(&targetAlert)
+			if err != nil {
+				continue
+			}
+			_, err = fmt.Fprintf(w, "data: %s\n\n", string(dataBytes))
+			if err != nil {
+				return
+			}
+			flusher.Flush()
+			if closeAfter == "state" {
+				return
+			}
 
 		case stateEvt, ok := <-sub:
 			if !ok {

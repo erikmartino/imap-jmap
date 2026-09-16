@@ -658,6 +658,17 @@ func NewEmbeddedBackend(usernames ...string) (*Client, *CalendarsBackend, *Conta
 	contactsBackend := NewContactsBackend(client)
 	fileNodeBackend := NewFileNodeBackend(client)
 	principalsBackend := NewPrincipalsBackend(client, calBackend)
+	calBackend.SetPrincipalsBackend(principalsBackend)
+
+	for _, u := range usernames {
+		displayName := u
+		if u == "jdoe@example.com" {
+			displayName = "John Doe"
+		} else if u == "jane.smith@example.com" {
+			displayName = "Jane Smith"
+		}
+		principalsBackend.SeedUser(u, displayName)
+	}
 
 	return client, calBackend, contactsBackend, fileNodeBackend, principalsBackend, cleanup
 }

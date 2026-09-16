@@ -73,6 +73,11 @@ var Matrices = []Matrix{
 		Requirements: JMAPMailRequirements,
 	},
 	{
+		Name:         "jmap-sharing",
+		TestDir:      "jmap",
+		Requirements: JMAPSharingRequirements,
+	},
+	{
 		Name:         "jmap-websockets",
 		TestDir:      "jmap",
 		Requirements: JMAPWebSocketsRequirements,

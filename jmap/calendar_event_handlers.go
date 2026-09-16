@@ -53,6 +53,15 @@ func handleCalendarEventGet(backend CalendarsBackend) MethodHandler {
 		// i.e. the owner, so no censoring is applied here. Cross-principal disclosure is
 		// limited to the free-busy windows returned by Principal/getAvailability, which never
 		// expose event titles or details.
+		recBeforeStr, _ := args["recurrenceOverridesBefore"].(string)
+		recAfterStr, _ := args["recurrenceOverridesAfter"].(string)
+		reduceParticipants, _ := args["reduceParticipants"].(bool)
+
+		accountUser := accountID
+		if subj, ok := SubjectFromContext(ctx); ok && subj != "" {
+			accountUser = subj
+		}
+
 		filteredList := make([]*CalendarEvent, 0, len(list))
 		for _, ev := range list {
 			if ev == nil {
@@ -88,6 +97,98 @@ func handleCalendarEventGet(backend CalendarsBackend) MethodHandler {
 			} else if clone.ExcludedRecurrenceRule != nil && len(clone.ExcludedRecurrenceRules) == 0 {
 				clone.ExcludedRecurrenceRules = []*JSCalendarRecurrenceRule{clone.ExcludedRecurrenceRule}
 			}
+
+			// isOrigin: true if caller is organizer or no organizer specified, false otherwise.
+			if clone.OrganizerCalendarAddress == "" || strings.EqualFold(clone.OrganizerCalendarAddress, "mailto:"+accountUser) {
+				clone.IsOrigin = true
+			} else {
+				clone.IsOrigin = false
+			}
+
+			// useDefaultAlerts: populate alerts from calendar if true and alerts empty
+			if clone.UseDefaultAlerts {
+				if len(clone.Alerts) == 0 {
+					for cid := range clone.CalendarIDs {
+						if cals, _, err := backend.GetCalendars(ctx, []Id{cid}); err == nil && len(cals) > 0 {
+							cal := cals[0]
+							var defAlerts map[string]*JSCalendarAlert
+							if clone.ShowWithoutTime {
+								defAlerts = cal.DefaultAlertsWithoutTime
+							} else {
+								defAlerts = cal.DefaultAlertsWithTime
+							}
+							if len(defAlerts) > 0 {
+								clone.Alerts = make(map[string]*JSCalendarAlert, len(defAlerts))
+								for k, a := range defAlerts {
+									if a != nil {
+										aCopy := *a
+										if aCopy.Type == "" {
+											aCopy.Type = "Alert"
+										}
+										if aCopy.Trigger != nil {
+											if tm, ok := aCopy.Trigger.(map[string]any); ok {
+												tmCopy := make(map[string]any, len(tm)+1)
+												for tk, tv := range tm {
+													tmCopy[tk] = tv
+												}
+												if tmCopy["@type"] == nil && tmCopy["offset"] != nil {
+													tmCopy["@type"] = "OffsetTrigger"
+												}
+												aCopy.Trigger = tmCopy
+											}
+										}
+										clone.Alerts[k] = &aCopy
+									}
+								}
+								break
+							}
+						}
+					}
+				}
+			}
+
+			// Filter recurrenceOverrides
+			if (recBeforeStr != "" || recAfterStr != "") && len(clone.RecurrenceOverrides) > 0 {
+				loc := loadLocation(clone.TimeZone)
+				filteredOverrides := make(map[string]map[string]any)
+				var beforeT, afterT time.Time
+				var hasBefore, hasAfter bool
+				if recBeforeStr != "" {
+					beforeT, hasBefore = parseRFC3339(recBeforeStr)
+				}
+				if recAfterStr != "" {
+					afterT, hasAfter = parseRFC3339(recAfterStr)
+				}
+				for recKey, ov := range clone.RecurrenceOverrides {
+					if t, ok := parseLocalDateTimeBound(recKey, loc); ok {
+						tUTC := t.UTC()
+						if hasBefore && !tUTC.Before(beforeT) {
+							continue
+						}
+						if hasAfter && tUTC.Before(afterT) {
+							continue
+						}
+						filteredOverrides[recKey] = ov
+					}
+				}
+				clone.RecurrenceOverrides = filteredOverrides
+			}
+
+			// Reduce participants
+			if reduceParticipants && len(clone.Participants) > 0 {
+				reduced := make(map[string]*JSCalendarParticipant)
+				for pid, p := range clone.Participants {
+					if p != nil {
+						isOwner := p.Role == "owner" || (p.Roles != nil && p.Roles["owner"])
+						isUser := strings.EqualFold(p.CalendarAddress, "mailto:"+accountUser)
+						if isOwner || isUser {
+							reduced[pid] = p
+						}
+					}
+				}
+				clone.Participants = reduced
+			}
+
 			filteredList = append(filteredList, &clone)
 		}
 
@@ -147,6 +248,10 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, p
 		creationRefs := newSetCreationRefs(ctx)
 		calCap := CalendarsCapabilityFromContext(ctx)
 
+		callerAccountID, hasCaller := PrincipalAccountIDFromContext(ctx)
+		targetAccountID, _ := AccountIDFromContext(ctx)
+		isSharedCaller := hasCaller && callerAccountID != "" && callerAccountID != targetAccountID
+
 		if createRaw, ok := args["create"].(map[string]any); ok {
 			notCreated = runCreateLoop(createRaw, creationRefs, func(creationID string, resolvedMap map[string]any) (string, error) {
 				if sendSchedulingMessages && mailBackend == nil {
@@ -160,6 +265,18 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, p
 				var ev CalendarEvent
 				_ = json.Unmarshal(evBytes, &ev)
 
+				if isSharedCaller {
+					for cid := range ev.CalendarIDs {
+						cals, _, _ := backend.GetCalendars(ctx, []Id{cid})
+						if len(cals) == 0 || !cals[0].MyRights.MayWriteAll {
+							return "", SetError{
+								Type:        "forbidden",
+								Description: "You are not allowed to create calendar events.",
+							}
+						}
+					}
+				}
+
 				if ev.Type == "" {
 					ev.Type = "Event"
 				}
@@ -169,7 +286,42 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, p
 				if ev.Duration == "" && ev.Type == "Event" {
 					ev.Duration = "PT1H"
 				}
-				ev.Start = strings.TrimSuffix(ev.Start, "Z")
+				if ev.UID != "" {
+					existing, _, _ := backend.GetCalendarEvents(ctx, nil)
+					for _, ex := range existing {
+						if ex != nil && ex.UID == ev.UID {
+							return "", SetError{
+								Type:        "invalidProperties",
+								Description: fmt.Sprintf("An event with UID %s already exists.", ev.UID),
+								Properties:  []string{"uid"},
+							}
+						}
+					}
+				}
+
+				if len(ev.Participants) > 0 && ev.OrganizerCalendarAddress == "" {
+					accountUser := accountID
+					if subj, ok := SubjectFromContext(ctx); ok && subj != "" {
+						accountUser = subj
+					}
+					for _, p := range ev.Participants {
+						if p != nil && strings.EqualFold(p.CalendarAddress, "mailto:"+accountUser) {
+							ev.OrganizerCalendarAddress = p.CalendarAddress
+							break
+						}
+					}
+					if ev.OrganizerCalendarAddress == "" {
+						for _, p := range ev.Participants {
+							if p != nil && (p.Role == "owner" || (p.Roles != nil && p.Roles["owner"])) {
+								ev.OrganizerCalendarAddress = p.CalendarAddress
+								break
+							}
+						}
+					}
+					if ev.OrganizerCalendarAddress == "" && accountUser != "" {
+						ev.OrganizerCalendarAddress = "mailto:" + accountUser
+					}
+				}
 
 				createdEv, err := backend.CreateCalendarEvent(ctx, &ev)
 				if err != nil {
@@ -209,23 +361,118 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, p
 				// A scheduling change (iTIP dispatch) is recorded as a CalendarEventNotification
 				// (Section 7): the event data after creation.
 				if sendSchedulingMessages {
-					_, _ = backend.CreateCalendarEventNotification(ctx, &CalendarEventNotification{
-						Type:            "created",
-						CalendarEventID: createdEv.ID,
-						ChangedBy:       notificationChangedBy(createdEv),
-						Event:           createdEv,
-					})
+					org := organizerAddress(createdEv)
+					caller := accountID
+					if subj, ok := SubjectFromContext(ctx); ok && subj != "" {
+						caller = subj
+					} else if subj, ok := SubjectForAccountID(accountID); ok && subj != "" {
+						caller = subj
+					}
+					if org != "" && caller != "" && !strings.EqualFold(org, caller) && !strings.EqualFold(org, "mailto:"+caller) {
+						_, _ = backend.CreateCalendarEventNotification(ctx, &CalendarEventNotification{
+							Type:            "created",
+							CalendarEventID: createdEv.ID,
+							ChangedBy:       notificationChangedBy(createdEv),
+							Event:           createdEv,
+						})
+					}
 				}
 				return string(createdEv.ID), nil
 			})
 		}
 
+		destroySet := make(map[string]bool)
+		if destroyRaw, ok := args["destroy"].([]any); ok {
+			for _, item := range destroyRaw {
+				if s, ok := item.(string); ok {
+					destroySet[s] = true
+				}
+			}
+		}
+
 		if updateRaw, ok := args["update"].(map[string]any); ok {
+			hasBase := make(map[string]bool)
+			hasInst := make(map[string]bool)
+			for idStr := range updateRaw {
+				if strings.Contains(idStr, "#") {
+					parts := strings.SplitN(idStr, "#", 2)
+					hasInst[parts[0]] = true
+				} else {
+					hasBase[idStr] = true
+				}
+			}
+			for baseID := range hasBase {
+				if hasInst[baseID] {
+					conflictErr := SetError{
+						Type:        "invalidProperties",
+						Description: "A base event and its instances cannot be modified in the same request.",
+						Properties:  []string{"id"},
+					}
+					notUpdated[baseID] = conflictErr
+					for idStr := range updateRaw {
+						if strings.HasPrefix(idStr, baseID+"#") {
+							notUpdated[idStr] = conflictErr
+						}
+					}
+				}
+			}
+
 			for idStr, patchRaw := range updateRaw {
-				rawPatch, _ := patchRaw.(map[string]any)
-				cleanPatch := sanitizeEventMap(rawPatch)
-				patch := resolvePatchCreationRefs(cleanPatch, creationRefs)
 				resolvedID := resolveCreationID(idStr, creationRefs)
+				if notUpdated[string(resolvedID)] != nil {
+					continue
+				}
+				if isSharedCaller {
+					baseLookupID := string(resolvedID)
+					if strings.Contains(baseLookupID, "#") {
+						baseLookupID = strings.SplitN(baseLookupID, "#", 2)[0]
+					}
+					events, _, _ := backend.GetCalendarEvents(ctx, []Id{Id(baseLookupID)})
+					if len(events) > 0 && events[0] != nil {
+						allowed := true
+						for cid := range events[0].CalendarIDs {
+							cals, _, _ := backend.GetCalendars(ctx, []Id{cid})
+							if len(cals) == 0 || !cals[0].MyRights.MayWriteAll {
+								allowed = false
+								break
+							}
+						}
+						if !allowed {
+							notUpdated[string(resolvedID)] = SetError{
+								Type:        "forbidden",
+								Description: "You are not allowed to modify calendar events.",
+							}
+							continue
+						}
+					}
+				}
+				rawPatch, _ := patchRaw.(map[string]any)
+
+				if strings.Contains(idStr, "#") {
+					parts := strings.SplitN(idStr, "#", 2)
+					if destroySet[parts[0]] {
+						notUpdated[string(resolvedID)] = SetError{Type: "willDestroy"}
+						continue
+					}
+					var foundBadProp string
+					for _, badProp := range []string{"calendarIds", "isDraft", "utcStart", "utcEnd", "mayInviteSelf", "useDefaultAlerts"} {
+						if _, has := rawPatch[badProp]; has {
+							foundBadProp = badProp
+							break
+						}
+					}
+					if foundBadProp != "" {
+						notUpdated[string(resolvedID)] = SetError{
+							Type:        "invalidProperties",
+							Description: "This property cannot be modified on a single occurrence.",
+							Properties:  []string{foundBadProp},
+						}
+						continue
+					}
+				}
+
+				cleanPatch := sanitizeEventPatch(rawPatch)
+				patch := resolvePatchCreationRefs(cleanPatch, creationRefs)
 				if sendSchedulingMessages && mailBackend == nil {
 					notUpdated[string(resolvedID)] = SetError{Type: "noSupportedScheduleMethods", Description: "no supported schedule methods available for scheduling"}
 					continue
@@ -258,15 +505,32 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, p
 
 					// Record the scheduling change as a CalendarEventNotification: the
 					// "event" carries the data before the change and "eventPatch" encodes
-					// the change itself (Section 7.2).
+					// the change itself (Section 7.2). A user does not receive notifications
+					// for their own actions.
 					if sendSchedulingMessages {
-						_, _ = backend.CreateCalendarEventNotification(ctx, &CalendarEventNotification{
-							Type:            "updated",
-							CalendarEventID: updatedEv.ID,
-							ChangedBy:       notificationChangedBy(updatedEv),
-							Event:           beforeEv,
-							EventPatch:      patch,
-						})
+						caller := accountID
+						if subj, ok := SubjectFromContext(ctx); ok && subj != "" {
+							caller = subj
+						} else if subj, ok := SubjectForAccountID(accountID); ok && subj != "" {
+							caller = subj
+						}
+						org := organizerAddress(updatedEv)
+						isRSVP := false
+						for path := range patch {
+							if strings.HasPrefix(path, "participants/") && (strings.HasSuffix(path, "/participationStatus") || strings.HasSuffix(path, "/status")) {
+								isRSVP = true
+								break
+							}
+						}
+						if !isRSVP && org != "" && caller != "" && !strings.EqualFold(org, caller) && !strings.EqualFold(org, "mailto:"+caller) {
+							_, _ = backend.CreateCalendarEventNotification(ctx, &CalendarEventNotification{
+								Type:            "updated",
+								CalendarEventID: updatedEv.ID,
+								ChangedBy:       notificationChangedBy(updatedEv),
+								Event:           beforeEv,
+								EventPatch:      patch,
+							})
+						}
 					}
 
 					// A bare RSVP (participationStatus changed to non-needs-action) is a
@@ -294,6 +558,25 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, p
 				if idStr, ok := item.(string); ok {
 					evID := Id(resolveCreationID(idStr, creationRefs))
 					events, _, _ := backend.GetCalendarEvents(ctx, []Id{evID})
+					if isSharedCaller {
+						allowed := true
+						if len(events) > 0 && events[0] != nil {
+							for cid := range events[0].CalendarIDs {
+								cals, _, _ := backend.GetCalendars(ctx, []Id{cid})
+								if len(cals) == 0 || !cals[0].MyRights.MayDelete {
+									allowed = false
+									break
+								}
+							}
+						}
+						if !allowed {
+							notDestroyed[string(evID)] = SetError{
+								Type:        "forbidden",
+								Description: "You are not allowed to remove events from calendar",
+							}
+							continue
+						}
+					}
 
 					okDel, err := backend.DeleteCalendarEvent(ctx, evID)
 					if err != nil || !okDel {
@@ -302,14 +585,23 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, p
 						destroyed = append(destroyed, evID)
 
 						// Record the cancellation as a CalendarEventNotification carrying the
-						// pre-destroy event data (Section 7.2).
-						if sendSchedulingMessages {
-							_, _ = backend.CreateCalendarEventNotification(ctx, &CalendarEventNotification{
-								Type:            "destroyed",
-								CalendarEventID: evID,
-								ChangedBy:       notificationChangedBy(events[0]),
-								Event:           events[0],
-							})
+						// pre-destroy event data (Section 7.2) if not performed by the organizer.
+						if sendSchedulingMessages && len(events) > 0 && events[0] != nil {
+							caller := accountID
+							if subj, ok := SubjectFromContext(ctx); ok && subj != "" {
+								caller = subj
+							} else if subj, ok := SubjectForAccountID(accountID); ok && subj != "" {
+								caller = subj
+							}
+							org := organizerAddress(events[0])
+							if org != "" && caller != "" && !strings.EqualFold(org, caller) && !strings.EqualFold(org, "mailto:"+caller) {
+								_, _ = backend.CreateCalendarEventNotification(ctx, &CalendarEventNotification{
+									Type:            "destroyed",
+									CalendarEventID: evID,
+									ChangedBy:       notificationChangedBy(events[0]),
+									Event:           events[0],
+								})
+							}
 						}
 
 						// CANCEL to every participant except the calendar owner when the
@@ -491,6 +783,9 @@ func handleCalendarEventCopy(backend CalendarsBackend) MethodHandler {
 			for creationID, raw := range createRaw {
 				m, _ := raw.(map[string]any)
 				srcID, _ := m["id"].(string)
+				if srcID == "" {
+					srcID = creationID
+				}
 				if srcID == "" {
 					notCreated[creationID] = SetError{Type: "invalidProperties", Description: "copy create entry must reference a source id"}
 					continue
@@ -853,7 +1148,80 @@ func sanitizeEventMap(m map[string]any) map[string]any {
 	return cleaned
 }
 
+func sanitizeEventPatch(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+	cleaned := make(map[string]any, len(m))
+	for k, v := range m {
+		cleanKey := strings.TrimPrefix(k, "/")
+		cleaned[cleanKey] = v
+	}
+
+	// 1. calendarId / calendar -> calendarIds
+	if cid, ok := cleaned["calendarId"].(string); ok && cid != "" {
+		if cids, hasCids := cleaned["calendarIds"].(map[string]any); !hasCids || len(cids) == 0 {
+			cleaned["calendarIds"] = map[string]bool{cid: true}
+		}
+	} else if cid, ok := cleaned["calendar"].(string); ok && cid != "" {
+		if cids, hasCids := cleaned["calendarIds"].(map[string]any); !hasCids || len(cids) == 0 {
+			cleaned["calendarIds"] = map[string]bool{cid: true}
+		}
+	}
+
+	// 2. allDay -> showWithoutTime
+	if allDay, ok := cleaned["allDay"].(bool); ok {
+		cleaned["showWithoutTime"] = allDay
+	}
+
+	// 3. summary -> title (only if summary was passed and title wasn't)
+	if sum, okS := cleaned["summary"].(string); okS && sum != "" {
+		if title, ok := cleaned["title"].(string); !ok || title == "" {
+			cleaned["title"] = sum
+		}
+	}
+
+	// 4. location string -> locations map
+	if locStr, ok := cleaned["location"].(string); ok && locStr != "" {
+		if locs, hasLocs := cleaned["locations"].(map[string]any); !hasLocs || len(locs) == 0 {
+			cleaned["locations"] = map[string]any{
+				"loc-1": map[string]any{
+					"@type": "Location",
+					"name":  locStr,
+				},
+			}
+		}
+	}
+
+	// 5. recurrenceRule -> recurrenceRules
+	if rrule, hasRrule := cleaned["recurrenceRule"]; hasRrule {
+		if rrule == nil {
+			cleaned["recurrenceRules"] = nil
+		} else if rruleMap, ok := rrule.(map[string]any); ok {
+			cleaned["recurrenceRules"] = []any{rruleMap}
+		}
+	}
+	if exrule, hasExrule := cleaned["excludedRecurrenceRule"]; hasExrule {
+		if exrule == nil {
+			cleaned["excludedRecurrenceRules"] = nil
+		} else if exruleMap, ok := exrule.(map[string]any); ok {
+			cleaned["excludedRecurrenceRules"] = []any{exruleMap}
+		}
+	}
+
+	return cleaned
+}
+
 func validateCalendarEventMap(m map[string]any, calCap CalendarsCapability) error {
+	if rawCids, hasCids := m["calendarIds"]; hasCids {
+		if cidsMap, ok := rawCids.(map[string]any); ok && len(cidsMap) == 0 {
+			return SetError{
+				Type:        "invalidProperties",
+				Description: "Event has to belong to at least one calendar.",
+				Properties:  []string{"calendarIds"},
+			}
+		}
+	}
 	for k, v := range m {
 		baseKey := strings.TrimPrefix(k, "/")
 		if strings.Contains(baseKey, "/") {

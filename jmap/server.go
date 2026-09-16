@@ -207,6 +207,24 @@ func NewServer(session *Session, opts ...Option) *Server {
 	RegisterFileNodeHandlers(s.MethodRegistry, s.FileNodeBackend)
 	RegisterPrincipalsHandlers(s.MethodRegistry, s.PrincipalsBackend)
 
+	if s.Broadcaster != nil {
+		if cb, ok := s.CalendarsBackend.(interface{ SetBroadcaster(*Broadcaster) }); ok {
+			cb.SetBroadcaster(s.Broadcaster)
+		}
+		if mb, ok := s.MailBackend.(interface{ SetBroadcaster(*Broadcaster) }); ok {
+			mb.SetBroadcaster(s.Broadcaster)
+		}
+		if pb, ok := s.PrincipalsBackend.(interface{ SetBroadcaster(*Broadcaster) }); ok {
+			pb.SetBroadcaster(s.Broadcaster)
+		}
+		if cb, ok := s.ContactsBackend.(interface{ SetBroadcaster(*Broadcaster) }); ok {
+			cb.SetBroadcaster(s.Broadcaster)
+		}
+		if fb, ok := s.FileNodeBackend.(interface{ SetBroadcaster(*Broadcaster) }); ok {
+			fb.SetBroadcaster(s.Broadcaster)
+		}
+	}
+
 	if s.MailBackend != nil && s.Broadcaster != nil {
 		s.Broadcaster.AddListener(func(accountID, typeName, newState string) {
 			accountCtx := ContextWithAccountID(context.Background(), accountID)
@@ -241,7 +259,7 @@ func (s *Server) Handler() http.Handler {
 		switch {
 		case strings.HasSuffix(path, "/.well-known/jmap") || strings.HasSuffix(path, "/jmap/session"):
 			s.handleWellKnownJMAP(w, r)
-		case strings.HasSuffix(path, "/jmap/ws"):
+		case strings.HasSuffix(path, "/jmap/ws") || strings.HasSuffix(path, "/websocket"):
 			s.HandleWebSocket(w, r)
 		case strings.HasSuffix(path, "/jmap/login"):
 			s.handleLogin(w, r)
@@ -474,6 +492,8 @@ func requiredCapabilityForMethod(name string) string {
 		return CoreCapabilityURI
 	case strings.HasPrefix(name, "Calendar/"), strings.HasPrefix(name, "CalendarEvent/"), strings.HasPrefix(name, "CalendarEventNotification/"), strings.HasPrefix(name, "ParticipantIdentity/"):
 		return CalendarsCapabilityURI
+	case strings.HasPrefix(name, "ShareNotification/"):
+		return SharingCapabilityURI
 	case strings.HasPrefix(name, "AddressBook/"), strings.HasPrefix(name, "ContactCard/"), strings.HasPrefix(name, "ContactCardGroup/"), strings.HasPrefix(name, "Contact/"):
 		return ContactsCapabilityURI
 	case strings.HasPrefix(name, "SieveScript/"):
@@ -741,10 +761,30 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 				targetAccountID = principalAccountID
 				resolvedArgs["accountId"] = principalAccountID
 			} else {
-				if s.PermissionGuard != nil && !s.PermissionGuard.CanAccessAccount(reqCtx, principalAccountID, targetAccountID) {
+				allowed := false
+				errType := MethodErrorAccountNotFound
+				if apg, ok := s.PermissionGuard.(interface {
+					CheckAccountAccess(ctx context.Context, principalAccountID, targetAccountID string) (bool, string)
+				}); ok {
+					allowed, errType = apg.CheckAccountAccess(reqCtx, principalAccountID, targetAccountID)
+				} else if s.PermissionGuard != nil {
+					allowed = s.PermissionGuard.CanAccessAccount(reqCtx, principalAccountID, targetAccountID)
+				}
+				if !allowed && s.CalendarsBackend != nil {
+					if csb, ok := s.CalendarsBackend.(interface {
+						CanAccessSharedAccount(principalAccountID, targetAccountID string) (allowed bool, accountKnown bool)
+					}); ok {
+						var known bool
+						allowed, known = csb.CanAccessSharedAccount(principalAccountID, targetAccountID)
+						if !allowed && known {
+							errType = MethodErrorForbidden
+						}
+					}
+				}
+				if !allowed {
 					respInv := Invocation{
 						Name:         "error",
-						Args:         MethodErrorArgs(MethodErrorAccountNotFound, fmt.Sprintf("Account %q not found", targetAccountID)),
+						Args:         MethodErrorArgs(errType, fmt.Sprintf("Account %q not found or access forbidden", targetAccountID)),
 						ClientCallID: call.ClientCallID,
 					}
 					responses = append(responses, respInv)
@@ -755,6 +795,7 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		}
 
 		methodCallCtx := ContextWithAccountID(reqCtx, targetAccountID)
+		methodCallCtx = ContextWithPrincipalAccountID(methodCallCtx, principalAccountID)
 		respName, respArgs := handler(methodCallCtx, resolvedArgs, call.ClientCallID)
 		normalizeSetResult(respName, respArgs)
 		slog.Debug("JMAP invocation",

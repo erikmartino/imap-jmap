@@ -64,6 +64,9 @@ func organizerAddress(ev *CalendarEvent) string {
 	if ev == nil {
 		return ""
 	}
+	if ev.OrganizerCalendarAddress != "" {
+		return normalizeCalendarAddress(ev.OrganizerCalendarAddress)
+	}
 	if ev.ReplyTo != nil {
 		if v, ok := ev.ReplyTo["imip"]; ok && v != "" {
 			return normalizeCalendarAddress(v)
@@ -273,20 +276,43 @@ func deliverReplyLocal(calBackend CalendarsBackend, resolver AccountResolver, ev
 	if orgEvent == nil {
 		return false
 	}
+	var pKey string
+	for k, p := range orgEvent.Participants {
+		if p != nil && (strings.EqualFold(p.CalendarAddress, attendeeAddr) ||
+			strings.EqualFold(p.CalendarAddress, "mailto:"+attendeeAddr) ||
+			strings.EqualFold("mailto:"+p.Email, attendeeAddr) ||
+			strings.EqualFold(p.Email, attendeeAddr)) {
+			pKey = k
+			break
+		}
+	}
+	if pKey == "" {
+		pKey = attendeeAddr
+	}
 	patch := map[string]any{
-		"participants/" + attendeeAddr + "/participationStatus": status,
-		"participants/" + attendeeAddr + "/scheduleStatus":      "2.0;delivered",
+		"participants/" + pKey + "/participationStatus": status,
+		"participants/" + pKey + "/scheduleStatus":      "2.0;delivered",
 	}
 	if _, err := calBackend.UpdateCalendarEvent(orgCtx, orgEvent.ID, patch); err != nil {
 		return false
 	}
-	replyEmail := attendeeAddr
+	replyEmail := strings.TrimPrefix(attendeeAddr, "mailto:")
+	name := replyEmail
+	if pKey != "" && orgEvent.Participants[pKey] != nil && orgEvent.Participants[pKey].Name != "" {
+		name = orgEvent.Participants[pKey].Name
+	}
+	pID := AccountIDForSubject(replyEmail)
 	_, _ = calBackend.CreateCalendarEventNotification(orgCtx, &CalendarEventNotification{
 		Type:            "updated",
 		CalendarEventID: orgEvent.ID,
-		ChangedBy:       CalendarEventNotificationPerson{Email: &replyEmail, CalendarAddress: &replyEmail},
-		Event:           orgEvent,
-		EventPatch:      patch,
+		ChangedBy: CalendarEventNotificationPerson{
+			Name:            name,
+			Email:           &replyEmail,
+			PrincipalID:     &pID,
+			CalendarAddress: &attendeeAddr,
+		},
+		Event:      orgEvent,
+		EventPatch: patch,
 	})
 	return true
 }
@@ -302,7 +328,16 @@ func deliverCancelLocal(calBackend CalendarsBackend, resolver AccountResolver, e
 	if existing == nil {
 		return false
 	}
-	_, err := calBackend.UpdateCalendarEvent(rcptCtx, existing.ID, map[string]any{"status": "cancelled"})
+	updatedEv, err := calBackend.UpdateCalendarEvent(rcptCtx, existing.ID, map[string]any{"status": "cancelled"})
+	if err == nil {
+		changedBy := notificationChangedBy(ev)
+		_, _ = calBackend.CreateCalendarEventNotification(rcptCtx, &CalendarEventNotification{
+			Type:            "updated",
+			CalendarEventID: existing.ID,
+			ChangedBy:       changedBy,
+			Event:           updatedEv,
+		})
+	}
 	return err == nil
 }
 
@@ -405,7 +440,12 @@ func dispatchITIPCancels(ctx context.Context, mailBackend MailBackend, calBacken
 	}
 	recipients := expandGroupRecipients(ctx, principalsBackend, schedulingRecipients(ev))
 	cancelICS, icsErr := BuildITIPCancel(ev, organizerEmail)
-	for _, addr := range recipients {
+	for key, addr := range recipients {
+		if p, ok := ev.Participants[key]; ok && p != nil {
+			if strings.EqualFold(p.ParticipationStatus, "declined") || strings.EqualFold(p.Status, "declined") {
+				continue
+			}
+		}
 		deliverCancelLocal(calBackend, resolver, ev, addr)
 		if mailBackend != nil && icsErr == nil {
 			_ = sendSchedulingEmail(ctx, mailBackend, "Cancelled: "+ev.Title, organizerEmail, addr, cancelICS, "CANCEL")

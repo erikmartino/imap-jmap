@@ -3,6 +3,7 @@ package jmap
 import (
 	"context"
 	"encoding/json"
+	"strings"
 )
 
 // --- ParticipantIdentity (draft-ietf-jmap-calendars Section 3) ---
@@ -421,11 +422,35 @@ func notificationChangedBy(ev *CalendarEvent) CalendarEventNotificationPerson {
 		}
 		if (p.Roles != nil && p.Roles["owner"]) || p.Role == "owner" {
 			email := p.Email
-			return CalendarEventNotificationPerson{
-				Name:            p.Name,
-				Email:           &email,
-				CalendarAddress: &email,
+			if email == "" && p.CalendarAddress != "" {
+				email = strings.TrimPrefix(p.CalendarAddress, "mailto:")
 			}
+			name := p.Name
+			if name == "" {
+				name = email
+			}
+			pID := AccountIDForSubject(email)
+			calAddr := p.CalendarAddress
+			if calAddr == "" && email != "" {
+				calAddr = "mailto:" + email
+			}
+			return CalendarEventNotificationPerson{
+				Name:            name,
+				Email:           &email,
+				PrincipalID:     &pID,
+				CalendarAddress: &calAddr,
+			}
+		}
+	}
+	if ev.OrganizerCalendarAddress != "" {
+		email := strings.TrimPrefix(ev.OrganizerCalendarAddress, "mailto:")
+		pID := AccountIDForSubject(email)
+		calAddr := ev.OrganizerCalendarAddress
+		return CalendarEventNotificationPerson{
+			Name:            email,
+			Email:           &email,
+			PrincipalID:     &pID,
+			CalendarAddress: &calAddr,
 		}
 	}
 	return CalendarEventNotificationPerson{}

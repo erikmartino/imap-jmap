@@ -185,6 +185,14 @@ type CalendarsBackend interface {
 	CreateCalendarEventNotification(ctx context.Context, notification *CalendarEventNotification) (*CalendarEventNotification, error)
 	DeleteCalendarEventNotification(ctx context.Context, id Id) (bool, error)
 	QueryCalendarEventNotifications(ctx context.Context, filter map[string]any, sort []Comparator, position int, limit *uint64) (ids []Id, total int, err error)
+
+	// ShareNotifications (RFC 9670)
+	ShareNotificationState(ctx context.Context) string
+	ShareNotificationChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
+	GetShareNotifications(ctx context.Context, ids []Id) (list []*ShareNotification, notFound []Id, err error)
+	GetAllShareNotifications(ctx context.Context) ([]*ShareNotification, error)
+	CreateShareNotification(ctx context.Context, notification *ShareNotification) (*ShareNotification, error)
+	DeleteShareNotification(ctx context.Context, id Id) (bool, error)
 }
 
 // SieveBackend defines the storage interface for JMAP for Sieve Scripts (RFC 9661) resources.
