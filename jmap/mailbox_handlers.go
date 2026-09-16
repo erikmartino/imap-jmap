@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+
+	"imap-jmap/jmap/jmapcopy"
 )
 
 // Mailbox Handlers (RFC 8621 Section 2)
@@ -473,10 +475,10 @@ func handleMailboxQueryChanges(backend MailBackend) MethodHandler {
 
 func handleMailboxCopy(backend MailBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
-		accountID, fromAccountID := ResolveCopyAccountIDs(args)
+		accountID, fromAccountID := jmapcopy.ResolveCopyAccountIDs(args)
 		srcCtx := SourceAccountContext(ctx, args)
 
-		oldState, errInv := ValidateCopyStates(ctx, srcCtx, args, backend.MailboxState, backend.MailboxState)
+		oldState, errInv := jmapcopy.ValidateCopyStates(ctx, srcCtx, args, backend.MailboxState, backend.MailboxState)
 		if errInv != nil {
 			return errInv.Name, errInv.Args
 		}

@@ -6,28 +6,32 @@ import (
 	"strings"
 	"time"
 
-	"github.com/emersion/go-imap/v2"
+	imappkg "imap-jmap/imap"
 	"imap-jmap/jmap"
 )
 
-// MapKeywordsToIMAPFlags converts JMAP keywords map to a slice of IMAP flags.
-func MapKeywordsToIMAPFlags(keywords map[string]bool) []imap.Flag {
-	var flags []imap.Flag
-	for kw, val := range keywords {
-		if !val {
+// MapKeywordsToIMAPFlags converts JMAP keywords map to a slice of IMAP flag strings.
+func MapKeywordsToIMAPFlags(keywords map[string]bool) []string {
+	var flags []string
+	for kw, present := range keywords {
+		if !present {
 			continue
 		}
 		switch kw {
 		case "$seen":
-			flags = append(flags, imap.FlagSeen)
+			flags = append(flags, "\\Seen")
 		case "$flagged":
-			flags = append(flags, imap.FlagFlagged)
+			flags = append(flags, "\\Flagged")
 		case "$draft":
-			flags = append(flags, imap.FlagDraft)
+			flags = append(flags, "\\Draft")
 		case "$answered":
-			flags = append(flags, imap.FlagAnswered)
+			flags = append(flags, "\\Answered")
 		default:
-			flags = append(flags, imap.Flag(kw))
+			if strings.HasPrefix(kw, "$") {
+				flags = append(flags, kw)
+			} else {
+				flags = append(flags, "$"+kw)
+			}
 		}
 	}
 	return flags
@@ -69,15 +73,12 @@ func (b *IMAPSMTPBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jma
 	}
 	flags := MapKeywordsToIMAPFlags(em.Keywords)
 
-	appendOpts := &imap.AppendOptions{
-		Flags: flags,
-		Time:  time.Now(),
-	}
+	msgTime := time.Now()
 	if em.ReceivedAt != "" {
 		if t, err := time.Parse(time.RFC3339Nano, em.ReceivedAt); err == nil {
-			appendOpts.Time = t
+			msgTime = t
 		} else if t, err := time.Parse(time.RFC3339, em.ReceivedAt); err == nil {
-			appendOpts.Time = t
+			msgTime = t
 		}
 	}
 
@@ -87,41 +88,19 @@ func (b *IMAPSMTPBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jma
 		return nil, err
 	}
 
-	appendCmd := client.Append(folderName, int64(len(rawBytes)), appendOpts)
-	if _, err := appendCmd.Write(rawBytes); err != nil {
-		_ = appendCmd.Close()
-		b.pool.ReleaseClient(ctx, client)
-		return nil, fmt.Errorf("failed to write append bytes: %w", err)
-	}
-	if err := appendCmd.Close(); err != nil {
-		b.pool.ReleaseClient(ctx, client)
-		return nil, fmt.Errorf("failed to close append command: %w", err)
-	}
-
-	appendData, err := appendCmd.Wait()
+	uid, err := client.AppendAndGetUID(folderName, rawBytes, flags, msgTime)
 	if err != nil {
 		b.pool.ReleaseClient(ctx, client)
 		return nil, fmt.Errorf("failed to append message to IMAP %s: %w", folderName, err)
 	}
-
-	var assignedUID uint32 = 1
-	if appendData != nil && appendData.UID != 0 {
-		assignedUID = uint32(appendData.UID)
-	} else {
-		// Fetch UIDNext from folder
-		statusCmd := client.Status(folderName, &imap.StatusOptions{UIDNext: true})
-		if status, err := statusCmd.Wait(); err == nil && status.UIDNext > 1 {
-			assignedUID = uint32(status.UIDNext - 1)
-		}
-	}
 	b.pool.ReleaseClient(ctx, client)
 
-	emailID := EmailIDFor(destMbID, assignedUID)
+	emailID := EmailIDFor(destMbID, uid)
 	em.ID = emailID
 	em.BlobID = jmap.Id(emailID)
 	em.Size = emailSize
 	if em.ReceivedAt == "" {
-		em.ReceivedAt = appendOpts.Time.UTC().Format(time.RFC3339Nano)
+		em.ReceivedAt = msgTime.UTC().Format(time.RFC3339Nano)
 	}
 	if em.ThreadID == "" {
 		if len(em.MessageID) > 0 {
@@ -175,18 +154,10 @@ func (b *IMAPSMTPBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map
 		return nil, err
 	}
 
-	if _, err := client.Select(folderName, nil).Wait(); err != nil {
-		b.pool.ReleaseClient(ctx, client)
-		return nil, fmt.Errorf("failed to select folder %s: %w", folderName, err)
-	}
-
-	var uidSet imap.UIDSet
-	uidSet.AddNum(imap.UID(uid))
-
 	// Update Keywords / Flags (supporting both full keywords object and JSON-pointer patches like keywords/$label:red)
-	var flagsToAdd []imap.Flag
-	var flagsToDel []imap.Flag
-	var flagsToSet []imap.Flag
+	var flagsToAdd []string
+	var flagsToDel []string
+	var flagsToSet []string
 	hasFlagsSet := false
 
 	for path, val := range patch {
@@ -203,7 +174,7 @@ func (b *IMAPSMTPBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map
 			}
 		} else if strings.HasPrefix(path, "keywords/") {
 			kw := strings.ToLower(strings.TrimPrefix(path, "keywords/"))
-			flag := mapJMAPKeywordToIMAPFlag(kw)
+			flag := imappkg.MapJMAPKeywordToIMAPFlag(kw)
 			if val == nil {
 				flagsToDel = append(flagsToDel, flag)
 			} else if bVal, ok := val.(bool); ok {
@@ -217,28 +188,13 @@ func (b *IMAPSMTPBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map
 	}
 
 	if hasFlagsSet {
-		storeCmd := client.Store(uidSet, &imap.StoreFlags{
-			Op:     imap.StoreFlagsSet,
-			Flags:  flagsToSet,
-			Silent: true,
-		}, nil)
-		_, _ = storeCmd.Collect()
+		_ = client.SetFlagsByUID(folderName, uid, flagsToSet)
 	} else {
 		if len(flagsToAdd) > 0 {
-			storeCmd := client.Store(uidSet, &imap.StoreFlags{
-				Op:     imap.StoreFlagsAdd,
-				Flags:  flagsToAdd,
-				Silent: true,
-			}, nil)
-			_, _ = storeCmd.Collect()
+			_ = client.AddFlagsByUID(folderName, uid, flagsToAdd)
 		}
 		if len(flagsToDel) > 0 {
-			storeCmd := client.Store(uidSet, &imap.StoreFlags{
-				Op:     imap.StoreFlagsDel,
-				Flags:  flagsToDel,
-				Silent: true,
-			}, nil)
-			_, _ = storeCmd.Collect()
+			_ = client.RemoveFlagsByUID(folderName, uid, flagsToDel)
 		}
 	}
 
@@ -267,31 +223,10 @@ func (b *IMAPSMTPBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map
 	if targetMoveMbID != "" && targetMoveMbID != mbID {
 		newFolderName, err := NameForMailboxID(targetMoveMbID)
 		if err == nil {
-			moveCmd := client.Move(uidSet, newFolderName)
-			moveData, err := moveCmd.Wait()
-			if err != nil {
-				b.pool.ReleaseClient(ctx, client)
-				return nil, fmt.Errorf("failed to move message to %s: %w", newFolderName, err)
-			}
-			var newUID uint32
-			if moveData != nil && moveData.DestUIDs != nil {
-				if destSet, ok := moveData.DestUIDs.(imap.UIDSet); ok {
-					if nums, ok := destSet.Nums(); ok && len(nums) > 0 {
-						newUID = uint32(nums[0])
-					}
-				}
-			}
-			if newUID == 0 {
-				if selData, err := client.Select(newFolderName, nil).Wait(); err == nil && selData.NumMessages > 0 {
-					fetchCmd := client.Fetch(imap.SeqSetNum(selData.NumMessages), &imap.FetchOptions{UID: true})
-					if msgs, err := fetchCmd.Collect(); err == nil && len(msgs) > 0 {
-						newUID = uint32(msgs[0].UID)
-					}
-				}
-			}
+			newUID, err := client.MoveByUID(folderName, uid, newFolderName)
 			b.pool.ReleaseClient(ctx, client)
 
-			if newUID > 0 {
+			if err == nil && newUID > 0 {
 				newID := EmailIDFor(targetMoveMbID, newUID)
 				b.trackMovedEmail(accountID, origID, newID)
 				b.trackMovedEmail(accountID, id, newID)
@@ -343,27 +278,9 @@ func (b *IMAPSMTPBackend) DeleteEmail(ctx context.Context, id jmap.Id) (bool, er
 		return false, err
 	}
 
-	if _, err := client.Select(folderName, nil).Wait(); err != nil {
+	if err := client.MarkDeletedAndExpunge(folderName, []uint32{uid}); err != nil {
 		b.pool.ReleaseClient(ctx, client)
-		return false, fmt.Errorf("failed to select folder %s: %w", folderName, err)
-	}
-
-	var uidSet imap.UIDSet
-	uidSet.AddNum(imap.UID(uid))
-
-	storeCmd := client.Store(uidSet, &imap.StoreFlags{
-		Op:     imap.StoreFlagsAdd,
-		Flags:  []imap.Flag{imap.FlagDeleted},
-		Silent: true,
-	}, nil)
-	if _, err := storeCmd.Collect(); err != nil {
-		b.pool.ReleaseClient(ctx, client)
-		return false, fmt.Errorf("failed to flag email as deleted: %w", err)
-	}
-
-	if _, err := client.Expunge().Collect(); err != nil {
-		b.pool.ReleaseClient(ctx, client)
-		return false, fmt.Errorf("failed to expunge deleted email: %w", err)
+		return false, err
 	}
 	b.pool.ReleaseClient(ctx, client)
 

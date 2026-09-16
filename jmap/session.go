@@ -3,6 +3,8 @@ package jmap
 import (
 	"context"
 	"strings"
+
+	"imap-jmap/jmap/jmapsession"
 )
 
 // CoreCapabilityURI is the standard JMAP core capability URI defined in RFC 8620 Section 2.2.
@@ -95,16 +97,7 @@ const (
 )
 
 // CoreCapability defines the capability object for "urn:ietf:params:jmap:core" per RFC 8620 Section 2.2.
-type CoreCapability struct {
-	MaxSizeUpload         uint64   `json:"maxSizeUpload"`
-	MaxConcurrentUpload   uint64   `json:"maxConcurrentUpload"`
-	MaxSizeRequest        uint64   `json:"maxSizeRequest"`
-	MaxConcurrentRequests uint64   `json:"maxConcurrentRequests"`
-	MaxCallsInRequest     uint64   `json:"maxCallsInRequest"`
-	MaxObjectsInGet       uint64   `json:"maxObjectsInGet"`
-	MaxObjectsInSet       uint64   `json:"maxObjectsInSet"`
-	CollationAlgorithms   []string `json:"collationAlgorithms"`
-}
+type CoreCapability = jmapsession.CoreCapability
 
 // MailCapability defines the account capability object for "urn:ietf:params:jmap:mail" per RFC 8621 Section 2.
 type MailCapability struct {
@@ -175,26 +168,10 @@ type SieveCapability struct {
 }
 
 // Account defines an account object in the JMAP Session per RFC 8620 Section 2.
-type Account struct {
-	Name                string         `json:"name"`
-	IsPrimary           bool           `json:"isPrimary"`
-	IsPersonal          bool           `json:"isPersonal"`
-	IsReadOnly          bool           `json:"isReadOnly"`
-	AccountCapabilities map[string]any `json:"accountCapabilities"`
-}
+type Account = jmapsession.Account
 
 // Session represents the JMAP Session resource object per RFC 8620 Section 2.
-type Session struct {
-	Capabilities    map[string]any     `json:"capabilities"`
-	Accounts        map[string]Account `json:"accounts"`
-	PrimaryAccounts map[string]string  `json:"primaryAccounts"`
-	Username        string             `json:"username"`
-	APIURL          string             `json:"apiUrl"`
-	DownloadURL     string             `json:"downloadUrl"`
-	UploadURL       string             `json:"uploadUrl"`
-	EventSourceURL  string             `json:"eventSourceUrl"`
-	State           string             `json:"state"`
-}
+type Session = jmapsession.Session
 
 // SubmissionCapability defines the capability object for "urn:ietf:params:jmap:submission" per RFC 8621 Section 7.
 type SubmissionCapability struct{}

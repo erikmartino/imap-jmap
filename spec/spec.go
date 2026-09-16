@@ -92,4 +92,64 @@ var Matrices = []Matrix{
 		TestDir:      "smtp",
 		Requirements: SMTPRequirements,
 	},
+	{
+		Name:         "rfc8620-core",
+		TestDir:      "jmap",
+		Requirements: RFC8620Requirements,
+	},
+	{
+		Name:         "rfc8621-mail",
+		TestDir:      "jmap",
+		Requirements: RFC8621Requirements,
+	},
+	{
+		Name:         "rfc8887-websockets",
+		TestDir:      "jmap",
+		Requirements: RFC8887Requirements,
+	},
+	{
+		Name:         "rfc9007-mdn",
+		TestDir:      "jmap",
+		Requirements: RFC9007Requirements,
+	},
+	{
+		Name:         "rfc9219-smime",
+		TestDir:      "jmap",
+		Requirements: RFC9219Requirements,
+	},
+	{
+		Name:         "rfc9404-blobs",
+		TestDir:      "jmap",
+		Requirements: RFC9404Requirements,
+	},
+	{
+		Name:         "rfc9425-quotas",
+		TestDir:      "jmap",
+		Requirements: RFC9425Requirements,
+	},
+	{
+		Name:         "rfc9610-contacts",
+		TestDir:      "jmap",
+		Requirements: RFC9610Requirements,
+	},
+	{
+		Name:         "rfc9661-sieve",
+		TestDir:      "jmap",
+		Requirements: RFC9661Requirements,
+	},
+	{
+		Name:         "rfc9670-sharing",
+		TestDir:      "jmap",
+		Requirements: RFC9670Requirements,
+	},
+	{
+		Name:         "rfc9698-jmapaccess",
+		TestDir:      "jmap",
+		Requirements: RFC9698Requirements,
+	},
+	{
+		Name:         "rfc9749-vapid",
+		TestDir:      "jmap",
+		Requirements: RFC9749Requirements,
+	},
 }

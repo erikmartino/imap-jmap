@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/emersion/go-imap/v2"
 	"imap-jmap/jmap"
 )
 
@@ -71,8 +70,7 @@ func (b *IMAPSMTPBackend) GetCurrentCompositeState(ctx context.Context) (*Compos
 	}
 	defer b.pool.ReleaseClient(ctx, client)
 
-	listCmd := client.List("", "*", nil)
-	mailboxesData, err := listCmd.Collect()
+	folders, err := client.ListFolders("", "*")
 	if err != nil {
 		return nil, err
 	}
@@ -84,10 +82,10 @@ func (b *IMAPSMTPBackend) GetCurrentCompositeState(ctx context.Context) (*Compos
 		Seq:     b.getEmailSeq(accountID),
 	}
 
-	for _, m := range mailboxesData {
+	for _, fi := range folders {
 		hasNoSelect := false
-		for _, attr := range m.Attrs {
-			if attr == imap.MailboxAttrNoSelect {
+		for _, attr := range fi.Attrs {
+			if strings.EqualFold(attr, "\\NoSelect") {
 				hasNoSelect = true
 				break
 			}
@@ -96,39 +94,13 @@ func (b *IMAPSMTPBackend) GetCurrentCompositeState(ctx context.Context) (*Compos
 			continue
 		}
 
-		statusOpts := &imap.StatusOptions{
-			NumMessages:   true,
-			NumUnseen:     true,
-			UIDNext:       true,
-			UIDValidity:   true,
-			HighestModSeq: true,
-		}
-		statusCmd := client.Status(m.Mailbox, statusOpts)
-		status, err := statusCmd.Wait()
-		if err != nil {
-			statusOpts.HighestModSeq = false
-			statusCmd = client.Status(m.Mailbox, statusOpts)
-			status, err = statusCmd.Wait()
-		}
-		if err != nil || status == nil {
-			continue
-		}
-
 		fs := FolderState{
-			UIDValidity: status.UIDValidity,
-			UIDNext:     uint32(status.UIDNext),
+			UIDValidity: fi.UIDValidity,
+			UIDNext:     fi.UIDNext,
+			Messages:    fi.Messages,
+			Unseen:      fi.Unseen,
 		}
-		if status.NumMessages != nil {
-			fs.Messages = *status.NumMessages
-		}
-		if status.NumUnseen != nil {
-			fs.Unseen = *status.NumUnseen
-		}
-		if status.HighestModSeq != 0 {
-			fs.HighestModSeq = status.HighestModSeq
-		}
-
-		cs.Folders[m.Mailbox] = fs
+		cs.Folders[fi.Name] = fs
 	}
 
 	return cs, nil

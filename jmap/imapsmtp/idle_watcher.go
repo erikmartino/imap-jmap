@@ -2,13 +2,11 @@ package imapsmtp
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"log/slog"
-	"net"
 	"time"
 
-	"github.com/emersion/go-imap/v2/imapclient"
+	"imap-jmap/imap"
 	"imap-jmap/jmap"
 )
 
@@ -79,8 +77,8 @@ func (b *IMAPSMTPBackend) runIdleLoop(idleCtx context.Context, accountID string,
 		}
 	}
 
-	unilateral := &imapclient.UnilateralDataHandler{
-		Mailbox: func(data *imapclient.UnilateralDataMailbox) {
+	client, err := imap.DialIdle(b.imapHost, creds.Username, creds.Password, imap.UnilateralHandlers{
+		Mailbox: func() {
 			slog.Debug("IMAP IDLE received Mailbox unilateral update", "accountID", accountID)
 			triggerNotify()
 		},
@@ -88,50 +86,19 @@ func (b *IMAPSMTPBackend) runIdleLoop(idleCtx context.Context, accountID string,
 			slog.Debug("IMAP IDLE received Expunge unilateral update", "accountID", accountID, "seqNum", seqNum)
 			triggerNotify()
 		},
-		Fetch: func(msg *imapclient.FetchMessageData) {
+		Fetch: func() {
 			slog.Debug("IMAP IDLE received Fetch unilateral update", "accountID", accountID)
 			triggerNotify()
 		},
-	}
-
-	host, port, err := net.SplitHostPort(b.imapHost)
+	})
 	if err != nil {
-		host = b.imapHost
-		port = "993"
-	}
-
-	opts := &imapclient.Options{
-		UnilateralDataHandler: unilateral,
-	}
-
-	var client *imapclient.Client
-	if port == "993" {
-		opts.TLSConfig = &tls.Config{InsecureSkipVerify: true, ServerName: host}
-		c, err := imapclient.DialTLS(b.imapHost, opts)
-		if err != nil {
-			return fmt.Errorf("failed to dial TLS IMAP server %s: %w", b.imapHost, err)
-		}
-		client = c
-	} else {
-		opts.TLSConfig = &tls.Config{InsecureSkipVerify: true, ServerName: host}
-		c, err := imapclient.DialStartTLS(b.imapHost, opts)
-		if err != nil {
-			c, err = imapclient.DialInsecure(b.imapHost, opts)
-			if err != nil {
-				return fmt.Errorf("failed to connect to IMAP server %s: %w", b.imapHost, err)
-			}
-		}
-		client = c
+		return fmt.Errorf("IMAP IDLE connection/login failed for user %s: %w", creds.Username, err)
 	}
 	defer client.Close()
 
-	if err := client.Login(creds.Username, creds.Password).Wait(); err != nil {
-		return fmt.Errorf("IMAP IDLE login failed for user %s: %w", creds.Username, err)
-	}
-
 	slog.Info("IMAP IDLE watcher connected and authenticated", "accountID", accountID, "user", creds.Username)
 
-	if _, err := client.Select("INBOX", nil).Wait(); err != nil {
+	if err := client.Select("INBOX"); err != nil {
 		return fmt.Errorf("failed to select INBOX for IDLE: %w", err)
 	}
 

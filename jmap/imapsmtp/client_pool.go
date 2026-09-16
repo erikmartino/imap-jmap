@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/emersion/go-imap/v2/imapclient"
+	"imap-jmap/imap"
 	"imap-jmap/jmap"
 )
 
@@ -23,7 +23,7 @@ const (
 
 type userConnectionPool struct {
 	sem  chan struct{}
-	idle []*imapclient.Client
+	idle []*imap.Client
 }
 
 // ClientPool manages active IMAP and SMTP connections for user accounts. The
@@ -60,7 +60,7 @@ func (p *ClientPool) getUserPool(key string) *userConnectionPool {
 	if !ok {
 		uPool = &userConnectionPool{
 			sem:  make(chan struct{}, maxConnsPerUser),
-			idle: make([]*imapclient.Client, 0, maxIdleConnsPerUser),
+			idle: make([]*imap.Client, 0, maxIdleConnsPerUser),
 		}
 		p.users[key] = uPool
 	}
@@ -82,7 +82,7 @@ func (p *ClientPool) Close() error {
 }
 
 // GetClientForContext extracts credentials from the request context and returns an authenticated IMAP client.
-func (p *ClientPool) GetClientForContext(ctx context.Context) (*imapclient.Client, error) {
+func (p *ClientPool) GetClientForContext(ctx context.Context) (*imap.Client, error) {
 	creds, ok := jmap.CredentialsFromContext(ctx)
 	if !ok {
 		// Fall back to subject if available
@@ -107,7 +107,7 @@ func (p *ClientPool) GetClientForContext(ctx context.Context) (*imapclient.Clien
 }
 
 // ReleaseClient returns an active IMAP client back to the pool for reuse.
-func (p *ClientPool) ReleaseClient(ctx context.Context, client *imapclient.Client) {
+func (p *ClientPool) ReleaseClient(ctx context.Context, client *imap.Client) {
 	if client == nil {
 		return
 	}
@@ -136,7 +136,7 @@ func (p *ClientPool) ReleaseClient(ctx context.Context, client *imapclient.Clien
 }
 
 // ReleaseClientForUser returns an active IMAP client for the given credentials.
-func (p *ClientPool) ReleaseClientForUser(username, password string, client *imapclient.Client) {
+func (p *ClientPool) ReleaseClientForUser(username, password string, client *imap.Client) {
 	if client == nil {
 		return
 	}
@@ -160,7 +160,7 @@ func (p *ClientPool) ReleaseClientForUser(username, password string, client *ima
 }
 
 // GetClient establishes or reuses an authenticated IMAP client connection using the provided credentials.
-func (p *ClientPool) GetClient(ctx context.Context, username, password string) (*imapclient.Client, error) {
+func (p *ClientPool) GetClient(ctx context.Context, username, password string) (*imap.Client, error) {
 	key := username + ":" + password
 	uPool := p.getUserPool(key)
 
@@ -185,7 +185,7 @@ func (p *ClientPool) GetClient(ctx context.Context, username, password string) (
 		uPool.idle = uPool.idle[:len(uPool.idle)-1]
 		p.mu.Unlock()
 
-		if err := c.Noop().Wait(); err == nil {
+		if err := c.Noop(); err == nil {
 			return c, nil
 		}
 		_ = c.Close()
@@ -202,43 +202,8 @@ func (p *ClientPool) GetClient(ctx context.Context, username, password string) (
 	return client, nil
 }
 
-func (p *ClientPool) dialAndLogin(username, password string) (*imapclient.Client, error) {
-	var client *imapclient.Client
-	host, port, err := net.SplitHostPort(p.imapAddr)
-	if err != nil {
-		host = p.imapAddr
-		port = "993"
-	}
-
-	if port == "993" {
-		c, err := imapclient.DialTLS(p.imapAddr, &imapclient.Options{
-			TLSConfig: &tls.Config{InsecureSkipVerify: true, ServerName: host},
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to dial TLS IMAP server %s: %w", p.imapAddr, err)
-		}
-		client = c
-	} else {
-		// Attempt STARTTLS first
-		c, err := imapclient.DialStartTLS(p.imapAddr, &imapclient.Options{
-			TLSConfig: &tls.Config{InsecureSkipVerify: true, ServerName: host},
-		})
-		if err != nil {
-			// Fallback to insecure plain TCP
-			c, err = imapclient.DialInsecure(p.imapAddr, &imapclient.Options{})
-			if err != nil {
-				return nil, fmt.Errorf("failed to connect to IMAP server %s: %w", p.imapAddr, err)
-			}
-		}
-		client = c
-	}
-
-	if err := client.Login(username, password).Wait(); err != nil {
-		_ = client.Close()
-		return nil, fmt.Errorf("IMAP login failed for user %s: %w", username, err)
-	}
-
-	return client, nil
+func (p *ClientPool) dialAndLogin(username, password string) (*imap.Client, error) {
+	return imap.Dial(p.imapAddr, username, password)
 }
 
 // SendMail delivers a raw MIME message via upstream SMTP using context credentials.

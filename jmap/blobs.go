@@ -7,18 +7,12 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"imap-jmap/jmap/jmapblob"
 )
 
 // Blob represents a stored binary blob per RFC 8620 Section 6 and RFC 9404 Section 4.
-type Blob struct {
-	ID           string `json:"id"`
-	BlobID       string `json:"blobId,omitempty"`
-	AccountID    string `json:"accountId,omitempty"`
-	Type         string `json:"type"`
-	Size         int64  `json:"size"`
-	DigestSHA256 string `json:"digest:sha-256,omitempty"`
-	Data         []byte `json:"-"`
-}
+type Blob = jmapblob.Blob
 
 func writeProblemDetails(w http.ResponseWriter, status int, problemType, title, detail string, limit ...string) {
 	w.Header().Set("Content-Type", "application/problem+json")

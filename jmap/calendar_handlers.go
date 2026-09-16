@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+
+	"imap-jmap/jmap/jmapcopy"
 )
 
 // RegisterCalendarHandlers registers JMAP for Calendars & JSCalendar method handlers into MethodRegistry.
@@ -262,10 +264,10 @@ func handleCalendarSet(backend CalendarsBackend) MethodHandler {
 
 func handleCalendarCopy(backend CalendarsBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
-		accountID, fromAccountID := ResolveCopyAccountIDs(args)
+		accountID, fromAccountID := jmapcopy.ResolveCopyAccountIDs(args)
 		srcCtx := SourceAccountContext(ctx, args)
 
-		oldState, errInv := ValidateCopyStates(ctx, srcCtx, args, backend.CalendarState, backend.CalendarState)
+		oldState, errInv := jmapcopy.ValidateCopyStates(ctx, srcCtx, args, backend.CalendarState, backend.CalendarState)
 		if errInv != nil {
 			return errInv.Name, errInv.Args
 		}

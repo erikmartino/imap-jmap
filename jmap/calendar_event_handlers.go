@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"imap-jmap/jmap/jmapcopy"
 )
 
 func handleCalendarEventGet(backend CalendarsBackend) MethodHandler {
@@ -762,10 +764,10 @@ func handleCalendarEventQueryChanges(backend CalendarsBackend) MethodHandler {
 // handleCalendarEventCopy implements CalendarEvent/copy per RFC 8620 Section 5.4.
 func handleCalendarEventCopy(backend CalendarsBackend) MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
-		accountID, fromAccountID := ResolveCopyAccountIDs(args)
+		accountID, fromAccountID := jmapcopy.ResolveCopyAccountIDs(args)
 		srcCtx := SourceAccountContext(ctx, args)
 
-		oldState, errInv := ValidateCopyStates(ctx, srcCtx, args, backend.CalendarEventState, backend.CalendarEventState)
+		oldState, errInv := jmapcopy.ValidateCopyStates(ctx, srcCtx, args, backend.CalendarEventState, backend.CalendarEventState)
 		if errInv != nil {
 			return errInv.Name, errInv.Args
 		}
