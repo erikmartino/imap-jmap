@@ -381,6 +381,17 @@ func ExpandRecurrenceInstances(ev *CalendarEvent, horizon time.Time) []Recurrenc
 		horizon = start.AddDate(5, 0, 0)
 	}
 
+	loc := time.UTC
+	if ev != nil && ev.TimeZone != "" && ev.TimeZone != "floating" {
+		loc = loadLocation(ev.TimeZone)
+	}
+	formatRecKey := func(t time.Time) string {
+		if strings.HasSuffix(ev.Start, "Z") {
+			return t.UTC().Format(time.RFC3339)
+		}
+		return t.In(loc).Format("2006-01-02T15:04:05")
+	}
+
 	starts := make(map[string]time.Time)
 
 	if hasRules {
@@ -418,10 +429,10 @@ func ExpandRecurrenceInstances(ev *CalendarEvent, horizon time.Time) []Recurrenc
 			if i >= 5000 {
 				break
 			}
-			starts[t.UTC().Format(time.RFC3339)] = t
+			starts[formatRecKey(t)] = t
 		}
 	} else {
-		starts[start.UTC().Format(time.RFC3339)] = start
+		starts[formatRecKey(start)] = start
 	}
 
 	for recID := range ev.RecurrenceOverrides {
@@ -429,7 +440,7 @@ func ExpandRecurrenceInstances(ev *CalendarEvent, horizon time.Time) []Recurrenc
 			continue
 		}
 		if t, ok := overrideStart(ev, recID, ev.RecurrenceOverrides[recID]); ok {
-			starts[t.UTC().Format(time.RFC3339)] = t
+			starts[recID] = t
 		}
 	}
 

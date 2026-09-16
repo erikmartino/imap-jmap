@@ -2,6 +2,7 @@ package jmap
 
 import (
 	"encoding/json"
+	"strings"
 )
 
 // CalendarRights defines access rights for a Calendar per JMAP for Calendars.
@@ -56,7 +57,7 @@ type Calendar struct {
 	DefaultAlertsWithTime    map[string]*JSCalendarAlert `json:"defaultAlertsWithTime,omitempty"`
 	DefaultAlertsWithoutTime map[string]*JSCalendarAlert `json:"defaultAlertsWithoutTime,omitempty"`
 	TimeZone                 string                      `json:"timeZone,omitempty"`
-	ShareWith                map[string]*CalendarShare   `json:"shareWith,omitempty"`
+	ShareWith                map[string]*CalendarRights  `json:"shareWith"`
 	MyRights                 CalendarRights              `json:"myRights"`
 }
 
@@ -112,6 +113,7 @@ type JSCalendarParticipant struct {
 	Type                string                     `json:"@type,omitempty"` // "Participant"
 	Name                string                     `json:"name,omitempty"`
 	Email               string                     `json:"email,omitempty"`
+	CalendarAddress     string                     `json:"calendarAddress,omitempty"`
 	Role                string                     `json:"role,omitempty"`                // Deprecated/compat: "owner", "attendee", "chair"
 	Roles               map[string]bool            `json:"roles,omitempty"`               // "owner", "attendee", "chair"
 	Status              string                     `json:"status,omitempty"`              // Deprecated/compat: "needs-action", "accepted", "declined", "tentative"
@@ -137,6 +139,15 @@ func (p *JSCalendarParticipant) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*p = JSCalendarParticipant(raw)
+	if p.CalendarAddress == "" && p.Email != "" {
+		p.CalendarAddress = "mailto:" + p.Email
+	}
+	if p.Email == "" && strings.HasPrefix(p.CalendarAddress, "mailto:") {
+		p.Email = strings.TrimPrefix(p.CalendarAddress, "mailto:")
+	}
+	if p.Type == "" {
+		p.Type = "Participant"
+	}
 	if p.Roles == nil && p.Role != "" {
 		p.Roles = map[string]bool{p.Role: true}
 	}
@@ -219,6 +230,16 @@ func (a *JSCalendarAlert) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// CalendarAlert represents a triggered calendar alert per draft-ietf-jmap-calendars-27 Section 8.
+type CalendarAlert struct {
+	Type            string  `json:"@type"`
+	AccountID       string  `json:"accountId"`
+	CalendarEventID string  `json:"calendarEventId"`
+	UID             string  `json:"uid"`
+	RecurrenceID    *string `json:"recurrenceId"`
+	AlertID         string  `json:"alertId"`
+}
+
 // JSCalendarLink defines a link or attachment object per RFC 8984 Section 4.2.7.
 type JSCalendarLink struct {
 	Type        string `json:"@type,omitempty"` // "Link"
@@ -278,7 +299,7 @@ type CalendarEventNotification struct {
 	Comment         *string                         `json:"comment"`
 	Type            string                          `json:"type"` // "created", "updated", "destroyed"
 	CalendarEventID Id                              `json:"calendarEventId"`
-	IsDraft         bool                            `json:"isDraft,omitempty"`
+	IsDraft         bool                            `json:"isDraft"`
 	Event           *CalendarEvent                  `json:"event"`
 	EventPatch      map[string]any                  `json:"eventPatch,omitempty"`
 }
@@ -286,6 +307,7 @@ type CalendarEventNotification struct {
 // CalendarEvent represents a JSCalendar Event object per RFC 8984 & JMAP for Calendars.
 type CalendarEvent struct {
 	ID                      Id                                    `json:"id"`
+	BaseEventID             *Id                                   `json:"baseEventId"`
 	CalendarIDs             map[Id]bool                           `json:"calendarIds"`
 	Type                    string                                `json:"@type"` // Always "Event"
 	Title                   string                                `json:"title"`
@@ -306,7 +328,7 @@ type CalendarEvent struct {
 	Status                  string                                `json:"status,omitempty"`         // "confirmed", "tentative", "cancelled"
 	FreeBusyStatus          string                                `json:"freeBusyStatus,omitempty"` // "free", "busy", "tentative"
 	Privacy                 string                                `json:"privacy,omitempty"`        // "public", "private", "secret"
-	HideAttendees           bool                                  `json:"hideAttendees,omitempty"`  // owner-only participant visibility (draft-ietf-jmap-calendars-27 Section 4.4.5)
+	HideAttendees           bool                                  `json:"hideAttendees"`  // owner-only participant visibility (draft-ietf-jmap-calendars-27 Section 4.4.5)
 	Priority                uint32                                `json:"priority,omitempty"`
 	ReplyTo                 map[string]string                     `json:"replyTo,omitempty"`
 	SentBy                  string                                `json:"sentBy,omitempty"`
@@ -316,8 +338,8 @@ type CalendarEvent struct {
 	TimeZones               map[string]*JSCalendarTimeZone        `json:"timeZones,omitempty"`
 	Participants              map[string]*JSCalendarParticipant     `json:"participants,omitempty"`
 	OrganizerCalendarAddress  string                                `json:"organizerCalendarAddress,omitempty"`
-	MayInviteSelf             bool                                  `json:"mayInviteSelf,omitempty"`
-	MayInviteOthers           bool                                  `json:"mayInviteOthers,omitempty"`
+	MayInviteSelf             bool                                  `json:"mayInviteSelf"`
+	MayInviteOthers           bool                                  `json:"mayInviteOthers"`
 	RecurrenceRule            *JSCalendarRecurrenceRule             `json:"recurrenceRule,omitempty"`
 	RecurrenceRules           []*JSCalendarRecurrenceRule           `json:"recurrenceRules,omitempty"`
 	RecurrenceID              string                                `json:"recurrenceId,omitempty"`
@@ -342,6 +364,6 @@ type CalendarEvent struct {
 	Updated                   string                                `json:"updated,omitempty"`
 	UID                       string                                `json:"uid,omitempty"`
 	Keywords                  map[string]bool                       `json:"keywords,omitempty"`
-	IsDraft                   bool                                  `json:"isDraft,omitempty"`
-	IsOrigin                  bool                                  `json:"isOrigin,omitempty"`
+	IsDraft                   bool                                  `json:"isDraft"`
+	IsOrigin                  bool                                  `json:"isOrigin"`
 }

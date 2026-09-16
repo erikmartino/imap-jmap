@@ -41,6 +41,7 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Channel to receive StateChange events from broadcaster.
 	var pushCh chan *StateChange
+	var pushAlertCh chan *CalendarAlert
 	var pushTypes []string // nil = all types; populated by WebSocketPushEnable
 	pushEnabled := false
 
@@ -91,12 +92,50 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}()
 	}
 
+	startAlertLoop := func(ch chan *CalendarAlert) {
+		go func() {
+			for alert := range ch {
+				if !pushEnabled {
+					continue
+				}
+				if len(pushTypes) > 0 {
+					matched := false
+					for _, wanted := range pushTypes {
+						if wanted == "CalendarAlert" {
+							matched = true
+							break
+						}
+					}
+					if !matched {
+						continue
+					}
+				}
+				outAlert := *alert
+				if accountID != "" {
+					outAlert.AccountID = accountID
+				}
+				msg, err := json.Marshal(&outAlert)
+				if err != nil {
+					continue
+				}
+				slog.Debug("WebSocket push CalendarAlert", "remote", r.RemoteAddr, "user", user, "payload", string(msg))
+				if wErr := conn.Write(ctx, websocket.MessageText, msg); wErr != nil {
+					slog.Debug("WebSocket push write error", "remote", r.RemoteAddr, "error", wErr)
+					return
+				}
+			}
+		}()
+	}
+
 	for {
 		msgType, data, err := conn.Read(ctx)
 		if err != nil {
 			slog.Info("WebSocket client disconnected", "remote", r.RemoteAddr, "user", user, "error", err)
 			if pushCh != nil {
 				s.Broadcaster.Unsubscribe(pushCh)
+			}
+			if pushAlertCh != nil {
+				s.Broadcaster.UnsubscribeAlerts(pushAlertCh)
 			}
 			return
 		}
@@ -136,11 +175,16 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			if pushCh != nil {
 				s.Broadcaster.Unsubscribe(pushCh)
 			}
+			if pushAlertCh != nil {
+				s.Broadcaster.UnsubscribeAlerts(pushAlertCh)
+			}
 
 			pushTypes = pushEnable.DataTypes
 			pushEnabled = true
 			pushCh = s.Broadcaster.Subscribe(accountID)
 			startPushLoop(pushCh)
+			pushAlertCh = s.Broadcaster.SubscribeAlerts(accountID)
+			startAlertLoop(pushAlertCh)
 
 		case "WebSocketPushDisable":
 			// RFC 8887 Section 4.3.5.3: disable push notifications.
@@ -149,6 +193,10 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			if pushCh != nil {
 				s.Broadcaster.Unsubscribe(pushCh)
 				pushCh = nil
+			}
+			if pushAlertCh != nil {
+				s.Broadcaster.UnsubscribeAlerts(pushAlertCh)
+				pushAlertCh = nil
 			}
 
 		default:

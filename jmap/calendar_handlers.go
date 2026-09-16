@@ -35,6 +35,11 @@ func RegisterCalendarHandlers(r *MethodRegistry, backend CalendarsBackend, mailB
 	r.Register("CalendarEventNotification/set", handleCalendarEventNotificationSet(backend))
 	r.Register("CalendarEventNotification/query", handleCalendarEventNotificationQuery(backend))
 	r.Register("CalendarEventNotification/queryChanges", handleCalendarEventNotificationQueryChanges(backend))
+
+	// ShareNotification (RFC 9670)
+	r.Register("ShareNotification/get", handleShareNotificationGet(backend))
+	r.Register("ShareNotification/changes", handleShareNotificationChanges(backend))
+	r.Register("ShareNotification/set", handleShareNotificationSet(backend))
 }
 
 func handleCalendarGet(backend CalendarsBackend) MethodHandler {
@@ -126,8 +131,19 @@ func handleCalendarSet(backend CalendarsBackend) MethodHandler {
 
 		onDestroyRemoveEvents, _ := args["onDestroyRemoveEvents"].(bool)
 
+		callerAccountID, hasCaller := PrincipalAccountIDFromContext(ctx)
+		targetAccountID, _ := AccountIDFromContext(ctx)
+		isSharedCaller := hasCaller && callerAccountID != "" && callerAccountID != targetAccountID
+
 		if createRaw, ok := args["create"].(map[string]any); ok {
 			for creationID, calMapRaw := range createRaw {
+				if isSharedCaller {
+					notCreated[creationID] = SetError{
+						Type:        "forbidden",
+						Description: "Cannot create calendars in a shared account.",
+					}
+					continue
+				}
 				calMap, _ := calMapRaw.(map[string]any)
 				if _, hasIsDefault := calMap["isDefault"]; hasIsDefault {
 					notCreated[creationID] = SetError{
@@ -158,8 +174,18 @@ func handleCalendarSet(backend CalendarsBackend) MethodHandler {
 		if updateRaw, ok := args["update"].(map[string]any); ok {
 			for idStr, patchRaw := range updateRaw {
 				patch, _ := patchRaw.(map[string]any)
+				resolvedID := resolveCreationID(idStr, creationRefs)
+				if isSharedCaller {
+					cals, _, _ := backend.GetCalendars(ctx, []Id{Id(resolvedID)})
+					if len(cals) == 0 || !cals[0].MyRights.MayWriteAll {
+						notUpdated[string(resolvedID)] = SetError{
+							Type:        "forbidden",
+							Description: "You are not allowed to modify this calendar.",
+						}
+						continue
+					}
+				}
 				if _, hasIsDefault := patch["isDefault"]; hasIsDefault {
-					resolvedID := resolveCreationID(idStr, creationRefs)
 					notUpdated[string(resolvedID)] = SetError{
 						Type:        "invalidProperties",
 						Description: "isDefault is server-set and cannot be set directly",
@@ -167,7 +193,6 @@ func handleCalendarSet(backend CalendarsBackend) MethodHandler {
 					}
 					continue
 				}
-				resolvedID := resolveCreationID(idStr, creationRefs)
 				if err := validateCalendarMap(patch); err != nil {
 					notUpdated[string(resolvedID)] = err
 					continue
@@ -191,6 +216,16 @@ func handleCalendarSet(backend CalendarsBackend) MethodHandler {
 			for _, item := range destroyRaw {
 				if idStr, ok := item.(string); ok {
 					resolvedID := resolveCreationID(idStr, creationRefs)
+					if isSharedCaller {
+						cals, _, _ := backend.GetCalendars(ctx, []Id{Id(resolvedID)})
+						if len(cals) == 0 || !cals[0].MyRights.MayDelete {
+							notDestroyed[string(resolvedID)] = SetError{
+								Type:        "forbidden",
+								Description: "You are not allowed to delete this calendar.",
+							}
+							continue
+						}
+					}
 					if !onDestroyRemoveEvents {
 						hasEvs, _ := backend.CalendarHasEvents(ctx, Id(resolvedID))
 						if hasEvs {
@@ -245,6 +280,9 @@ func handleCalendarCopy(backend CalendarsBackend) MethodHandler {
 			for creationID, raw := range createRaw {
 				m, _ := raw.(map[string]any)
 				srcID, _ := m["id"].(string)
+				if srcID == "" {
+					srcID = creationID
+				}
 				if srcID == "" {
 					notCreated[creationID] = SetError{Type: "invalidProperties", Description: "copy create entry must reference a source id"}
 					continue

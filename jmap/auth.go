@@ -12,6 +12,7 @@ const (
 	authAccountIDKey contextKey = iota
 	authSubjectKey
 	authCredentialsKey
+	authPrincipalAccountIDKey
 )
 
 // AuthCredentials holds username and password credentials for gateway backends.
@@ -93,6 +94,19 @@ func AccountIDFromContext(ctx context.Context) (string, bool) {
 // ContextWithAccountID injects an accountID into a context for downstream handlers and backend calls.
 func ContextWithAccountID(ctx context.Context, accountID string) context.Context {
 	return context.WithValue(ctx, authAccountIDKey, accountID)
+}
+
+// PrincipalAccountIDFromContext retrieves the authenticated caller's accountID.
+func PrincipalAccountIDFromContext(ctx context.Context) (string, bool) {
+	if id, ok := ctx.Value(authPrincipalAccountIDKey).(string); ok && id != "" {
+		return id, true
+	}
+	return AccountIDFromContext(ctx)
+}
+
+// ContextWithPrincipalAccountID injects the authenticated caller's accountID into a context.
+func ContextWithPrincipalAccountID(ctx context.Context, principalAccountID string) context.Context {
+	return context.WithValue(ctx, authPrincipalAccountIDKey, principalAccountID)
 }
 
 type defaultAuthBackend struct{}

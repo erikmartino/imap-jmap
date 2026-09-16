@@ -21,18 +21,20 @@ type SubscriptionListener interface {
 
 // Broadcaster manages active SSE subscriber channels per RFC 8620 Section 7.1 and push dispatchers.
 type Broadcaster struct {
-	mu            sync.RWMutex
-	subscribers   map[chan *StateChange]string // ch -> accountID
-	accountCounts map[string]int               // accountID -> count
-	listeners     []StateChangeListener
-	subListeners  []SubscriptionListener
+	mu               sync.RWMutex
+	subscribers      map[chan *StateChange]string   // ch -> accountID
+	alertSubscribers map[chan *CalendarAlert]string // ch -> accountID
+	accountCounts    map[string]int                 // accountID -> count
+	listeners        []StateChangeListener
+	subListeners     []SubscriptionListener
 }
 
 // NewBroadcaster initializes a new Broadcaster instance.
 func NewBroadcaster() *Broadcaster {
 	return &Broadcaster{
-		subscribers:   make(map[chan *StateChange]string),
-		accountCounts: make(map[string]int),
+		subscribers:      make(map[chan *StateChange]string),
+		alertSubscribers: make(map[chan *CalendarAlert]string),
+		accountCounts:    make(map[string]int),
 	}
 }
 
@@ -127,3 +129,45 @@ func (b *Broadcaster) PublishStateChange(accountID string, typeName string, newS
 		go l(accountID, typeName, newState)
 	}
 }
+
+// SubscribeAlerts registers a new subscriber channel for CalendarAlert push notifications.
+func (b *Broadcaster) SubscribeAlerts(accountID ...string) chan *CalendarAlert {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	ch := make(chan *CalendarAlert, 10)
+	var acct string
+	if len(accountID) > 0 {
+		acct = accountID[0]
+	}
+	b.alertSubscribers[ch] = acct
+	return ch
+}
+
+// UnsubscribeAlerts removes a CalendarAlert subscriber channel.
+func (b *Broadcaster) UnsubscribeAlerts(ch chan *CalendarAlert) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, ok := b.alertSubscribers[ch]; ok {
+		delete(b.alertSubscribers, ch)
+		close(ch)
+	}
+}
+
+// PublishCalendarAlert broadcasts a CalendarAlert event to active alert subscribers for the target account.
+func (b *Broadcaster) PublishCalendarAlert(alert *CalendarAlert) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	for ch, acct := range b.alertSubscribers {
+		if acct != "" && acct != alert.AccountID && AccountIDForSubject(acct) != alert.AccountID && AccountIDForSubject(alert.AccountID) != acct {
+			continue
+		}
+		select {
+		case ch <- alert:
+		default:
+		}
+	}
+}
+

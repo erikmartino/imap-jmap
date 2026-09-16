@@ -45,6 +45,8 @@ func filterProperties(obj any, properties []string) any {
 	for _, p := range properties {
 		if v, ok := m[p]; ok {
 			out[p] = v
+		} else {
+			out[p] = nil
 		}
 	}
 	return out

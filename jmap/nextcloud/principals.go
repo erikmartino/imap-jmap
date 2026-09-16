@@ -117,6 +117,32 @@ func (b *PrincipalsBackend) SetCalendarsBackend(cb jmap.CalendarsBackend) {
 	b.calBackend = cb
 }
 
+// SeedUser seeds an individual user principal into the cache.
+func (b *PrincipalsBackend) SeedUser(email, displayName string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, p := range b.principalsCache {
+		if p != nil && strings.EqualFold(p.Email, email) {
+			if displayName != "" {
+				p.Name = displayName
+			}
+			return
+		}
+	}
+	acctID := jmap.AccountIDForSubject(email)
+	pid := jmap.Id(acctID)
+	b.principalsCache[pid] = &jmap.Principal{
+		ID:                 pid,
+		Type:               "individual",
+		Name:               displayName,
+		Email:              email,
+		CalendarAddress:    "mailto:" + email,
+		MayGetAvailability: true,
+		MayShareWith:       true,
+		AccountIDs:         map[string]bool{acctID: true},
+	}
+}
+
 // SetBroadcaster sets the event broadcaster for state change notifications.
 func (b *PrincipalsBackend) SetBroadcaster(broadcaster *jmap.Broadcaster) {
 	b.mu.Lock()
@@ -554,7 +580,9 @@ func (b *PrincipalsBackend) GetAvailability(ctx context.Context, principalID jma
 	var contexts []context.Context
 	if p != nil && len(p.AccountIDs) > 0 {
 		for accID := range p.AccountIDs {
-			contexts = append(contexts, jmap.ContextWithAccountID(ctx, accID))
+			pCtx := jmap.ContextWithAccountID(ctx, accID)
+			pCtx = jmap.ContextWithPrincipalAccountID(pCtx, accID)
+			contexts = append(contexts, pCtx)
 		}
 	} else {
 		contexts = append(contexts, ctx)

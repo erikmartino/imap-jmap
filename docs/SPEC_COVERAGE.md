@@ -11,19 +11,20 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 
 | Matrix | Spec(s) | Covered | Gaps | Non-Goals | Total | Conformance |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
-| [jmap-calendars](#jmap-calendars) | RFC5545, RFC5546, RFC6047, RFC8620, RFC8984, draft-ietf-jmap-calendars-27 | 45 | 0 | 0 | 45 | 100.0% |
+| [jmap-calendars](#jmap-calendars) | RFC5545, RFC5546, RFC6047, RFC8620, RFC8984, draft-ietf-jmap-calendars-27 | 60 | 0 | 0 | 60 | 100.0% |
 | [jmap-mail](#jmap-mail) | RFC2045, RFC5228, RFC5322, RFC8620, RFC8621, RFC9007, RFC9219, RFC9661 | 39 | 0 | 0 | 39 | 100.0% |
+| [jmap-sharing](#jmap-sharing) | RFC9670 | 6 | 0 | 0 | 6 | 100.0% |
 | [jmap-websockets](#jmap-websockets) | RFC8887 | 7 | 0 | 0 | 7 | 100.0% |
 | [jscontact](#jscontact) | RFC9553, RFC9554, RFC9555 | 6 | 0 | 0 | 6 | 100.0% |
 | [smtp](#smtp) | RFC4954, RFC5228, RFC5232, RFC5321, RFC5429, RFC5546, RFC6047, RFC6376, RFC6409, RFC7208, RFC7489, RFC8601 | 46 | 0 | 0 | 46 | 100.0% |
-| **Total** | | **143** | **0** | **0** | **143** | **100.0%** |
+| **Total** | | **164** | **0** | **0** | **164** | **100.0%** |
 
 ---
 
 ## jmap-calendars
 
 * **Test Suite Directory**: [`jmap/`](../jmap/)
-* **Conformance**: 45 / 45 (100.0%)
+* **Conformance**: 60 / 60 (100.0%)
 
 | Spec | Section | Level | Requirement | Status | Tests |
 | :--- | :---: | :---: | :--- | :---: | :--- |
@@ -34,7 +35,8 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC5546 | [3.2.3](https://www.rfc-editor.org/rfc/rfc5546.html#section-3.2.3) | `MUST` | A REPLY carries the ORGANIZER being answered and the replying ATTENDEE with its PARTSTAT. | ✅ Covered | `TestRFC5546_BuildAndParseReply`<br/>`TestRFC5546_ITIPUsesEventUIDAndSequence`<br/>`TestRFC8984_SchedulingReplyOnRSVP` |
 | RFC5546 | [3.2.5](https://www.rfc-editor.org/rfc/rfc5546.html#section-3.2.5) | `MUST` | A CANCEL carries STATUS:CANCELLED with the event's UID and SEQUENCE. | ✅ Covered | `TestRFC5546_BuildRequestAndCancel`<br/>`TestRFC6047_AutoSendInvitationAndCancellation` |
 | RFC6047 | [2.4](https://www.rfc-editor.org/rfc/rfc6047.html#section-2.4) | `MUST` | The iMIP body part is text/calendar with a method parameter matching the iCalendar METHOD. | ✅ Covered | `TestRFC6047_AutoSendInvitationAndCancellation`<br/>`TestRFC8984_SchedulingRequestExcludesOwner` |
-| RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | A */set update response value is null unless the server changed properties beyond those the client sent. | ✅ Covered | `TestRFC8984_ParticipantIdentityLifecycle` |
+| RFC8620 | [3.6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.2) | `MUST` | forbidden error is returned when accessing an account or calling a method without permission. | ✅ Covered | `TestStalwart_CalendarACL` |
+| RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | A */set update response value is null unless the server changed properties beyond those the client sent. | ✅ Covered | `TestRFC8984_ParticipantIdentityLifecycle`<br/>`TestStalwart_CalendarLifecycleAndProperties` |
 | RFC8620 | [5.4](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.4) | `MUST` | Foo/copy reads sources from fromAccountId and supports onSuccessDestroyOriginal / destroyFromIfInState. | ✅ Covered | `TestRFC8984_CalendarEventCopyDestroyOriginal`<br/>`TestRFC8984_CalendarEventCopyRoundTrip` |
 | RFC8620 | [5.5](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.5) | `MUST` | FilterOperator AND/OR/NOT is evaluated over nested conditions. | ✅ Covered | `TestRFC8984_QueryFilterOperator` |
 | RFC8984 | [1.4.5](https://www.rfc-editor.org/rfc/rfc8984.html#section-1.4.5) | `MUST` | LocalDateTime (floating, no time zone) is accepted for date-time values. | ✅ Covered | `TestRFC8984_QueryFloatingLocalDateTimeBounds` |
@@ -45,14 +47,23 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8984 | [4.3.5](https://www.rfc-editor.org/rfc/rfc8984.html#section-4.3.5) | `MUST` | recurrenceOverrides apply to instances; excluded:true removes an instance. | ✅ Covered | `TestRFC8984_RecurrenceOverrideExcluded` |
 | RFC8984 | [4.4.2](https://www.rfc-editor.org/rfc/rfc8984.html#section-4.4.2) | `MUST` | Event status is limited to confirmed/tentative/cancelled. | ✅ Covered | `TestRFC8984_EventStatusEnum` |
 | RFC8984 | [5.2.5](https://www.rfc-editor.org/rfc/rfc8984.html#section-5.2.5) | `MUST` | Task progress is limited to needs-action/in-process/completed/failed/pending/cancelled. | ✅ Covered | `TestRFC8984_TaskProgressEnum` |
-| draft-ietf-jmap-calendars-27 | [3.3](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-3.3) | `MUST` | ParticipantIdentity isDefault is server-set; changed only via onSuccessSetIsDefault. | ✅ Covered | `TestRFC8984_ParticipantIdentityLifecycle` |
+| draft-ietf-jmap-calendars-27 | [1.4](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-1.4) | `MUST` | Calendar shareWith defines access rights granted to users, and myRights reflects the caller's rights. | ✅ Covered | `TestStalwart_CalendarACL` |
+| draft-ietf-jmap-calendars-27 | [3.1](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-3.1) | `MUST` | A ParticipantIdentity represents an identity for sending/receiving calendar scheduling messages. | ✅ Covered | `TestStalwart_ParticipantIdentity` |
+| draft-ietf-jmap-calendars-27 | [3.2](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-3.2) | `MUST` | ParticipantIdentity/get returns requested properties for identities. | ✅ Covered | `TestStalwart_ParticipantIdentity` |
+| draft-ietf-jmap-calendars-27 | [3.3](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-3.3) | `MUST` | ParticipantIdentity isDefault is server-set; changed only via onSuccessSetIsDefault. | ✅ Covered | `TestRFC8984_ParticipantIdentityLifecycle`<br/>`TestStalwart_ParticipantIdentity` |
 | draft-ietf-jmap-calendars-27 | [4.2.7](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-4.2.7) | `MUST` | The scheduleStatus property represents the status of scheduling message delivery as a STATCODE string. | ✅ Covered | `TestRFC8984_SEC7_ScheduleStatusReporting` |
 | draft-ietf-jmap-calendars-27 | [4.2.10](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-4.2.10) | `MUST` | privacy=private: only non-owner sharees get the reduced property set; the owner sees full data. | ✅ Covered | `TestRFC8984_PrivacyOwnerSeesFullData` |
 | draft-ietf-jmap-calendars-27 | [4.2.10](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-4.2.10) | `MUST` | privacy=secret: the server behaves as though the event does not exist for users other than the owner; the owner still sees it. | ✅ Covered | `TestRFC8984_PrivacyOwnerSeesFullData` |
 | draft-ietf-jmap-calendars-27 | [4.4](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-4.4) | `MUST` | utcStart/utcEnd computed read-only CalendarEvent properties are returned when requested. | ✅ Covered | `TestRFC8984_UTCStartAndUTCEndComputedProperties` |
 | draft-ietf-jmap-calendars-27 | [4.4.5](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-4.4.5) | `MAY` | hideAttendees limits participant visibility to owners; it round-trips through set/get. | ✅ Covered | `TestRFC8984_HideAttendeesRoundTrip` |
+| draft-ietf-jmap-calendars-27 | [5.1](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-5.1) | `MUST` | A CalendarEvent object represents a calendar event or task. | ✅ Covered | `TestStalwart_CalendarEventInstances`<br/>`TestStalwart_CalendarEventLifecycleAndQueries` |
+| draft-ietf-jmap-calendars-27 | [5.2](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-5.2) | `MUST` | CalendarEvent/get returns the requested properties for the specified event IDs. | ✅ Covered | `TestStalwart_CalendarEventInstances`<br/>`TestStalwart_CalendarEventLifecycleAndQueries` |
+| draft-ietf-jmap-calendars-27 | [5.3](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-5.3) | `MUST` | CalendarEvent/changes returns changes to calendar events since a specified state. | ✅ Covered | `TestStalwart_CalendarEventLifecycleAndQueries` |
+| draft-ietf-jmap-calendars-27 | [5.4](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-5.4) | `MUST` | CalendarEvent/set creates, updates, and destroys CalendarEvent objects. | ✅ Covered | `TestStalwart_CalendarEventInstances`<br/>`TestStalwart_CalendarEventLifecycleAndQueries` |
+| draft-ietf-jmap-calendars-27 | [5.9](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-5.9) | `MUST` | CalendarEvent/query returns event ids matching the specified filter conditions. | ✅ Covered | `TestStalwart_CalendarEventInstances`<br/>`TestStalwart_CalendarEventLifecycleAndQueries` |
 | draft-ietf-jmap-calendars-27 | [5.9](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-5.9) | `MUST` | sendSchedulingMessages (default false): when true the server sends iTIP scheduling messages after a successful create/update/destroy. | ✅ Covered | `TestRFC6047_AutoSendInvitationAndCancellation` |
 | draft-ietf-jmap-calendars-27 | [5.9](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-5.9) | `MUST` | noSupportedScheduleMethods is returned when scheduling is requested but no schedule method is available. | ✅ Covered | `TestRFC8984_SchedulingNoSupportedScheduleMethods` |
+| draft-ietf-jmap-calendars-27 | [5.9.2](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-5.9.2) | `MUST` | sendSchedulingMessages triggers iTIP scheduling request/reply/cancel dispatch. | ✅ Covered | `TestStalwart_CalendarEventNotifications` |
 | draft-ietf-jmap-calendars-27 | [5.9.2.1](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-5.9.2.1) | `MUST` | On create/update the origin sends a REQUEST to every current participant except the calendar owner. | ✅ Covered | `TestRFC8984_SchedulingRequestExcludesOwner` |
 | draft-ietf-jmap-calendars-27 | [5.9.2.1](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-5.9.2.1) | `MUST` | With hideAttendees, each REQUEST contains only its recipient (plus the owner); other attendees are omitted. | ✅ Covered | `TestRFC8984_SchedulingHideAttendees` |
 | draft-ietf-jmap-calendars-27 | [5.9.2.1](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-5.9.2.1) | `MUST` | A REQUEST to a local participant delivers the event into that participant's own calendar with participation still pending. | ✅ Covered | `TestRFC8984_SameServerInviteAcceptRoundTrip` |
@@ -71,7 +82,12 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | draft-ietf-jmap-calendars-27 | [5.11.2](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-5.11.2) | `MUST` | sort comparators are limited to supported properties; unknown -> unsupportedSort. | ✅ Covered | `TestRFC8984_QueryRejectsUnknownSort` |
 | draft-ietf-jmap-calendars-27 | [5.11.2](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-5.11.2) | `MUST` | sort supports start, uid, and recurrenceId. | ✅ Covered | `TestRFC8984_CalendarEventQuerySorting` |
 | draft-ietf-jmap-calendars-27 | [5.12](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-5.12) | `MAY` | CalendarEvent/parse converts iCalendar blobs to JSCalendar events. | ✅ Covered | `TestRFC8984_CalendarEventParse` |
+| draft-ietf-jmap-calendars-27 | [5.12](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-5.12) | `MUST` | CalendarEvent/parse parses iCalendar blobs into CalendarEvent objects. | ✅ Covered | `TestStalwart_CalendarEventLifecycleAndQueries` |
+| draft-ietf-jmap-calendars-27 | [7.1](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-7.1) | `MUST` | A CalendarEventNotification represents a change made to a calendar event by another user. | ✅ Covered | `TestStalwart_CalendarEventNotifications` |
 | draft-ietf-jmap-calendars-27 | [7.2](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-7.2) | `MUST` | CalendarEventNotification objects are server-created and can be fetched, queried, and destroyed. | ✅ Covered | `TestRFC8984_CalendarEventNotificationLifecycle` |
+| draft-ietf-jmap-calendars-27 | [7.2](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-7.2) | `MUST` | CalendarEventNotification/get returns notifications for calendar event changes. | ✅ Covered | `TestStalwart_CalendarEventNotifications` |
+| draft-ietf-jmap-calendars-27 | [7.3](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-7.3) | `MUST` | CalendarEventNotification/changes returns changes to notifications since a state. | ✅ Covered | `TestStalwart_CalendarEventNotifications` |
+| draft-ietf-jmap-calendars-27 | [8](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-8) | `MUST` | A CalendarAlert object represents an alert on a calendar event that has triggered. | ✅ Covered | `TestStalwart_CalendarAlarms` |
 
 ---
 
@@ -121,6 +137,22 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC9661 | [4.2](https://www.rfc-editor.org/rfc/rfc9661.html#section-4.2) | `MUST` | SieveScript/set notUpdated notFound is returned when updating a missing script. | ✅ Covered | `TestRFC9661_SieveScriptSetUpdateMissingNotFound` |
 | RFC9661 | [4.3](https://www.rfc-editor.org/rfc/rfc9661.html#section-4.3) | `MUST` | SieveScript/query filters by name and isValid properties, positive and negative. | ✅ Covered | `TestRFC9661_SieveScriptFilterPropertiesPosNeg` |
 | RFC9661 | [4.4](https://www.rfc-editor.org/rfc/rfc9661.html#section-4.4) | `MUST` | SieveScript/queryChanges tracks created, updated, and destroyed scripts across state changes. | ✅ Covered | `TestRFC9661_SieveScriptQueryChanges` |
+
+---
+
+## jmap-sharing
+
+* **Test Suite Directory**: [`jmap/`](../jmap/)
+* **Conformance**: 6 / 6 (100.0%)
+
+| Spec | Section | Level | Requirement | Status | Tests |
+| :--- | :---: | :---: | :--- | :---: | :--- |
+| RFC9670 | [1.4.1](https://www.rfc-editor.org/rfc/rfc9670.html#section-1.4.1) | `MUST` | The urn:ietf:params:jmap:sharing capability URI MUST be advertised in the accountCapabilities for accounts that support sharing. | ✅ Covered | `TestRFC9670_CapabilityAdvertisement` |
+| RFC9670 | [2](https://www.rfc-editor.org/rfc/rfc9670.html#section-2) | `MUST` | A ShareNotification object represents a change to the sharing status of an object. | ✅ Covered | `TestRFC9670_ShareNotificationGet`<br/>`TestStalwart_CalendarACL` |
+| RFC9670 | [3](https://www.rfc-editor.org/rfc/rfc9670.html#section-3) | `MUST` | ShareNotification/get returns requested properties for share notifications. | ✅ Covered | `TestRFC9670_ShareNotificationGet`<br/>`TestStalwart_CalendarACL` |
+| RFC9670 | [4](https://www.rfc-editor.org/rfc/rfc9670.html#section-4) | `MUST` | ShareNotification/changes returns changes to share notifications since a specified state. | ✅ Covered | `TestRFC9670_ShareNotificationChanges`<br/>`TestStalwart_CalendarACL` |
+| RFC9670 | [4.2](https://www.rfc-editor.org/rfc/rfc9670.html#section-4.2) | `MUST` | ShareNotification/set only supports destroying share notifications; creating or updating is rejected. | ✅ Covered | `TestRFC9670_ShareNotificationSetDestroyOnly` |
+| RFC9670 | [5](https://www.rfc-editor.org/rfc/rfc9670.html#section-5) | `MUST` | Cross-account access without appropriate sharing rights MUST be rejected with a forbidden error. | ✅ Covered | `TestRFC9670_CrossAccountForbidden` |
 
 ---
 

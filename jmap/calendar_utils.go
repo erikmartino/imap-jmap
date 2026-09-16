@@ -6,7 +6,7 @@ import (
 	_ "time/tzdata"
 )
 
-func loadLocation(tz string) *time.Location {
+func LoadLocation(tz string) *time.Location {
 	if tz == "" || tz == "UTC" || tz == "Etc/UTC" {
 		return time.UTC
 	}
@@ -16,7 +16,9 @@ func loadLocation(tz string) *time.Location {
 	return time.UTC
 }
 
-func parseLocalDateTimeBound(s string, loc *time.Location) (time.Time, bool) {
+var loadLocation = LoadLocation
+
+func ParseLocalDateTimeBound(s string, loc *time.Location) (time.Time, bool) {
 	if loc == nil {
 		loc = time.UTC
 	}
@@ -53,6 +55,8 @@ func parseLocalDateTimeBound(s string, loc *time.Location) (time.Time, bool) {
 	}
 	return time.Time{}, false
 }
+
+var parseLocalDateTimeBound = ParseLocalDateTimeBound
 
 // ParseISODuration converts an ISO 8601 duration (e.g. "PT1H30M", "P1D", "P1W") to
 // time.Duration. Returns ok=false for unsupported, malformed, or empty input.
