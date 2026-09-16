@@ -3,6 +3,8 @@ package jmap
 import (
 	"context"
 	"fmt"
+
+	"imap-jmap/jmap/jmapcalendar"
 )
 
 type coreLimitsKey struct{}
@@ -56,39 +58,20 @@ func ValidateSetLimits(ctx context.Context, args map[string]any) (string, map[st
 }
 
 const (
-	// Default calendar capability limits per draft-ietf-jmap-calendars-27 Section 1.5.1 and 5.11.
-	DefaultMinDateTime              = "1900-01-01T00:00:00"
-	DefaultMaxDateTime              = "9999-12-31T23:59:59"
-	DefaultMaxExpandedQueryDuration = "P730D"
+	// Default calendar capability limits — canonical definitions live in jmapcalendar.
+	DefaultMinDateTime              = jmapcalendar.DefaultMinDateTime
+	DefaultMaxDateTime              = jmapcalendar.DefaultMaxDateTime
+	DefaultMaxExpandedQueryDuration = jmapcalendar.DefaultMaxExpandedQueryDuration
 )
 
-type calendarsLimitsKey struct{}
-
 // WithCalendarsCapability returns a new context carrying the given CalendarsCapability limits.
+// Forwarded to jmapcalendar for backward compatibility.
 func WithCalendarsCapability(ctx context.Context, cap CalendarsCapability) context.Context {
-	return context.WithValue(ctx, calendarsLimitsKey{}, cap)
+	return jmapcalendar.WithCalendarsCapability(ctx, cap)
 }
 
 // CalendarsCapabilityFromContext extracts CalendarsCapability limits from context, or returns default limits.
+// Forwarded to jmapcalendar for backward compatibility.
 func CalendarsCapabilityFromContext(ctx context.Context) CalendarsCapability {
-	if ctx != nil {
-		if cap, ok := ctx.Value(calendarsLimitsKey{}).(CalendarsCapability); ok {
-			if cap.MinDateTime == "" {
-				cap.MinDateTime = DefaultMinDateTime
-			}
-			if cap.MaxDateTime == "" {
-				cap.MaxDateTime = DefaultMaxDateTime
-			}
-			if cap.MaxExpandedQueryDuration == "" {
-				cap.MaxExpandedQueryDuration = DefaultMaxExpandedQueryDuration
-			}
-			return cap
-		}
-	}
-	return CalendarsCapability{
-		MinDateTime:              DefaultMinDateTime,
-		MaxDateTime:              DefaultMaxDateTime,
-		MaxExpandedQueryDuration: DefaultMaxExpandedQueryDuration,
-	}
+	return jmapcalendar.CalendarsCapabilityFromContext(ctx)
 }
-

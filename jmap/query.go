@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+
+	"imap-jmap/jmap/jmapcalendar"
 )
 
 // parseQueryPosition extracts the "position" argument per RFC 8620 Section 5.5: an integer
@@ -101,12 +103,8 @@ type FilterCondition struct {
 }
 
 // Comparator defines sorting rules per RFC 8621 Section 4.4.2.
-type Comparator struct {
-	Property    string `json:"property"`
-	IsAscending bool   `json:"isAscending"`
-	Collation   string `json:"collation,omitempty"`
-	Keyword     string `json:"keyword,omitempty"`
-}
+// The canonical definition lives in jmapcalendar; this is a type alias for backward compatibility.
+type Comparator = jmapcalendar.Comparator
 
 // parseComparators parses the "sort" argument per RFC 8621 Section 4.5.2.
 func parseComparators(args map[string]any) []Comparator {

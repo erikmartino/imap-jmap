@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"imap-jmap/jmap/jmapcalendar"
 	"imap-jmap/jmap/jmapsession"
 )
 
@@ -41,11 +42,11 @@ const WebSocketCapabilityURI = "urn:ietf:params:jmap:websocket"
 const ContactsCapabilityURI = "urn:ietf:params:jmap:contacts"
 
 // CalendarsCapabilityURI is the standard JMAP Calendars capability URI.
-const CalendarsCapabilityURI = "urn:ietf:params:jmap:calendars"
+const CalendarsCapabilityURI = jmapcalendar.CalendarsCapabilityURI
 
 // CalendarsParseCapabilityURI is the JMAP capability URI advertising support for the
 // CalendarEvent/parse method per draft-ietf-jmap-calendars Section 1.5.3.
-const CalendarsParseCapabilityURI = "urn:ietf:params:jmap:calendars:parse"
+const CalendarsParseCapabilityURI = jmapcalendar.CalendarsParseCapabilityURI
 
 // SieveCapabilityURI is the standard JMAP Sieve capability URI defined in RFC 9661 Section 2.
 const SieveCapabilityURI = "urn:ietf:params:jmap:sieve"
@@ -152,14 +153,8 @@ type ContactsCapability struct {
 
 // CalendarsCapability defines the capability object for "urn:ietf:params:jmap:calendars"
 // per draft-ietf-jmap-calendars Section 1.5.1.
-type CalendarsCapability struct {
-	MaxCalendarsPerEvent     *uint64 `json:"maxCalendarsPerEvent"`
-	MayCreateCalendar        bool    `json:"mayCreateCalendar"`
-	MinDateTime              string  `json:"minDateTime"`
-	MaxDateTime              string  `json:"maxDateTime"`
-	MaxExpandedQueryDuration string  `json:"maxExpandedQueryDuration"`
-	MaxParticipantsPerEvent  *uint64 `json:"maxParticipantsPerEvent"`
-}
+// The canonical definition lives in jmapcalendar; this is a type alias for backward compatibility.
+type CalendarsCapability = jmapcalendar.CalendarsCapability
 
 // SieveCapability defines the capability object for "urn:ietf:params:jmap:sieve" per RFC 9661 Section 2.
 type SieveCapability struct {
