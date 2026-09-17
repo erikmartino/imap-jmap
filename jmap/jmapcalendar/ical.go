@@ -1,4 +1,4 @@
-package jmap
+package jmapcalendar
 
 import (
 	"bytes"

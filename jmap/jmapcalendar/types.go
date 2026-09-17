@@ -7,8 +7,6 @@ import (
 	"imap-jmap/jmap/jmapcore"
 )
 
-// Id is an alias for the JMAP Id type from jmapcore.
-type Id = jmapcore.Id
 
 // CalendarRights defines access rights for a Calendar per JMAP for Calendars.
 type CalendarRights struct {
@@ -50,7 +48,7 @@ type CalendarShare struct {
 
 // Calendar represents a Calendar object per JMAP for Calendars.
 type Calendar struct {
-	ID                       Id                          `json:"id"`
+	ID                       jmapcore.Id                 `json:"id"`
 	Name                     string                      `json:"name"`
 	Description              *string                     `json:"description,omitempty"`
 	Color                    *string                     `json:"color,omitempty"`
@@ -279,7 +277,7 @@ type JSCalendarTimeZone struct {
 // ParticipantIdentity represents a URI that identifies the user within an account in an
 // event's participants per draft-ietf-jmap-calendars Section 3.
 type ParticipantIdentity struct {
-	ID              Id                `json:"id"`
+	ID              jmapcore.Id       `json:"id"`
 	Name            string            `json:"name"`
 	CalendarAddress string            `json:"calendarAddress"`
 	SendTo          map[string]string `json:"sendTo"`
@@ -298,12 +296,12 @@ type CalendarEventNotificationPerson struct {
 // CalendarEventNotification records a change made by an external entity to an event in a
 // calendar the user is subscribed to per draft-ietf-jmap-calendars Section 7.2.
 type CalendarEventNotification struct {
-	ID              Id                              `json:"id"`
+	ID              jmapcore.Id                     `json:"id"`
 	Created         string                          `json:"created"`
 	ChangedBy       CalendarEventNotificationPerson `json:"changedBy"`
 	Comment         *string                         `json:"comment"`
 	Type            string                          `json:"type"` // "created", "updated", "destroyed"
-	CalendarEventID Id                              `json:"calendarEventId"`
+	CalendarEventID jmapcore.Id                     `json:"calendarEventId"`
 	IsDraft         bool                            `json:"isDraft"`
 	Event           *CalendarEvent                  `json:"event"`
 	EventPatch      map[string]any                  `json:"eventPatch,omitempty"`
@@ -311,9 +309,9 @@ type CalendarEventNotification struct {
 
 // CalendarEvent represents a JSCalendar Event object per RFC 8984 & JMAP for Calendars.
 type CalendarEvent struct {
-	ID                      Id                                    `json:"id"`
-	BaseEventID             *Id                                   `json:"baseEventId"`
-	CalendarIDs             map[Id]bool                           `json:"calendarIds"`
+	ID                      jmapcore.Id                           `json:"id"`
+	BaseEventID             *jmapcore.Id                          `json:"baseEventId"`
+	CalendarIDs             map[jmapcore.Id]bool                  `json:"calendarIds"`
 	Type                    string                                `json:"@type"` // Always "Event"
 	Title                   string                                `json:"title"`
 	Description             string                                `json:"description,omitempty"`
@@ -382,12 +380,12 @@ type ShareNotificationPerson struct {
 
 // ShareNotification represents a notification of a sharing change per RFC 9670 Section 2.
 type ShareNotification struct {
-	ID              Id                      `json:"id"`
+	ID              jmapcore.Id             `json:"id"`
 	Type            string                  `json:"@type,omitempty"` // "ShareNotification"
 	ChangedBy       ShareNotificationPerson `json:"changedBy"`
 	ObjectType      string                  `json:"objectType"`
 	ObjectAccountID string                  `json:"objectAccountId"`
-	ObjectID        Id                      `json:"objectId"`
+	ObjectID        jmapcore.Id             `json:"objectId"`
 	OldRights       *CalendarRights         `json:"oldRights"`
 	NewRights       *CalendarRights         `json:"newRights"`
 	Name            *string                 `json:"name"`

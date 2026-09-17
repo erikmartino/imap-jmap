@@ -3,6 +3,7 @@ package jmaptransport_test
 import (
 	"testing"
 
+	"imap-jmap/jmap/jmappush"
 	"imap-jmap/jmap/jmaptransport"
 	"imap-jmap/jmap/spectest"
 )
@@ -19,7 +20,7 @@ func TestTransportPrimitives(t *testing.T) {
 		t.Fatalf("expected false FilterWebSocketPush for nil event")
 	}
 
-	evt := &jmaptransport.StateChange{
+	evt := &jmappush.StateChange{
 		Type: "StateChange",
 		Changed: map[string]map[string]string{
 			"acc-1": {

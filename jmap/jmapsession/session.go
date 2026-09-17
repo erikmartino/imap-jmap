@@ -1,8 +1,5 @@
 package jmapsession
 
-import (
-	"imap-jmap/jmap/jmapcore"
-)
 
 // Standard Capability URIs defined across RFC specifications per RFC 8620 Section 2.
 // @spec RFC8620#2-p1-MUST
@@ -76,5 +73,3 @@ type Session struct {
 	EventSourceURL  string             `json:"eventSourceUrl"`
 	State           string             `json:"state"`
 }
-
-type Id = jmapcore.Id

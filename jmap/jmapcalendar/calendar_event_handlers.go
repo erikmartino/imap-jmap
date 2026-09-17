@@ -1,4 +1,4 @@
-package jmap
+package jmapcalendar
 
 import (
 	"context"
@@ -7,29 +7,35 @@ import (
 	"strings"
 	"time"
 
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapblob"
 	"imap-jmap/jmap/jmapcopy"
+	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmaphandler"
+	"imap-jmap/jmap/jmapmail"
+	"imap-jmap/jmap/jmapprincipals"
 )
 
-func handleCalendarEventGet(backend CalendarsBackend) MethodHandler {
+func handleCalendarEventGet(backend CalendarsBackend) jmaphandler.MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		idsRaw, hasIDs := args["ids"].([]any)
 		props := parseProperties(args)
 
 		var list []*CalendarEvent
-		var notFound []Id
+		var notFound []jmapcore.Id
 		var err error
 
 		if hasIDs {
 			if len(idsRaw) == 0 {
 				list = []*CalendarEvent{}
-				notFound = []Id{}
+				notFound = []jmapcore.Id{}
 				_ = backend.CalendarEventState(ctx)
 			} else {
-				ids := make([]Id, 0, len(idsRaw))
+				ids := make([]jmapcore.Id, 0, len(idsRaw))
 				for _, item := range idsRaw {
 					if idStr, ok := item.(string); ok {
-						ids = append(ids, Id(idStr))
+						ids = append(ids, jmapcore.Id(idStr))
 					}
 				}
 				list, notFound, err = backend.GetCalendarEvents(ctx, ids)
@@ -42,7 +48,7 @@ func handleCalendarEventGet(backend CalendarsBackend) MethodHandler {
 			list = []*CalendarEvent{}
 		}
 		if notFound == nil {
-			notFound = []Id{}
+			notFound = []jmapcore.Id{}
 		}
 
 		// Privacy (draft-ietf-jmap-calendars-27 Section 4.2.10) governs what NON-owner
@@ -109,7 +115,7 @@ func handleCalendarEventGet(backend CalendarsBackend) MethodHandler {
 			if clone.UseDefaultAlerts {
 				if len(clone.Alerts) == 0 {
 					for cid := range clone.CalendarIDs {
-						if cals, _, err := backend.GetCalendars(ctx, []Id{cid}); err == nil && len(cals) > 0 {
+						if cals, _, err := backend.GetCalendars(ctx, []jmapcore.Id{cid}); err == nil && len(cals) > 0 {
 							cal := cals[0]
 							var defAlerts map[string]*JSCalendarAlert
 							if clone.ShowWithoutTime {
@@ -201,19 +207,19 @@ func handleCalendarEventGet(backend CalendarsBackend) MethodHandler {
 	}
 }
 
-func handleCalendarEventChanges(backend CalendarsBackend) MethodHandler {
+func handleCalendarEventChanges(backend CalendarsBackend) jmaphandler.MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		sinceState, _ := args["sinceState"].(string)
 		created, updated, destroyed, newState, hasMore := backend.CalendarEventChanges(ctx, sinceState)
 		if created == nil {
-			created = []Id{}
+			created = []jmapcore.Id{}
 		}
 		if updated == nil {
-			updated = []Id{}
+			updated = []jmapcore.Id{}
 		}
 		if destroyed == nil {
-			destroyed = []Id{}
+			destroyed = []jmapcore.Id{}
 		}
 		return "CalendarEvent/changes", map[string]any{
 			"accountId":      accountID,
@@ -227,7 +233,7 @@ func handleCalendarEventChanges(backend CalendarsBackend) MethodHandler {
 	}
 }
 
-func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, principalsBackend PrincipalsBackend, resolver AccountResolver) MethodHandler {
+func handleCalendarEventSet(backend CalendarsBackend, mailBackend jmapmail.MailBackend, principalsBackend jmapprincipals.PrincipalsBackend, resolver jmapauth.AccountResolver) jmaphandler.MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		oldState := backend.CalendarEventState(ctx)
@@ -240,7 +246,7 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, p
 
 		created := make(map[string]*CalendarEvent)
 		updated := make(map[string]map[string]any)
-		destroyed := make([]Id, 0)
+		destroyed := make([]jmapcore.Id, 0)
 		notCreated := make(map[string]any)
 		notUpdated := make(map[string]any)
 		notDestroyed := make(map[string]any)
@@ -255,7 +261,7 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, p
 		if createRaw, ok := args["create"].(map[string]any); ok {
 			notCreated = runCreateLoop(createRaw, creationRefs, func(creationID string, resolvedMap map[string]any) (string, error) {
 				if sendSchedulingMessages && mailBackend == nil {
-					return "", SetError{Type: "noSupportedScheduleMethods", Description: "no supported schedule methods available for scheduling"}
+					return "", jmapcore.SetError{Type: "noSupportedScheduleMethods", Description: "no supported schedule methods available for scheduling"}
 				}
 				cleanMap := sanitizeEventMap(resolvedMap)
 				if err := validateCalendarEventMap(cleanMap, calCap); err != nil {
@@ -267,9 +273,9 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, p
 
 				if isSharedCaller {
 					for cid := range ev.CalendarIDs {
-						cals, _, _ := backend.GetCalendars(ctx, []Id{cid})
+						cals, _, _ := backend.GetCalendars(ctx, []jmapcore.Id{cid})
 						if len(cals) == 0 || !cals[0].MyRights.MayWriteAll {
-							return "", SetError{
+							return "", jmapcore.SetError{
 								Type:        "forbidden",
 								Description: "You are not allowed to create calendar events.",
 							}
@@ -290,7 +296,7 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, p
 					existing, _, _ := backend.GetCalendarEvents(ctx, nil)
 					for _, ex := range existing {
 						if ex != nil && ex.UID == ev.UID {
-							return "", SetError{
+							return "", jmapcore.SetError{
 								Type:        "invalidProperties",
 								Description: fmt.Sprintf("An event with UID %s already exists.", ev.UID),
 								Properties:  []string{"uid"},
@@ -403,7 +409,7 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, p
 			}
 			for baseID := range hasBase {
 				if hasInst[baseID] {
-					conflictErr := SetError{
+					conflictErr := jmapcore.SetError{
 						Type:        "invalidProperties",
 						Description: "A base event and its instances cannot be modified in the same request.",
 						Properties:  []string{"id"},
@@ -427,18 +433,18 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, p
 					if strings.Contains(baseLookupID, "#") {
 						baseLookupID = strings.SplitN(baseLookupID, "#", 2)[0]
 					}
-					events, _, _ := backend.GetCalendarEvents(ctx, []Id{Id(baseLookupID)})
+					events, _, _ := backend.GetCalendarEvents(ctx, []jmapcore.Id{jmapcore.Id(baseLookupID)})
 					if len(events) > 0 && events[0] != nil {
 						allowed := true
 						for cid := range events[0].CalendarIDs {
-							cals, _, _ := backend.GetCalendars(ctx, []Id{cid})
+							cals, _, _ := backend.GetCalendars(ctx, []jmapcore.Id{cid})
 							if len(cals) == 0 || !cals[0].MyRights.MayWriteAll {
 								allowed = false
 								break
 							}
 						}
 						if !allowed {
-							notUpdated[string(resolvedID)] = SetError{
+							notUpdated[string(resolvedID)] = jmapcore.SetError{
 								Type:        "forbidden",
 								Description: "You are not allowed to modify calendar events.",
 							}
@@ -451,7 +457,7 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, p
 				if strings.Contains(idStr, "#") {
 					parts := strings.SplitN(idStr, "#", 2)
 					if destroySet[parts[0]] {
-						notUpdated[string(resolvedID)] = SetError{Type: "willDestroy"}
+						notUpdated[string(resolvedID)] = jmapcore.SetError{Type: "willDestroy"}
 						continue
 					}
 					var foundBadProp string
@@ -462,7 +468,7 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, p
 						}
 					}
 					if foundBadProp != "" {
-						notUpdated[string(resolvedID)] = SetError{
+						notUpdated[string(resolvedID)] = jmapcore.SetError{
 							Type:        "invalidProperties",
 							Description: "This property cannot be modified on a single occurrence.",
 							Properties:  []string{foundBadProp},
@@ -474,20 +480,20 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, p
 				cleanPatch := sanitizeEventPatch(rawPatch)
 				patch := resolvePatchCreationRefs(cleanPatch, creationRefs)
 				if sendSchedulingMessages && mailBackend == nil {
-					notUpdated[string(resolvedID)] = SetError{Type: "noSupportedScheduleMethods", Description: "no supported schedule methods available for scheduling"}
+					notUpdated[string(resolvedID)] = jmapcore.SetError{Type: "noSupportedScheduleMethods", Description: "no supported schedule methods available for scheduling"}
 					continue
 				}
 				if err := validateCalendarEventMap(patch, calCap); err != nil {
-					if setErr, isSetErr := err.(SetError); isSetErr {
+					if setErr, isSetErr := err.(jmapcore.SetError); isSetErr {
 						notUpdated[string(resolvedID)] = setErr
 					} else {
-						notUpdated[string(resolvedID)] = SetError{Type: "invalidProperties", Description: err.Error()}
+						notUpdated[string(resolvedID)] = jmapcore.SetError{Type: "invalidProperties", Description: err.Error()}
 					}
 					continue
 				}
 				var beforeEv *CalendarEvent
 				if sendSchedulingMessages {
-					beforeList, _, _ := backend.GetCalendarEvents(ctx, []Id{Id(resolvedID)})
+					beforeList, _, _ := backend.GetCalendarEvents(ctx, []jmapcore.Id{jmapcore.Id(resolvedID)})
 					if len(beforeList) > 0 {
 						// Deep-copy: the memory backend returns its stored pointer and the
 						// update below mutates it in place; the notification must carry the
@@ -497,9 +503,9 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, p
 						_ = json.Unmarshal(beforeBytes, beforeEv)
 					}
 				}
-				updatedEv, err := backend.UpdateCalendarEvent(ctx, Id(resolvedID), patch)
+				updatedEv, err := backend.UpdateCalendarEvent(ctx, jmapcore.Id(resolvedID), patch)
 				if err != nil {
-					notUpdated[string(resolvedID)] = SetError{Type: "notFound", Description: err.Error()}
+					notUpdated[string(resolvedID)] = jmapcore.SetError{Type: "notFound", Description: err.Error()}
 				} else {
 					updated[string(resolvedID)] = nil
 
@@ -556,13 +562,13 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, p
 		if destroyRaw, ok := args["destroy"].([]any); ok {
 			for _, item := range destroyRaw {
 				if idStr, ok := item.(string); ok {
-					evID := Id(resolveCreationID(idStr, creationRefs))
-					events, _, _ := backend.GetCalendarEvents(ctx, []Id{evID})
+					evID := jmapcore.Id(resolveCreationID(idStr, creationRefs))
+					events, _, _ := backend.GetCalendarEvents(ctx, []jmapcore.Id{evID})
 					if isSharedCaller {
 						allowed := true
 						if len(events) > 0 && events[0] != nil {
 							for cid := range events[0].CalendarIDs {
-								cals, _, _ := backend.GetCalendars(ctx, []Id{cid})
+								cals, _, _ := backend.GetCalendars(ctx, []jmapcore.Id{cid})
 								if len(cals) == 0 || !cals[0].MyRights.MayDelete {
 									allowed = false
 									break
@@ -570,7 +576,7 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, p
 							}
 						}
 						if !allowed {
-							notDestroyed[string(evID)] = SetError{
+							notDestroyed[string(evID)] = jmapcore.SetError{
 								Type:        "forbidden",
 								Description: "You are not allowed to remove events from calendar",
 							}
@@ -580,7 +586,7 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, p
 
 					okDel, err := backend.DeleteCalendarEvent(ctx, evID)
 					if err != nil || !okDel {
-						notDestroyed[string(evID)] = SetError{Type: "notFound", Description: "calendar event not found"}
+						notDestroyed[string(evID)] = jmapcore.SetError{Type: "notFound", Description: "calendar event not found"}
 					} else {
 						destroyed = append(destroyed, evID)
 
@@ -636,7 +642,7 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend MailBackend, p
 	}
 }
 
-func handleCalendarEventQuery(backend CalendarsBackend) MethodHandler {
+func handleCalendarEventQuery(backend CalendarsBackend) jmaphandler.MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 
@@ -690,7 +696,7 @@ func handleCalendarEventQuery(backend CalendarsBackend) MethodHandler {
 			filter["__timeZone"] = tz
 		}
 
-		var ids []Id
+		var ids []jmapcore.Id
 		var total int
 		var err error
 		if anchor != "" {
@@ -705,7 +711,7 @@ func handleCalendarEventQuery(backend CalendarsBackend) MethodHandler {
 			ids, total, err = backend.QueryCalendarEvents(ctx, filter, comparators, position, limit, expandRecurrences)
 		}
 		if err != nil {
-			ids = []Id{}
+			ids = []jmapcore.Id{}
 			total = 0
 		}
 		position = NormalizePosition(position, total)
@@ -724,7 +730,7 @@ func handleCalendarEventQuery(backend CalendarsBackend) MethodHandler {
 	}
 }
 
-func handleCalendarEventQueryChanges(backend CalendarsBackend) MethodHandler {
+func handleCalendarEventQueryChanges(backend CalendarsBackend) jmaphandler.MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		upToID, _ := args["upToId"].(string)
@@ -762,7 +768,7 @@ func handleCalendarEventQueryChanges(backend CalendarsBackend) MethodHandler {
 // source calendar by id, optionally overriding properties, and is recreated in the target account.
 
 // handleCalendarEventCopy implements CalendarEvent/copy per RFC 8620 Section 5.4.
-func handleCalendarEventCopy(backend CalendarsBackend) MethodHandler {
+func handleCalendarEventCopy(backend CalendarsBackend) jmaphandler.MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, fromAccountID := jmapcopy.ResolveCopyAccountIDs(args)
 		srcCtx := SourceAccountContext(ctx, args)
@@ -776,7 +782,7 @@ func handleCalendarEventCopy(backend CalendarsBackend) MethodHandler {
 
 		created := make(map[string]*CalendarEvent)
 		notCreated := make(map[string]any)
-		destroyOriginals := make([]Id, 0)
+		destroyOriginals := make([]jmapcore.Id, 0)
 		creationRefs := newSetCreationRefs(ctx)
 
 		if createRaw, ok := args["create"].(map[string]any); ok {
@@ -787,13 +793,13 @@ func handleCalendarEventCopy(backend CalendarsBackend) MethodHandler {
 					srcID = creationID
 				}
 				if srcID == "" {
-					notCreated[creationID] = SetError{Type: "invalidProperties", Description: "copy create entry must reference a source id"}
+					notCreated[creationID] = jmapcore.SetError{Type: "invalidProperties", Description: "copy create entry must reference a source id"}
 					continue
 				}
 				resolvedSrcID := resolveCreationID(srcID, creationRefs)
-				srcs, notFound, _ := backend.GetCalendarEvents(srcCtx, []Id{Id(resolvedSrcID)})
+				srcs, notFound, _ := backend.GetCalendarEvents(srcCtx, []jmapcore.Id{jmapcore.Id(resolvedSrcID)})
 				if len(srcs) == 0 || len(notFound) > 0 {
-					notCreated[creationID] = SetError{Type: "notFound", Description: "source event not found: " + srcID}
+					notCreated[creationID] = jmapcore.SetError{Type: "notFound", Description: "source event not found: " + srcID}
 					continue
 				}
 
@@ -805,11 +811,11 @@ func handleCalendarEventCopy(backend CalendarsBackend) MethodHandler {
 
 				newEv, err := backend.CreateCalendarEvent(ctx, &ev)
 				if err != nil {
-					notCreated[creationID] = SetError{Type: "invalidProperties", Description: err.Error()}
+					notCreated[creationID] = jmapcore.SetError{Type: "invalidProperties", Description: err.Error()}
 				} else {
 					created[creationID] = newEv
 					recordCreationRefs(ctx, creationRefs, creationID, newEv.ID)
-					destroyOriginals = append(destroyOriginals, Id(resolvedSrcID))
+					destroyOriginals = append(destroyOriginals, jmapcore.Id(resolvedSrcID))
 				}
 			}
 		}
@@ -835,15 +841,15 @@ func handleCalendarEventCopy(backend CalendarsBackend) MethodHandler {
 // Section 5.12: the client supplies blob ids of iCalendar files and the server returns the
 // parsed JSCalendar CalendarEvent objects. Support is advertised via the
 // "urn:ietf:params:jmap:calendars:parse" capability.
-func handleCalendarEventParse(backend CalendarsBackend, blobBackend BlobBackend) MethodHandler {
+func handleCalendarEventParse(backend CalendarsBackend, blobBackend jmapblob.BlobBackend) jmaphandler.MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		props := parseProperties(args)
 		creationRefs := newSetCreationRefs(ctx)
 
 		parsed := make(map[string][]any)
-		var notFound []Id
-		var notParsable []Id
+		var notFound []jmapcore.Id
+		var notParsable []jmapcore.Id
 
 		blobIDsRaw, _ := args["blobIds"].([]any)
 		for _, item := range blobIDsRaw {
@@ -851,7 +857,7 @@ func handleCalendarEventParse(backend CalendarsBackend, blobBackend BlobBackend)
 			if !ok || idStr == "" {
 				continue
 			}
-			blobID := Id(resolveCreationID(idStr, creationRefs))
+			blobID := jmapcore.Id(resolveCreationID(idStr, creationRefs))
 			if blobBackend == nil {
 				notParsable = append(notParsable, blobID)
 				continue
@@ -1215,7 +1221,7 @@ func sanitizeEventPatch(m map[string]any) map[string]any {
 func validateCalendarEventMap(m map[string]any, calCap CalendarsCapability) error {
 	if rawCids, hasCids := m["calendarIds"]; hasCids {
 		if cidsMap, ok := rawCids.(map[string]any); ok && len(cidsMap) == 0 {
-			return SetError{
+			return jmapcore.SetError{
 				Type:        "invalidProperties",
 				Description: "Event has to belong to at least one calendar.",
 				Properties:  []string{"calendarIds"},
@@ -1228,7 +1234,7 @@ func validateCalendarEventMap(m map[string]any, calCap CalendarsCapability) erro
 			baseKey = strings.Split(baseKey, "/")[0]
 		}
 		if !validCalendarEventProperties[baseKey] {
-			return SetError{
+			return jmapcore.SetError{
 				Type:        "invalidProperties",
 				Description: "unknown property: " + k,
 				Properties:  []string{k},
@@ -1239,16 +1245,16 @@ func validateCalendarEventMap(m map[string]any, calCap CalendarsCapability) erro
 			if s, ok := v.(string); ok && s != "" {
 				t, okT := parseLocalDateTimeBound(s, time.UTC)
 				if !okT {
-					return SetError{Type: "invalidProperties", Description: "invalid start date format: " + s, Properties: []string{k}}
+					return jmapcore.SetError{Type: "invalidProperties", Description: "invalid start date format: " + s, Properties: []string{k}}
 				}
 				if calCap.MinDateTime != "" {
 					if minT, okMin := parseLocalDateTimeBound(calCap.MinDateTime, time.UTC); okMin && t.Before(minT) {
-						return SetError{Type: "invalidProperties", Description: fmt.Sprintf("start date (%s) is earlier than minDateTime (%s)", s, calCap.MinDateTime), Properties: []string{k}}
+						return jmapcore.SetError{Type: "invalidProperties", Description: fmt.Sprintf("start date (%s) is earlier than minDateTime (%s)", s, calCap.MinDateTime), Properties: []string{k}}
 					}
 				}
 				if calCap.MaxDateTime != "" {
 					if maxT, okMax := parseLocalDateTimeBound(calCap.MaxDateTime, time.UTC); okMax && t.After(maxT) {
-						return SetError{Type: "invalidProperties", Description: fmt.Sprintf("start date (%s) is later than maxDateTime (%s)", s, calCap.MaxDateTime), Properties: []string{k}}
+						return jmapcore.SetError{Type: "invalidProperties", Description: fmt.Sprintf("start date (%s) is later than maxDateTime (%s)", s, calCap.MaxDateTime), Properties: []string{k}}
 					}
 				}
 			}
@@ -1261,12 +1267,12 @@ func validateCalendarEventMap(m map[string]any, calCap CalendarsCapability) erro
 							if okT {
 								if calCap.MinDateTime != "" {
 									if minT, okMin := parseLocalDateTimeBound(calCap.MinDateTime, time.UTC); okMin && t.Before(minT) {
-										return SetError{Type: "invalidProperties", Description: fmt.Sprintf("recurrence rule until date (%s) is earlier than minDateTime (%s)", until, calCap.MinDateTime), Properties: []string{k}}
+										return jmapcore.SetError{Type: "invalidProperties", Description: fmt.Sprintf("recurrence rule until date (%s) is earlier than minDateTime (%s)", until, calCap.MinDateTime), Properties: []string{k}}
 									}
 								}
 								if calCap.MaxDateTime != "" {
 									if maxT, okMax := parseLocalDateTimeBound(calCap.MaxDateTime, time.UTC); okMax && t.After(maxT) {
-										return SetError{Type: "invalidProperties", Description: fmt.Sprintf("recurrence rule until date (%s) is later than maxDateTime (%s)", until, calCap.MaxDateTime), Properties: []string{k}}
+										return jmapcore.SetError{Type: "invalidProperties", Description: fmt.Sprintf("recurrence rule until date (%s) is later than maxDateTime (%s)", until, calCap.MaxDateTime), Properties: []string{k}}
 									}
 								}
 							}
@@ -1281,12 +1287,12 @@ func validateCalendarEventMap(m map[string]any, calCap CalendarsCapability) erro
 					if okT {
 						if calCap.MinDateTime != "" {
 							if minT, okMin := parseLocalDateTimeBound(calCap.MinDateTime, time.UTC); okMin && t.Before(minT) {
-								return SetError{Type: "invalidProperties", Description: fmt.Sprintf("recurrence override date (%s) is earlier than minDateTime (%s)", recID, calCap.MinDateTime), Properties: []string{k}}
+								return jmapcore.SetError{Type: "invalidProperties", Description: fmt.Sprintf("recurrence override date (%s) is earlier than minDateTime (%s)", recID, calCap.MinDateTime), Properties: []string{k}}
 							}
 						}
 						if calCap.MaxDateTime != "" {
 							if maxT, okMax := parseLocalDateTimeBound(calCap.MaxDateTime, time.UTC); okMax && t.After(maxT) {
-								return SetError{Type: "invalidProperties", Description: fmt.Sprintf("recurrence override date (%s) is later than maxDateTime (%s)", recID, calCap.MaxDateTime), Properties: []string{k}}
+								return jmapcore.SetError{Type: "invalidProperties", Description: fmt.Sprintf("recurrence override date (%s) is later than maxDateTime (%s)", recID, calCap.MaxDateTime), Properties: []string{k}}
 							}
 						}
 					}
@@ -1300,7 +1306,7 @@ func validateCalendarEventMap(m map[string]any, calCap CalendarsCapability) erro
 				switch strings.ToLower(s) {
 				case "confirmed", "tentative", "cancelled", "canceled":
 				default:
-					return SetError{Type: "invalidProperties", Description: "invalid status value: " + s, Properties: []string{k}}
+					return jmapcore.SetError{Type: "invalidProperties", Description: "invalid status value: " + s, Properties: []string{k}}
 				}
 			}
 		case "privacy":
@@ -1308,7 +1314,7 @@ func validateCalendarEventMap(m map[string]any, calCap CalendarsCapability) erro
 				switch strings.ToLower(s) {
 				case "public", "private", "secret", "confidential":
 				default:
-					return SetError{Type: "invalidProperties", Description: "invalid privacy value: " + s, Properties: []string{k}}
+					return jmapcore.SetError{Type: "invalidProperties", Description: "invalid privacy value: " + s, Properties: []string{k}}
 				}
 			}
 		case "freeBusyStatus":
@@ -1316,7 +1322,7 @@ func validateCalendarEventMap(m map[string]any, calCap CalendarsCapability) erro
 				switch strings.ToLower(s) {
 				case "free", "busy", "tentative", "opaque", "transparent":
 				default:
-					return SetError{Type: "invalidProperties", Description: "invalid freeBusyStatus value: " + s, Properties: []string{k}}
+					return jmapcore.SetError{Type: "invalidProperties", Description: "invalid freeBusyStatus value: " + s, Properties: []string{k}}
 				}
 			}
 		case "progress":
@@ -1325,7 +1331,7 @@ func validateCalendarEventMap(m map[string]any, calCap CalendarsCapability) erro
 				switch strings.ToLower(s) {
 				case "needs-action", "in-process", "completed", "failed", "pending", "cancelled", "canceled":
 				default:
-					return SetError{Type: "invalidProperties", Description: "invalid progress value: " + s, Properties: []string{k}}
+					return jmapcore.SetError{Type: "invalidProperties", Description: "invalid progress value: " + s, Properties: []string{k}}
 				}
 			}
 		}

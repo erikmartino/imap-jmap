@@ -5,7 +5,9 @@ import (
 	"strings"
 
 	"imap-jmap/jmap/jmapcalendar"
+	"imap-jmap/jmap/jmapcontacts"
 	"imap-jmap/jmap/jmapsession"
+	"imap-jmap/jmap/jmapsieve"
 )
 
 // CoreCapabilityURI is the standard JMAP core capability URI defined in RFC 8620 Section 2.2.
@@ -146,10 +148,8 @@ type WebSocketCapability struct {
 }
 
 // ContactsCapability defines the capability object for "urn:ietf:params:jmap:contacts" per RFC 9610 Section 2.
-type ContactsCapability struct {
-	MaxAddressBooksPerCard *uint64 `json:"maxAddressBooksPerCard"`
-	MayCreateAddressBook   bool    `json:"mayCreateAddressBook"`
-}
+// The canonical definition lives in jmapcontacts; this is a type alias for backward compatibility.
+type ContactsCapability = jmapcontacts.ContactsCapability
 
 // CalendarsCapability defines the capability object for "urn:ietf:params:jmap:calendars"
 // per draft-ietf-jmap-calendars Section 1.5.1.
@@ -157,10 +157,8 @@ type ContactsCapability struct {
 type CalendarsCapability = jmapcalendar.CalendarsCapability
 
 // SieveCapability defines the capability object for "urn:ietf:params:jmap:sieve" per RFC 9661 Section 2.
-type SieveCapability struct {
-	MaxScriptSize   uint64   `json:"maxScriptSize"`
-	SieveExtensions []string `json:"sieveExtensions"`
-}
+// The canonical definition lives in jmapsieve; this is a type alias for backward compatibility.
+type SieveCapability = jmapsieve.SieveCapability
 
 // Account defines an account object in the JMAP Session per RFC 8620 Section 2.
 type Account = jmapsession.Account

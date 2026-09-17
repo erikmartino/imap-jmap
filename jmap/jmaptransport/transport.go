@@ -11,11 +11,9 @@ import (
 	"imap-jmap/jmap/jmappush"
 )
 
-type StateChange = jmappush.StateChange
-
 // FilterStateChange filters a StateChange event payload by requested accountID and filter data types per RFC 8620 §7.1.
 // @spec RFC8620#7.1-p1-MUST
-func FilterStateChange(stateEvt *StateChange, principalAccountID, subject, typesParam string, filterTypes map[string]bool) *StateChange {
+func FilterStateChange(stateEvt *jmappush.StateChange, principalAccountID, subject, typesParam string, filterTypes map[string]bool) *jmappush.StateChange {
 	if stateEvt == nil {
 		return nil
 	}
@@ -47,7 +45,7 @@ func FilterStateChange(stateEvt *StateChange, principalAccountID, subject, types
 	if len(filteredChanged) == 0 {
 		return nil
 	}
-	return &StateChange{
+	return &jmappush.StateChange{
 		Type:    "StateChange",
 		Changed: filteredChanged,
 	}
@@ -55,7 +53,7 @@ func FilterStateChange(stateEvt *StateChange, principalAccountID, subject, types
 
 // FilterWebSocketPush filters a StateChange event for WebSocket push delivery per RFC 8887 §4.3.5.2.
 // @spec RFC8887#4.3.5.2-p1-MUST
-func FilterWebSocketPush(sc *StateChange, pushTypes []string) ([]byte, bool) {
+func FilterWebSocketPush(sc *jmappush.StateChange, pushTypes []string) ([]byte, bool) {
 	if sc == nil {
 		return nil, false
 	}
@@ -79,7 +77,7 @@ func FilterWebSocketPush(sc *StateChange, pushTypes []string) ([]byte, bool) {
 		if len(filtered) == 0 {
 			return nil, false
 		}
-		outSC = &StateChange{
+		outSC = &jmappush.StateChange{
 			Type:    "StateChange",
 			Changed: filtered,
 		}

@@ -1,27 +1,30 @@
-package jmap
+package jmapcalendar
 
 import (
 	"context"
 	"encoding/json"
 	"strings"
+
+	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmaphandler"
 )
 
 // --- ParticipantIdentity (draft-ietf-jmap-calendars Section 3) ---
 
-func handleParticipantIdentityGet(backend CalendarsBackend) MethodHandler {
+func handleParticipantIdentityGet(backend CalendarsBackend) jmaphandler.MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		idsRaw, hasIDs := args["ids"].([]any)
 		props := parseProperties(args)
 
 		var list []*ParticipantIdentity
-		var notFound []Id
+		var notFound []jmapcore.Id
 		var err error
 		if hasIDs {
-			ids := make([]Id, 0, len(idsRaw))
+			ids := make([]jmapcore.Id, 0, len(idsRaw))
 			for _, item := range idsRaw {
 				if idStr, ok := item.(string); ok {
-					ids = append(ids, Id(idStr))
+					ids = append(ids, jmapcore.Id(idStr))
 				}
 			}
 			list, notFound, err = backend.GetParticipantIdentities(ctx, ids)
@@ -32,7 +35,7 @@ func handleParticipantIdentityGet(backend CalendarsBackend) MethodHandler {
 			list = []*ParticipantIdentity{}
 		}
 		if notFound == nil {
-			notFound = []Id{}
+			notFound = []jmapcore.Id{}
 		}
 
 		return "ParticipantIdentity/get", map[string]any{
@@ -44,19 +47,19 @@ func handleParticipantIdentityGet(backend CalendarsBackend) MethodHandler {
 	}
 }
 
-func handleParticipantIdentityChanges(backend CalendarsBackend) MethodHandler {
+func handleParticipantIdentityChanges(backend CalendarsBackend) jmaphandler.MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		sinceState, _ := args["sinceState"].(string)
 		created, updated, destroyed, newState, hasMore := backend.ParticipantIdentityChanges(ctx, sinceState)
 		if created == nil {
-			created = []Id{}
+			created = []jmapcore.Id{}
 		}
 		if updated == nil {
-			updated = []Id{}
+			updated = []jmapcore.Id{}
 		}
 		if destroyed == nil {
-			destroyed = []Id{}
+			destroyed = []jmapcore.Id{}
 		}
 		return "ParticipantIdentity/changes", map[string]any{
 			"accountId":      accountID,
@@ -74,7 +77,7 @@ func handleParticipantIdentityChanges(backend CalendarsBackend) MethodHandler {
 // sendTo keys ("MUST only contain ASCII alphanumeric characters", Section 3).
 func validateParticipantIdentityPayload(m map[string]any) error {
 	if _, hasIsDefault := m["isDefault"]; hasIsDefault {
-		return SetError{
+		return jmapcore.SetError{
 			Type:        "invalidProperties",
 			Description: "isDefault is server-set and cannot be set directly",
 			Properties:  []string{"isDefault"},
@@ -84,7 +87,7 @@ func validateParticipantIdentityPayload(m map[string]any) error {
 		for k := range sendTo {
 			for _, c := range k {
 				if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9') {
-					return SetError{
+					return jmapcore.SetError{
 						Type:        "invalidProperties",
 						Description: "sendTo keys must only contain ASCII alphanumeric characters: " + k,
 						Properties:  []string{"sendTo"},
@@ -96,7 +99,7 @@ func validateParticipantIdentityPayload(m map[string]any) error {
 	return nil
 }
 
-func handleParticipantIdentitySet(backend CalendarsBackend) MethodHandler {
+func handleParticipantIdentitySet(backend CalendarsBackend) jmaphandler.MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		oldState := backend.ParticipantIdentityState(ctx)
@@ -107,7 +110,7 @@ func handleParticipantIdentitySet(backend CalendarsBackend) MethodHandler {
 
 		created := make(map[string]*ParticipantIdentity)
 		updated := make(map[string]map[string]any)
-		destroyed := make([]Id, 0)
+		destroyed := make([]jmapcore.Id, 0)
 		notCreated := make(map[string]any)
 		notUpdated := make(map[string]any)
 		notDestroyed := make(map[string]any)
@@ -141,9 +144,9 @@ func handleParticipantIdentitySet(backend CalendarsBackend) MethodHandler {
 				}
 				patch := resolvePatchCreationRefs(rawPatch, creationRefs)
 				resolvedID := resolveCreationID(idStr, creationRefs)
-				updatedPI, err := backend.UpdateParticipantIdentity(ctx, Id(resolvedID), patch)
+				updatedPI, err := backend.UpdateParticipantIdentity(ctx, jmapcore.Id(resolvedID), patch)
 				if err != nil {
-					notUpdated[string(resolvedID)] = SetError{Type: "notFound", Description: err.Error()}
+					notUpdated[string(resolvedID)] = jmapcore.SetError{Type: "notFound", Description: err.Error()}
 				} else {
 					// RFC 8620 Section 5.3: the value is null unless the server changed
 					// properties beyond those the client sent. A plain update reports null.
@@ -157,11 +160,11 @@ func handleParticipantIdentitySet(backend CalendarsBackend) MethodHandler {
 			for _, idItem := range destroyRaw {
 				if idStr, ok := idItem.(string); ok {
 					resolvedID := resolveCreationID(idStr, creationRefs)
-					okDel, err := backend.DeleteParticipantIdentity(ctx, Id(resolvedID))
+					okDel, err := backend.DeleteParticipantIdentity(ctx, jmapcore.Id(resolvedID))
 					if err != nil || !okDel {
-						notDestroyed[string(resolvedID)] = SetError{Type: "notFound", Description: "participant identity not found"}
+						notDestroyed[string(resolvedID)] = jmapcore.SetError{Type: "notFound", Description: "participant identity not found"}
 					} else {
-						destroyed = append(destroyed, Id(resolvedID))
+						destroyed = append(destroyed, jmapcore.Id(resolvedID))
 					}
 				}
 			}
@@ -172,7 +175,7 @@ func handleParticipantIdentitySet(backend CalendarsBackend) MethodHandler {
 		// server-set isDefault value changed is reported in "updated".
 		if defaultRaw, ok := args["onSuccessSetIsDefault"].(string); ok && defaultRaw != "" {
 			targetID := resolveCreationID(defaultRaw, creationRefs)
-			if err := backend.SetDefaultParticipantIdentity(ctx, Id(targetID)); err == nil {
+			if err := backend.SetDefaultParticipantIdentity(ctx, jmapcore.Id(targetID)); err == nil {
 				updated[targetID] = map[string]any{"isDefault": true}
 			}
 		}
@@ -193,20 +196,20 @@ func handleParticipantIdentitySet(backend CalendarsBackend) MethodHandler {
 
 // --- CalendarEventNotification (draft-ietf-jmap-calendars Section 7) ---
 
-func handleCalendarEventNotificationGet(backend CalendarsBackend) MethodHandler {
+func handleCalendarEventNotificationGet(backend CalendarsBackend) jmaphandler.MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		idsRaw, hasIDs := args["ids"].([]any)
 		props := parseProperties(args)
 
 		var list []*CalendarEventNotification
-		var notFound []Id
+		var notFound []jmapcore.Id
 		var err error
 		if hasIDs {
-			ids := make([]Id, 0, len(idsRaw))
+			ids := make([]jmapcore.Id, 0, len(idsRaw))
 			for _, item := range idsRaw {
 				if idStr, ok := item.(string); ok {
-					ids = append(ids, Id(idStr))
+					ids = append(ids, jmapcore.Id(idStr))
 				}
 			}
 			list, notFound, err = backend.GetCalendarEventNotifications(ctx, ids)
@@ -217,7 +220,7 @@ func handleCalendarEventNotificationGet(backend CalendarsBackend) MethodHandler 
 			list = []*CalendarEventNotification{}
 		}
 		if notFound == nil {
-			notFound = []Id{}
+			notFound = []jmapcore.Id{}
 		}
 
 		return "CalendarEventNotification/get", map[string]any{
@@ -229,19 +232,19 @@ func handleCalendarEventNotificationGet(backend CalendarsBackend) MethodHandler 
 	}
 }
 
-func handleCalendarEventNotificationChanges(backend CalendarsBackend) MethodHandler {
+func handleCalendarEventNotificationChanges(backend CalendarsBackend) jmaphandler.MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		sinceState, _ := args["sinceState"].(string)
 		created, updated, destroyed, newState, hasMore := backend.CalendarEventNotificationChanges(ctx, sinceState)
 		if created == nil {
-			created = []Id{}
+			created = []jmapcore.Id{}
 		}
 		if updated == nil {
-			updated = []Id{}
+			updated = []jmapcore.Id{}
 		}
 		if destroyed == nil {
-			destroyed = []Id{}
+			destroyed = []jmapcore.Id{}
 		}
 		return "CalendarEventNotification/changes", map[string]any{
 			"accountId":      accountID,
@@ -258,7 +261,7 @@ func handleCalendarEventNotificationChanges(backend CalendarsBackend) MethodHand
 // handleCalendarEventNotificationSet only supports destroy: notifications are created by
 // the server, so any create/update attempt is rejected with a forbidden SetError
 // (draft-ietf-jmap-calendars Section 7.5).
-func handleCalendarEventNotificationSet(backend CalendarsBackend) MethodHandler {
+func handleCalendarEventNotificationSet(backend CalendarsBackend) jmaphandler.MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		oldState := backend.CalendarEventNotificationState(ctx)
@@ -269,14 +272,14 @@ func handleCalendarEventNotificationSet(backend CalendarsBackend) MethodHandler 
 
 		created := make(map[string]*CalendarEventNotification)
 		updated := make(map[string]map[string]any)
-		destroyed := make([]Id, 0)
+		destroyed := make([]jmapcore.Id, 0)
 		notCreated := make(map[string]any)
 		notUpdated := make(map[string]any)
 		notDestroyed := make(map[string]any)
 
 		if createRaw, ok := args["create"].(map[string]any); ok {
 			for creationID := range createRaw {
-				notCreated[creationID] = SetError{
+				notCreated[creationID] = jmapcore.SetError{
 					Type:        "forbidden",
 					Description: "CalendarEventNotification objects are created by the server and cannot be created by clients",
 				}
@@ -284,7 +287,7 @@ func handleCalendarEventNotificationSet(backend CalendarsBackend) MethodHandler 
 		}
 		if updateRaw, ok := args["update"].(map[string]any); ok {
 			for idStr := range updateRaw {
-				notUpdated[string(resolveCreationID(idStr, newSetCreationRefs(ctx)))] = SetError{
+				notUpdated[string(resolveCreationID(idStr, newSetCreationRefs(ctx)))] = jmapcore.SetError{
 					Type:        "forbidden",
 					Description: "CalendarEventNotification objects are managed by the server and cannot be updated by clients",
 				}
@@ -296,11 +299,11 @@ func handleCalendarEventNotificationSet(backend CalendarsBackend) MethodHandler 
 			for _, idItem := range destroyRaw {
 				if idStr, ok := idItem.(string); ok {
 					resolvedID := resolveCreationID(idStr, creationRefs)
-					okDel, err := backend.DeleteCalendarEventNotification(ctx, Id(resolvedID))
+					okDel, err := backend.DeleteCalendarEventNotification(ctx, jmapcore.Id(resolvedID))
 					if err != nil || !okDel {
-						notDestroyed[string(resolvedID)] = SetError{Type: "notFound", Description: "calendar event notification not found"}
+						notDestroyed[string(resolvedID)] = jmapcore.SetError{Type: "notFound", Description: "calendar event notification not found"}
 					} else {
-						destroyed = append(destroyed, Id(resolvedID))
+						destroyed = append(destroyed, jmapcore.Id(resolvedID))
 					}
 				}
 			}
@@ -324,7 +327,7 @@ func handleCalendarEventNotificationSet(backend CalendarsBackend) MethodHandler 
 // Section 7.6.2: "created" is the only one that MUST be supported.
 var notificationSortableProperties = map[string]bool{"created": true}
 
-func handleCalendarEventNotificationQuery(backend CalendarsBackend) MethodHandler {
+func handleCalendarEventNotificationQuery(backend CalendarsBackend) jmaphandler.MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		filter, _ := args["filter"].(map[string]any)
@@ -348,7 +351,7 @@ func handleCalendarEventNotificationQuery(backend CalendarsBackend) MethodHandle
 			limit = &l
 		}
 
-		var ids []Id
+		var ids []jmapcore.Id
 		var total int
 		if anchor != "" {
 			allIDs, allTotal, _ := backend.QueryCalendarEventNotifications(ctx, filter, comparators, 0, nil)
@@ -362,7 +365,7 @@ func handleCalendarEventNotificationQuery(backend CalendarsBackend) MethodHandle
 			ids, total, _ = backend.QueryCalendarEventNotifications(ctx, filter, comparators, position, limit)
 		}
 		if ids == nil {
-			ids = []Id{}
+			ids = []jmapcore.Id{}
 		}
 
 		return "CalendarEventNotification/query", map[string]any{
@@ -376,7 +379,7 @@ func handleCalendarEventNotificationQuery(backend CalendarsBackend) MethodHandle
 	}
 }
 
-func handleCalendarEventNotificationQueryChanges(backend CalendarsBackend) MethodHandler {
+func handleCalendarEventNotificationQueryChanges(backend CalendarsBackend) jmaphandler.MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		upToID, _ := args["upToId"].(string)

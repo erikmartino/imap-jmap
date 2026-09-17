@@ -1,29 +1,32 @@
-package jmap
+package jmapcalendar
 
 import (
 	"context"
+
+	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmaphandler"
 )
 
-func handleShareNotificationGet(backend CalendarsBackend) MethodHandler {
+func handleShareNotificationGet(backend CalendarsBackend) jmaphandler.MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		idsRaw, hasIDs := args["ids"].([]any)
 		props := parseProperties(args)
 
 		var list []*ShareNotification
-		var notFound []Id
+		var notFound []jmapcore.Id
 		var err error
 
 		if hasIDs {
 			if len(idsRaw) == 0 {
 				list = []*ShareNotification{}
-				notFound = []Id{}
+				notFound = []jmapcore.Id{}
 				_ = backend.ShareNotificationState(ctx)
 			} else {
-				ids := make([]Id, 0, len(idsRaw))
+				ids := make([]jmapcore.Id, 0, len(idsRaw))
 				for _, item := range idsRaw {
 					if idStr, ok := item.(string); ok {
-						ids = append(ids, Id(idStr))
+						ids = append(ids, jmapcore.Id(idStr))
 					}
 				}
 				list, notFound, err = backend.GetShareNotifications(ctx, ids)
@@ -36,7 +39,7 @@ func handleShareNotificationGet(backend CalendarsBackend) MethodHandler {
 			list = []*ShareNotification{}
 		}
 		if notFound == nil {
-			notFound = []Id{}
+			notFound = []jmapcore.Id{}
 		}
 
 		return "ShareNotification/get", map[string]any{
@@ -48,19 +51,19 @@ func handleShareNotificationGet(backend CalendarsBackend) MethodHandler {
 	}
 }
 
-func handleShareNotificationChanges(backend CalendarsBackend) MethodHandler {
+func handleShareNotificationChanges(backend CalendarsBackend) jmaphandler.MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		sinceState, _ := args["sinceState"].(string)
 		created, updated, destroyed, newState, hasMore := backend.ShareNotificationChanges(ctx, sinceState)
 		if created == nil {
-			created = []Id{}
+			created = []jmapcore.Id{}
 		}
 		if updated == nil {
-			updated = []Id{}
+			updated = []jmapcore.Id{}
 		}
 		if destroyed == nil {
-			destroyed = []Id{}
+			destroyed = []jmapcore.Id{}
 		}
 		return "ShareNotification/changes", map[string]any{
 			"accountId":      accountID,
@@ -74,7 +77,7 @@ func handleShareNotificationChanges(backend CalendarsBackend) MethodHandler {
 	}
 }
 
-func handleShareNotificationSet(backend CalendarsBackend) MethodHandler {
+func handleShareNotificationSet(backend CalendarsBackend) jmaphandler.MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 		oldState := backend.ShareNotificationState(ctx)
@@ -85,12 +88,12 @@ func handleShareNotificationSet(backend CalendarsBackend) MethodHandler {
 
 		notCreated := make(map[string]any)
 		notUpdated := make(map[string]any)
-		destroyed := make([]Id, 0)
+		destroyed := make([]jmapcore.Id, 0)
 		notDestroyed := make(map[string]any)
 
 		if createRaw, ok := args["create"].(map[string]any); ok {
 			for creationID := range createRaw {
-				notCreated[creationID] = SetError{
+				notCreated[creationID] = jmapcore.SetError{
 					Type:        "forbidden",
 					Description: "Cannot create share notifications.",
 				}
@@ -99,7 +102,7 @@ func handleShareNotificationSet(backend CalendarsBackend) MethodHandler {
 
 		if updateRaw, ok := args["update"].(map[string]any); ok {
 			for idStr := range updateRaw {
-				notUpdated[idStr] = SetError{
+				notUpdated[idStr] = jmapcore.SetError{
 					Type:        "forbidden",
 					Description: "Cannot update share notifications.",
 				}
@@ -109,11 +112,11 @@ func handleShareNotificationSet(backend CalendarsBackend) MethodHandler {
 		if destroyRaw, ok := args["destroy"].([]any); ok {
 			for _, item := range destroyRaw {
 				if idStr, ok := item.(string); ok {
-					okDel, err := backend.DeleteShareNotification(ctx, Id(idStr))
+					okDel, err := backend.DeleteShareNotification(ctx, jmapcore.Id(idStr))
 					if err != nil || !okDel {
-						notDestroyed[idStr] = SetError{Type: "notFound", Description: "share notification not found"}
+						notDestroyed[idStr] = jmapcore.SetError{Type: "notFound", Description: "share notification not found"}
 					} else {
-						destroyed = append(destroyed, Id(idStr))
+						destroyed = append(destroyed, jmapcore.Id(idStr))
 					}
 				}
 			}

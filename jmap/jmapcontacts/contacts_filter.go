@@ -1,8 +1,10 @@
-package jmap
+package jmapcontacts
 
 import (
 	"sort"
 	"strings"
+
+	"imap-jmap/jmap/jmapcore"
 )
 
 // containsFold reports a case-insensitive substring match.
@@ -172,7 +174,7 @@ func MatchCard(card *Card, filter map[string]any) bool {
 		switch k {
 		case "inAddressBook":
 			ab, ok := v.(string)
-			if !ok || !card.AddressBookIDs[Id(ab)] {
+			if !ok || !card.AddressBookIDs[jmapcore.Id(ab)] {
 				return false
 			}
 		case "uid":
@@ -277,7 +279,7 @@ func GetCardNameComponent(card *Card, kind string) string {
 	return ""
 }
 
-func SortCards(cards []*Card, comparators []Comparator) {
+func SortCards(cards []*Card, comparators []jmapcore.Comparator) {
 	if len(comparators) == 0 {
 		return
 	}

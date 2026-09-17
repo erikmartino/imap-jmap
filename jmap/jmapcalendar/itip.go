@@ -1,4 +1,4 @@
-package jmap
+package jmapcalendar
 
 import (
 	"bytes"
@@ -7,19 +7,21 @@ import (
 	"time"
 
 	"github.com/emersion/go-ical"
+
+	"imap-jmap/jmap/jmapmail"
 )
 
 // ITIPMessage represents a parsed iTIP (RFC 5546) / iMIP (RFC 6047) scheduling message.
 type ITIPMessage struct {
-	Method    string         `json:"method"` // "REQUEST", "REPLY", "CANCEL"
-	UID       string         `json:"uid"`
-	Sequence  uint32         `json:"sequence"`
-	Summary   string         `json:"summary"`
-	Start     string         `json:"start"`
-	End       string         `json:"end,omitempty"`
-	Organizer string         `json:"organizer"`
-	Attendees []EmailAddress `json:"attendees"`
-	Status    string         `json:"status,omitempty"` // For REPLY: "ACCEPTED", "DECLINED", "TENTATIVE"
+	Method    string                 `json:"method"` // "REQUEST", "REPLY", "CANCEL"
+	UID       string                 `json:"uid"`
+	Sequence  uint32                 `json:"sequence"`
+	Summary   string                 `json:"summary"`
+	Start     string                 `json:"start"`
+	End       string                 `json:"end,omitempty"`
+	Organizer string                 `json:"organizer"`
+	Attendees []jmapmail.EmailAddress `json:"attendees"`
+	Status    string                 `json:"status,omitempty"` // For REPLY: "ACCEPTED", "DECLINED", "TENTATIVE"
 }
 
 // eventUID returns the RFC 5545 UID for iTIP messages. It MUST be the event's stable
@@ -247,7 +249,7 @@ func ParseITIPMessage(icsContent string) (*ITIPMessage, error) {
 			addr = addr[7:]
 		}
 		if addr != "" {
-			msg.Attendees = append(msg.Attendees, EmailAddress{Email: addr})
+			msg.Attendees = append(msg.Attendees, jmapmail.EmailAddress{Email: addr})
 		}
 		if partStat := attProp.Params.Get("PARTSTAT"); partStat != "" && msg.Status == "" {
 			msg.Status = partStat

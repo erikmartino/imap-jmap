@@ -255,8 +255,10 @@ func (b *IMAPSMTPBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map
 	if err == nil && len(emails) > 0 {
 		return emails[0], nil
 	}
-
-	return &jmap.Email{ID: origID}, nil
+	if err != nil {
+		return nil, err
+	}
+	return nil, fmt.Errorf("email not found: %s", origID)
 }
 
 // DeleteEmail removes an email from IMAP via \Deleted flag and EXPUNGE.

@@ -1,10 +1,15 @@
-package jmap
+package jmapcalendar
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmapmail"
+	"imap-jmap/jmap/jmapprincipals"
 )
 
 // This file implements the iTIP scheduling dispatch rules of JMAP for Calendars
@@ -28,7 +33,7 @@ func normalizeCalendarAddress(addr string) string {
 	if i := strings.Index(strings.ToLower(addr), "mailto:"); i == 0 {
 		addr = addr[len("mailto:"):]
 	}
-	return strings.ToLower(strings.TrimSpace(addr))
+	return strings.ToLower(addr)
 }
 
 // isOwnerParticipant reports whether a participant holds the "owner" role (the
@@ -41,14 +46,35 @@ func isOwnerParticipant(p *JSCalendarParticipant) bool {
 	return (p.Roles != nil && p.Roles["owner"]) || p.Role == "owner"
 }
 
-// participantAddress returns the best scheduling (imip) address for a participant:
-// its sendTo imip method, else its email, else the participants map key.
+// organizerAddress extracts the normalized organizer email from the event.
+func organizerAddress(ev *CalendarEvent) string {
+	if ev == nil {
+		return ""
+	}
+	if ev.OrganizerCalendarAddress != "" {
+		return normalizeCalendarAddress(ev.OrganizerCalendarAddress)
+	}
+	for _, p := range ev.Participants {
+		if p == nil {
+			continue
+		}
+		if (p.Roles != nil && p.Roles["owner"]) || p.Role == "owner" {
+			if p.CalendarAddress != "" {
+				return normalizeCalendarAddress(p.CalendarAddress)
+			}
+			if p.Email != "" {
+				return normalizeCalendarAddress(p.Email)
+			}
+		}
+	}
+	return ""
+}
+
+// participantAddress returns the best email/calendar-address for a participant.
 func participantAddress(key string, p *JSCalendarParticipant) string {
 	if p != nil {
-		if p.SendTo != nil {
-			if v, ok := p.SendTo["imip"]; ok && v != "" {
-				return normalizeCalendarAddress(v)
-			}
+		if p.CalendarAddress != "" {
+			return normalizeCalendarAddress(p.CalendarAddress)
 		}
 		if p.Email != "" {
 			return normalizeCalendarAddress(p.Email)
@@ -57,80 +83,66 @@ func participantAddress(key string, p *JSCalendarParticipant) string {
 	return normalizeCalendarAddress(key)
 }
 
-// organizerAddress returns the calendar address of the event's organizer: the
-// replyTo imip method if present, else the address of the first owner-role
-// participant. It is "" when the event carries no organizer information.
-func organizerAddress(ev *CalendarEvent) string {
-	if ev == nil {
-		return ""
-	}
-	if ev.OrganizerCalendarAddress != "" {
-		return normalizeCalendarAddress(ev.OrganizerCalendarAddress)
-	}
-	if ev.ReplyTo != nil {
-		if v, ok := ev.ReplyTo["imip"]; ok && v != "" {
-			return normalizeCalendarAddress(v)
-		}
-		// Any replyTo method is better than nothing.
-		for _, v := range ev.ReplyTo {
-			if v != "" {
-				return normalizeCalendarAddress(v)
-			}
-		}
-	}
-	for key, p := range ev.Participants {
-		if isOwnerParticipant(p) {
-			return participantAddress(key, p)
-		}
-	}
-	return ""
-}
-
-// schedulingRecipients returns the addresses that MUST receive a REQUEST/CANCEL:
-// every participant except owner-role participants and the organizer address
-// (draft-ietf-jmap-calendars-27 Section 5.9.2.1). The map is keyed by the
-// participants map key so callers can build a per-recipient hideAttendees view.
+// schedulingRecipients returns the map of participantKey -> normalizedEmail for all
+// participants who should receive scheduling messages (excluding the organizer/owner).
 func schedulingRecipients(ev *CalendarEvent) map[string]string {
-	out := make(map[string]string)
+	recipients := make(map[string]string)
 	if ev == nil {
-		return out
+		return recipients
 	}
-	organizer := organizerAddress(ev)
+	org := organizerAddress(ev)
 	for key, p := range ev.Participants {
-		if isOwnerParticipant(p) {
+		if p == nil {
 			continue
 		}
 		addr := participantAddress(key, p)
-		if addr == "" || addr == organizer {
+		if addr == "" {
 			continue
 		}
-		out[key] = addr
+		// The organizer/owner never receives their own outgoing request/cancel.
+		if org != "" && addr == org {
+			continue
+		}
+		if (p.Roles != nil && p.Roles["owner"]) || p.Role == "owner" {
+			continue
+		}
+		recipients[key] = addr
 	}
-	return out
+	return recipients
 }
 
-// eventForRecipient returns the event to encode in a REQUEST for a single
-// recipient. When hideAttendees is set, only the owner(s) and the recipient
-// appear in the participant list (Section 5.9.2.1): "the recipient MUST be the
-// only attendee in the message; all others are omitted."
+// eventForRecipient returns a copy of the event tailored for the recipient: when
+// hideAttendees is true, all other participants are stripped so the recipient sees
+// only themselves and the organizer (draft-ietf-jmap-calendars-27 Section 5.9.2.1).
 func eventForRecipient(ev *CalendarEvent, recipientKey string) *CalendarEvent {
-	if ev == nil || !ev.HideAttendees {
+	if ev == nil || !ev.HideAttendees || len(ev.Participants) <= 1 {
 		return ev
 	}
-	clone := *ev
-	clone.Participants = make(map[string]*JSCalendarParticipant, 2)
-	for key, p := range ev.Participants {
-		if key == recipientKey || isOwnerParticipant(p) {
-			clone.Participants[key] = p
+	b, err := json.Marshal(ev)
+	if err != nil {
+		return ev
+	}
+	var clone CalendarEvent
+	if err := json.Unmarshal(b, &clone); err != nil {
+		return ev
+	}
+	filtered := make(map[string]*JSCalendarParticipant)
+	for k, p := range clone.Participants {
+		if p == nil {
+			continue
+		}
+		if k == recipientKey || (p.Roles != nil && p.Roles["owner"]) || p.Role == "owner" {
+			filtered[k] = p
 		}
 	}
+	clone.Participants = filtered
 	return &clone
 }
 
 // sendSchedulingEmail persists an iMIP email (RFC 6047) carrying an iTIP body part
 // and submits it. The body part's Content-Type method parameter matches the
 // iCalendar METHOD (RFC 6047 Section 2.4).
-func sendSchedulingEmail(ctx context.Context, mailBackend MailBackend, subject, fromAddr, toAddr, ics, method string) error {
+func sendSchedulingEmail(ctx context.Context, mailBackend jmapmail.MailBackend, subject, fromAddr, toAddr, ics, method string) error {
 	if mailBackend == nil || toAddr == "" || ics == "" {
 		return fmt.Errorf("missing mailBackend, toAddr, or ics data")
 	}
@@ -138,22 +150,22 @@ func sendSchedulingEmail(ctx context.Context, mailBackend MailBackend, subject, 
 		fromAddr = "calendar@example.com"
 	}
 	p1 := "1"
-	email := &Email{
-		MailboxIDs: map[Id]bool{"mb-sent": true},
+	email := &jmapmail.Email{
+		MailboxIDs: map[jmapcore.Id]bool{"mb-sent": true},
 		Subject:    subject,
-		From:       []EmailAddress{{Email: fromAddr}},
-		To:         []EmailAddress{{Email: toAddr}},
-		BodyStructure: EmailBodyPart{
+		From:       []jmapmail.EmailAddress{{Email: fromAddr}},
+		To:         []jmapmail.EmailAddress{{Email: toAddr}},
+		BodyStructure: jmapmail.EmailBodyPart{
 			PartID: &p1,
 			Type:   "text/calendar; method=" + method,
 			Size:   uint64(len(ics)),
 		},
-		TextBody: []EmailBodyPart{{
+		TextBody: []jmapmail.EmailBodyPart{{
 			PartID: &p1,
 			Type:   "text/calendar; method=" + method,
 			Size:   uint64(len(ics)),
 		}},
-		BodyValues: map[string]EmailBodyValue{
+		BodyValues: map[string]jmapmail.EmailBodyValue{
 			"1": {Value: ics},
 		},
 	}
@@ -161,12 +173,12 @@ func sendSchedulingEmail(ctx context.Context, mailBackend MailBackend, subject, 
 	if err != nil || saved == nil {
 		return err
 	}
-	_, err = mailBackend.CreateSubmission(ctx, &EmailSubmission{
+	_, err = mailBackend.CreateSubmission(ctx, &jmapmail.EmailSubmission{
 		EmailID:  saved.ID,
 		ThreadID: saved.ThreadID,
-		Envelope: &SubmissionEnvelope{
-			MailFrom: SubmissionAddress{Email: fromAddr},
-			RcptTo:   []SubmissionAddress{{Email: toAddr}},
+		Envelope: &jmapmail.SubmissionEnvelope{
+			MailFrom: jmapmail.SubmissionAddress{Email: fromAddr},
+			RcptTo:   []jmapmail.SubmissionAddress{{Email: toAddr}},
 		},
 	})
 	return err
@@ -178,34 +190,37 @@ func sendSchedulingEmail(ctx context.Context, mailBackend MailBackend, subject, 
 // recipient's backend assigns its own and the copy lands in the recipient's default
 // calendar.
 func cloneEventForDelivery(ev *CalendarEvent) *CalendarEvent {
-	data, err := json.Marshal(ev)
+	if ev == nil {
+		return nil
+	}
+	b, err := json.Marshal(ev)
 	if err != nil {
 		return nil
 	}
-	var clone CalendarEvent
-	if err := json.Unmarshal(data, &clone); err != nil {
+	var copyEv CalendarEvent
+	if err := json.Unmarshal(b, &copyEv); err != nil {
 		return nil
 	}
-	clone.ID = ""
-	clone.CalendarIDs = nil
-	clone.Created = ""
-	clone.Updated = ""
-	return &clone
+	copyEv.ID = ""
+	copyEv.CalendarIDs = nil
+	copyEv.Created = ""
+	copyEv.Updated = ""
+	copyEv.IsOrigin = false
+	return &copyEv
 }
 
-// findEventByUIDIn returns the event in the given (account) context whose iCalendar
-// uid matches (RFC 5546 Section 2.1.5), or nil.
-func findEventByUIDIn(ctx context.Context, calBackend CalendarsBackend, uid string) *CalendarEvent {
-	if calBackend == nil || uid == "" {
+// findEventByUIDIn finds a CalendarEvent with matching uid in the target account.
+func findEventByUIDIn(ctx context.Context, backend CalendarsBackend, uid string) *CalendarEvent {
+	if backend == nil || uid == "" {
 		return nil
 	}
-	all, err := calBackend.GetAllCalendarEvents(ctx)
+	events, err := backend.GetAllCalendarEvents(ctx)
 	if err != nil {
 		return nil
 	}
-	for _, ev := range all {
-		if ev != nil && ev.UID == uid {
-			return ev
+	for _, e := range events {
+		if e != nil && e.UID == uid {
+			return e
 		}
 	}
 	return nil
@@ -214,7 +229,7 @@ func findEventByUIDIn(ctx context.Context, calBackend CalendarsBackend, uid stri
 // localAccountCtx resolves an address to a local account context, or (nil,false) when
 // the address is external or unresolvable. This is how the server acts as the calendar
 // agent for a participant that lives on this same server (same-server iTIP delivery).
-func localAccountCtx(resolver AccountResolver, addr string) (context.Context, bool) {
+func localAccountCtx(resolver jmapauth.AccountResolver, addr string) (context.Context, bool) {
 	if resolver == nil || addr == "" {
 		return nil, false
 	}
@@ -232,7 +247,7 @@ func localAccountCtx(resolver AccountResolver, addr string) (context.Context, bo
 // the event (with the recipient's participation still pending) the first time, and
 // re-syncs the mutable details on a subsequent REQUEST. A CalendarEventNotification
 // records the change as made by the organizer (draft-ietf-jmap-calendars-27 Section 7).
-func deliverRequestLocal(calBackend CalendarsBackend, resolver AccountResolver, ev *CalendarEvent, recipientKey, recipientAddr string) bool {
+func deliverRequestLocal(calBackend CalendarsBackend, resolver jmapauth.AccountResolver, ev *CalendarEvent, recipientKey, recipientAddr string) bool {
 	rcptCtx, ok := localAccountCtx(resolver, recipientAddr)
 	if !ok || calBackend == nil {
 		return false
@@ -267,7 +282,7 @@ func deliverRequestLocal(calBackend CalendarsBackend, resolver AccountResolver, 
 // deliverReplyLocal applies an attendee's REPLY into a local organizer's copy of the
 // event (matched by uid), updating that participant's participationStatus and recording
 // a CalendarEventNotification (draft-ietf-jmap-calendars-27 Section 5.9.2.3 / Section 7).
-func deliverReplyLocal(calBackend CalendarsBackend, resolver AccountResolver, ev *CalendarEvent, attendeeAddr, status string) bool {
+func deliverReplyLocal(calBackend CalendarsBackend, resolver jmapauth.AccountResolver, ev *CalendarEvent, attendeeAddr, status string) bool {
 	orgCtx, ok := localAccountCtx(resolver, organizerAddress(ev))
 	if !ok || calBackend == nil {
 		return false
@@ -319,7 +334,7 @@ func deliverReplyLocal(calBackend CalendarsBackend, resolver AccountResolver, ev
 
 // deliverCancelLocal marks a local recipient's copy of the event cancelled when the
 // organizer destroys it (draft-ietf-jmap-calendars-27 Section 5.9.2.2).
-func deliverCancelLocal(calBackend CalendarsBackend, resolver AccountResolver, ev *CalendarEvent, recipientAddr string) bool {
+func deliverCancelLocal(calBackend CalendarsBackend, resolver jmapauth.AccountResolver, ev *CalendarEvent, recipientAddr string) bool {
 	rcptCtx, ok := localAccountCtx(resolver, recipientAddr)
 	if !ok || calBackend == nil {
 		return false
@@ -341,9 +356,9 @@ func deliverCancelLocal(calBackend CalendarsBackend, resolver AccountResolver, e
 	return err == nil
 }
 
-// expandGroupRecipients expands any group recipient into individual member addresses
-// when PrincipalsBackend is available.
-func expandGroupRecipients(ctx context.Context, principalsBackend PrincipalsBackend, recipients map[string]string) map[string]string {
+// ExpandGroupRecipients expands any group recipient into individual member addresses
+// so invites and updates reach all members per draft-ietf-jmap-calendars-27 Section 6.
+func ExpandGroupRecipients(ctx context.Context, principalsBackend jmapprincipals.PrincipalsBackend, recipients map[string]string) map[string]string {
 	if principalsBackend == nil || len(recipients) == 0 {
 		return recipients
 	}
@@ -352,8 +367,8 @@ func expandGroupRecipients(ctx context.Context, principalsBackend PrincipalsBack
 		return recipients
 	}
 
-	principalByID := make(map[Id]*Principal, len(allPrincipals))
-	principalByEmail := make(map[string]*Principal, len(allPrincipals))
+	principalByID := make(map[jmapcore.Id]*jmapprincipals.Principal, len(allPrincipals))
+	principalByEmail := make(map[string]*jmapprincipals.Principal, len(allPrincipals))
 	for _, p := range allPrincipals {
 		if p != nil {
 			principalByID[p.ID] = p
@@ -368,12 +383,12 @@ func expandGroupRecipients(ctx context.Context, principalsBackend PrincipalsBack
 		normAddr := normalizeCalendarAddress(addr)
 		p, isPrincipal := principalByEmail[normAddr]
 		if !isPrincipal {
-			p = principalByID[Id(key)]
+			p = principalByID[jmapcore.Id(key)]
 		}
 
 		if p != nil && p.Type == "group" && len(p.Members) > 0 {
 			for memberID := range p.Members {
-				if member, ok := principalByID[Id(memberID)]; ok && member != nil && member.Email != "" {
+				if member, ok := principalByID[jmapcore.Id(memberID)]; ok && member != nil && member.Email != "" {
 					expanded[string(member.ID)] = normalizeCalendarAddress(member.Email)
 				}
 			}
@@ -389,7 +404,7 @@ func expandGroupRecipients(ctx context.Context, principalsBackend PrincipalsBack
 // recipient, and hideAttendees is honoured. Recipients local to this server also receive
 // the event directly in their calendar (same-server iTIP delivery); external recipients
 // get an iMIP email. It also records the per-participant scheduleStatus (SEC-7 / RFC 6638 Section 3.2.14).
-func dispatchITIPRequests(ctx context.Context, mailBackend MailBackend, calBackend CalendarsBackend, principalsBackend PrincipalsBackend, resolver AccountResolver, ev *CalendarEvent, subjectPrefix, organizerEmail string) {
+func dispatchITIPRequests(ctx context.Context, mailBackend jmapmail.MailBackend, calBackend CalendarsBackend, principalsBackend jmapprincipals.PrincipalsBackend, resolver jmapauth.AccountResolver, ev *CalendarEvent, subjectPrefix, organizerEmail string) {
 	if ev == nil {
 		return
 	}
@@ -431,7 +446,7 @@ func dispatchITIPRequests(ctx context.Context, mailBackend MailBackend, calBacke
 // dispatchITIPCancels sends a METHOD:CANCEL to every scheduling recipient of the event
 // (draft-ietf-jmap-calendars-27 Section 5.9.2.2), cancelling local recipients' copies and
 // emailing external recipients.
-func dispatchITIPCancels(ctx context.Context, mailBackend MailBackend, calBackend CalendarsBackend, principalsBackend PrincipalsBackend, resolver AccountResolver, ev *CalendarEvent, organizerEmail string) {
+func dispatchITIPCancels(ctx context.Context, mailBackend jmapmail.MailBackend, calBackend CalendarsBackend, principalsBackend jmapprincipals.PrincipalsBackend, resolver jmapauth.AccountResolver, ev *CalendarEvent, organizerEmail string) {
 	if ev == nil {
 		return
 	}
@@ -460,7 +475,7 @@ func dispatchITIPCancels(ctx context.Context, mailBackend MailBackend, calBacken
 // local organizer's copy, or emailed to an external organizer. It returns true when at
 // least one REPLY was produced, so the caller can skip the origin REQUEST path — a bare
 // RSVP is a reply, not a re-invitation.
-func dispatchITIPRepliesForPatch(ctx context.Context, mailBackend MailBackend, calBackend CalendarsBackend, resolver AccountResolver, ev *CalendarEvent, patch map[string]any) bool {
+func dispatchITIPRepliesForPatch(ctx context.Context, mailBackend jmapmail.MailBackend, calBackend CalendarsBackend, resolver jmapauth.AccountResolver, ev *CalendarEvent, patch map[string]any) bool {
 	if ev == nil || len(patch) == 0 {
 		return false
 	}

@@ -10,14 +10,11 @@ import (
 // are read from the correct account. An empty or "primary" fromAccountId means the caller's own
 // account, i.e. the context is left unchanged.
 func SourceAccountContext(ctx context.Context, args map[string]any) context.Context {
-	if raw, _ := args["fromAccountId"].(string); raw != "" && raw != "primary" {
-		return ContextWithAccountID(ctx, raw)
-	}
-	return ctx
+	return jmapcopy.SourceAccountContext(ctx, args)
 }
 
 func sourceAccountContext(ctx context.Context, args map[string]any) context.Context {
-	return SourceAccountContext(ctx, args)
+	return jmapcopy.SourceAccountContext(ctx, args)
 }
 
 // ResolveCopyAccountIDs extracts the target accountId and source fromAccountId per RFC 8620 Section 5.4.

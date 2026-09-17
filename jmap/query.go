@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode"
 
-	"imap-jmap/jmap/jmapcalendar"
+	"imap-jmap/jmap/jmapcore"
 )
 
 // parseQueryPosition extracts the "position" argument per RFC 8620 Section 5.5: an integer
@@ -102,116 +102,21 @@ type FilterCondition struct {
 	HasAttachment      *bool   `json:"hasAttachment,omitempty"`
 }
 
-// Comparator defines sorting rules per RFC 8621 Section 4.4.2.
-// The canonical definition lives in jmapcalendar; this is a type alias for backward compatibility.
-type Comparator = jmapcalendar.Comparator
+// Comparator defines sorting rules per RFC 8620 Section 5.5.
+// The canonical definition lives in jmapcore; this is a type alias for backward compatibility.
+type Comparator = jmapcore.Comparator
 
 // parseComparators parses the "sort" argument per RFC 8621 Section 4.5.2.
-func parseComparators(args map[string]any) []Comparator {
-	var comparators []Comparator
-	if sortRaw, ok := args["sort"].([]any); ok {
-		for _, item := range sortRaw {
-			if compMap, ok := item.(map[string]any); ok {
-				prop, _ := compMap["property"].(string)
-				asc, isBool := compMap["isAscending"].(bool)
-				if !isBool {
-					asc = true
-				}
-				coll, _ := compMap["collation"].(string)
-				kw, _ := compMap["keyword"].(string)
-				comparators = append(comparators, Comparator{
-					Property:    prop,
-					IsAscending: asc,
-					Collation:   coll,
-					Keyword:     kw,
-				})
-			}
-		}
-	}
-	return comparators
-}
-
-// advertisedCollations are the collation algorithms the server supports (RFC 8620
-// Section 5.5): "i;ascii-casemap" (case-insensitive, the default) and "i;octet"
-// (case-sensitive binary comparison).
-var advertisedCollations = map[string]bool{"i;ascii-casemap": true, "i;octet": true}
-
-// validateComparators enforces RFC 8620 Section 5.5 sort validation: a comparator naming an
-// unsupported property or collation must be rejected with an "unsupportedSort" error, and a
-// keyword sort without its required "keyword" property is invalid (RFC 8621 Section 4.4.2).
-// It returns an empty string when the sort is acceptable.
-func validateComparators(comparators []Comparator, supported map[string]bool) (errType, errMsg string) {
-	for _, c := range comparators {
-		if !supported[c.Property] {
-			return "unsupportedSort", fmt.Sprintf("sort property %q is not supported", c.Property)
-		}
-		if c.Collation != "" && !advertisedCollations[c.Collation] {
-			return "unsupportedSort", fmt.Sprintf("collation %q is not supported", c.Collation)
-		}
-		switch c.Property {
-		case "hasKeyword", "allInThreadHaveKeyword", "someInThreadHaveKeyword":
-			if c.Keyword == "" {
-				return MethodErrorInvalidArguments, fmt.Sprintf("sort property %q requires a \"keyword\" property", c.Property)
-			}
-		}
-	}
-	return "", ""
-}
-
-// computeQueryChanges derives the added/removed deltas for /queryChanges per RFC 8620
-// Section 5.6: destroyed and updated objects are removed from the client's view, and any
-// created or updated object still matching the query's filter is re-added at its real
-// position in the current filtered and sorted result set (so the added array is sorted by
-// index with the lowest first). When an "upToId" is supplied and exists in the results,
-// added ids with a higher index than the anchor, and updated ids re-added beyond it, are
-// omitted because the client has not cached past that point.
-func computeQueryChanges(created, updated, destroyed, currentIDs []Id, upToId string) (added []map[string]any, removed []Id) {
-	position := make(map[Id]int, len(currentIDs))
-	for i, id := range currentIDs {
-		position[id] = i
-	}
-
-	isChanged := make(map[Id]bool, len(created)+len(updated))
-	for _, id := range created {
-		isChanged[id] = true
-	}
-	for _, id := range updated {
-		isChanged[id] = true
-	}
-
-	upToIndex := -1
-	if upToId != "" {
-		// upToId only truncates when it exists in the results; a missing id must leave the
-		// deltas untouched (RFC 8620 Section 5.6: "exists in the results").
-		if idx, ok := position[Id(upToId)]; ok {
-			upToIndex = idx
-		}
-	}
-
-	added = make([]map[string]any, 0, len(created)+len(updated))
-	for _, id := range currentIDs {
-		if isChanged[id] {
-			if upToIndex >= 0 && position[id] > upToIndex {
-				continue
-			}
-			added = append(added, map[string]any{"id": id, "index": position[id]})
-		}
-	}
-
-	removed = make([]Id, 0, len(updated)+len(destroyed))
-	removed = append(removed, destroyed...)
-	for _, id := range updated {
-		idx, isCurrent := position[id]
-		if upToIndex >= 0 && isCurrent && idx > upToIndex {
-			continue
-		}
-		removed = append(removed, id)
-	}
-	if removed == nil {
-		removed = []Id{}
-	}
-	return added, removed
-}
+var (
+	parseComparators     = jmapcore.ParseComparators
+	ParseComparators     = jmapcore.ParseComparators
+	advertisedCollations = jmapcore.AdvertisedCollations
+	AdvertisedCollations = jmapcore.AdvertisedCollations
+	validateComparators  = jmapcore.ValidateComparators
+	ValidateComparators  = jmapcore.ValidateComparators
+	computeQueryChanges  = jmapcore.ComputeQueryChanges
+	ComputeQueryChanges  = jmapcore.ComputeQueryChanges
+)
 
 // ThreadFilterContext provides thread-level keyword counts for query filters.
 type ThreadFilterContext struct {
@@ -219,55 +124,8 @@ type ThreadFilterContext struct {
 	ThreadEmailsWithKw map[Id]map[string]int
 }
 
-// EvalFilterOperator evaluates an RFC 8620 Section 5.5 FilterOperator object (contains
-// "operator" and "conditions" properties) using the provided matchCondition function for each
-// condition. It returns (matched, true) if filter is a FilterOperator, or (false, false) if
-// filter is not an operator (i.e. it is a FilterCondition).
-func EvalFilterOperator(filter map[string]any, matchCondition func(map[string]any) bool) (bool, bool) {
-	if filter == nil {
-		return true, false
-	}
-	opRaw, ok := filter["operator"].(string)
-	if !ok {
-		return false, false
-	}
-	var conds []map[string]any
-	if rawConds, ok := filter["conditions"].([]any); ok {
-		for _, c := range rawConds {
-			if cm, ok := c.(map[string]any); ok {
-				conds = append(conds, cm)
-			}
-		}
-	} else if rawConds, ok := filter["conditions"].([]map[string]any); ok {
-		conds = rawConds
-	}
-
-	switch strings.ToUpper(opRaw) {
-	case "AND":
-		for _, condMap := range conds {
-			if !matchCondition(condMap) {
-				return false, true
-			}
-		}
-		return true, true
-	case "OR":
-		for _, condMap := range conds {
-			if matchCondition(condMap) {
-				return true, true
-			}
-		}
-		return false, true
-	case "NOT":
-		for _, condMap := range conds {
-			if matchCondition(condMap) {
-				return false, true
-			}
-		}
-		return true, true
-	default:
-		return true, true
-	}
-}
+// EvalFilterOperator evaluates an RFC 8620 Section 5.5 FilterOperator object.
+var EvalFilterOperator = jmapcore.EvalFilterOperator
 
 // MatchesFilter checks if an email matches a filter object per RFC 8621 Section 4.5.
 func MatchesFilter(em *Email, filter map[string]any) bool {

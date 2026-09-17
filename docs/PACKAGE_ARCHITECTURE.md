@@ -162,13 +162,13 @@ Once all callers (`nextcloud`, `smtp`, test files) import sub-packages directly,
 
 | Step | Status |
 |---|---|
-| Step 1: `jmaphandler` | ⬜ todo |
-| Step 2: `jmapauth` | ⬜ todo |
-| Step 3: `BlobBackend` → `jmapblob` | ⬜ todo |
-| Step 4: `jmapmail` | ⬜ todo |
-| Step 5: `jmapprincipals` | ⬜ todo |
-| Step 6: calendar handlers → `jmapcalendar` | ⬜ todo (blocked on 1–5) |
-| Step 7: contacts → `jmapcontacts` | ⬜ todo |
-| Step 8: sieve → `jmapsieve` | ⬜ todo |
+| Step 1: `jmaphandler` | ✅ done |
+| Step 2: `jmapauth` | ✅ done |
+| Step 3: `BlobBackend` → `jmapblob` | ✅ done |
+| Step 4: `jmapmail` | ✅ done |
+| Step 5: `jmapprincipals` | ✅ done |
+| Step 6: calendar handlers → `jmapcalendar` | ✅ done |
+| Step 7: contacts → `jmapcontacts` | ✅ done |
+| Step 8: sieve → `jmapsieve` | ✅ done |
 | Step 9: mail handlers → `jmapmail` | ⬜ todo |
 | Step 10: remove aliases | ⬜ todo |

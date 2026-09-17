@@ -8,8 +8,6 @@ import (
 	"imap-jmap/jmap/jmapcore"
 )
 
-type Id = jmapcore.Id
-
 // StateChange represents an RFC 8620 Section 7.1 StateChange event payload.
 // @spec RFC8620#7.1-p1-MUST
 type StateChange struct {
@@ -21,7 +19,7 @@ type StateChange struct {
 // @spec RFC8620#5.2-p1-MUST
 type ChangeEntry struct {
 	Action string // "create", "update", "destroy"
-	ID     Id
+	ID     jmapcore.Id
 	State  uint64 // the state token produced by this mutation
 }
 
@@ -69,7 +67,7 @@ func ParseNumericStateToken(s string) (uint64, bool) {
 
 // Record registers a change for the given id/action and returns the new state
 // token to be assigned to the affected data type.
-func (t *ChangeTracker) Record(id Id, action string) string {
+func (t *ChangeTracker) Record(id jmapcore.Id, action string) string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.counter++
@@ -83,7 +81,7 @@ func (t *ChangeTracker) Record(id Id, action string) string {
 // Changes resolves mutations since the given state token into created, updated,
 // and destroyed id lists per RFC 8620 Section 5.2. If the client state is older
 // than the retained history, or if maxChanges is exceeded, hasMoreChanges is true.
-func (t *ChangeTracker) Changes(sinceState string, maxChanges ...*uint64) (created, updated, destroyed []Id, newState string, hasMore bool) {
+func (t *ChangeTracker) Changes(sinceState string, maxChanges ...*uint64) (created, updated, destroyed []jmapcore.Id, newState string, hasMore bool) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	newState = fmt.Sprintf("~%d", t.counter)
@@ -135,8 +133,8 @@ func (t *ChangeTracker) Changes(sinceState string, maxChanges ...*uint64) (creat
 	}
 
 	// Resolve each id's final action within the window [start, end).
-	first := make(map[Id]bool) // true if the id was created within the window
-	last := make(map[Id]string)
+	first := make(map[jmapcore.Id]bool) // true if the id was created within the window
+	last := make(map[jmapcore.Id]string)
 	for i := start; i < end; i++ {
 		e := t.history[i]
 		if _, seen := last[e.ID]; !seen {

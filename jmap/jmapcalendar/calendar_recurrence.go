@@ -1,4 +1,4 @@
-package jmap
+package jmapcalendar
 
 import (
 	"sort"
@@ -6,7 +6,14 @@ import (
 	"time"
 
 	"github.com/teambition/rrule-go"
+
+	"imap-jmap/jmap/jmapcore"
 )
+
+// containsFold reports a case-insensitive substring match.
+func containsFold(haystack, needle string) bool {
+	return strings.Contains(strings.ToLower(haystack), strings.ToLower(needle))
+}
 
 func matchEventText(ev *CalendarEvent, q string) bool {
 	if containsFold(ev.Title, q) || containsFold(ev.Description, q) {
@@ -49,7 +56,7 @@ func matchCalendarEventInLoc(ev *CalendarEvent, filter map[string]any, loc *time
 		case "__timeZone":
 		case "inCalendar":
 			calID, ok := v.(string)
-			if !ok || !ev.CalendarIDs[Id(calID)] {
+			if !ok || !ev.CalendarIDs[jmapcore.Id(calID)] {
 				return false
 			}
 		case "inCalendars":
@@ -59,7 +66,7 @@ func matchCalendarEventInLoc(ev *CalendarEvent, filter map[string]any, loc *time
 			}
 			matched := false
 			for _, item := range raw {
-				if calID, ok := item.(string); ok && ev.CalendarIDs[Id(calID)] {
+				if calID, ok := item.(string); ok && ev.CalendarIDs[jmapcore.Id(calID)] {
 					matched = true
 					break
 				}
@@ -531,7 +538,7 @@ func eventStartsBefore(ev *CalendarEvent, date string, loc *time.Location) bool 
 	return false
 }
 
-func SortCalendarEvents(events []*CalendarEvent, comparators []Comparator) {
+func SortCalendarEvents(events []*CalendarEvent, comparators []jmapcore.Comparator) {
 	sort.SliceStable(events, func(i, j int) bool {
 		for _, comp := range comparators {
 			var cmp int

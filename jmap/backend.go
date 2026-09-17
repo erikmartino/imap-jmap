@@ -2,166 +2,50 @@ package jmap
 
 import (
 	"context"
-	"errors"
 
+	"imap-jmap/jmap/jmapblob"
 	"imap-jmap/jmap/jmapcalendar"
+	"imap-jmap/jmap/jmapcontacts"
+	"imap-jmap/jmap/jmapmail"
+	"imap-jmap/jmap/jmapprincipals"
+	"imap-jmap/jmap/jmapsieve"
 )
 
 // ErrBlobNotFound indicates the blob referenced by an MDN/parse or Email/import
 // request does not exist for the given account, per RFC 9007 Section 2.2.
-var ErrBlobNotFound = errors.New("blob not found")
+var ErrBlobNotFound = jmapblob.ErrBlobNotFound
 
 // MailBackend defines the storage interface for JMAP Mail & Quota resources per RFC 8621, RFC 9219, & RFC 9425.
-type MailBackend interface {
-	// State returns the current change state token for mail data.
-	State(ctx context.Context) string
-
-	// Mailboxes (RFC 8621 Section 2)
-	MailboxState(ctx context.Context) string
-	MailboxChanges(ctx context.Context, sinceState string, maxChanges *uint64) (created, updated, destroyed []Id, updatedProperties []string, newState string, hasMoreChanges bool)
-	GetMailboxes(ctx context.Context, ids []Id) (list []*Mailbox, notFound []Id, err error)
-	GetAllMailboxes(ctx context.Context) ([]*Mailbox, error)
-	CreateMailbox(ctx context.Context, mb *Mailbox) (*Mailbox, error)
-	UpdateMailbox(ctx context.Context, id Id, patch map[string]any) (*Mailbox, error)
-	DeleteMailbox(ctx context.Context, id Id, onDestroyRemoveMessages bool) (bool, error)
-
-	// Threads (RFC 8621 Section 3)
-	ThreadState(ctx context.Context) string
-	ThreadChanges(ctx context.Context, sinceState string, maxChanges *uint64) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
-	GetThreads(ctx context.Context, ids []Id) (list []*Thread, notFound []Id, err error)
-	GetAllThreads(ctx context.Context) ([]*Thread, error)
-
-	// Emails (RFC 8621 Section 4)
-	EmailState(ctx context.Context) string
-	EmailChanges(ctx context.Context, sinceState string, maxChanges *uint64) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
-	GetEmails(ctx context.Context, ids []Id) (list []*Email, notFound []Id, err error)
-	GetAllEmails(ctx context.Context) ([]*Email, error)
-	CreateEmail(ctx context.Context, em *Email) (*Email, error)
-	UpdateEmail(ctx context.Context, id Id, patch map[string]any) (*Email, error)
-	DeleteEmail(ctx context.Context, id Id) (bool, error)
-	QueryEmails(ctx context.Context, filter map[string]any, comparators []Comparator, position int, limit *uint64) (ids []Id, total int, err error)
-
-	// S/MIME Verification (RFC 9219 Section 4)
-	VerifySmime(ctx context.Context, ids []Id) (verified map[Id]*SmimeVerificationResult, notFound []Id, err error)
-
-	// Quotas (RFC 9425 Section 4)
-	QuotaState(ctx context.Context) string
-	QuotaChanges(ctx context.Context, sinceState string, maxChanges *uint64) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
-	GetQuotas(ctx context.Context, ids []Id) (list []*Quota, notFound []Id, err error)
-	GetAllQuotas(ctx context.Context) ([]*Quota, error)
-
-	// Identities (RFC 8621 Section 6)
-	IdentityState(ctx context.Context) string
-	IdentityChanges(ctx context.Context, sinceState string, maxChanges *uint64) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
-	GetIdentities(ctx context.Context) ([]*Identity, error)
-	CreateIdentity(ctx context.Context, identity *Identity) (*Identity, error)
-	UpdateIdentity(ctx context.Context, id Id, patch map[string]any) (*Identity, error)
-	DeleteIdentity(ctx context.Context, id Id) (bool, error)
-
-	// VacationResponse is a per-account singleton (id "singleton") per RFC 8621 Section 8.
-	VacationResponseState(ctx context.Context) string
-	GetVacationResponse(ctx context.Context) (*VacationResponse, error)
-	UpdateVacationResponse(ctx context.Context, patch map[string]any) (*VacationResponse, error)
-
-	// Submissions (RFC 8621 Section 7)
-	SubmissionState(ctx context.Context) string
-	SubmissionChanges(ctx context.Context, sinceState string, maxChanges *uint64) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
-	CreateSubmission(ctx context.Context, sub *EmailSubmission) (*EmailSubmission, error)
-	UpdateSubmission(ctx context.Context, id Id, patch map[string]any) (*EmailSubmission, error)
-	DeleteSubmission(ctx context.Context, id Id) (bool, error)
-	GetSubmissions(ctx context.Context, ids []Id) (list []*EmailSubmission, notFound []Id, err error)
-	GetAllSubmissions(ctx context.Context) ([]*EmailSubmission, error)
-	QuerySubmissions(ctx context.Context, filter map[string]any, comparators []Comparator, position int, limit *uint64) ([]Id, int, error)
-
-	// MDN (RFC 9007 Section 3)
-	SendMDN(ctx context.Context, mdn *MDN) (*MDN, error)
-	ParseMDN(ctx context.Context, blobID Id) (*MDN, error)
-
-	// PushSubscription (RFC 8620 Section 7.2)
-	GetPushSubscriptions(ctx context.Context, ids []Id) (list []*PushSubscription, notFound []Id, err error)
-	GetAllPushSubscriptions(ctx context.Context) ([]*PushSubscription, error)
-	CreatePushSubscription(ctx context.Context, sub *PushSubscription) (*PushSubscription, error)
-	UpdatePushSubscription(ctx context.Context, id Id, patch map[string]any) (*PushSubscription, error)
-	DeletePushSubscription(ctx context.Context, id Id) (bool, error)
-}
+type MailBackend = jmapmail.MailBackend
 
 // SMTPAvailableBackend is an optional interface that MailBackend implementations can fulfill
 // to indicate whether an outer SMTP server is available for outbound message dispatch.
-type SMTPAvailableBackend interface {
-	HasSMTPServer() bool
-}
+type SMTPAvailableBackend = jmapmail.SMTPAvailableBackend
 
 // BlobBackend defines the storage interface for binary blobs per RFC 8620 Section 6 and RFC 9404.
-type BlobBackend interface {
-	PutBlob(ctx context.Context, accountID, contentType string, data []byte) (*Blob, error)
-	GetBlob(ctx context.Context, accountID, blobID string) (*Blob, bool, error)
-	GetAllBlobs(ctx context.Context, accountID string) ([]*Blob, error)
-	CopyBlob(ctx context.Context, fromAccountID, toAccountID string, blobID string) (*Blob, error)
-}
+type BlobBackend = jmapblob.BlobBackend
 
 // BlobReferenceBackend performs the reverse lookup of which typed objects reference a blob,
 // per RFC 9404 Section 4.3. Implemented by the data store that holds the referencing types.
-type BlobReferenceBackend interface {
-	LookupBlobReferences(ctx context.Context, typeNames []string, blobID Id) (map[string][]Id, error)
-}
+type BlobReferenceBackend = jmapblob.BlobReferenceBackend
 
-// OutboundDeliveryResult is the outcome of delivering a raw message to one external
-// recipient via the outbound relay: whether the message was accepted, and the SMTP
-// reply (e.g. "250 2.0.0 OK ..." or "550 5.1.1 <address>: User unknown") the remote
-// server returned, which the EmailSubmission deliveryStatus reports verbatim.
-type OutboundDeliveryResult struct {
-	Delivered bool
-	SmtpReply string
-}
+// OutboundDeliveryResult is the outcome of delivering a raw message to one external recipient.
+type OutboundDeliveryResult = jmapmail.OutboundDeliveryResult
 
-// OutboundMailSender delivers a raw RFC 5322 message to external recipients by
-// relaying it to the recipient domain's SMTP servers (RFC 5321 Section 5.1).
-// Implemented by smtp.MXOutboundSender; injectable so handlers can be tested
-// without touching the network.
-type OutboundMailSender interface {
-	SendMail(ctx context.Context, from string, recipients []string, rawMessage []byte) map[string]OutboundDeliveryResult
-}
+// OutboundMailSender delivers a raw RFC 5322 message to external recipients.
+type OutboundMailSender = jmapmail.OutboundMailSender
 
 // ContactsBackend defines the storage interface for JMAP Contacts resources per RFC 9610.
-type ContactsBackend interface {
-	// AddressBooks (RFC 9610 Section 2)
-	AddressBookState(ctx context.Context) string
-	AddressBookChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
-	GetAddressBooks(ctx context.Context, ids []Id) (list []*AddressBook, notFound []Id, err error)
-	GetAllAddressBooks(ctx context.Context) ([]*AddressBook, error)
-	CreateAddressBook(ctx context.Context, ab *AddressBook) (*AddressBook, error)
-	UpdateAddressBook(ctx context.Context, id Id, patch map[string]any) (*AddressBook, error)
-	DeleteAddressBook(ctx context.Context, id Id, removeContents bool) (bool, error)
-	SetDefaultAddressBook(ctx context.Context, id Id) error
-	AddressBookHasContents(ctx context.Context, id Id) (bool, error)
-
-	// Cards (RFC 9610 Section 3)
-	CardState(ctx context.Context) string
-	CardChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
-	GetCards(ctx context.Context, ids []Id) (list []*Card, notFound []Id, err error)
-	GetAllCards(ctx context.Context) ([]*Card, error)
-	CreateCard(ctx context.Context, card *Card) (*Card, error)
-	UpdateCard(ctx context.Context, id Id, patch map[string]any) (*Card, error)
-	DeleteCard(ctx context.Context, id Id) (bool, error)
-	QueryCards(ctx context.Context, filter map[string]any, comparators []Comparator, position int, limit *uint64) (ids []Id, total int, err error)
-}
+// The canonical definition lives in jmapcontacts; this is a type alias for backward compatibility.
+type ContactsBackend = jmapcontacts.ContactsBackend
 
 // CalendarsBackend defines the storage interface for JMAP Calendars & JSCalendar (RFC 8984) resources.
 // The canonical definition lives in jmapcalendar; this is a type alias for backward compatibility.
 type CalendarsBackend = jmapcalendar.CalendarsBackend
 
 // SieveBackend defines the storage interface for JMAP for Sieve Scripts (RFC 9661) resources.
-type SieveBackend interface {
-	SieveScriptState(ctx context.Context) string
-	SieveScriptChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
-	GetSieveScripts(ctx context.Context, ids []Id) (list []*SieveScript, notFound []Id, err error)
-	GetAllSieveScripts(ctx context.Context) ([]*SieveScript, error)
-	CreateSieveScript(ctx context.Context, script *SieveScript) (*SieveScript, error)
-	UpdateSieveScript(ctx context.Context, id Id, patch map[string]any) (*SieveScript, error)
-	DeleteSieveScript(ctx context.Context, id Id) (bool, error)
-	QuerySieveScripts(ctx context.Context, filter map[string]any, position int, limit *uint64) (ids []Id, total int, err error)
-	ValidateSieveScript(ctx context.Context, content string) (isValid bool, errDetail string)
-}
+// The canonical definition lives in jmapsieve; this is a type alias for backward compatibility.
+type SieveBackend = jmapsieve.SieveBackend
 
 // FileNodeBackend defines the storage interface for the JMAP FileNode file storage extension.
 type FileNodeBackend interface {
@@ -186,14 +70,4 @@ type IMAPAccessBackend interface {
 }
 
 // PrincipalsBackend defines the storage interface for JMAP Principals & Availability (draft-ietf-jmap-principals).
-type PrincipalsBackend interface {
-	PrincipalState(ctx context.Context) string
-	PrincipalChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
-	GetPrincipals(ctx context.Context, ids []Id) (list []*Principal, notFound []Id, err error)
-	GetAllPrincipals(ctx context.Context) ([]*Principal, error)
-	CreatePrincipal(ctx context.Context, principal *Principal) (*Principal, error)
-	UpdatePrincipal(ctx context.Context, id Id, patch map[string]any) (*Principal, error)
-	DeletePrincipal(ctx context.Context, id Id) (bool, error)
-	QueryPrincipals(ctx context.Context, filter map[string]any, position int, limit *uint64) (ids []Id, total int, err error)
-	GetAvailability(ctx context.Context, principalID Id, utcStart, utcEnd string) ([]*AvailabilityWindow, error)
-}
+type PrincipalsBackend = jmapprincipals.PrincipalsBackend

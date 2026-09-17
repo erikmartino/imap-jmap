@@ -83,6 +83,21 @@ const (
 	ErrorLimit             = "urn:ietf:params:jmap:error:limit"
 )
 
+// Standard JMAP method error types per RFC 8620 Section 3.6.2.
+// @spec RFC8620#3.6.2-p1-MUST
+const (
+	MethodErrorUnknownMethod          = "unknownMethod"
+	MethodErrorInvalidArguments       = "invalidArguments"
+	MethodErrorInvalidResultReference = "invalidResultReference"
+	MethodErrorUnknownDataType        = "unknownDataType"
+	MethodErrorAnchorNotFound         = "anchorNotFound"
+	MethodErrorAccountNotFound        = "accountNotFound"
+	MethodErrorServerFail             = "serverFail"
+	MethodErrorForbidden              = "forbidden"
+	MethodErrorRequestTooLarge        = "requestTooLarge"
+	MethodErrorCannotCalculateChanges = "cannotCalculateChanges"
+)
+
 // MethodErrorArgs returns argument map for a standard method error per RFC 8620 Section 3.6.2.
 // @spec RFC8620#3.6.2-p1-MUST
 func MethodErrorArgs(errType string, description string) map[string]any {
