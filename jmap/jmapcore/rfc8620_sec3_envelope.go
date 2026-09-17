@@ -109,3 +109,12 @@ func MethodErrorArgs(errType string, description string) map[string]any {
 	}
 	return args
 }
+
+// InvalidArgumentsErrorArgs returns an invalidArguments method error argument map with optional properties.
+func InvalidArgumentsErrorArgs(properties []string, description string) map[string]any {
+	args := MethodErrorArgs(MethodErrorInvalidArguments, description)
+	if len(properties) > 0 {
+		args["properties"] = properties
+	}
+	return args
+}

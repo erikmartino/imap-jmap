@@ -1,0 +1,624 @@
+package jmapmail
+
+import (
+	"sort"
+	"strings"
+	"unicode"
+
+	"imap-jmap/jmap/jmapcore"
+)
+
+// FilterCondition represents Email/query filter condition properties per RFC 8621 Section 4.5.1.
+type FilterCondition struct {
+	InMailbox          *jmapcore.Id  `json:"inMailbox,omitempty"`
+	InMailboxOtherThan []jmapcore.Id `json:"inMailboxOtherThan,omitempty"`
+	Before             *string       `json:"before,omitempty"`
+	After              *string       `json:"after,omitempty"`
+	MinSize            *uint64       `json:"minSize,omitempty"`
+	MaxSize            *uint64       `json:"maxSize,omitempty"`
+	From               *string       `json:"from,omitempty"`
+	To                 *string       `json:"to,omitempty"`
+	CC                 *string       `json:"cc,omitempty"`
+	BCC                *string       `json:"bcc,omitempty"`
+	Subject            *string       `json:"subject,omitempty"`
+	Text               *string       `json:"text,omitempty"`
+	HasAttachment      *bool         `json:"hasAttachment,omitempty"`
+}
+
+// ThreadFilterContext provides thread-level keyword counts for query filters.
+type ThreadFilterContext struct {
+	ThreadEmailsCount  map[jmapcore.Id]int
+	ThreadEmailsWithKw map[jmapcore.Id]map[string]int
+}
+
+// MatchesFilter checks if an email matches a filter object per RFC 8621 Section 4.5.
+func MatchesFilter(em *Email, filter map[string]any) bool {
+	return MatchesFilterWithThreadContext(em, filter, nil)
+}
+
+// MatchesFilterWithThreadContext checks if an email matches a filter object with thread context.
+func MatchesFilterWithThreadContext(em *Email, filter map[string]any, tc *ThreadFilterContext) bool {
+	if len(filter) == 0 {
+		return true
+	}
+
+	if match, isOp := jmapcore.EvalFilterOperator(filter, func(cond map[string]any) bool {
+		return MatchesFilterWithThreadContext(em, cond, tc)
+	}); isOp {
+		return match
+	}
+
+	// Evaluate FilterCondition properties
+
+	// inMailbox
+	if inMbRaw, ok := filter["inMailbox"].(string); ok && inMbRaw != "" {
+		if !em.MailboxIDs[jmapcore.Id(inMbRaw)] {
+			return false
+		}
+	}
+
+	// inMailboxOtherThan
+	if otherRaw, ok := filter["inMailboxOtherThan"].([]any); ok && len(otherRaw) > 0 {
+		excludeMap := make(map[jmapcore.Id]bool, len(otherRaw))
+		for _, v := range otherRaw {
+			if s, ok := v.(string); ok {
+				excludeMap[jmapcore.Id(s)] = true
+			}
+		}
+		inOther := false
+		for mbID := range em.MailboxIDs {
+			if !excludeMap[mbID] {
+				inOther = true
+				break
+			}
+		}
+		if !inOther {
+			return false
+		}
+	}
+
+	// before
+	if beforeRaw, ok := filter["before"].(string); ok && beforeRaw != "" {
+		if em.ReceivedAt >= beforeRaw {
+			return false
+		}
+	}
+
+	// after
+	if afterRaw, ok := filter["after"].(string); ok && afterRaw != "" {
+		if em.ReceivedAt < afterRaw {
+			return false
+		}
+	}
+
+	// minSize
+	if minSizeRaw, ok := filter["minSize"].(float64); ok {
+		if float64(em.Size) < minSizeRaw {
+			return false
+		}
+	}
+
+	// maxSize
+	if maxSizeRaw, ok := filter["maxSize"].(float64); ok {
+		if float64(em.Size) > maxSizeRaw {
+			return false
+		}
+	}
+
+	// allInThreadHaveKeyword
+	if kwRaw, ok := filter["allInThreadHaveKeyword"].(string); ok && kwRaw != "" {
+		if tc != nil {
+			count := tc.ThreadEmailsCount[em.ThreadID]
+			withKw := tc.ThreadEmailsWithKw[em.ThreadID][kwRaw]
+			if count == 0 || withKw != count {
+				return false
+			}
+		} else {
+			if em.Keywords == nil || !em.Keywords[kwRaw] {
+				return false
+			}
+		}
+	}
+
+	// someInThreadHaveKeyword
+	if kwRaw, ok := filter["someInThreadHaveKeyword"].(string); ok && kwRaw != "" {
+		if tc != nil {
+			withKw := tc.ThreadEmailsWithKw[em.ThreadID][kwRaw]
+			if withKw == 0 {
+				return false
+			}
+		} else {
+			if em.Keywords == nil || !em.Keywords[kwRaw] {
+				return false
+			}
+		}
+	}
+
+	// noneInThreadHaveKeyword
+	if kwRaw, ok := filter["noneInThreadHaveKeyword"].(string); ok && kwRaw != "" {
+		if tc != nil {
+			withKw := tc.ThreadEmailsWithKw[em.ThreadID][kwRaw]
+			if withKw > 0 {
+				return false
+			}
+		} else {
+			if em.Keywords != nil && em.Keywords[kwRaw] {
+				return false
+			}
+		}
+	}
+
+	// hasAttachment
+	if hasAttRaw, ok := filter["hasAttachment"].(bool); ok {
+		if em.HasAttachment != hasAttRaw {
+			return false
+		}
+	}
+
+	// subject
+	if subjRaw, ok := filter["subject"].(string); ok && subjRaw != "" {
+		term := cleanQueryTerm(subjRaw)
+		if term != "" && !strings.Contains(strings.ToLower(em.Subject), strings.ToLower(term)) {
+			return false
+		}
+	}
+
+	// from
+	if fromRaw, ok := filter["from"].(string); ok && fromRaw != "" {
+		if !matchAddresses(em.From, fromRaw) {
+			return false
+		}
+	}
+
+	// to
+	if toRaw, ok := filter["to"].(string); ok && toRaw != "" {
+		if !matchAddresses(em.To, toRaw) {
+			return false
+		}
+	}
+
+	// cc
+	if ccRaw, ok := filter["cc"].(string); ok && ccRaw != "" {
+		if !matchAddresses(em.CC, ccRaw) {
+			return false
+		}
+	}
+
+	// bcc
+	if bccRaw, ok := filter["bcc"].(string); ok && bccRaw != "" {
+		if !matchAddresses(em.BCC, bccRaw) {
+			return false
+		}
+	}
+
+	// body
+	if bodyRaw, ok := filter["body"].(string); ok && bodyRaw != "" {
+		if !matchBody(em, bodyRaw) {
+			return false
+		}
+	}
+
+	// hasKeyword
+	if kwRaw, ok := filter["hasKeyword"].(string); ok && kwRaw != "" {
+		// Keywords are stored lowercase (RFC 8621 Section 4.2.2); a query for
+		// e.g. "$tag/Project" must match the stored "$tag/project".
+		kw := strings.ToLower(kwRaw)
+		if em.Keywords == nil || !em.Keywords[kw] {
+			return false
+		}
+	}
+
+	// notKeyword
+	if notKwRaw, ok := filter["notKeyword"].(string); ok && notKwRaw != "" {
+		if em.Keywords != nil && em.Keywords[strings.ToLower(notKwRaw)] {
+			return false
+		}
+	}
+
+	// header
+	if headerRaw, ok := filter["header"].([]any); ok && len(headerRaw) > 0 {
+		headerName, _ := headerRaw[0].(string)
+		headerVal := ""
+		if len(headerRaw) > 1 {
+			headerVal, _ = headerRaw[1].(string)
+		}
+		if !matchHeader(em, headerName, headerVal) {
+			return false
+		}
+	}
+
+	// text: a free-text search across all human-readable fields (RFC 8621 Section
+	// 4.4.1). Every term must appear somewhere in the message so a multi-word query
+	// can span fields.
+	if textRaw, ok := filter["text"].(string); ok && textRaw != "" {
+		if !containsAllTerms(emailSearchText(em), searchTerms(textRaw)) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// searchTerms splits a free-text query into lowercased terms, stripping the "*"
+// prefix-wildcard that clients (e.g. Bulwark) append and surrounding quotes. JMAP
+// text filters are free-text, not literal substrings (RFC 8621 Section 4.4.1), so a
+// query like "core*" must match the word "Core".
+func searchTerms(q string) []string {
+	var terms []string
+	for _, f := range strings.Fields(strings.ToLower(q)) {
+		if f = strings.Trim(f, "*\"'"); f != "" {
+			terms = append(terms, f)
+		}
+	}
+	return terms
+}
+
+// containsAllTerms reports whether haystack contains every term (case-insensitive).
+// An empty term list matches everything (e.g. a bare "*" query).
+func containsAllTerms(haystack string, terms []string) bool {
+	h := strings.ToLower(haystack)
+	words := strings.FieldsFunc(h, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '@' && r != '.' && r != '-' && r != '_'
+	})
+	wordSet := make(map[string]bool, len(words))
+	for _, w := range words {
+		wordSet[w] = true
+	}
+
+	for _, t := range terms {
+		if wordSet[t] {
+			continue
+		}
+		if strings.Contains(t, " ") || strings.Contains(t, "@") {
+			if strings.Contains(h, t) {
+				continue
+			}
+		}
+		matched := false
+		for w := range wordSet {
+			if strings.HasPrefix(w, t) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	return true
+}
+
+// emailSearchText concatenates the human-readable fields searched by the "text" filter.
+func emailSearchText(em *Email) string {
+	var sb strings.Builder
+	sb.WriteString(em.Subject)
+	sb.WriteByte(' ')
+	sb.WriteString(em.Preview)
+	sb.WriteByte(' ')
+	for _, group := range [][]EmailAddress{em.From, em.To, em.CC, em.BCC} {
+		for _, a := range group {
+			sb.WriteString(a.Name)
+			sb.WriteByte(' ')
+			sb.WriteString(a.Email)
+			sb.WriteByte(' ')
+		}
+	}
+	for _, v := range em.BodyValues {
+		sb.WriteString(v.Value)
+		sb.WriteByte(' ')
+	}
+	return sb.String()
+}
+
+// CleanQueryTerm strips leading/trailing whitespace, wildcards (*), and quotes from a search term.
+func CleanQueryTerm(q string) string {
+	return strings.Trim(strings.TrimSpace(q), "*\"'")
+}
+
+func cleanQueryTerm(q string) string {
+	return CleanQueryTerm(q)
+}
+
+func matchBody(em *Email, query string) bool {
+	q := strings.ToLower(CleanQueryTerm(query))
+	if q == "" {
+		return true
+	}
+	if strings.Contains(strings.ToLower(em.Preview), q) {
+		return true
+	}
+	for _, val := range em.BodyValues {
+		if strings.Contains(strings.ToLower(val.Value), q) {
+			return true
+		}
+	}
+	return false
+}
+
+func matchHeader(em *Email, headerName, headerValue string) bool {
+	headerName = strings.ToLower(headerName)
+	headerValue = strings.ToLower(headerValue)
+
+	checkHeaders := func(headers []EmailHeader) bool {
+		for _, h := range headers {
+			if strings.ToLower(h.Name) == headerName {
+				if headerValue == "" || strings.Contains(strings.ToLower(h.Value), headerValue) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	if checkHeaders(em.BodyStructure.Headers) {
+		return true
+	}
+	for _, p := range em.TextBody {
+		if checkHeaders(p.Headers) {
+			return true
+		}
+	}
+	for _, p := range em.HTMLBody {
+		if checkHeaders(p.Headers) {
+			return true
+		}
+	}
+	return false
+}
+
+func matchAddresses(addrs []EmailAddress, query string) bool {
+	q := strings.ToLower(cleanQueryTerm(query))
+	if q == "" {
+		return true
+	}
+	for _, addr := range addrs {
+		if strings.Contains(strings.ToLower(addr.Name), q) || strings.Contains(strings.ToLower(addr.Email), q) {
+			return true
+		}
+	}
+	return false
+}
+
+// EmailSortableProperties is the set of Email properties the server supports sorting on
+// (RFC 8621 Section 4.4.2): receivedAt (MUST) plus size, from, to, subject, sentAt,
+// hasKeyword, allInThreadHaveKeyword and someInThreadHaveKeyword (SHOULD).
+var EmailSortableProperties = map[string]bool{
+	"receivedAt": true, "size": true, "from": true, "to": true, "subject": true,
+	"sentAt": true, "hasKeyword": true, "allInThreadHaveKeyword": true,
+	"someInThreadHaveKeyword": true,
+}
+
+var emailSortableProperties = EmailSortableProperties
+
+// EmailMutableFilterProperties are the Email filter condition properties whose values can
+// change after creation (RFC 8621 Section 4.1: "mailboxIds" and "keywords" are the only
+// client-updatable Email properties), so a query filtered on them is not over immutable
+// properties (RFC 8620 Section 5.6). All other filter conditions (before, after, minSize,
+// maxSize, hasAttachment, from, to, cc, bcc, subject, body, text, header) are immutable.
+var EmailMutableFilterProperties = map[string]bool{
+	"inMailbox": true, "inMailboxOtherThan": true, "hasKeyword": true, "notKeyword": true,
+}
+
+var emailMutableFilterProperties = EmailMutableFilterProperties
+
+// EmailMutableSortProperties are the Email sort properties that depend on mutable state:
+// keywords are updatable, so keyword sorts are not over immutable properties (RFC 8620
+// Section 5.6). All other Email sort properties (receivedAt, size, from, to, subject,
+// sentAt) are fixed at creation and never change.
+var EmailMutableSortProperties = map[string]bool{
+	"hasKeyword": true, "allInThreadHaveKeyword": true, "someInThreadHaveKeyword": true,
+}
+
+var emailMutableSortProperties = EmailMutableSortProperties
+
+// UpToIDTruncationApplicable reports whether the "upToId" argument may be honored for a
+// /queryChanges call per RFC 8620 Section 5.6: the server may omit added/removed ids with
+// a higher index than the anchor only when the query's filter and sort are both over
+// immutable properties — "if they are not immutable, this argument is ignored". Filter
+// Operator conditions are examined recursively; properties absent from the mutable sets are
+// treated as immutable.
+func UpToIDTruncationApplicable(filter map[string]any, comparators []jmapcore.Comparator, mutableFilter, mutableSort map[string]bool) bool {
+	for k, v := range filter {
+		switch k {
+		case "operator":
+			continue
+		case "conditions":
+			if conds, ok := v.([]any); ok {
+				for _, raw := range conds {
+					if cond, ok := raw.(map[string]any); ok && !UpToIDTruncationApplicable(cond, nil, mutableFilter, nil) {
+						return false
+					}
+				}
+			}
+		default:
+			if mutableFilter[k] {
+				return false
+			}
+		}
+	}
+	for _, c := range comparators {
+		if mutableSort[c.Property] {
+			return false
+		}
+	}
+	return true
+}
+
+func upToIdTruncationApplicable(filter map[string]any, comparators []jmapcore.Comparator, mutableFilter, mutableSort map[string]bool) bool {
+	return UpToIDTruncationApplicable(filter, comparators, mutableFilter, mutableSort)
+}
+
+// SortEmails sorts emails in-place using RFC 8621 Section 4.4.2 comparators. Keyword sort
+// properties ("hasKeyword", "allInThreadHaveKeyword", "someInThreadHaveKeyword") require a
+// "keyword" property on the Comparator. Thread sorts evaluate the keyword over the threads
+// present in the given list; queries that must evaluate over the full store use
+// sortEmailsWithContext.
+func SortEmails(emails []*Email, comparators []jmapcore.Comparator) {
+	threadHas := make(map[string]bool)
+	threadLacks := make(map[string]bool)
+	for _, em := range emails {
+		for _, c := range comparators {
+			if c.Property != "allInThreadHaveKeyword" && c.Property != "someInThreadHaveKeyword" {
+				continue
+			}
+			key := threadKeywordKey(em.ThreadID, c.Keyword)
+			if hasKeyword(em, c.Keyword) {
+				threadHas[key] = true
+			} else {
+				threadLacks[key] = true
+			}
+		}
+	}
+	all := make(map[string]bool, len(threadHas))
+	for key := range threadHas {
+		all[key] = !threadLacks[key]
+	}
+	SortEmailsWithContext(emails, comparators, all, threadHas)
+}
+
+func threadKeywordKey(threadID jmapcore.Id, keyword string) string {
+	return string(threadID) + "\x00" + keyword
+}
+
+// SortEmailsWithContext sorts emails per the comparators, using precomputed per-thread
+// keyword answers: all[thread\x00keyword] is true when every Email in the thread has the
+// keyword, any[...] when at least one has it.
+func SortEmailsWithContext(emails []*Email, comparators []jmapcore.Comparator, all, any map[string]bool) {
+	if len(comparators) == 0 {
+		// Default sort: receivedAt descending
+		comparators = []jmapcore.Comparator{
+			{Property: "receivedAt", IsAscending: false},
+		}
+	}
+
+	sort.SliceStable(emails, func(i, j int) bool {
+		a, b := emails[i], emails[j]
+		for _, comp := range comparators {
+			var cmp int
+			switch comp.Property {
+			case "receivedAt":
+				cmp = strings.Compare(a.ReceivedAt, b.ReceivedAt)
+			case "sentAt":
+				var sA, sB string
+				if a.SentAt != nil {
+					sA = *a.SentAt
+				}
+				if b.SentAt != nil {
+					sB = *b.SentAt
+				}
+				cmp = strings.Compare(sA, sB)
+			case "subject":
+				cmp = compareStrings(BaseSubject(a.Subject), BaseSubject(b.Subject), comp.Collation)
+			case "size":
+				if a.Size < b.Size {
+					cmp = -1
+				} else if a.Size > b.Size {
+					cmp = 1
+				}
+			case "from":
+				cmp = compareStrings(firstAddress(a.From), firstAddress(b.From), comp.Collation)
+			case "to":
+				cmp = compareStrings(firstAddress(a.To), firstAddress(b.To), comp.Collation)
+			case "hasKeyword":
+				cmp = compareBools(hasKeyword(a, comp.Keyword), hasKeyword(b, comp.Keyword))
+			case "allInThreadHaveKeyword":
+				cmp = compareBools(all[threadKeywordKey(a.ThreadID, comp.Keyword)], all[threadKeywordKey(b.ThreadID, comp.Keyword)])
+			case "someInThreadHaveKeyword":
+				cmp = compareBools(any[threadKeywordKey(a.ThreadID, comp.Keyword)], any[threadKeywordKey(b.ThreadID, comp.Keyword)])
+			}
+
+			if cmp != 0 {
+				if !comp.IsAscending {
+					return cmp > 0
+				}
+				return cmp < 0
+			}
+		}
+		return i < j
+	})
+}
+
+// BaseSubject returns the RFC 5256 Section 2.1 "base subject" that RFC 8621 Section 4.4.2
+// uses for "subject" sorting: remove a trailing "(fwd)", then repeatedly strip any leading
+// whitespace, bracketed list tag ("[tag]"), and reply/forward prefixes ("re:", "fwd:",
+// "fw:" and their bracketed counter forms like "fwd[2]:"), case-insensitively.
+func BaseSubject(s string) string {
+	t := strings.TrimSpace(s)
+	if len(t) >= 5 && strings.EqualFold(t[len(t)-5:], "(fwd)") {
+		t = strings.TrimSpace(t[:len(t)-5])
+	}
+	for {
+		trimmed := strings.TrimLeft(t, " \t")
+		lower := strings.ToLower(trimmed)
+		stripped := false
+		for _, tag := range []string{"re", "fwd", "fw"} {
+			if strings.HasPrefix(lower, tag+":") {
+				t = trimmed[len(tag)+1:]
+				stripped = true
+				break
+			}
+			counter := tag + "["
+			if strings.HasPrefix(lower, counter) {
+				if end := strings.IndexByte(lower[len(counter):], ']'); end >= 0 {
+					contentStart := len(counter) + end + 1
+					if contentStart < len(lower) && lower[contentStart] == ':' {
+						t = trimmed[contentStart+1:]
+						stripped = true
+						break
+					}
+				}
+			}
+		}
+		if !stripped && len(trimmed) > 0 && trimmed[0] == '[' {
+			if end := strings.IndexByte(trimmed, ']'); end >= 0 {
+				t = trimmed[end+1:]
+				stripped = true
+			}
+		}
+		if !stripped {
+			return trimmed
+		}
+	}
+}
+
+func baseSubject(s string) string {
+	return BaseSubject(s)
+}
+
+// compareStrings compares two strings per the comparator's collation: "i;octet" is a
+// case-sensitive binary comparison; any other (or default) collation is case-insensitive.
+func compareStrings(a, b, collation string) int {
+	if collation == "i;octet" {
+		return strings.Compare(a, b)
+	}
+	return strings.Compare(strings.ToLower(a), strings.ToLower(b))
+}
+
+// compareBools orders false before true for ascending sorts (RFC 8620 Section 5.5).
+func compareBools(a, b bool) int {
+	if a == b {
+		return 0
+	}
+	if !a {
+		return -1
+	}
+	return 1
+}
+
+// firstAddress returns the "name" property of the first EmailAddress, or its "email"
+// property when the name is null/empty, or the empty string when there is none (RFC 8621
+// Section 4.4.2).
+func firstAddress(addrs []EmailAddress) string {
+	if len(addrs) == 0 {
+		return ""
+	}
+	if addrs[0].Name != "" {
+		return addrs[0].Name
+	}
+	return addrs[0].Email
+}
+
+// hasKeyword reports whether the Email carries the keyword.
+func hasKeyword(em *Email, keyword string) bool {
+	return em.Keywords != nil && em.Keywords[keyword]
+}

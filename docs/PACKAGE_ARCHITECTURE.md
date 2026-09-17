@@ -170,5 +170,5 @@ Once all callers (`nextcloud`, `smtp`, test files) import sub-packages directly,
 | Step 6: calendar handlers → `jmapcalendar` | ✅ done |
 | Step 7: contacts → `jmapcontacts` | ✅ done |
 | Step 8: sieve → `jmapsieve` | ✅ done |
-| Step 9: mail handlers → `jmapmail` | ⬜ todo |
+| Step 9: mail handlers → `jmapmail` | ✅ done |
 | Step 10: remove aliases | ⬜ todo |
