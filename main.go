@@ -25,6 +25,14 @@ import (
 
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/imapsmtp"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapblob"
+	"imap-jmap/jmap/jmapcalendar"
+	"imap-jmap/jmap/jmapcontacts"
+	"imap-jmap/jmap/jmapmail"
+	"imap-jmap/jmap/jmapprincipals"
+	"imap-jmap/jmap/jmappush"
+	"imap-jmap/jmap/jmapsieve"
 	"imap-jmap/jmap/managesieve"
 	"imap-jmap/jmap/nextcloud"
 	"imap-jmap/smtp"
@@ -137,18 +145,18 @@ func main() {
 
 	log.Printf("Initializing IMAP/SMTP Gateway Backend (IMAP: %s, SMTP: %s)", imapServer, smtpTargetServer)
 	gwBackend := imapsmtp.New(imapServer, smtpTargetServer)
-	var mailBackend jmap.MailBackend = gwBackend
-	var blobBackend jmap.BlobBackend = gwBackend
+	var mailBackend jmapmail.MailBackend = gwBackend
+	var blobBackend jmapblob.BlobBackend = gwBackend
 
 	nextcloudURL := os.Getenv("NEXTCLOUD_URL")
 	if nextcloudURL == "" {
 		nextcloudURL = "http://nextcloud:80"
 	}
 
-	var calBackend jmap.CalendarsBackend
-	var contactsBackend jmap.ContactsBackend
+	var calBackend jmapcalendar.CalendarsBackend
+	var contactsBackend jmapcontacts.ContactsBackend
 	var fileNodeBackend jmap.FileNodeBackend
-	var principalsBackend jmap.PrincipalsBackend
+	var principalsBackend jmapprincipals.PrincipalsBackend
 
 	if nextcloudURL != "" {
 		log.Printf("Initializing Nextcloud Backend at %s (CalDAV, CardDAV, WebDAV, OCS)", nextcloudURL)
@@ -164,9 +172,9 @@ func main() {
 		secretKey = "imap-jmap-secret-session-key-32b!"
 	}
 
-	var authBackend jmap.AuthBackend = imapsmtp.NewAuthBackend(gwBackend.Pool(), secretKey)
+	var authBackend jmapauth.AuthBackend = imapsmtp.NewAuthBackend(gwBackend.Pool(), secretKey)
 	if *oidcIssuer != "" {
-		var oidcFallback jmap.AuthBackend = authBackend
+		var oidcFallback jmapauth.AuthBackend = authBackend
 		oidcBackend, err := jmap.NewOIDCAuthBackend(jmap.OIDCConfig{
 			Issuer:          *oidcIssuer,
 			JWKSURL:         *oidcJWKSURL,
@@ -180,15 +188,15 @@ func main() {
 		authBackend = oidcBackend
 	}
 
-	accountResolver := jmap.PrimaryDomainResolver{PrimaryDomain: *primaryDomain}
+	accountResolver := jmapauth.PrimaryDomainResolver{PrimaryDomain: *primaryDomain}
 
 	authBackend = &seedingAuthBackend{
 		inner:  authBackend,
 		seeded: make(map[string]bool),
 		seedFn: func(ctx context.Context, accountID, subject string) {
-			accountCtx := jmap.ContextWithAccountID(ctx, accountID)
-			accountCtx = jmap.ContextWithSubject(accountCtx, subject)
-			accountCtx = jmap.ContextWithCredentials(accountCtx, subject, subject)
+			accountCtx := jmapauth.ContextWithAccountID(ctx, accountID)
+			accountCtx = jmapauth.ContextWithSubject(accountCtx, subject)
+			accountCtx = jmapauth.ContextWithCredentials(accountCtx, subject, subject)
 			jmap.SeedAccountSampleData(accountCtx, accountID, mailBackend, blobBackend, calBackend, contactsBackend, fileNodeBackend)
 			if ncPb, ok := principalsBackend.(*nextcloud.PrincipalsBackend); ok {
 				_ = ncPb.EnsureUser(accountCtx, subject, subject)
@@ -209,7 +217,7 @@ func main() {
 	if manageSievePort == "" {
 		manageSievePort = "4190"
 	}
-	var sieveBackend jmap.SieveBackend
+	var sieveBackend jmapsieve.SieveBackend
 	if manageSieveHost != "" {
 		sieveBackend = managesieve.NewBackend(net.JoinHostPort(manageSieveHost, manageSievePort))
 	} else {
@@ -240,23 +248,23 @@ func main() {
 	}
 
 	server := jmap.NewServer(session, serverOpts...)
-	if mb, ok := mailBackend.(interface{ SetBroadcaster(*jmap.Broadcaster) }); ok {
+	if mb, ok := mailBackend.(interface{ SetBroadcaster(*jmappush.Broadcaster) }); ok {
 		mb.SetBroadcaster(server.Broadcaster)
 	}
 
-	if cb, ok := calBackend.(interface{ SetBroadcaster(*jmap.Broadcaster) }); ok {
+	if cb, ok := calBackend.(interface{ SetBroadcaster(*jmappush.Broadcaster) }); ok {
 		cb.SetBroadcaster(server.Broadcaster)
 	}
-	if cb, ok := contactsBackend.(interface{ SetBroadcaster(*jmap.Broadcaster) }); ok {
+	if cb, ok := contactsBackend.(interface{ SetBroadcaster(*jmappush.Broadcaster) }); ok {
 		cb.SetBroadcaster(server.Broadcaster)
 	}
-	if fb, ok := fileNodeBackend.(interface{ SetBroadcaster(*jmap.Broadcaster) }); ok {
+	if fb, ok := fileNodeBackend.(interface{ SetBroadcaster(*jmappush.Broadcaster) }); ok {
 		fb.SetBroadcaster(server.Broadcaster)
 	}
-	if pb, ok := principalsBackend.(interface{ SetBroadcaster(*jmap.Broadcaster) }); ok {
+	if pb, ok := principalsBackend.(interface{ SetBroadcaster(*jmappush.Broadcaster) }); ok {
 		pb.SetBroadcaster(server.Broadcaster)
 	}
-	if sb, ok := sieveBackend.(interface{ SetBroadcaster(*jmap.Broadcaster) }); ok {
+	if sb, ok := sieveBackend.(interface{ SetBroadcaster(*jmappush.Broadcaster) }); ok {
 		sb.SetBroadcaster(server.Broadcaster)
 	}
 
@@ -327,24 +335,24 @@ func main() {
 	}
 }
 
-// seedingAuthBackend wraps a jmap.AuthBackend and runs a one-time per-account
+// seedingAuthBackend wraps a jmapauth.AuthBackend and runs a one-time per-account
 // callback after the first successful credential authentication. Used by the
 // IMAP/SMTP gateway deployment to lazily seed sample data (the memory auth
 // backend does this internally, but it is not in the auth path there).
 type seedingAuthBackend struct {
-	inner  jmap.AuthBackend
+	inner  jmapauth.AuthBackend
 	seedFn func(ctx context.Context, accountID, subject string)
 	mu     sync.Mutex
 	seeded map[string]bool
 }
 
-var _ jmap.AuthBackend = (*seedingAuthBackend)(nil)
-var _ jmap.TokenCredentialsExtractor = (*seedingAuthBackend)(nil)
+var _ jmapauth.AuthBackend = (*seedingAuthBackend)(nil)
+var _ jmapauth.TokenCredentialsExtractor = (*seedingAuthBackend)(nil)
 
 func (s *seedingAuthBackend) Authenticate(ctx context.Context, username, password string) (string, error) {
 	token, err := s.inner.Authenticate(ctx, username, password)
 	if err == nil {
-		s.maybeSeed(jmap.AccountIDForSubject(username), username)
+		s.maybeSeed(jmapauth.AccountIDForSubject(username), username)
 	}
 	return token, err
 }
@@ -362,7 +370,7 @@ func (s *seedingAuthBackend) ValidateToken(ctx context.Context, token string) (s
 }
 
 func (s *seedingAuthBackend) ExtractCredentials(ctx context.Context, token string) (string, string, bool) {
-	if ex, ok := s.inner.(jmap.TokenCredentialsExtractor); ok {
+	if ex, ok := s.inner.(jmapauth.TokenCredentialsExtractor); ok {
 		return ex.ExtractCredentials(ctx, token)
 	}
 	return "", "", false

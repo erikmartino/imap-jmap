@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapmail"
 )
 
 // MXOutboundSender relays raw RFC 5322 messages to external recipients by connecting
@@ -27,7 +27,7 @@ type MXOutboundSender struct {
 	Dial           func(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
-var _ jmap.OutboundMailSender = (*MXOutboundSender)(nil)
+var _ jmapmail.OutboundMailSender = (*MXOutboundSender)(nil)
 
 // NewMXOutboundSender returns a sender with production defaults (public DNS MX
 // lookup, TCP dial with a 15s timeout). Dial and LookupMX are overridable for tests.
@@ -49,8 +49,8 @@ func NewMXOutboundSender() *MXOutboundSender {
 // domain's MX hosts. The returned map holds one OutboundDeliveryResult per
 // recipient: Delivered reports acceptance by the remote server (250 on DATA),
 // and SmtpReply is the verbatim reply (e.g. "550 5.1.1 <x>: User unknown").
-func (s *MXOutboundSender) SendMail(ctx context.Context, from string, recipients []string, rawMessage []byte) map[string]jmap.OutboundDeliveryResult {
-	results := make(map[string]jmap.OutboundDeliveryResult, len(recipients))
+func (s *MXOutboundSender) SendMail(ctx context.Context, from string, recipients []string, rawMessage []byte) map[string]jmapmail.OutboundDeliveryResult {
+	results := make(map[string]jmapmail.OutboundDeliveryResult, len(recipients))
 
 	byDomain := make(map[string][]string)
 	for _, rcpt := range recipients {
@@ -58,7 +58,7 @@ func (s *MXOutboundSender) SendMail(ctx context.Context, from string, recipients
 		at := strings.LastIndex(rcpt, "@")
 		if at < 0 || at == len(rcpt)-1 {
 			log.Printf("SMTP outbound: invalid recipient address %q", rcpt)
-			results[rcpt] = jmap.OutboundDeliveryResult{Delivered: false, SmtpReply: "554 5.1.3 Invalid recipient address"}
+			results[rcpt] = jmapmail.OutboundDeliveryResult{Delivered: false, SmtpReply: "554 5.1.3 Invalid recipient address"}
 			continue
 		}
 		domain := strings.ToLower(rcpt[at+1:])
@@ -73,8 +73,8 @@ func (s *MXOutboundSender) SendMail(ctx context.Context, from string, recipients
 	return results
 }
 
-func (s *MXOutboundSender) deliverToDomain(ctx context.Context, domain string, recipients []string, from string, rawMessage []byte) map[string]jmap.OutboundDeliveryResult {
-	results := make(map[string]jmap.OutboundDeliveryResult)
+func (s *MXOutboundSender) deliverToDomain(ctx context.Context, domain string, recipients []string, from string, rawMessage []byte) map[string]jmapmail.OutboundDeliveryResult {
+	results := make(map[string]jmapmail.OutboundDeliveryResult)
 
 	hosts := s.mxHosts(domain)
 	pending := append([]string(nil), recipients...)
@@ -95,7 +95,7 @@ func (s *MXOutboundSender) deliverToDomain(ctx context.Context, domain string, r
 	}
 
 	for _, rcpt := range pending {
-		results[rcpt] = jmap.OutboundDeliveryResult{
+		results[rcpt] = jmapmail.OutboundDeliveryResult{
 			Delivered: false,
 			SmtpReply: fmt.Sprintf("421 4.4.4 All MX hosts for %s failed", domain),
 		}
@@ -126,8 +126,8 @@ func (s *MXOutboundSender) mxHosts(domain string) []string {
 // single MX host. It returns the definitive results for recipients that received
 // a permanent (5xx) rejection, the recipients to retry on another host (transient
 // 4xx or session-level failure), and whether DATA was accepted.
-func (s *MXOutboundSender) tryHost(ctx context.Context, host, from string, recipients []string, rawMessage []byte) (final map[string]jmap.OutboundDeliveryResult, retry []string, delivered bool) {
-	final = make(map[string]jmap.OutboundDeliveryResult)
+func (s *MXOutboundSender) tryHost(ctx context.Context, host, from string, recipients []string, rawMessage []byte) (final map[string]jmapmail.OutboundDeliveryResult, retry []string, delivered bool) {
+	final = make(map[string]jmapmail.OutboundDeliveryResult)
 
 	conn, err := s.Dial(ctx, "tcp", host)
 	if err != nil {
@@ -190,7 +190,7 @@ func (s *MXOutboundSender) tryHost(ctx context.Context, host, from string, recip
 		if maxSize > 0 && int64(len(rawMessage)) > maxSize {
 			log.Printf("SMTP outbound [%s] E: message of %d bytes exceeds advertised SIZE %d", host, len(rawMessage), maxSize)
 			for _, rcpt := range recipients {
-				final[rcpt] = jmap.OutboundDeliveryResult{Delivered: false, SmtpReply: "552 5.3.4 Message size exceeds fixed maximum message size"}
+				final[rcpt] = jmapmail.OutboundDeliveryResult{Delivered: false, SmtpReply: "552 5.3.4 Message size exceeds fixed maximum message size"}
 			}
 			return final, nil, false
 		}
@@ -210,7 +210,7 @@ func (s *MXOutboundSender) tryHost(ctx context.Context, host, from string, recip
 		reply := fmt.Sprintf("%d %s", code, msg)
 		if code >= 500 && code < 600 {
 			for _, rcpt := range recipients {
-				final[rcpt] = jmap.OutboundDeliveryResult{Delivered: false, SmtpReply: reply}
+				final[rcpt] = jmapmail.OutboundDeliveryResult{Delivered: false, SmtpReply: reply}
 			}
 			return final, nil, false
 		}
@@ -231,7 +231,7 @@ func (s *MXOutboundSender) tryHost(ctx context.Context, host, from string, recip
 		reply := fmt.Sprintf("%d %s", code, msg)
 		if code >= 500 && code < 600 {
 			log.Printf("SMTP outbound [%s] S: %s (permanent rejection)", host, reply)
-			final[rcpt] = jmap.OutboundDeliveryResult{Delivered: false, SmtpReply: reply}
+			final[rcpt] = jmapmail.OutboundDeliveryResult{Delivered: false, SmtpReply: reply}
 		} else {
 			log.Printf("SMTP outbound [%s] S: %s (transient, will retry)", host, reply)
 			retry = append(retry, rcpt)
@@ -262,14 +262,14 @@ func (s *MXOutboundSender) tryHost(ctx context.Context, host, from string, recip
 	reply := fmt.Sprintf("%d %s", code, msg)
 	if err == nil {
 		for _, rcpt := range accepted {
-			final[rcpt] = jmap.OutboundDeliveryResult{Delivered: true, SmtpReply: reply}
+			final[rcpt] = jmapmail.OutboundDeliveryResult{Delivered: true, SmtpReply: reply}
 			log.Printf("[SMTP RELAY SUCCESS] Host: %s Recipient: <%s> From: <%s> Reply: %q", host, rcpt, mailFrom, reply)
 		}
 		return final, retry, true
 	}
 	if code >= 500 && code < 600 {
 		for _, rcpt := range accepted {
-			final[rcpt] = jmap.OutboundDeliveryResult{Delivered: false, SmtpReply: reply}
+			final[rcpt] = jmapmail.OutboundDeliveryResult{Delivered: false, SmtpReply: reply}
 			log.Printf("[SMTP RELAY REJECTED] Host: %s Recipient: <%s> From: <%s> Reply: %q", host, rcpt, mailFrom, reply)
 		}
 		return final, retry, false

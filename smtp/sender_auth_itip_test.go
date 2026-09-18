@@ -15,7 +15,10 @@ import (
 
 	"github.com/emersion/go-msgauth/dkim"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapcalendar"
+	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmapmail"
 	"imap-jmap/jmap/imapsmtp"
 	"imap-jmap/jmap/nextcloud"
 	"imap-jmap/jmap/spectest"
@@ -81,7 +84,7 @@ func (f *fakeDNS) LookupAddr(_ context.Context, name string) ([]string, error) {
 // verifier over the given DNS, plus embedded IMAP and Nextcloud backends, and returns a
 // session whose peer address is a non-loopback IP so the authentication gate
 // is actually exercised (loopback/local-account senders bypass it by design).
-func startAuthSession(t *testing.T, dns DNSResolver) (*Session, jmap.CalendarsBackend, jmap.MailBackend) {
+func startAuthSession(t *testing.T, dns DNSResolver) (*Session, jmapcalendar.CalendarsBackend, jmapmail.MailBackend) {
 	t.Helper()
 	backend, cleanup := imapsmtp.NewEmbeddedBackend("bob@example.com", "organizer@example.com", "alice@example.com", "invitee@example.com")
 	t.Cleanup(cleanup)
@@ -89,7 +92,7 @@ func startAuthSession(t *testing.T, dns DNSResolver) (*Session, jmap.CalendarsBa
 	t.Cleanup(ncCleanup)
 	rb := NewReceiverBackend(backend, backend, calBackend)
 	rb.SenderVerifier = NewSPFDKIMDMARCVerifier(dns)
-	rb.AccountResolver = jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
+	rb.AccountResolver = jmapauth.PrimaryDomainResolver{PrimaryDomain: "example.com"}
 	sess, err := rb.NewSession(nil)
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
@@ -140,15 +143,15 @@ func requestMsg(organizer, invitee, uid string) []byte {
 }
 
 // seedEvent creates an event on Bob's (local) account with an external attendee.
-func seedEvent(t *testing.T, calBackend jmap.CalendarsBackend, organizer, attendee, uid string) jmap.Id {
+func seedEvent(t *testing.T, calBackend jmapcalendar.CalendarsBackend, organizer, attendee, uid string) jmapcore.Id {
 	t.Helper()
-	bobCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject(organizer))
-	ev, err := calBackend.CreateCalendarEvent(bobCtx, &jmap.CalendarEvent{
+	bobCtx := jmapauth.ContextWithAccountID(context.Background(), jmapauth.AccountIDForSubject(organizer))
+	ev, err := calBackend.CreateCalendarEvent(bobCtx, &jmapcalendar.CalendarEvent{
 		UID:    uid,
 		Title:  "Gate Test",
 		Start:  "2026-09-25T10:00:00Z",
 		Status: "confirmed",
-		Participants: map[string]*jmap.JSCalendarParticipant{
+		Participants: map[string]*jmapcalendar.JSCalendarParticipant{
 			organizer: {Email: organizer, Roles: map[string]bool{"owner": true}},
 			attendee:  {Email: attendee, Roles: map[string]bool{"attendee": true}, ParticipationStatus: "needs-action"},
 		},
@@ -159,10 +162,10 @@ func seedEvent(t *testing.T, calBackend jmap.CalendarsBackend, organizer, attend
 	return ev.ID
 }
 
-func attendanceStatus(t *testing.T, calBackend jmap.CalendarsBackend, organizer string, id jmap.Id, attendee string) string {
+func attendanceStatus(t *testing.T, calBackend jmapcalendar.CalendarsBackend, organizer string, id jmapcore.Id, attendee string) string {
 	t.Helper()
-	bobCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject(organizer))
-	evs, _, err := calBackend.GetCalendarEvents(bobCtx, []jmap.Id{id})
+	bobCtx := jmapauth.ContextWithAccountID(context.Background(), jmapauth.AccountIDForSubject(organizer))
+	evs, _, err := calBackend.GetCalendarEvents(bobCtx, []jmapcore.Id{id})
 	if err != nil || len(evs) == 0 {
 		t.Fatalf("get event: %v (len=%d)", err, len(evs))
 	}
@@ -172,9 +175,9 @@ func attendanceStatus(t *testing.T, calBackend jmap.CalendarsBackend, organizer 
 	return ""
 }
 
-func mailboxCount(t *testing.T, mailBackend jmap.MailBackend, recipient string) int {
+func mailboxCount(t *testing.T, mailBackend jmapmail.MailBackend, recipient string) int {
 	t.Helper()
-	ctx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject(recipient))
+	ctx := jmapauth.ContextWithAccountID(context.Background(), jmapauth.AccountIDForSubject(recipient))
 	ids, _, err := mailBackend.QueryEmails(ctx, nil, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("QueryEmails: %v", err)
@@ -281,7 +284,7 @@ func TestRFC6047_SenderAuth_DKIMPassImportsREQUEST(t *testing.T) {
 		t.Fatalf("DATA: %v", err)
 	}
 
-	bobCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject(invitee))
+	bobCtx := jmapauth.ContextWithAccountID(context.Background(), jmapauth.AccountIDForSubject(invitee))
 	ids, _, err := calBackend.QueryCalendarEvents(bobCtx, map[string]any{"uid": uid}, nil, 0, nil, false)
 	if err != nil || len(ids) == 0 {
 		t.Fatalf("DKIM-authenticated REQUEST should import the event (err=%v, count=%d)", err, len(ids))
@@ -431,7 +434,7 @@ func TestRFC6047_SenderAuth_LocalDeliveryWorksWithoutValidation(t *testing.T) {
 	defer cleanup()
 	_, calBackend, _, _, _, ncCleanup := nextcloud.NewEmbeddedBackend("bob@example.com", "alice@example.com")
 	defer ncCleanup()
-	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
+	resolver := jmapauth.PrimaryDomainResolver{PrimaryDomain: "example.com"}
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

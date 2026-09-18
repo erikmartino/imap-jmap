@@ -10,7 +10,10 @@ import (
 	"time"
 
 	"imap-jmap/imap"
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapblob"
+	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmapmail"
 )
 
 // blobStagingMarker is the Subject prefix that identifies a blob staging
@@ -27,9 +30,9 @@ const blobStagingTTL = time.Hour
 const blobStagingSweepInterval = 5 * time.Minute
 
 func (b *IMAPSMTPBackend) ensureContextCredentials(ctx context.Context, accountID string) context.Context {
-	if _, ok := jmap.CredentialsFromContext(ctx); !ok {
-		if sub, ok := jmap.SubjectForAccountID(accountID); ok && sub != "" {
-			ctx = jmap.ContextWithCredentials(ctx, sub, sub)
+	if _, ok := jmapauth.CredentialsFromContext(ctx); !ok {
+		if sub, ok := jmapauth.SubjectForAccountID(accountID); ok && sub != "" {
+			ctx = jmapauth.ContextWithCredentials(ctx, sub, sub)
 		}
 	}
 	return ctx
@@ -38,7 +41,7 @@ func (b *IMAPSMTPBackend) ensureContextCredentials(ctx context.Context, accountI
 // PutBlob stores binary data in backend instance memory cache and stages it into IMAP Trash.
 // Fresh uploads are wrapped in an RFC 822 message and marked as \Seen (read) so clients
 // never see unread notification badges in their trash folder.
-func (b *IMAPSMTPBackend) PutBlob(ctx context.Context, accountID, contentType string, data []byte) (*jmap.Blob, error) {
+func (b *IMAPSMTPBackend) PutBlob(ctx context.Context, accountID, contentType string, data []byte) (*jmapblob.Blob, error) {
 	ctx = b.ensureContextCredentials(ctx, accountID)
 	hash := sha256.Sum256(data)
 	blobID := hex.EncodeToString(hash[:])
@@ -47,7 +50,7 @@ func (b *IMAPSMTPBackend) PutBlob(ctx context.Context, accountID, contentType st
 		contentType = "application/octet-stream"
 	}
 
-	blob := &jmap.Blob{
+	blob := &jmapblob.Blob{
 		ID:        blobID,
 		AccountID: accountID,
 		Data:      data,
@@ -57,7 +60,7 @@ func (b *IMAPSMTPBackend) PutBlob(ctx context.Context, accountID, contentType st
 
 	b.blobsMu.Lock()
 	if b.blobs == nil {
-		b.blobs = make(map[string]*jmap.Blob)
+		b.blobs = make(map[string]*jmapblob.Blob)
 	}
 	b.blobs[blobID] = blob
 	b.blobsMu.Unlock()
@@ -87,7 +90,7 @@ func (b *IMAPSMTPBackend) PutBlob(ctx context.Context, accountID, contentType st
 }
 
 func (b *IMAPSMTPBackend) maybeSweepBlobStaging(ctx context.Context) {
-	accountID, ok := jmap.AccountIDFromContext(ctx)
+	accountID, ok := jmapauth.AccountIDFromContext(ctx)
 	if !ok || accountID == "" {
 		return
 	}
@@ -151,7 +154,7 @@ func (b *IMAPSMTPBackend) sweepFolder(client *imap.Client, folderName string, re
 	_ = client.MarkDeletedAndExpunge(folderName, toDelete)
 }
 
-func (b *IMAPSMTPBackend) getRawEmailBytes(ctx context.Context, id jmap.Id) ([]byte, error) {
+func (b *IMAPSMTPBackend) getRawEmailBytes(ctx context.Context, id jmapcore.Id) ([]byte, error) {
 	mbID, uid, err := ParseEmailID(id)
 	if err != nil {
 		return nil, err
@@ -174,7 +177,7 @@ func (b *IMAPSMTPBackend) getRawEmailBytes(ctx context.Context, id jmap.Id) ([]b
 // 2. Full email RFC 822 format (if blobID is an Email ID)
 // 3. Email attachments across the account (RFC 822 MIME extraction on demand)
 // 4. Staged uploads in Trash (or legacy Drafts)
-func (b *IMAPSMTPBackend) GetBlob(ctx context.Context, accountID, blobID string) (*jmap.Blob, bool, error) {
+func (b *IMAPSMTPBackend) GetBlob(ctx context.Context, accountID, blobID string) (*jmapblob.Blob, bool, error) {
 	ctx = b.ensureContextCredentials(ctx, accountID)
 
 	b.blobsMu.RLock()
@@ -185,9 +188,9 @@ func (b *IMAPSMTPBackend) GetBlob(ctx context.Context, accountID, blobID string)
 	}
 
 	// Check if blobID is an Email ID format (<mbID>-<uid> or <mbID>:<uid>)
-	if _, _, err := ParseEmailID(jmap.Id(blobID)); err == nil {
-		if raw, err := b.getRawEmailBytes(ctx, jmap.Id(blobID)); err == nil {
-			return &jmap.Blob{
+	if _, _, err := ParseEmailID(jmapcore.Id(blobID)); err == nil {
+		if raw, err := b.getRawEmailBytes(ctx, jmapcore.Id(blobID)); err == nil {
+			return &jmapblob.Blob{
 				ID:        blobID,
 				AccountID: accountID,
 				Data:      raw,
@@ -195,10 +198,10 @@ func (b *IMAPSMTPBackend) GetBlob(ctx context.Context, accountID, blobID string)
 				Type:      "message/rfc822",
 			}, true, nil
 		}
-		emails, notFound, err := b.GetEmails(ctx, []jmap.Id{jmap.Id(blobID)})
+		emails, notFound, err := b.GetEmails(ctx, []jmapcore.Id{jmapcore.Id(blobID)})
 		if err == nil && len(emails) > 0 && len(notFound) == 0 {
-			raw := jmap.FormatEmailRFC822(emails[0])
-			return &jmap.Blob{
+			raw := jmapmail.FormatEmailRFC822(emails[0])
+			return &jmapblob.Blob{
 				ID:        blobID,
 				AccountID: accountID,
 				Data:      raw,
@@ -221,10 +224,10 @@ func (b *IMAPSMTPBackend) GetBlob(ctx context.Context, accountID, blobID string)
 	return nil, false, nil
 }
 
-func (b *IMAPSMTPBackend) getBlobFromEmailAttachments(ctx context.Context, accountID, blobID string) (*jmap.Blob, bool, error) {
+func (b *IMAPSMTPBackend) getBlobFromEmailAttachments(ctx context.Context, accountID, blobID string) (*jmapblob.Blob, bool, error) {
 	// 1. Check known blob refs first for instant lookup
 	b.blobsMu.RLock()
-	var candidateEmailIDs []jmap.Id
+	var candidateEmailIDs []jmapcore.Id
 	if acctRefs, ok := b.blobRefs[accountID]; ok {
 		if emailMap, ok := acctRefs[blobID]; ok {
 			for eid := range emailMap {
@@ -236,8 +239,8 @@ func (b *IMAPSMTPBackend) getBlobFromEmailAttachments(ctx context.Context, accou
 
 	for _, eid := range candidateEmailIDs {
 		if raw, err := b.getRawEmailBytes(ctx, eid); err == nil {
-			if data, cType, found := jmap.ExtractBlobFromRFC822(raw, blobID); found {
-				blob := &jmap.Blob{
+			if data, cType, found := jmapmail.ExtractBlobFromRFC822(raw, blobID); found {
+				blob := &jmapblob.Blob{
 					ID:        blobID,
 					AccountID: accountID,
 					Data:      data,
@@ -246,7 +249,7 @@ func (b *IMAPSMTPBackend) getBlobFromEmailAttachments(ctx context.Context, accou
 				}
 				b.blobsMu.Lock()
 				if b.blobs == nil {
-					b.blobs = make(map[string]*jmap.Blob)
+					b.blobs = make(map[string]*jmapblob.Blob)
 				}
 				b.blobs[blobID] = blob
 				b.blobsMu.Unlock()
@@ -262,10 +265,10 @@ func (b *IMAPSMTPBackend) getBlobFromEmailAttachments(ctx context.Context, accou
 	}
 
 	for _, em := range emails {
-		if emailReferencesBlob(em, jmap.Id(blobID)) {
+		if emailReferencesBlob(em, jmapcore.Id(blobID)) {
 			if raw, err := b.getRawEmailBytes(ctx, em.ID); err == nil {
-				if data, cType, found := jmap.ExtractBlobFromRFC822(raw, blobID); found {
-					blob := &jmap.Blob{
+				if data, cType, found := jmapmail.ExtractBlobFromRFC822(raw, blobID); found {
+					blob := &jmapblob.Blob{
 						ID:        blobID,
 						AccountID: accountID,
 						Data:      data,
@@ -275,7 +278,7 @@ func (b *IMAPSMTPBackend) getBlobFromEmailAttachments(ctx context.Context, accou
 					b.recordBlobRef(accountID, blobID, em.ID)
 					b.blobsMu.Lock()
 					if b.blobs == nil {
-						b.blobs = make(map[string]*jmap.Blob)
+						b.blobs = make(map[string]*jmapblob.Blob)
 					}
 					b.blobs[blobID] = blob
 					b.blobsMu.Unlock()
@@ -288,7 +291,7 @@ func (b *IMAPSMTPBackend) getBlobFromEmailAttachments(ctx context.Context, accou
 	return nil, false, nil
 }
 
-func (b *IMAPSMTPBackend) getBlobFromTrash(ctx context.Context, accountID, blobID string) (*jmap.Blob, bool, error) {
+func (b *IMAPSMTPBackend) getBlobFromTrash(ctx context.Context, accountID, blobID string) (*jmapblob.Blob, bool, error) {
 	client, err := b.pool.GetClientForContext(ctx)
 	if err != nil {
 		return nil, false, err
@@ -301,7 +304,7 @@ func (b *IMAPSMTPBackend) getBlobFromTrash(ctx context.Context, accountID, blobI
 	return b.getBlobFromStagingFolder(ctx, client, "Drafts", accountID, blobID)
 }
 
-func (b *IMAPSMTPBackend) getBlobFromStagingFolder(ctx context.Context, client *imap.Client, folderName, accountID, blobID string) (*jmap.Blob, bool, error) {
+func (b *IMAPSMTPBackend) getBlobFromStagingFolder(ctx context.Context, client *imap.Client, folderName, accountID, blobID string) (*jmapblob.Blob, bool, error) {
 	subjectTarget := fmt.Sprintf("%s %s]", blobStagingMarker, blobID)
 	uids, err := client.SearchSubject(folderName, subjectTarget)
 	if err != nil {
@@ -323,12 +326,12 @@ func (b *IMAPSMTPBackend) getBlobFromStagingFolder(ctx context.Context, client *
 		return nil, false, nil
 	}
 
-	dataBytes, cType, found := jmap.ExtractBlobFromRFC822(raw, blobID)
+	dataBytes, cType, found := jmapmail.ExtractBlobFromRFC822(raw, blobID)
 	if !found {
 		return nil, false, nil
 	}
 
-	blob := &jmap.Blob{
+	blob := &jmapblob.Blob{
 		ID:        blobID,
 		AccountID: accountID,
 		Data:      dataBytes,
@@ -338,7 +341,7 @@ func (b *IMAPSMTPBackend) getBlobFromStagingFolder(ctx context.Context, client *
 
 	b.blobsMu.Lock()
 	if b.blobs == nil {
-		b.blobs = make(map[string]*jmap.Blob)
+		b.blobs = make(map[string]*jmapblob.Blob)
 	}
 	b.blobs[blobID] = blob
 	b.blobsMu.Unlock()
@@ -347,7 +350,7 @@ func (b *IMAPSMTPBackend) getBlobFromStagingFolder(ctx context.Context, client *
 }
 
 // GetAllBlobs retrieves all blobs stored for an account.
-func (b *IMAPSMTPBackend) GetAllBlobs(ctx context.Context, accountID string) ([]*jmap.Blob, error) {
+func (b *IMAPSMTPBackend) GetAllBlobs(ctx context.Context, accountID string) ([]*jmapblob.Blob, error) {
 	ctx = b.ensureContextCredentials(ctx, accountID)
 
 	if emails, err := b.GetAllEmails(ctx); err == nil {
@@ -363,7 +366,7 @@ func (b *IMAPSMTPBackend) GetAllBlobs(ctx context.Context, accountID string) ([]
 	b.blobsMu.RLock()
 	defer b.blobsMu.RUnlock()
 
-	var list []*jmap.Blob
+	var list []*jmapblob.Blob
 	for _, bl := range b.blobs {
 		if bl.AccountID == accountID || accountID == "" {
 			list = append(list, bl)
@@ -373,7 +376,7 @@ func (b *IMAPSMTPBackend) GetAllBlobs(ctx context.Context, accountID string) ([]
 }
 
 // CopyBlob copies a blob to another account.
-func (b *IMAPSMTPBackend) CopyBlob(ctx context.Context, fromAccountID, toAccountID string, blobID string) (*jmap.Blob, error) {
+func (b *IMAPSMTPBackend) CopyBlob(ctx context.Context, fromAccountID, toAccountID string, blobID string) (*jmapblob.Blob, error) {
 	blob, ok, err := b.GetBlob(ctx, fromAccountID, blobID)
 	if err != nil || !ok {
 		return nil, fmt.Errorf("blob not found: %s", blobID)
@@ -382,22 +385,22 @@ func (b *IMAPSMTPBackend) CopyBlob(ctx context.Context, fromAccountID, toAccount
 	return b.PutBlob(ctx, toAccountID, blob.Type, blob.Data)
 }
 
-func (b *IMAPSMTPBackend) recordBlobRef(accountID, blobID string, emailID jmap.Id) {
+func (b *IMAPSMTPBackend) recordBlobRef(accountID, blobID string, emailID jmapcore.Id) {
 	b.blobsMu.Lock()
 	defer b.blobsMu.Unlock()
 	if b.blobRefs == nil {
-		b.blobRefs = make(map[string]map[string]map[jmap.Id]bool)
+		b.blobRefs = make(map[string]map[string]map[jmapcore.Id]bool)
 	}
 	if b.blobRefs[accountID] == nil {
-		b.blobRefs[accountID] = make(map[string]map[jmap.Id]bool)
+		b.blobRefs[accountID] = make(map[string]map[jmapcore.Id]bool)
 	}
 	if b.blobRefs[accountID][blobID] == nil {
-		b.blobRefs[accountID][blobID] = make(map[jmap.Id]bool)
+		b.blobRefs[accountID][blobID] = make(map[jmapcore.Id]bool)
 	}
 	b.blobRefs[accountID][blobID][emailID] = true
 }
 
-func (b *IMAPSMTPBackend) deleteBlobRefsForEmail(accountID string, emailID jmap.Id) {
+func (b *IMAPSMTPBackend) deleteBlobRefsForEmail(accountID string, emailID jmapcore.Id) {
 	b.blobsMu.Lock()
 	defer b.blobsMu.Unlock()
 	if b.blobRefs == nil || b.blobRefs[accountID] == nil {
@@ -409,15 +412,15 @@ func (b *IMAPSMTPBackend) deleteBlobRefsForEmail(accountID string, emailID jmap.
 }
 
 // LookupBlobReferences implements jmap.BlobReferenceBackend per RFC 9404 Section 4.3.
-func (b *IMAPSMTPBackend) LookupBlobReferences(ctx context.Context, typeNames []string, blobID jmap.Id) (map[string][]jmap.Id, error) {
-	accountID, _ := jmap.AccountIDFromContext(ctx)
+func (b *IMAPSMTPBackend) LookupBlobReferences(ctx context.Context, typeNames []string, blobID jmapcore.Id) (map[string][]jmapcore.Id, error) {
+	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	emails, err := b.GetAllEmails(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	b.blobsMu.RLock()
-	extraEmailIDs := make(map[jmap.Id]bool)
+	extraEmailIDs := make(map[jmapcore.Id]bool)
 	if acctRefs, ok := b.blobRefs[accountID]; ok {
 		if emailMap, ok := acctRefs[string(blobID)]; ok {
 			for eid := range emailMap {
@@ -427,7 +430,7 @@ func (b *IMAPSMTPBackend) LookupBlobReferences(ctx context.Context, typeNames []
 	}
 	b.blobsMu.RUnlock()
 
-	matched := make(map[string][]jmap.Id)
+	matched := make(map[string][]jmapcore.Id)
 	for _, tn := range typeNames {
 		switch tn {
 		case "Email":
@@ -437,7 +440,7 @@ func (b *IMAPSMTPBackend) LookupBlobReferences(ctx context.Context, typeNames []
 				}
 			}
 		case "Thread":
-			seenThreads := make(map[jmap.Id]bool)
+			seenThreads := make(map[jmapcore.Id]bool)
 			for _, em := range emails {
 				if (em.BlobID == blobID || emailReferencesBlob(em, blobID) || extraEmailIDs[em.ID]) && em.ThreadID != "" {
 					if !seenThreads[em.ThreadID] {
@@ -453,7 +456,7 @@ func (b *IMAPSMTPBackend) LookupBlobReferences(ctx context.Context, typeNames []
 	return matched, nil
 }
 
-func bodyPartReferencesBlob(p *jmap.EmailBodyPart, blobID jmap.Id) bool {
+func bodyPartReferencesBlob(p *jmapmail.EmailBodyPart, blobID jmapcore.Id) bool {
 	if p == nil {
 		return false
 	}
@@ -468,7 +471,7 @@ func bodyPartReferencesBlob(p *jmap.EmailBodyPart, blobID jmap.Id) bool {
 	return false
 }
 
-func emailReferencesBlob(em *jmap.Email, blobID jmap.Id) bool {
+func emailReferencesBlob(em *jmapmail.Email, blobID jmapcore.Id) bool {
 	if em.BlobID == blobID {
 		return true
 	}

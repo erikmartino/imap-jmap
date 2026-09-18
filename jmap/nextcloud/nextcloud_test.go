@@ -8,6 +8,10 @@ import (
 	"time"
 
 	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapcalendar"
+	"imap-jmap/jmap/jmapcontacts"
+	"imap-jmap/jmap/jmapcore"
 	"imap-jmap/jmap/nextcloud"
 )
 
@@ -27,9 +31,9 @@ func isReachable(url string) bool {
 
 func testContext() context.Context {
 	ctx := context.Background()
-	ctx = jmap.ContextWithAccountID(ctx, "user@example.com")
-	ctx = jmap.ContextWithSubject(ctx, "user@example.com")
-	ctx = jmap.ContextWithCredentials(ctx, "user@example.com", "user@example.com")
+	ctx = jmapauth.ContextWithAccountID(ctx, "user@example.com")
+	ctx = jmapauth.ContextWithSubject(ctx, "user@example.com")
+	ctx = jmapauth.ContextWithCredentials(ctx, "user@example.com", "user@example.com")
 	return ctx
 }
 
@@ -53,12 +57,12 @@ func TestNextcloudCalendarsBackend(t *testing.T) {
 	}
 
 	// 2. Create CalendarEvent
-	ev := &jmap.CalendarEvent{
+	ev := &jmapcalendar.CalendarEvent{
 		Title:       "Sprint Planning Meeting",
 		Description: "Nextcloud CalDAV JMAP Integration",
 		Start:       "2026-11-15T09:00:00Z",
 		Duration:    "PT1H",
-		CalendarIDs: map[jmap.Id]bool{cals[0].ID: true},
+		CalendarIDs: map[jmapcore.Id]bool{cals[0].ID: true},
 	}
 	created, err := backend.CreateCalendarEvent(ctx, ev)
 	if err != nil {
@@ -69,7 +73,7 @@ func TestNextcloudCalendarsBackend(t *testing.T) {
 	}
 
 	// 3. Get CalendarEvent
-	fetched, notFound, err := backend.GetCalendarEvents(ctx, []jmap.Id{created.ID})
+	fetched, notFound, err := backend.GetCalendarEvents(ctx, []jmapcore.Id{created.ID})
 	if err != nil {
 		t.Fatalf("GetCalendarEvents failed: %v", err)
 	}
@@ -118,14 +122,14 @@ func TestNextcloudContactsBackend(t *testing.T) {
 	}
 
 	// 2. Create Card
-	card := &jmap.Card{
-		Name: &jmap.JSContactName{
+	card := &jmapcontacts.Card{
+		Name: &jmapcontacts.JSContactName{
 			Full: "Bob Nextcloud",
 		},
-		Emails: map[string]*jmap.JSContactEmailAddress{
+		Emails: map[string]*jmapcontacts.JSContactEmailAddress{
 			"e1": {Address: "bob.nc@example.com"},
 		},
-		AddressBookIDs: map[jmap.Id]bool{abs[0].ID: true},
+		AddressBookIDs: map[jmapcore.Id]bool{abs[0].ID: true},
 	}
 	created, err := backend.CreateCard(ctx, card)
 	if err != nil {
@@ -136,7 +140,7 @@ func TestNextcloudContactsBackend(t *testing.T) {
 	}
 
 	// 3. Get Card
-	fetched, notFound, err := backend.GetCards(ctx, []jmap.Id{created.ID})
+	fetched, notFound, err := backend.GetCards(ctx, []jmapcore.Id{created.ID})
 	if err != nil {
 		t.Fatalf("GetCards failed: %v", err)
 	}
@@ -218,12 +222,12 @@ func TestEmbeddedNextcloudCalendars(t *testing.T) {
 	}
 
 	// 2. Create CalendarEvent
-	ev := &jmap.CalendarEvent{
+	ev := &jmapcalendar.CalendarEvent{
 		Title:       "Embedded Sprint Planning",
 		Description: "In-Process CalDAV Testing",
 		Start:       "2026-11-15T09:00:00Z",
 		Duration:    "PT1H",
-		CalendarIDs: map[jmap.Id]bool{cals[0].ID: true},
+		CalendarIDs: map[jmapcore.Id]bool{cals[0].ID: true},
 	}
 	created, err := calBackend.CreateCalendarEvent(ctx, ev)
 	if err != nil {
@@ -234,7 +238,7 @@ func TestEmbeddedNextcloudCalendars(t *testing.T) {
 	}
 
 	// 3. Get CalendarEvent
-	fetched, notFound, err := calBackend.GetCalendarEvents(ctx, []jmap.Id{created.ID})
+	fetched, notFound, err := calBackend.GetCalendarEvents(ctx, []jmapcore.Id{created.ID})
 	if err != nil {
 		t.Fatalf("GetCalendarEvents failed: %v", err)
 	}
@@ -278,14 +282,14 @@ func TestEmbeddedNextcloudContacts(t *testing.T) {
 	}
 
 	// 2. Create Card
-	card := &jmap.Card{
-		Name: &jmap.JSContactName{
+	card := &jmapcontacts.Card{
+		Name: &jmapcontacts.JSContactName{
 			Full: "Alice Embedded",
 		},
-		Emails: map[string]*jmap.JSContactEmailAddress{
+		Emails: map[string]*jmapcontacts.JSContactEmailAddress{
 			"e1": {Address: "alice.emb@example.com"},
 		},
-		AddressBookIDs: map[jmap.Id]bool{abs[0].ID: true},
+		AddressBookIDs: map[jmapcore.Id]bool{abs[0].ID: true},
 	}
 	created, err := contactsBackend.CreateCard(ctx, card)
 	if err != nil {
@@ -296,7 +300,7 @@ func TestEmbeddedNextcloudContacts(t *testing.T) {
 	}
 
 	// 3. Get Card
-	fetched, notFound, err := contactsBackend.GetCards(ctx, []jmap.Id{created.ID})
+	fetched, notFound, err := contactsBackend.GetCards(ctx, []jmapcore.Id{created.ID})
 	if err != nil {
 		t.Fatalf("GetCards failed: %v", err)
 	}

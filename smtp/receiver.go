@@ -21,7 +21,12 @@ import (
 	"github.com/foxcpp/go-sieve"
 	"github.com/foxcpp/go-sieve/interp"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapblob"
+	"imap-jmap/jmap/jmapcalendar"
+	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmapmail"
+	"imap-jmap/jmap/jmapsieve"
 )
 
 // TransportMode distinguishes the two SMTP transports defined by RFC 6409
@@ -50,12 +55,12 @@ type Authenticator interface {
 
 // ReceiverBackend implements smtp.Backend for receiving emails and storing them into JMAP backends.
 type ReceiverBackend struct {
-	MailBackend      jmap.MailBackend
-	BlobBackend      jmap.BlobBackend
-	CalendarsBackend jmap.CalendarsBackend
-	SieveBackend     jmap.SieveBackend
-	OutboundSender   jmap.OutboundMailSender
-	AccountResolver  jmap.AccountResolver
+	MailBackend      jmapmail.MailBackend
+	BlobBackend      jmapblob.BlobBackend
+	CalendarsBackend jmapcalendar.CalendarsBackend
+	SieveBackend     jmapsieve.SieveBackend
+	OutboundSender   jmapmail.OutboundMailSender
+	AccountResolver  jmapauth.AccountResolver
 	AccountID        string
 	// SenderVerifier authenticates the sender (SPF/DKIM/DMARC, SEC-1) before
 	// iTIP scheduling messages are auto-applied. When nil (development mode)
@@ -81,8 +86,8 @@ type ReceiverBackend struct {
 }
 
 // NewReceiverBackend initializes a new SMTP ReceiverBackend linked to JMAP backends.
-func NewReceiverBackend(mailBackend jmap.MailBackend, blobBackend jmap.BlobBackend, calBackend jmap.CalendarsBackend, resolver ...jmap.AccountResolver) *ReceiverBackend {
-	var r jmap.AccountResolver
+func NewReceiverBackend(mailBackend jmapmail.MailBackend, blobBackend jmapblob.BlobBackend, calBackend jmapcalendar.CalendarsBackend, resolver ...jmapauth.AccountResolver) *ReceiverBackend {
+	var r jmapauth.AccountResolver
 	if len(resolver) > 0 {
 		r = resolver[0]
 	}
@@ -350,7 +355,7 @@ func (s *Session) Data(r io.Reader) error {
 			targetAccountIDs[s.backend.AccountID] = true
 			log.Printf("SMTP receiver: no local recipient; delivering to fallback account %s", s.backend.AccountID)
 		} else if len(s.to) > 0 {
-			targetAccountIDs[jmap.AccountIDForSubject(s.to[0])] = true
+			targetAccountIDs[jmapauth.AccountIDForSubject(s.to[0])] = true
 			log.Printf("SMTP receiver: no local recipient; delivering to account derived from first recipient %q", s.to[0])
 		} else {
 			log.Printf("SMTP receiver: message has no recipients and no fallback account; dropping message")
@@ -367,16 +372,16 @@ func (s *Session) Data(r io.Reader) error {
 	var authOK bool
 	var authReason string
 	for targetAccountID := range targetAccountIDs {
-		rcptSubject, ok := jmap.SubjectForAccountID(targetAccountID)
+		rcptSubject, ok := jmapauth.SubjectForAccountID(targetAccountID)
 		if !ok || rcptSubject == "" {
 			rcptSubject = targetAccountID
 		}
-		rcptCtx := jmap.ContextWithAccountID(context.Background(), targetAccountID)
-		rcptCtx = jmap.ContextWithSubject(rcptCtx, rcptSubject)
-		rcptCtx = jmap.ContextWithCredentials(rcptCtx, rcptSubject, rcptSubject)
+		rcptCtx := jmapauth.ContextWithAccountID(context.Background(), targetAccountID)
+		rcptCtx = jmapauth.ContextWithSubject(rcptCtx, rcptSubject)
+		rcptCtx = jmapauth.ContextWithCredentials(rcptCtx, rcptSubject, rcptSubject)
 		log.Printf("SMTP receiver: delivering message to account %s (%s)", targetAccountID, rcptSubject)
 
-		var blobID jmap.Id = "blob-unknown"
+		var blobID jmapcore.Id = "blob-unknown"
 		blobStored := false
 		if s.backend.BlobBackend == nil {
 			log.Printf("SMTP receiver: warning: no BlobBackend configured; blob not stored for account %s", targetAccountID)
@@ -391,7 +396,7 @@ func (s *Session) Data(r io.Reader) error {
 					firstFailure = err
 				}
 			} else {
-				blobID = jmap.Id(blob.ID)
+				blobID = jmapcore.Id(blob.ID)
 				blobStored = true
 			}
 		}
@@ -454,14 +459,14 @@ func (s *Session) Data(r io.Reader) error {
 
 			// Apply Sieve fileinto or fallback to INBOX
 			if sieveRes != nil && len(sieveRes.targetMailboxes) > 0 {
-				email.MailboxIDs = make(map[jmap.Id]bool)
+				email.MailboxIDs = make(map[jmapcore.Id]bool)
 				for _, mbName := range sieveRes.targetMailboxes {
-					mbID := jmap.MailboxIDByName(rcptCtx, s.backend.MailBackend, mbName)
+					mbID := jmapmail.MailboxIDByName(rcptCtx, s.backend.MailBackend, mbName)
 					if mbID == "" {
-						if newMb, err := s.backend.MailBackend.CreateMailbox(rcptCtx, &jmap.Mailbox{Name: mbName}); err == nil && newMb != nil {
+						if newMb, err := s.backend.MailBackend.CreateMailbox(rcptCtx, &jmapmail.Mailbox{Name: mbName}); err == nil && newMb != nil {
 							mbID = newMb.ID
 						} else {
-							mbID = jmap.Id("mb-" + strings.ToLower(mbName))
+							mbID = jmapcore.Id("mb-" + strings.ToLower(mbName))
 						}
 					}
 					email.MailboxIDs[mbID] = true
@@ -471,8 +476,8 @@ func (s *Session) Data(r io.Reader) error {
 				email = nil
 			} else {
 				// Deliver into the recipient's INBOX.
-				if inboxID := jmap.InboxMailboxID(rcptCtx, s.backend.MailBackend); inboxID != "" {
-					email.MailboxIDs = map[jmap.Id]bool{inboxID: true}
+				if inboxID := jmapmail.InboxMailboxID(rcptCtx, s.backend.MailBackend); inboxID != "" {
+					email.MailboxIDs = map[jmapcore.Id]bool{inboxID: true}
 				}
 			}
 
@@ -521,7 +526,7 @@ func (s *Session) Data(r io.Reader) error {
 			if icsBody == "" {
 				continue
 			}
-			msg, err := jmap.ParseITIPMessage(icsBody)
+			msg, err := jmapcalendar.ParseITIPMessage(icsBody)
 			if err == nil && msg != nil && msg.UID != "" {
 				// SEC-1 sender authentication gate: SPF/DKIM/DMARC verification is
 				// performed once per message and must pass before any iTIP is
@@ -584,10 +589,10 @@ func (s *Session) Data(r io.Reader) error {
 						if _, err := s.backend.CalendarsBackend.UpdateCalendarEvent(rcptCtx, ev.ID, patch); err == nil {
 							log.Printf("SMTP receiver: applied iTIP REPLY to event %s: participant %s -> %s", ev.ID, attendeeEmail, status)
 							replyEmail := attendeeEmail
-							s.backend.CalendarsBackend.CreateCalendarEventNotification(rcptCtx, &jmap.CalendarEventNotification{
+							s.backend.CalendarsBackend.CreateCalendarEventNotification(rcptCtx, &jmapcalendar.CalendarEventNotification{
 								Type:            "updated",
 								CalendarEventID: ev.ID,
-								ChangedBy: jmap.CalendarEventNotificationPerson{
+								ChangedBy: jmapcalendar.CalendarEventNotificationPerson{
 									Email:           &replyEmail,
 									CalendarAddress: &replyEmail,
 								},
@@ -623,7 +628,7 @@ func (s *Session) Data(r io.Reader) error {
 						_, _ = s.backend.CalendarsBackend.UpdateCalendarEvent(rcptCtx, existing.ID, patch)
 					} else {
 						imported.ID = ""
-						imported.CalendarIDs = map[jmap.Id]bool{"cal-default": true}
+						imported.CalendarIDs = map[jmapcore.Id]bool{"cal-default": true}
 						if imported.Status == "" {
 							imported.Status = "tentative"
 						}
@@ -660,10 +665,10 @@ func (s *Session) Data(r io.Reader) error {
 						if _, err := s.backend.CalendarsBackend.UpdateCalendarEvent(rcptCtx, ev.ID, patch); err == nil {
 							log.Printf("SMTP receiver: cancelled event %s from iTIP CANCEL", ev.ID)
 							fromEmail := s.from
-							s.backend.CalendarsBackend.CreateCalendarEventNotification(rcptCtx, &jmap.CalendarEventNotification{
+							s.backend.CalendarsBackend.CreateCalendarEventNotification(rcptCtx, &jmapcalendar.CalendarEventNotification{
 								Type:            "deleted",
 								CalendarEventID: ev.ID,
-								ChangedBy: jmap.CalendarEventNotificationPerson{
+								ChangedBy: jmapcalendar.CalendarEventNotificationPerson{
 									Email:           &fromEmail,
 									CalendarAddress: &fromEmail,
 								},
@@ -793,8 +798,8 @@ func extractCalendarBody(raw []byte) string {
 // parseImportedEvent parses the (already MIME-extracted) text/calendar body into a full
 // CalendarEvent (RFC 5545 → RFC 8984), preferring the VEVENT whose UID matches the iTIP
 // message and falling back to a title+start event from the scanned iTIP fields.
-func parseImportedEvent(ics string, msg *jmap.ITIPMessage) *jmap.CalendarEvent {
-	if events, err := jmap.ParseICalendar([]byte(ics)); err == nil {
+func parseImportedEvent(ics string, msg *jmapcalendar.ITIPMessage) *jmapcalendar.CalendarEvent {
+	if events, err := jmapcalendar.ParseICalendar([]byte(ics)); err == nil {
 		for _, e := range events {
 			if e != nil && e.UID == msg.UID {
 				return e
@@ -808,10 +813,10 @@ func parseImportedEvent(ics string, msg *jmap.ITIPMessage) *jmap.CalendarEvent {
 	if title == "" {
 		title = "External Meeting Invitation"
 	}
-	return &jmap.CalendarEvent{UID: msg.UID, Title: title, Start: msg.Start}
+	return &jmapcalendar.CalendarEvent{UID: msg.UID, Title: title, Start: msg.Start}
 }
 
-func findParticipantKey(ev *jmap.CalendarEvent, attendeeEmail string) string {
+func findParticipantKey(ev *jmapcalendar.CalendarEvent, attendeeEmail string) string {
 	if ev == nil || attendeeEmail == "" {
 		return ""
 	}
@@ -836,7 +841,7 @@ func findParticipantKey(ev *jmap.CalendarEvent, attendeeEmail string) string {
 	return ""
 }
 
-func isEventOrganizer(ev *jmap.CalendarEvent, email string) bool {
+func isEventOrganizer(ev *jmapcalendar.CalendarEvent, email string) bool {
 	if ev == nil || email == "" {
 		return false
 	}
@@ -868,7 +873,7 @@ func isEventOrganizer(ev *jmap.CalendarEvent, email string) bool {
 
 // ensureOwnerParticipant guarantees the imported event has an owner participant (the
 // organizer), adding the SMTP envelope sender as owner when the ICS carried none.
-func ensureOwnerParticipant(ev *jmap.CalendarEvent, from string) {
+func ensureOwnerParticipant(ev *jmapcalendar.CalendarEvent, from string) {
 	for _, p := range ev.Participants {
 		if p != nil && ((p.Roles != nil && p.Roles["owner"]) || p.Role == "owner") {
 			return
@@ -878,9 +883,9 @@ func ensureOwnerParticipant(ev *jmap.CalendarEvent, from string) {
 		return
 	}
 	if ev.Participants == nil {
-		ev.Participants = make(map[string]*jmap.JSCalendarParticipant)
+		ev.Participants = make(map[string]*jmapcalendar.JSCalendarParticipant)
 	}
-	ev.Participants[from] = &jmap.JSCalendarParticipant{
+	ev.Participants[from] = &jmapcalendar.JSCalendarParticipant{
 		Email: from,
 		Role:  "owner",
 		Roles: map[string]bool{"owner": true},
@@ -890,7 +895,7 @@ func ensureOwnerParticipant(ev *jmap.CalendarEvent, from string) {
 // findEventByUID locates the calendar event whose iCalendar UID (RFC 5546 Section
 // 2.1.5) matches uid. It scans the account's events by their "uid" property, and
 // falls back to treating uid as a JMAP id for events imported before uid tracking.
-func (s *Session) findEventByUID(ctx context.Context, uid string) *jmap.CalendarEvent {
+func (s *Session) findEventByUID(ctx context.Context, uid string) *jmapcalendar.CalendarEvent {
 	if s.backend.CalendarsBackend == nil || uid == "" {
 		return nil
 	}
@@ -901,7 +906,7 @@ func (s *Session) findEventByUID(ctx context.Context, uid string) *jmap.Calendar
 			}
 		}
 	}
-	events, _, err := s.backend.CalendarsBackend.GetCalendarEvents(ctx, []jmap.Id{jmap.Id(uid)})
+	events, _, err := s.backend.CalendarsBackend.GetCalendarEvents(ctx, []jmapcore.Id{jmapcore.Id(uid)})
 	if err == nil && len(events) > 0 {
 		return events[0]
 	}
@@ -1003,7 +1008,7 @@ func (s *Session) evaluateSieve(ctx context.Context, rcptCtx context.Context, fr
 	if err != nil || len(scripts) == 0 {
 		return nil, nil
 	}
-	var activeScript *jmap.SieveScript
+	var activeScript *jmapsieve.SieveScript
 	for _, sc := range scripts {
 		if sc != nil && sc.IsActive {
 			activeScript = sc
@@ -1062,7 +1067,7 @@ func (s *Session) evaluateSieve(ctx context.Context, rcptCtx context.Context, fr
 	return res, nil
 }
 
-func (s *Session) handleVacationResponse(rcptCtx context.Context, senderAddr, rcptAddr string, email *jmap.Email, data []byte) {
+func (s *Session) handleVacationResponse(rcptCtx context.Context, senderAddr, rcptAddr string, email *jmapmail.Email, data []byte) {
 	if senderAddr == "" || senderAddr == "<>" {
 		return
 	}

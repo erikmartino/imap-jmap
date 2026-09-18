@@ -11,16 +11,17 @@ import (
 
 	gomail "github.com/emersion/go-message/mail"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmapmail"
 )
 
 // ParseMessageToEmail converts raw RFC 5322 MIME message bytes and a blob ID into a JMAP Email object (RFC 8621).
-func ParseMessageToEmail(raw []byte, blobID jmap.Id) (*jmap.Email, error) {
+func ParseMessageToEmail(raw []byte, blobID jmapcore.Id) (*jmapmail.Email, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	email := &jmap.Email{
+	email := &jmapmail.Email{
 		BlobID:     blobID,
-		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
+		MailboxIDs: map[jmapcore.Id]bool{"mb-inbox": true},
 		Keywords:   map[string]bool{"$unread": true},
 		Size:       uint64(len(raw)),
 		ReceivedAt: now,
@@ -66,7 +67,7 @@ func ParseMessageToEmail(raw []byte, blobID jmap.Id) (*jmap.Email, error) {
 		email.SentAt = &s
 	}
 
-	email.BodyValues = make(map[string]jmap.EmailBodyValue)
+	email.BodyValues = make(map[string]jmapmail.EmailBodyValue)
 	partCounter := 0
 
 	for {
@@ -112,7 +113,7 @@ func ParseMessageToEmail(raw []byte, blobID jmap.Id) (*jmap.Email, error) {
 			dispPtr = &disp
 		}
 
-		part := jmap.EmailBodyPart{
+		part := jmapmail.EmailBodyPart{
 			PartID:      &partID,
 			Size:        uint64(len(bodyBytes)),
 			Type:        mediaType,
@@ -124,7 +125,7 @@ func ParseMessageToEmail(raw []byte, blobID jmap.Id) (*jmap.Email, error) {
 			email.Attachments = append(email.Attachments, part)
 			email.HasAttachment = true
 		} else if strings.EqualFold(mainType, "text") {
-			email.BodyValues[partID] = jmap.EmailBodyValue{
+			email.BodyValues[partID] = jmapmail.EmailBodyValue{
 				Value: string(bodyBytes),
 			}
 			if strings.EqualFold(subType, "plain") {
@@ -150,7 +151,7 @@ func ParseMessageToEmail(raw []byte, blobID jmap.Id) (*jmap.Email, error) {
 
 	if email.BodyStructure.Type == "" {
 		p1 := "1"
-		email.BodyStructure = jmap.EmailBodyPart{
+		email.BodyStructure = jmapmail.EmailBodyPart{
 			PartID: &p1,
 			Type:   "multipart/mixed",
 		}
@@ -159,15 +160,15 @@ func ParseMessageToEmail(raw []byte, blobID jmap.Id) (*jmap.Email, error) {
 	return email, nil
 }
 
-func parseFallback(raw []byte, email *jmap.Email) (*jmap.Email, error) {
+func parseFallback(raw []byte, email *jmapmail.Email) (*jmapmail.Email, error) {
 	p1 := "1"
 	msg, err := mail.ReadMessage(bytes.NewReader(raw))
 	if err != nil {
 		email.Subject = "(No Subject)"
-		email.BodyValues = map[string]jmap.EmailBodyValue{
+		email.BodyValues = map[string]jmapmail.EmailBodyValue{
 			"1": {Value: string(raw)},
 		}
-		email.TextBody = []jmap.EmailBodyPart{{PartID: &p1, Type: "text/plain", Size: uint64(len(raw))}}
+		email.TextBody = []jmapmail.EmailBodyPart{{PartID: &p1, Type: "text/plain", Size: uint64(len(raw))}}
 		return email, nil
 	}
 
@@ -187,19 +188,19 @@ func parseFallback(raw []byte, email *jmap.Email) (*jmap.Email, error) {
 	}
 
 	bodyBytes, _ := io.ReadAll(msg.Body)
-	email.BodyValues = map[string]jmap.EmailBodyValue{
+	email.BodyValues = map[string]jmapmail.EmailBodyValue{
 		"1": {Value: string(bodyBytes)},
 	}
-	email.TextBody = []jmap.EmailBodyPart{{PartID: &p1, Type: "text/plain", Size: uint64(len(bodyBytes))}}
+	email.TextBody = []jmapmail.EmailBodyPart{{PartID: &p1, Type: "text/plain", Size: uint64(len(bodyBytes))}}
 	email.Preview = makePreview(string(bodyBytes))
 	return email, nil
 }
 
-func convertAddresses(addrs []*gomail.Address) []jmap.EmailAddress {
-	res := make([]jmap.EmailAddress, 0, len(addrs))
+func convertAddresses(addrs []*gomail.Address) []jmapmail.EmailAddress {
+	res := make([]jmapmail.EmailAddress, 0, len(addrs))
 	for _, a := range addrs {
 		if a != nil {
-			res = append(res, jmap.EmailAddress{
+			res = append(res, jmapmail.EmailAddress{
 				Name:  a.Name,
 				Email: a.Address,
 			})
@@ -208,11 +209,11 @@ func convertAddresses(addrs []*gomail.Address) []jmap.EmailAddress {
 	return res
 }
 
-func convertStdAddresses(addrs []*mail.Address) []jmap.EmailAddress {
-	res := make([]jmap.EmailAddress, 0, len(addrs))
+func convertStdAddresses(addrs []*mail.Address) []jmapmail.EmailAddress {
+	res := make([]jmapmail.EmailAddress, 0, len(addrs))
 	for _, a := range addrs {
 		if a != nil {
-			res = append(res, jmap.EmailAddress{
+			res = append(res, jmapmail.EmailAddress{
 				Name:  a.Name,
 				Email: a.Address,
 			})

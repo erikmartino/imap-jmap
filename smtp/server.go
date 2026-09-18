@@ -6,7 +6,11 @@ import (
 
 	gosmtp "github.com/emersion/go-smtp"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapblob"
+	"imap-jmap/jmap/jmapcalendar"
+	"imap-jmap/jmap/jmapmail"
+	"imap-jmap/jmap/jmapsieve"
 )
 
 // Server wraps the underlying go-smtp Server configured for JMAP mail intake.
@@ -19,7 +23,7 @@ type Server struct {
 type Option func(*Server)
 
 // WithAccountResolver sets a custom AccountResolver on the SMTP receiver backend.
-func WithAccountResolver(resolver jmap.AccountResolver) Option {
+func WithAccountResolver(resolver jmapauth.AccountResolver) Option {
 	return func(s *Server) {
 		if receiver, ok := s.server.Backend.(*ReceiverBackend); ok {
 			receiver.AccountResolver = resolver
@@ -87,7 +91,7 @@ func WithAllowInsecureAuth(allowed bool) Option {
 
 // WithSieveBackend sets the SieveBackend used to evaluate recipient Sieve scripts
 // on incoming message delivery (RFC 5228 / RFC 9661).
-func WithSieveBackend(sieveBackend jmap.SieveBackend) Option {
+func WithSieveBackend(sieveBackend jmapsieve.SieveBackend) Option {
 	return func(s *Server) {
 		if receiver, ok := s.server.Backend.(*ReceiverBackend); ok {
 			receiver.SieveBackend = sieveBackend
@@ -96,7 +100,7 @@ func WithSieveBackend(sieveBackend jmap.SieveBackend) Option {
 }
 
 // WithOutboundSender sets the OutboundMailSender used to forward/redirect messages (RFC 5228).
-func WithOutboundSender(sender jmap.OutboundMailSender) Option {
+func WithOutboundSender(sender jmapmail.OutboundMailSender) Option {
 	return func(s *Server) {
 		if receiver, ok := s.server.Backend.(*ReceiverBackend); ok {
 			receiver.OutboundSender = sender
@@ -115,7 +119,7 @@ func WithMaxMessageBytes(max int64) Option {
 }
 
 // NewServer initializes a new SMTP server instance configured for receiving mail into JMAP storage.
-func NewServer(addr string, mailBackend jmap.MailBackend, blobBackend jmap.BlobBackend, calBackend jmap.CalendarsBackend, opts ...Option) *Server {
+func NewServer(addr string, mailBackend jmapmail.MailBackend, blobBackend jmapblob.BlobBackend, calBackend jmapcalendar.CalendarsBackend, opts ...Option) *Server {
 	backend := NewReceiverBackend(mailBackend, blobBackend, calBackend)
 	backend.ServerName = "localhost"
 

@@ -4,13 +4,14 @@ import (
 	"context"
 	"fmt"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapmail"
 )
 
 // VacationResponse is a per-account singleton per RFC 8621 Section 8.
 
 func (b *IMAPSMTPBackend) VacationResponseState(ctx context.Context) string {
-	accountID, _ := jmap.AccountIDFromContext(ctx)
+	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.vacationMu.RLock()
 	defer b.vacationMu.RUnlock()
 	st := b.vacationState[accountID]
@@ -20,35 +21,35 @@ func (b *IMAPSMTPBackend) VacationResponseState(ctx context.Context) string {
 	return fmt.Sprintf("%d", st)
 }
 
-func (b *IMAPSMTPBackend) GetVacationResponse(ctx context.Context) (*jmap.VacationResponse, error) {
-	accountID, _ := jmap.AccountIDFromContext(ctx)
+func (b *IMAPSMTPBackend) GetVacationResponse(ctx context.Context) (*jmapmail.VacationResponse, error) {
+	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.vacationMu.Lock()
 	defer b.vacationMu.Unlock()
 	if b.vacationResponses == nil {
-		b.vacationResponses = make(map[string]*jmap.VacationResponse)
+		b.vacationResponses = make(map[string]*jmapmail.VacationResponse)
 	}
 	vr, ok := b.vacationResponses[accountID]
 	if !ok {
-		vr = &jmap.VacationResponse{ID: "singleton", IsEnabled: false}
+		vr = &jmapmail.VacationResponse{ID: "singleton", IsEnabled: false}
 		b.vacationResponses[accountID] = vr
 	}
 	copyVR := *vr
 	return &copyVR, nil
 }
 
-func (b *IMAPSMTPBackend) UpdateVacationResponse(ctx context.Context, patch map[string]any) (*jmap.VacationResponse, error) {
-	accountID, _ := jmap.AccountIDFromContext(ctx)
+func (b *IMAPSMTPBackend) UpdateVacationResponse(ctx context.Context, patch map[string]any) (*jmapmail.VacationResponse, error) {
+	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.vacationMu.Lock()
 	defer b.vacationMu.Unlock()
 	if b.vacationResponses == nil {
-		b.vacationResponses = make(map[string]*jmap.VacationResponse)
+		b.vacationResponses = make(map[string]*jmapmail.VacationResponse)
 	}
 	if b.vacationState == nil {
 		b.vacationState = make(map[string]uint64)
 	}
 	vr, ok := b.vacationResponses[accountID]
 	if !ok {
-		vr = &jmap.VacationResponse{ID: "singleton", IsEnabled: false}
+		vr = &jmapmail.VacationResponse{ID: "singleton", IsEnabled: false}
 		b.vacationResponses[accountID] = vr
 	}
 	for k, v := range patch {

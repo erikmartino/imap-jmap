@@ -155,8 +155,8 @@ Move `sieve_handlers.go`, `sieve_types.go`.
 ### Step 9 — Move mail handlers (optional, large scope)
 Move `email_handlers.go`, `email_set_handlers.go`, `email_ops_handlers.go`, `email_query_handlers.go`, `email_parse.go`, `mailbox_handlers.go`, `thread_handlers.go`, `submission_handlers.go`, `identity_vacation_handlers.go`, `mdn_handlers.go`, `quota_handlers.go`, `push_handlers.go` into `jmapmail`.
 
-### Step 10 — Remove type aliases from `jmap`
-Once all callers (`nextcloud`, `smtp`, test files) import sub-packages directly, remove the backward-compat aliases from `jmap`.
+### Step 10 — Migrate callers and prune type aliases
+Migrated all external packages and callers (`imapsmtp`, `nextcloud`, `managesieve`, `smtp`, `main.go`, and test suites) to import canonical sub-packages (`jmapcore`, `jmapauth`, `jmapblob`, `jmapcalendar`, `jmapcontacts`, `jmapmail`, `jmapprincipals`, `jmappush`, `jmapsieve`) directly. Inlined and pruned all unused type aliases across sub-packages and root `jmap`.
 
 ## Current Status
 
@@ -171,4 +171,4 @@ Once all callers (`nextcloud`, `smtp`, test files) import sub-packages directly,
 | Step 7: contacts → `jmapcontacts` | ✅ done |
 | Step 8: sieve → `jmapsieve` | ✅ done |
 | Step 9: mail handlers → `jmapmail` | ✅ done |
-| Step 10: remove aliases | ⬜ todo |
+| Step 10: migrate callers & prune aliases | ✅ done |

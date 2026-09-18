@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"imap-jmap/imap"
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
 )
 
 type idleWatcherEntry struct {
@@ -15,7 +15,7 @@ type idleWatcherEntry struct {
 }
 
 // startIdleWatcher starts a dedicated IMAP IDLE (RFC 2177) connection for the account.
-func (b *IMAPSMTPBackend) startIdleWatcher(accountID string, creds jmap.AuthCredentials) {
+func (b *IMAPSMTPBackend) startIdleWatcher(accountID string, creds jmapauth.AuthCredentials) {
 	b.idleMu.Lock()
 	if b.idleWatchers == nil {
 		b.idleWatchers = make(map[string]*idleWatcherEntry)
@@ -68,7 +68,7 @@ func (b *IMAPSMTPBackend) stopIdleWatcher(accountID string) {
 }
 
 // runIdleLoop maintains an active IMAP IDLE session per RFC 2177.
-func (b *IMAPSMTPBackend) runIdleLoop(idleCtx context.Context, accountID string, creds jmap.AuthCredentials) error {
+func (b *IMAPSMTPBackend) runIdleLoop(idleCtx context.Context, accountID string, creds jmapauth.AuthCredentials) error {
 	notifyCh := make(chan struct{}, 10)
 	triggerNotify := func() {
 		select {
@@ -128,9 +128,9 @@ func (b *IMAPSMTPBackend) runIdleLoop(idleCtx context.Context, accountID string,
 			keepaliveTimer.Stop()
 
 			// Fetch latest composite state and publish immediately via broadcaster
-			ctx := jmap.ContextWithAccountID(context.Background(), accountID)
-			ctx = jmap.ContextWithCredentials(ctx, creds.Username, creds.Password)
-			ctx = jmap.ContextWithSubject(ctx, creds.Username)
+			ctx := jmapauth.ContextWithAccountID(context.Background(), accountID)
+			ctx = jmapauth.ContextWithCredentials(ctx, creds.Username, creds.Password)
+			ctx = jmapauth.ContextWithSubject(ctx, creds.Username)
 
 			cs, err := b.GetCurrentCompositeState(ctx)
 			if err == nil {

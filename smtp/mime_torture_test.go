@@ -10,8 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"imap-jmap/jmap"
 	"imap-jmap/jmap/imapsmtp"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapcore"
 	"imap-jmap/jmap/spectest"
 	jmapsmtp "imap-jmap/smtp"
 )
@@ -34,7 +35,7 @@ func TestSMTPReceiver_MIMETorture(t *testing.T) {
 
 	embeddedBackend, cleanup := imapsmtp.NewEmbeddedBackend(recipient)
 	defer cleanup()
-	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
+	resolver := jmapauth.PrimaryDomainResolver{PrimaryDomain: "example.com"}
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -48,7 +49,7 @@ func TestSMTPReceiver_MIMETorture(t *testing.T) {
 	defer srv.Close()
 	time.Sleep(50 * time.Millisecond)
 
-	rcptCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject(recipient))
+	rcptCtx := jmapauth.ContextWithAccountID(context.Background(), jmapauth.AccountIDForSubject(recipient))
 
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".eml") {
@@ -64,14 +65,14 @@ func TestSMTPReceiver_MIMETorture(t *testing.T) {
 			}
 
 			// 1. Direct unit-level parse via ParseMessageToEmail - MUST NOT PANIC
-			email, parseErr := jmapsmtp.ParseMessageToEmail(rawBytes, jmap.Id("blob-"+vectorName))
+			email, parseErr := jmapsmtp.ParseMessageToEmail(rawBytes, jmapcore.Id("blob-"+vectorName))
 			if parseErr != nil {
 				t.Logf("[%s] ParseMessageToEmail returned error (graceful): %v", vectorName, parseErr)
 			} else if email == nil {
 				t.Fatalf("[%s] ParseMessageToEmail returned nil email with nil error", vectorName)
 			} else {
 				// Assertions on the parsed Email object
-				if email.BlobID != jmap.Id("blob-"+vectorName) {
+				if email.BlobID != jmapcore.Id("blob-"+vectorName) {
 					t.Errorf("[%s] Expected blobID blob-%s, got %s", vectorName, vectorName, email.BlobID)
 				}
 				for pid, bv := range email.BodyValues {
@@ -158,7 +159,7 @@ func TestSMTPReceiver_OversizedMessageDATA(t *testing.T) {
 	const recipient = "oversize@example.com"
 	embeddedBackend, cleanup := imapsmtp.NewEmbeddedBackend(recipient)
 	defer cleanup()
-	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
+	resolver := jmapauth.PrimaryDomainResolver{PrimaryDomain: "example.com"}
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

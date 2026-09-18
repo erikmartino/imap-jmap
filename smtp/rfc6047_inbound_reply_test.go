@@ -7,7 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapcalendar"
+	"imap-jmap/jmap/jmapcore"
 	"imap-jmap/jmap/imapsmtp"
 	"imap-jmap/jmap/nextcloud"
 	"imap-jmap/jmap/spectest"
@@ -25,7 +27,7 @@ func TestRFC6047_InboundReplyUpdatesParticipationStatus(t *testing.T) {
 	spectest.Require(t, "RFC5546", "3.2.3", spectest.MUST,
 		"A REPLY updates the replying attendee's PARTSTAT (participationStatus), not the event status.")
 
-	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
+	resolver := jmapauth.PrimaryDomainResolver{PrimaryDomain: "example.com"}
 	_, calBackend, _, _, _, ncCleanup := nextcloud.NewEmbeddedBackend("bob@example.com", "alice@example.com")
 	defer ncCleanup()
 	backend, cleanup := imapsmtp.NewEmbeddedBackend("bob@example.com", "alice@example.com")
@@ -36,13 +38,13 @@ func TestRFC6047_InboundReplyUpdatesParticipationStatus(t *testing.T) {
 	// Organizer bob owns the event in his account; attendee alice will reply.
 	const organizer = "bob@example.com"
 	const attendee = "alice@example.com"
-	bobCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject(organizer))
-	ev, err := calBackend.CreateCalendarEvent(bobCtx, &jmap.CalendarEvent{
+	bobCtx := jmapauth.ContextWithAccountID(context.Background(), jmapauth.AccountIDForSubject(organizer))
+	ev, err := calBackend.CreateCalendarEvent(bobCtx, &jmapcalendar.CalendarEvent{
 		UID:    "inbound-reply-uid@example.com",
 		Title:  "Roadmap",
 		Start:  "2026-09-20T10:00:00Z",
 		Status: "confirmed",
-		Participants: map[string]*jmap.JSCalendarParticipant{
+		Participants: map[string]*jmapcalendar.JSCalendarParticipant{
 			organizer: {Email: organizer, Roles: map[string]bool{"owner": true}},
 			attendee:  {Email: attendee, Roles: map[string]bool{"attendee": true}, ParticipationStatus: "needs-action"},
 		},
@@ -85,7 +87,7 @@ func TestRFC6047_InboundReplyUpdatesParticipationStatus(t *testing.T) {
 	}
 	time.Sleep(100 * time.Millisecond)
 
-	updated, _, err := calBackend.GetCalendarEvents(bobCtx, []jmap.Id{ev.ID})
+	updated, _, err := calBackend.GetCalendarEvents(bobCtx, []jmapcore.Id{ev.ID})
 	if err != nil || len(updated) == 0 {
 		t.Fatalf("re-fetch event: err=%v len=%d", err, len(updated))
 	}

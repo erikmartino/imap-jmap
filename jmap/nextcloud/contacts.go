@@ -13,45 +13,48 @@ import (
 	"github.com/emersion/go-vcard"
 	"github.com/emersion/go-webdav/carddav"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapcontacts"
+	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmappush"
 	"imap-jmap/jmap/vcardconv"
 )
 
-// ContactsBackend implements jmap.ContactsBackend backed by Nextcloud CardDAV via github.com/emersion/go-webdav/carddav.
+// ContactsBackend implements jmapcontacts.ContactsBackend backed by Nextcloud CardDAV via github.com/emersion/go-webdav/carddav.
 type ContactsBackend struct {
 	client      *Client
 	mu          sync.RWMutex
 	trackersMu  sync.Mutex
-	broadcaster *jmap.Broadcaster
+	broadcaster *jmappush.Broadcaster
 
-	abTrackers          map[string]*jmap.ChangeTracker
-	cardTrackers        map[string]*jmap.ChangeTracker
-	abPaths             map[string]map[jmap.Id]string
-	cardPaths           map[string]map[jmap.Id]string
+	abTrackers          map[string]*jmappush.ChangeTracker
+	cardTrackers        map[string]*jmappush.ChangeTracker
+	abPaths             map[string]map[jmapcore.Id]string
+	cardPaths           map[string]map[jmapcore.Id]string
 	homeSets            map[string]string
-	defaultAddressBooks map[string]jmap.Id
-	absCache            map[string][]*jmap.AddressBook
-	cardsCache          map[string]map[jmap.Id]*jmap.Card
+	defaultAddressBooks map[string]jmapcore.Id
+	absCache            map[string][]*jmapcontacts.AddressBook
+	cardsCache          map[string]map[jmapcore.Id]*jmapcontacts.Card
 }
 
-var _ jmap.ContactsBackend = (*ContactsBackend)(nil)
+var _ jmapcontacts.ContactsBackend = (*ContactsBackend)(nil)
 
 // NewContactsBackend initializes a new Nextcloud-backed ContactsBackend.
 func NewContactsBackend(client *Client) *ContactsBackend {
 	return &ContactsBackend{
 		client:              client,
-		abTrackers:          make(map[string]*jmap.ChangeTracker),
-		cardTrackers:        make(map[string]*jmap.ChangeTracker),
-		abPaths:             make(map[string]map[jmap.Id]string),
-		cardPaths:           make(map[string]map[jmap.Id]string),
+		abTrackers:          make(map[string]*jmappush.ChangeTracker),
+		cardTrackers:        make(map[string]*jmappush.ChangeTracker),
+		abPaths:             make(map[string]map[jmapcore.Id]string),
+		cardPaths:           make(map[string]map[jmapcore.Id]string),
 		homeSets:            make(map[string]string),
-		defaultAddressBooks: make(map[string]jmap.Id),
-		absCache:            make(map[string][]*jmap.AddressBook),
-		cardsCache:          make(map[string]map[jmap.Id]*jmap.Card),
+		defaultAddressBooks: make(map[string]jmapcore.Id),
+		absCache:            make(map[string][]*jmapcontacts.AddressBook),
+		cardsCache:          make(map[string]map[jmapcore.Id]*jmapcontacts.Card),
 	}
 }
 
-func (b *ContactsBackend) SetBroadcaster(bc *jmap.Broadcaster) {
+func (b *ContactsBackend) SetBroadcaster(bc *jmappush.Broadcaster) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.broadcaster = bc
@@ -60,7 +63,7 @@ func (b *ContactsBackend) SetBroadcaster(bc *jmap.Broadcaster) {
 func (b *ContactsBackend) emitStateChange(u, typeName, newState string) {
 	bc := b.broadcaster
 	if bc != nil {
-		accountID := jmap.AccountIDForSubject(u)
+		accountID := jmapauth.AccountIDForSubject(u)
 		bc.PublishStateChange(accountID, typeName, newState)
 		if typeName == "Card" {
 			bc.PublishStateChange(accountID, "ContactCard", newState)
@@ -83,20 +86,20 @@ func (b *ContactsBackend) user(ctx context.Context) string {
 	return u
 }
 
-func (b *ContactsBackend) getABTracker(u string) *jmap.ChangeTracker {
+func (b *ContactsBackend) getABTracker(u string) *jmappush.ChangeTracker {
 	b.trackersMu.Lock()
 	defer b.trackersMu.Unlock()
 	if b.abTrackers[u] == nil {
-		b.abTrackers[u] = jmap.NewChangeTracker(1000)
+		b.abTrackers[u] = jmappush.NewChangeTracker(1000)
 	}
 	return b.abTrackers[u]
 }
 
-func (b *ContactsBackend) getCardTracker(u string) *jmap.ChangeTracker {
+func (b *ContactsBackend) getCardTracker(u string) *jmappush.ChangeTracker {
 	b.trackersMu.Lock()
 	defer b.trackersMu.Unlock()
 	if b.cardTrackers[u] == nil {
-		b.cardTrackers[u] = jmap.NewChangeTracker(1000)
+		b.cardTrackers[u] = jmappush.NewChangeTracker(1000)
 	}
 	return b.cardTrackers[u]
 }
@@ -106,11 +109,11 @@ func (b *ContactsBackend) AddressBookState(ctx context.Context) string {
 	return b.getABTracker(b.user(ctx)).State()
 }
 
-func (b *ContactsBackend) AddressBookChanges(ctx context.Context, sinceState string) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
+func (b *ContactsBackend) AddressBookChanges(ctx context.Context, sinceState string) ([]jmapcore.Id, []jmapcore.Id, []jmapcore.Id, string, bool) {
 	return b.getABTracker(b.user(ctx)).Changes(sinceState)
 }
 
-func (b *ContactsBackend) GetAllAddressBooks(ctx context.Context) ([]*jmap.AddressBook, error) {
+func (b *ContactsBackend) GetAllAddressBooks(ctx context.Context) ([]*jmapcontacts.AddressBook, error) {
 	abs, _, err := b.GetAddressBooks(ctx, nil)
 	return abs, err
 }
@@ -140,7 +143,7 @@ func (b *ContactsBackend) getAddressBookHomeSet(ctx context.Context, cardClient 
 	return defaultHS
 }
 
-func (b *ContactsBackend) getABPath(u string, abID jmap.Id, homeSet string) string {
+func (b *ContactsBackend) getABPath(u string, abID jmapcore.Id, homeSet string) string {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	if b.abPaths[u] != nil {
@@ -154,7 +157,7 @@ func (b *ContactsBackend) getABPath(u string, abID jmap.Id, homeSet string) stri
 	return "addressbooks/users/" + u + "/" + string(abID) + "/"
 }
 
-func (b *ContactsBackend) GetAddressBooks(ctx context.Context, ids []jmap.Id) ([]*jmap.AddressBook, []jmap.Id, error) {
+func (b *ContactsBackend) GetAddressBooks(ctx context.Context, ids []jmapcore.Id) ([]*jmapcontacts.AddressBook, []jmapcore.Id, error) {
 	cardClient, u, err := b.client.CardDAV(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -167,9 +170,9 @@ func (b *ContactsBackend) GetAddressBooks(ctx context.Context, ids []jmap.Id) ([
 	homeSet := b.getAddressBookHomeSet(ctx, cardClient, u)
 	abList, _ := cardClient.FindAddressBooks(ctx, homeSet)
 
-	var list []*jmap.AddressBook
-	pathMap := make(map[jmap.Id]string)
-	idMap := make(map[jmap.Id]bool)
+	var list []*jmapcontacts.AddressBook
+	pathMap := make(map[jmapcore.Id]string)
+	idMap := make(map[jmapcore.Id]bool)
 	for _, id := range ids {
 		idMap[id] = true
 	}
@@ -181,7 +184,7 @@ func (b *ContactsBackend) GetAddressBooks(ctx context.Context, ids []jmap.Id) ([
 				continue
 			}
 
-			aid := jmap.Id(abID)
+			aid := jmapcore.Id(abID)
 			pathMap[aid] = ab.Path
 
 			if len(ids) > 0 && !idMap[aid] {
@@ -193,7 +196,7 @@ func (b *ContactsBackend) GetAddressBooks(ctx context.Context, ids []jmap.Id) ([
 				name = abID
 			}
 
-			list = append(list, &jmap.AddressBook{
+			list = append(list, &jmapcontacts.AddressBook{
 				ID:   aid,
 				Name: name,
 			})
@@ -219,9 +222,9 @@ func (b *ContactsBackend) GetAddressBooks(ctx context.Context, ids []jmap.Id) ([
 	b.mu.Unlock()
 
 	if len(list) == 0 && (len(ids) == 0 || idMap["contacts"] || idMap["ab-default"]) {
-		aid := jmap.Id("contacts")
+		aid := jmapcore.Id("contacts")
 		pathMap[aid] = strings.TrimRight(homeSet, "/") + "/contacts/"
-		list = append(list, &jmap.AddressBook{
+		list = append(list, &jmapcontacts.AddressBook{
 			ID:   aid,
 			Name: "Contacts",
 		})
@@ -237,16 +240,16 @@ func (b *ContactsBackend) GetAddressBooks(ctx context.Context, ids []jmap.Id) ([
 
 	b.mu.Lock()
 	if b.abPaths[u] == nil {
-		b.abPaths[u] = make(map[jmap.Id]string)
+		b.abPaths[u] = make(map[jmapcore.Id]string)
 	}
 	for k, v := range pathMap {
 		b.abPaths[u][k] = v
 	}
 	b.mu.Unlock()
 
-	var notFound []jmap.Id
+	var notFound []jmapcore.Id
 	if len(ids) > 0 {
-		foundMap := make(map[jmap.Id]bool)
+		foundMap := make(map[jmapcore.Id]bool)
 		for _, ab := range list {
 			foundMap[ab.ID] = true
 			if ab.ID == "contacts" {
@@ -263,7 +266,7 @@ func (b *ContactsBackend) GetAddressBooks(ctx context.Context, ids []jmap.Id) ([
 	return list, notFound, nil
 }
 
-func (b *ContactsBackend) CreateAddressBook(ctx context.Context, ab *jmap.AddressBook) (*jmap.AddressBook, error) {
+func (b *ContactsBackend) CreateAddressBook(ctx context.Context, ab *jmapcontacts.AddressBook) (*jmapcontacts.AddressBook, error) {
 	if ab == nil {
 		return nil, fmt.Errorf("address book is nil")
 	}
@@ -273,7 +276,7 @@ func (b *ContactsBackend) CreateAddressBook(ctx context.Context, ab *jmap.Addres
 	}
 
 	if ab.ID == "" {
-		ab.ID = jmap.Id(fmt.Sprintf("ab-%d", time.Now().UnixNano()))
+		ab.ID = jmapcore.Id(fmt.Sprintf("ab-%d", time.Now().UnixNano()))
 	}
 
 	homeSet := b.getAddressBookHomeSet(ctx, cardClient, u)
@@ -282,11 +285,11 @@ func (b *ContactsBackend) CreateAddressBook(ctx context.Context, ab *jmap.Addres
 
 	b.mu.Lock()
 	if b.abPaths[u] == nil {
-		b.abPaths[u] = make(map[jmap.Id]string)
+		b.abPaths[u] = make(map[jmapcore.Id]string)
 	}
 	b.abPaths[u][ab.ID] = abPath
 	if b.absCache[u] == nil {
-		b.absCache[u] = make([]*jmap.AddressBook, 0)
+		b.absCache[u] = make([]*jmapcontacts.AddressBook, 0)
 	}
 	abCopy := *ab
 	b.absCache[u] = append(b.absCache[u], &abCopy)
@@ -297,13 +300,13 @@ func (b *ContactsBackend) CreateAddressBook(ctx context.Context, ab *jmap.Addres
 	return ab, nil
 }
 
-func (b *ContactsBackend) UpdateAddressBook(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.AddressBook, error) {
-	abs, notFound, err := b.GetAddressBooks(ctx, []jmap.Id{id})
+func (b *ContactsBackend) UpdateAddressBook(ctx context.Context, id jmapcore.Id, patch map[string]any) (*jmapcontacts.AddressBook, error) {
+	abs, notFound, err := b.GetAddressBooks(ctx, []jmapcore.Id{id})
 	if err != nil {
 		return nil, err
 	}
 	if len(notFound) > 0 || len(abs) == 0 {
-		return nil, jmap.ErrNotFound
+		return nil, jmapcore.ErrNotFound
 	}
 	ab := abs[0]
 	if name, ok := patch["name"].(string); ok && name != "" {
@@ -318,8 +321,8 @@ func (b *ContactsBackend) UpdateAddressBook(ctx context.Context, id jmap.Id, pat
 	return ab, nil
 }
 
-func (b *ContactsBackend) DeleteAddressBook(ctx context.Context, id jmap.Id, removeContents bool) (bool, error) {
-	abs, notFound, err := b.GetAddressBooks(ctx, []jmap.Id{id})
+func (b *ContactsBackend) DeleteAddressBook(ctx context.Context, id jmapcore.Id, removeContents bool) (bool, error) {
+	abs, notFound, err := b.GetAddressBooks(ctx, []jmapcore.Id{id})
 	if err != nil {
 		return false, err
 	}
@@ -353,7 +356,7 @@ func (b *ContactsBackend) DeleteAddressBook(ctx context.Context, id jmap.Id, rem
 		delete(b.abPaths[u], id)
 	}
 	if b.absCache[u] != nil {
-		var filtered []*jmap.AddressBook
+		var filtered []*jmapcontacts.AddressBook
 		for _, a := range b.absCache[u] {
 			if a.ID != id {
 				filtered = append(filtered, a)
@@ -368,18 +371,18 @@ func (b *ContactsBackend) DeleteAddressBook(ctx context.Context, id jmap.Id, rem
 	return true, nil
 }
 
-func (b *ContactsBackend) SetDefaultAddressBook(ctx context.Context, id jmap.Id) error {
+func (b *ContactsBackend) SetDefaultAddressBook(ctx context.Context, id jmapcore.Id) error {
 	u := b.user(ctx)
 	b.mu.Lock()
 	if b.defaultAddressBooks == nil {
-		b.defaultAddressBooks = make(map[string]jmap.Id)
+		b.defaultAddressBooks = make(map[string]jmapcore.Id)
 	}
 	b.defaultAddressBooks[u] = id
 	b.mu.Unlock()
 	return nil
 }
 
-func (b *ContactsBackend) AddressBookHasContents(ctx context.Context, id jmap.Id) (bool, error) {
+func (b *ContactsBackend) AddressBookHasContents(ctx context.Context, id jmapcore.Id) (bool, error) {
 	cards, _, err := b.GetCards(ctx, nil)
 	if err != nil {
 		return false, err
@@ -397,16 +400,16 @@ func (b *ContactsBackend) CardState(ctx context.Context) string {
 	return b.getCardTracker(b.user(ctx)).State()
 }
 
-func (b *ContactsBackend) CardChanges(ctx context.Context, sinceState string) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
+func (b *ContactsBackend) CardChanges(ctx context.Context, sinceState string) ([]jmapcore.Id, []jmapcore.Id, []jmapcore.Id, string, bool) {
 	return b.getCardTracker(b.user(ctx)).Changes(sinceState)
 }
 
-func (b *ContactsBackend) GetAllCards(ctx context.Context) ([]*jmap.Card, error) {
+func (b *ContactsBackend) GetAllCards(ctx context.Context) ([]*jmapcontacts.Card, error) {
 	cards, _, err := b.GetCards(ctx, nil)
 	return cards, err
 }
 
-func (b *ContactsBackend) GetCards(ctx context.Context, ids []jmap.Id) ([]*jmap.Card, []jmap.Id, error) {
+func (b *ContactsBackend) GetCards(ctx context.Context, ids []jmapcore.Id) ([]*jmapcontacts.Card, []jmapcore.Id, error) {
 	cardClient, u, err := b.client.CardDAV(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -414,19 +417,19 @@ func (b *ContactsBackend) GetCards(ctx context.Context, ids []jmap.Id) ([]*jmap.
 
 	b.mu.Lock()
 	if b.cardsCache[u] == nil {
-		b.cardsCache[u] = make(map[jmap.Id]*jmap.Card)
+		b.cardsCache[u] = make(map[jmapcore.Id]*jmapcontacts.Card)
 	}
 	b.mu.Unlock()
 
 	abs, _, _ := b.GetAddressBooks(ctx, nil)
 	homeSet := b.getAddressBookHomeSet(ctx, cardClient, u)
-	idMap := make(map[jmap.Id]bool)
+	idMap := make(map[jmapcore.Id]bool)
 	for _, id := range ids {
 		idMap[id] = true
 	}
 
 	type abResult struct {
-		abID jmap.Id
+		abID jmapcore.Id
 		objs []carddav.AddressObject
 	}
 	resChan := make(chan abResult, len(abs))
@@ -434,7 +437,7 @@ func (b *ContactsBackend) GetCards(ctx context.Context, ids []jmap.Id) ([]*jmap.
 
 	for _, ab := range abs {
 		wg.Add(1)
-		go func(ab *jmap.AddressBook) {
+		go func(ab *jmapcontacts.AddressBook) {
 			defer wg.Done()
 			abPath := b.getABPath(u, ab.ID, homeSet)
 			objs, qErr := cardClient.QueryAddressBook(ctx, abPath, &carddav.AddressBookQuery{
@@ -455,7 +458,7 @@ func (b *ContactsBackend) GetCards(ctx context.Context, ids []jmap.Id) ([]*jmap.
 			if ao.Card == nil {
 				continue
 			}
-			cardID := jmap.Id(path.Base(ao.Path))
+			cardID := jmapcore.Id(path.Base(ao.Path))
 
 			if len(ids) > 0 && !idMap[cardID] {
 				continue
@@ -467,11 +470,11 @@ func (b *ContactsBackend) GetCards(ctx context.Context, ids []jmap.Id) ([]*jmap.
 			rawMap, vErr := vcardconv.FromVCard(buf.String())
 			if vErr == nil && rawMap != nil {
 				jsonBytes, _ := json.Marshal(rawMap)
-				var card jmap.Card
+				var card jmapcontacts.Card
 				if err := json.Unmarshal(jsonBytes, &card); err == nil {
 					card.ID = cardID
 					if card.AddressBookIDs == nil {
-						card.AddressBookIDs = make(map[jmap.Id]bool)
+						card.AddressBookIDs = make(map[jmapcore.Id]bool)
 					}
 					card.AddressBookIDs[res.abID] = true
 					if res.abID == "contacts" {
@@ -479,7 +482,7 @@ func (b *ContactsBackend) GetCards(ctx context.Context, ids []jmap.Id) ([]*jmap.
 					}
 					b.mu.Lock()
 					if b.cardPaths[u] == nil {
-						b.cardPaths[u] = make(map[jmap.Id]string)
+						b.cardPaths[u] = make(map[jmapcore.Id]string)
 					}
 					b.cardPaths[u][cardID] = ao.Path
 					b.cardsCache[u][cardID] = &card
@@ -490,8 +493,8 @@ func (b *ContactsBackend) GetCards(ctx context.Context, ids []jmap.Id) ([]*jmap.
 	}
 
 	b.mu.RLock()
-	var list []*jmap.Card
-	var notFound []jmap.Id
+	var list []*jmapcontacts.Card
+	var notFound []jmapcore.Id
 	if len(ids) == 0 {
 		for _, c := range b.cardsCache[u] {
 			list = append(list, c)
@@ -510,7 +513,7 @@ func (b *ContactsBackend) GetCards(ctx context.Context, ids []jmap.Id) ([]*jmap.
 	return list, notFound, nil
 }
 
-func (b *ContactsBackend) CreateCard(ctx context.Context, card *jmap.Card) (*jmap.Card, error) {
+func (b *ContactsBackend) CreateCard(ctx context.Context, card *jmapcontacts.Card) (*jmapcontacts.Card, error) {
 	if card == nil {
 		return nil, fmt.Errorf("card is nil")
 	}
@@ -520,7 +523,7 @@ func (b *ContactsBackend) CreateCard(ctx context.Context, card *jmap.Card) (*jma
 	}
 
 	if card.ID == "" {
-		card.ID = jmap.Id(fmt.Sprintf("card-%d", time.Now().UnixNano()))
+		card.ID = jmapcore.Id(fmt.Sprintf("card-%d", time.Now().UnixNano()))
 	}
 	if card.Uid == "" {
 		card.Uid = string(card.ID)
@@ -551,15 +554,15 @@ func (b *ContactsBackend) CreateCard(ctx context.Context, card *jmap.Card) (*jma
 			abID = "contacts"
 		}
 		if card.AddressBookIDs == nil {
-			card.AddressBookIDs = make(map[jmap.Id]bool)
+			card.AddressBookIDs = make(map[jmapcore.Id]bool)
 		}
-		card.AddressBookIDs[jmap.Id(abID)] = true
+		card.AddressBookIDs[jmapcore.Id(abID)] = true
 		if abID == "contacts" {
 			card.AddressBookIDs["ab-default"] = true
 		}
 	}
 
-	abPath := b.getABPath(u, jmap.Id(abID), homeSet)
+	abPath := b.getABPath(u, jmapcore.Id(abID), homeSet)
 	_ = cardClient.Mkdir(ctx, abPath)
 
 	cardBytes, _ := json.Marshal(card)
@@ -614,11 +617,11 @@ func (b *ContactsBackend) CreateCard(ctx context.Context, card *jmap.Card) (*jma
 
 	b.mu.Lock()
 	if b.cardPaths[u] == nil {
-		b.cardPaths[u] = make(map[jmap.Id]string)
+		b.cardPaths[u] = make(map[jmapcore.Id]string)
 	}
 	b.cardPaths[u][card.ID] = cardPath
 	if b.cardsCache[u] == nil {
-		b.cardsCache[u] = make(map[jmap.Id]*jmap.Card)
+		b.cardsCache[u] = make(map[jmapcore.Id]*jmapcontacts.Card)
 	}
 	action := "create"
 	if _, exists := b.cardsCache[u][card.ID]; exists {
@@ -656,7 +659,7 @@ func setNestedMapVal(m map[string]any, parts []string, val any) {
 	setNestedMapVal(sub, parts[1:], val)
 }
 
-func applyCardPatch(card *jmap.Card, patch map[string]any) error {
+func applyCardPatch(card *jmapcontacts.Card, patch map[string]any) error {
 	raw, err := json.Marshal(card)
 	if err != nil {
 		return err
@@ -683,7 +686,7 @@ func applyCardPatch(card *jmap.Card, patch map[string]any) error {
 	origID := card.ID
 	origUid := card.Uid
 	origABIDs := card.AddressBookIDs
-	var updatedCard jmap.Card
+	var updatedCard jmapcontacts.Card
 	if err := json.Unmarshal(rawUpdated, &updatedCard); err != nil {
 		return err
 	}
@@ -699,13 +702,13 @@ func applyCardPatch(card *jmap.Card, patch map[string]any) error {
 	return nil
 }
 
-func (b *ContactsBackend) UpdateCard(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.Card, error) {
-	cards, notFound, err := b.GetCards(ctx, []jmap.Id{id})
+func (b *ContactsBackend) UpdateCard(ctx context.Context, id jmapcore.Id, patch map[string]any) (*jmapcontacts.Card, error) {
+	cards, notFound, err := b.GetCards(ctx, []jmapcore.Id{id})
 	if err != nil {
 		return nil, err
 	}
 	if len(notFound) > 0 || len(cards) == 0 {
-		return nil, jmap.ErrNotFound
+		return nil, jmapcore.ErrNotFound
 	}
 	card := cards[0]
 	oldAbID := ""
@@ -734,7 +737,7 @@ func (b *ContactsBackend) UpdateCard(ctx context.Context, id jmap.Id, patch map[
 			b.mu.RUnlock()
 			if oldPath == "" {
 				homeSet := b.getAddressBookHomeSet(ctx, cardClient, u)
-				oldPath = strings.TrimRight(b.getABPath(u, jmap.Id(oldAbID), homeSet), "/") + "/" + string(id)
+				oldPath = strings.TrimRight(b.getABPath(u, jmapcore.Id(oldAbID), homeSet), "/") + "/" + string(id)
 			}
 			_ = cardClient.RemoveAll(ctx, oldPath)
 			b.mu.Lock()
@@ -748,8 +751,8 @@ func (b *ContactsBackend) UpdateCard(ctx context.Context, id jmap.Id, patch map[
 	return b.CreateCard(ctx, card)
 }
 
-func (b *ContactsBackend) DeleteCard(ctx context.Context, id jmap.Id) (bool, error) {
-	cards, notFound, err := b.GetCards(ctx, []jmap.Id{id})
+func (b *ContactsBackend) DeleteCard(ctx context.Context, id jmapcore.Id) (bool, error) {
+	cards, notFound, err := b.GetCards(ctx, []jmapcore.Id{id})
 	if err != nil {
 		return false, err
 	}
@@ -777,7 +780,7 @@ func (b *ContactsBackend) DeleteCard(ctx context.Context, id jmap.Id) (bool, err
 
 	if cardPath == "" {
 		homeSet := b.getAddressBookHomeSet(ctx, cardClient, u)
-		abPath := b.getABPath(u, jmap.Id(abID), homeSet)
+		abPath := b.getABPath(u, jmapcore.Id(abID), homeSet)
 		cardPath = strings.TrimRight(abPath, "/") + "/" + string(id)
 	}
 	_ = cardClient.RemoveAll(ctx, cardPath)
@@ -822,25 +825,25 @@ func extractConflictHref(errStr string) string {
 	return strings.TrimSpace(errStr[valStart : valStart+eIdx])
 }
 
-func (b *ContactsBackend) QueryCards(ctx context.Context, filter map[string]any, comparators []jmap.Comparator, position int, limit *uint64) ([]jmap.Id, int, error) {
+func (b *ContactsBackend) QueryCards(ctx context.Context, filter map[string]any, comparators []jmapcore.Comparator, position int, limit *uint64) ([]jmapcore.Id, int, error) {
 	cards, _, err := b.GetCards(ctx, nil)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	var matched []*jmap.Card
+	var matched []*jmapcontacts.Card
 	for _, c := range cards {
-		if jmap.MatchCard(c, filter) {
+		if jmapcontacts.MatchCard(c, filter) {
 			matched = append(matched, c)
 		}
 	}
 
-	jmap.SortCards(matched, comparators)
+	jmapcontacts.SortCards(matched, comparators)
 
 	total := len(matched)
-	position = jmap.NormalizePosition(position, total)
+	position = jmapcore.NormalizePosition(position, total)
 	if position >= total {
-		return []jmap.Id{}, total, nil
+		return []jmapcore.Id{}, total, nil
 	}
 
 	end := total
@@ -848,7 +851,7 @@ func (b *ContactsBackend) QueryCards(ctx context.Context, filter map[string]any,
 		end = position + int(*limit)
 	}
 
-	ids := make([]jmap.Id, 0, end-position)
+	ids := make([]jmapcore.Id, 0, end-position)
 	for i := position; i < end; i++ {
 		ids = append(ids, matched[i].ID)
 	}

@@ -9,8 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"imap-jmap/jmap"
 	"imap-jmap/jmap/imapsmtp"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapmail"
 	jmapsmtp "imap-jmap/smtp"
 )
 
@@ -23,7 +24,7 @@ type vacationTestOutboundSender struct {
 	}
 }
 
-func (s *vacationTestOutboundSender) SendMail(ctx context.Context, from string, recipients []string, rawMessage []byte) map[string]jmap.OutboundDeliveryResult {
+func (s *vacationTestOutboundSender) SendMail(ctx context.Context, from string, recipients []string, rawMessage []byte) map[string]jmapmail.OutboundDeliveryResult {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sent = append(s.sent, struct {
@@ -35,9 +36,9 @@ func (s *vacationTestOutboundSender) SendMail(ctx context.Context, from string, 
 		recipients: recipients,
 		data:       rawMessage,
 	})
-	res := make(map[string]jmap.OutboundDeliveryResult, len(recipients))
+	res := make(map[string]jmapmail.OutboundDeliveryResult, len(recipients))
 	for _, r := range recipients {
-		res[r] = jmap.OutboundDeliveryResult{Delivered: true, SmtpReply: "250 2.0.0 OK"}
+		res[r] = jmapmail.OutboundDeliveryResult{Delivered: true, SmtpReply: "250 2.0.0 OK"}
 	}
 	return res
 }
@@ -67,7 +68,7 @@ func setupVacationServer(t *testing.T) (backend *imapsmtp.IMAPSMTPBackend, outbo
 	t.Helper()
 	embeddedBackend, imapCleanup := imapsmtp.NewEmbeddedBackend("alice@example.com", "bob@example.com")
 	outbound = &vacationTestOutboundSender{}
-	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
+	resolver := jmapauth.PrimaryDomainResolver{PrimaryDomain: "example.com"}
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -97,8 +98,8 @@ func TestRFC8621_VacationResponse_AutoReplySent(t *testing.T) {
 	backend, outbound, addr, cleanup := setupVacationServer(t)
 	defer cleanup()
 
-	bobID := jmap.AccountIDForSubject("bob@example.com")
-	bobCtx := jmap.ContextWithAccountID(context.Background(), bobID)
+	bobID := jmapauth.AccountIDForSubject("bob@example.com")
+	bobCtx := jmapauth.ContextWithAccountID(context.Background(), bobID)
 
 	// Enable VacationResponse for bob
 	subj := "Out of Office: On Holiday"
@@ -158,8 +159,8 @@ func TestRFC8621_VacationResponse_Disabled(t *testing.T) {
 	backend, outbound, addr, cleanup := setupVacationServer(t)
 	defer cleanup()
 
-	bobID := jmap.AccountIDForSubject("bob@example.com")
-	bobCtx := jmap.ContextWithAccountID(context.Background(), bobID)
+	bobID := jmapauth.AccountIDForSubject("bob@example.com")
+	bobCtx := jmapauth.ContextWithAccountID(context.Background(), bobID)
 
 	_, err := backend.UpdateVacationResponse(bobCtx, map[string]any{
 		"isEnabled": false,
@@ -196,8 +197,8 @@ func TestRFC8621_VacationResponse_DateWindow(t *testing.T) {
 	backend, outbound, addr, cleanup := setupVacationServer(t)
 	defer cleanup()
 
-	bobID := jmap.AccountIDForSubject("bob@example.com")
-	bobCtx := jmap.ContextWithAccountID(context.Background(), bobID)
+	bobID := jmapauth.AccountIDForSubject("bob@example.com")
+	bobCtx := jmapauth.ContextWithAccountID(context.Background(), bobID)
 
 	pastFrom := time.Now().Add(-48 * time.Hour).UTC().Format(time.RFC3339)
 	pastTo := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
@@ -284,8 +285,8 @@ func TestRFC8621_VacationResponse_AntiLoopPrevention(t *testing.T) {
 	backend, outbound, addr, cleanup := setupVacationServer(t)
 	defer cleanup()
 
-	bobID := jmap.AccountIDForSubject("bob@example.com")
-	bobCtx := jmap.ContextWithAccountID(context.Background(), bobID)
+	bobID := jmapauth.AccountIDForSubject("bob@example.com")
+	bobCtx := jmapauth.ContextWithAccountID(context.Background(), bobID)
 
 	_, err := backend.UpdateVacationResponse(bobCtx, map[string]any{
 		"isEnabled": true,

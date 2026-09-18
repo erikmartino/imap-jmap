@@ -8,29 +8,33 @@ import (
 	"sync"
 	"time"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapcalendar"
+	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmapprincipals"
+	"imap-jmap/jmap/jmappush"
 )
 
-// PrincipalsBackend implements jmap.PrincipalsBackend backed by Nextcloud OCS Provisioning API.
+// PrincipalsBackend implements jmapprincipals.PrincipalsBackend backed by Nextcloud OCS Provisioning API.
 type PrincipalsBackend struct {
 	client          *Client
-	calBackend      jmap.CalendarsBackend
+	calBackend      jmapcalendar.CalendarsBackend
 	mu              sync.RWMutex
 	refreshMu       sync.Mutex
-	principalsCache map[jmap.Id]*jmap.Principal
-	tracker         *jmap.ChangeTracker
-	broadcaster     *jmap.Broadcaster
+	principalsCache map[jmapcore.Id]*jmapprincipals.Principal
+	tracker         *jmappush.ChangeTracker
+	broadcaster     *jmappush.Broadcaster
 }
 
-var _ jmap.PrincipalsBackend = (*PrincipalsBackend)(nil)
+var _ jmapprincipals.PrincipalsBackend = (*PrincipalsBackend)(nil)
 
 // NewPrincipalsBackend initializes a Nextcloud PrincipalsBackend and seeds default groups and users in Nextcloud.
-func NewPrincipalsBackend(client *Client, calBackend jmap.CalendarsBackend) *PrincipalsBackend {
+func NewPrincipalsBackend(client *Client, calBackend jmapcalendar.CalendarsBackend) *PrincipalsBackend {
 	b := &PrincipalsBackend{
 		client:          client,
 		calBackend:      calBackend,
-		principalsCache: make(map[jmap.Id]*jmap.Principal),
-		tracker:         jmap.NewChangeTracker(1000),
+		principalsCache: make(map[jmapcore.Id]*jmapprincipals.Principal),
+		tracker:         jmappush.NewChangeTracker(1000),
 	}
 
 	initialUsers := []struct {
@@ -42,8 +46,8 @@ func NewPrincipalsBackend(client *Client, calBackend jmap.CalendarsBackend) *Pri
 		{"carol", "carol@example.com", "Carol Danvers"},
 	}
 	for _, u := range initialUsers {
-		pid := jmap.Id("p-" + u.userid)
-		b.principalsCache[pid] = &jmap.Principal{
+		pid := jmapcore.Id("p-" + u.userid)
+		b.principalsCache[pid] = &jmapprincipals.Principal{
 			ID:                 pid,
 			Type:               "individual",
 			Name:               u.displayname,
@@ -51,10 +55,10 @@ func NewPrincipalsBackend(client *Client, calBackend jmap.CalendarsBackend) *Pri
 			CalendarAddress:    "mailto:" + u.email,
 			MayGetAvailability: true,
 			MayShareWith:       true,
-			AccountIDs:         map[string]bool{jmap.AccountIDForSubject(u.email): true},
+			AccountIDs:         map[string]bool{jmapauth.AccountIDForSubject(u.email): true},
 		}
 	}
-	b.principalsCache["p-team"] = &jmap.Principal{
+	b.principalsCache["p-team"] = &jmapprincipals.Principal{
 		ID:                 "p-team",
 		Type:               "group",
 		Name:               "Engineering Team",
@@ -64,7 +68,7 @@ func NewPrincipalsBackend(client *Client, calBackend jmap.CalendarsBackend) *Pri
 		MayShareWith:       true,
 		Members:            map[string]bool{"p-alice": true, "p-bob": true, "p-carol": true, "p-primary": true},
 	}
-	b.principalsCache["p-all"] = &jmap.Principal{
+	b.principalsCache["p-all"] = &jmapprincipals.Principal{
 		ID:                 "p-all",
 		Type:               "group",
 		Name:               "All Staff",
@@ -74,7 +78,7 @@ func NewPrincipalsBackend(client *Client, calBackend jmap.CalendarsBackend) *Pri
 		MayShareWith:       true,
 		Members:            map[string]bool{"p-alice": true, "p-bob": true, "p-carol": true, "p-primary": true},
 	}
-	b.principalsCache["p-marketing"] = &jmap.Principal{
+	b.principalsCache["p-marketing"] = &jmapprincipals.Principal{
 		ID:                 "p-marketing",
 		Type:               "group",
 		Name:               "Marketing",
@@ -111,7 +115,7 @@ func NewPrincipalsBackend(client *Client, calBackend jmap.CalendarsBackend) *Pri
 }
 
 // SetCalendarsBackend sets the CalendarsBackend used for free/busy availability computation.
-func (b *PrincipalsBackend) SetCalendarsBackend(cb jmap.CalendarsBackend) {
+func (b *PrincipalsBackend) SetCalendarsBackend(cb jmapcalendar.CalendarsBackend) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.calBackend = cb
@@ -129,9 +133,9 @@ func (b *PrincipalsBackend) SeedUser(email, displayName string) {
 			return
 		}
 	}
-	acctID := jmap.AccountIDForSubject(email)
-	pid := jmap.Id(acctID)
-	b.principalsCache[pid] = &jmap.Principal{
+	acctID := jmapauth.AccountIDForSubject(email)
+	pid := jmapcore.Id(acctID)
+	b.principalsCache[pid] = &jmapprincipals.Principal{
 		ID:                 pid,
 		Type:               "individual",
 		Name:               displayName,
@@ -144,7 +148,7 @@ func (b *PrincipalsBackend) SeedUser(email, displayName string) {
 }
 
 // SetBroadcaster sets the event broadcaster for state change notifications.
-func (b *PrincipalsBackend) SetBroadcaster(broadcaster *jmap.Broadcaster) {
+func (b *PrincipalsBackend) SetBroadcaster(broadcaster *jmappush.Broadcaster) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.broadcaster = broadcaster
@@ -153,7 +157,7 @@ func (b *PrincipalsBackend) SetBroadcaster(broadcaster *jmap.Broadcaster) {
 func (b *PrincipalsBackend) emitStateChange(u, typeName, newState string) {
 	bc := b.broadcaster
 	if bc != nil && u != "" {
-		accID := jmap.AccountIDForSubject(u)
+		accID := jmapauth.AccountIDForSubject(u)
 		bc.PublishStateChange(accID, typeName, newState)
 	}
 }
@@ -169,12 +173,12 @@ func (b *PrincipalsBackend) EnsureUser(ctx context.Context, subject, password st
 		userid = parts[0]
 	}
 	displayName := strings.Title(strings.ReplaceAll(userid, ".", " "))
-	accID := jmap.AccountIDForSubject(email)
-	pid := jmap.Id("p-" + userid)
+	accID := jmapauth.AccountIDForSubject(email)
+	pid := jmapcore.Id("p-" + userid)
 
 	b.mu.Lock()
 	_, existed := b.principalsCache[pid]
-	b.principalsCache[pid] = &jmap.Principal{
+	b.principalsCache[pid] = &jmapprincipals.Principal{
 		ID:                 pid,
 		Type:               "individual",
 		Name:               displayName,
@@ -219,7 +223,7 @@ func (b *PrincipalsBackend) refreshCache(ctx context.Context) {
 		return
 	}
 
-	newCache := make(map[jmap.Id]*jmap.Principal)
+	newCache := make(map[jmapcore.Id]*jmapprincipals.Principal)
 
 	// Users
 	for _, uid := range userIDs {
@@ -240,10 +244,10 @@ func (b *PrincipalsBackend) refreshCache(ctx context.Context) {
 				email = details.Email
 			}
 		}
-		accID := jmap.AccountIDForSubject(email)
-		pid := jmap.Id("p-" + uid)
+		accID := jmapauth.AccountIDForSubject(email)
+		pid := jmapcore.Id("p-" + uid)
 
-		newCache[pid] = &jmap.Principal{
+		newCache[pid] = &jmapprincipals.Principal{
 			ID:                 pid,
 			Type:               "individual",
 			Name:               displayName,
@@ -280,8 +284,8 @@ func (b *PrincipalsBackend) refreshCache(ctx context.Context) {
 				groupName = strings.Title(strings.ReplaceAll(gid, "-", " "))
 			}
 
-			pid := jmap.Id("p-" + gid)
-			newCache[pid] = &jmap.Principal{
+			pid := jmapcore.Id("p-" + gid)
+			newCache[pid] = &jmapprincipals.Principal{
 				ID:                 pid,
 				Type:               "group",
 				Name:               groupName,
@@ -296,7 +300,7 @@ func (b *PrincipalsBackend) refreshCache(ctx context.Context) {
 	}
 
 	if _, ok := newCache["p-team"]; !ok {
-		newCache["p-team"] = &jmap.Principal{
+		newCache["p-team"] = &jmapprincipals.Principal{
 			ID:                 "p-team",
 			Type:               "group",
 			Name:               "Engineering Team",
@@ -308,7 +312,7 @@ func (b *PrincipalsBackend) refreshCache(ctx context.Context) {
 		}
 	}
 	if _, ok := newCache["p-all"]; !ok {
-		newCache["p-all"] = &jmap.Principal{
+		newCache["p-all"] = &jmapprincipals.Principal{
 			ID:                 "p-all",
 			Type:               "group",
 			Name:               "All Staff",
@@ -320,7 +324,7 @@ func (b *PrincipalsBackend) refreshCache(ctx context.Context) {
 		}
 	}
 	if _, ok := newCache["p-marketing"]; !ok {
-		newCache["p-marketing"] = &jmap.Principal{
+		newCache["p-marketing"] = &jmapprincipals.Principal{
 			ID:                 "p-marketing",
 			Type:               "group",
 			Name:               "Marketing Group",
@@ -345,7 +349,7 @@ func (b *PrincipalsBackend) refreshCache(ctx context.Context) {
 }
 
 func (b *PrincipalsBackend) ensureCurrentPrincipal(ctx context.Context) {
-	subj, ok := jmap.SubjectFromContext(ctx)
+	subj, ok := jmapauth.SubjectFromContext(ctx)
 	if !ok || subj == "" {
 		return
 	}
@@ -357,19 +361,19 @@ func (b *PrincipalsBackend) ensureCurrentPrincipal(ctx context.Context) {
 		if parts := strings.Split(subj, "@"); len(parts) > 0 {
 			userid = parts[0]
 		}
-		accID := jmap.AccountIDForSubject(email)
+		accID := jmapauth.AccountIDForSubject(email)
 		for _, existing := range b.principalsCache {
 			if existing.Email == email || existing.AccountIDs[accID] {
 				return
 			}
 		}
-		pid := jmap.Id("p-" + userid)
+		pid := jmapcore.Id("p-" + userid)
 		if userid == "user" {
 			pid = "p-primary"
 		}
 		if _, exists := b.principalsCache[pid]; !exists {
 			displayName := strings.Title(strings.ReplaceAll(userid, ".", " "))
-			b.principalsCache[pid] = &jmap.Principal{
+			b.principalsCache[pid] = &jmapprincipals.Principal{
 				ID:                 pid,
 				Type:               "individual",
 				Name:               displayName,
@@ -382,7 +386,7 @@ func (b *PrincipalsBackend) ensureCurrentPrincipal(ctx context.Context) {
 		}
 		return
 	}
-	creds, _ := jmap.CredentialsFromContext(ctx)
+	creds, _ := jmapauth.CredentialsFromContext(ctx)
 	pass := creds.Password
 	if pass == "" {
 		pass = subj
@@ -394,14 +398,14 @@ func (b *PrincipalsBackend) PrincipalState(ctx context.Context) string {
 	return b.tracker.State()
 }
 
-func (b *PrincipalsBackend) PrincipalChanges(ctx context.Context, sinceState string) (created, updated, destroyed []jmap.Id, newState string, hasMoreChanges bool) {
+func (b *PrincipalsBackend) PrincipalChanges(ctx context.Context, sinceState string) (created, updated, destroyed []jmapcore.Id, newState string, hasMoreChanges bool) {
 	return b.tracker.Changes(sinceState)
 }
 
-func (b *PrincipalsBackend) GetPrincipals(ctx context.Context, ids []jmap.Id) ([]*jmap.Principal, []jmap.Id, error) {
+func (b *PrincipalsBackend) GetPrincipals(ctx context.Context, ids []jmapcore.Id) ([]*jmapprincipals.Principal, []jmapcore.Id, error) {
 	if len(ids) == 0 {
 		list, err := b.GetAllPrincipals(ctx)
-		return list, []jmap.Id{}, err
+		return list, []jmapcore.Id{}, err
 	}
 
 	b.mu.RLock()
@@ -414,8 +418,8 @@ func (b *PrincipalsBackend) GetPrincipals(ctx context.Context, ids []jmap.Id) ([
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	var list []*jmap.Principal
-	var notFound []jmap.Id
+	var list []*jmapprincipals.Principal
+	var notFound []jmapcore.Id
 	for _, id := range ids {
 		p, ok := b.principalsCache[id]
 		if !ok {
@@ -437,7 +441,7 @@ func (b *PrincipalsBackend) GetPrincipals(ctx context.Context, ids []jmap.Id) ([
 	return list, notFound, nil
 }
 
-func (b *PrincipalsBackend) GetAllPrincipals(ctx context.Context) ([]*jmap.Principal, error) {
+func (b *PrincipalsBackend) GetAllPrincipals(ctx context.Context) ([]*jmapprincipals.Principal, error) {
 	b.ensureCurrentPrincipal(ctx)
 
 	b.mu.RLock()
@@ -450,14 +454,14 @@ func (b *PrincipalsBackend) GetAllPrincipals(ctx context.Context) ([]*jmap.Princ
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	list := make([]*jmap.Principal, 0, len(b.principalsCache))
+	list := make([]*jmapprincipals.Principal, 0, len(b.principalsCache))
 	for _, p := range b.principalsCache {
 		list = append(list, p)
 	}
 	return list, nil
 }
 
-func (b *PrincipalsBackend) QueryPrincipals(ctx context.Context, filter map[string]any, position int, limit *uint64) ([]jmap.Id, int, error) {
+func (b *PrincipalsBackend) QueryPrincipals(ctx context.Context, filter map[string]any, position int, limit *uint64) ([]jmapcore.Id, int, error) {
 	b.ensureCurrentPrincipal(ctx)
 
 	b.mu.RLock()
@@ -470,9 +474,9 @@ func (b *PrincipalsBackend) QueryPrincipals(ctx context.Context, filter map[stri
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	var matched []jmap.Id
+	var matched []jmapcore.Id
 	for id, p := range b.principalsCache {
-		if !jmap.MatchPrincipal(p, filter) {
+		if !jmapprincipals.MatchPrincipal(p, filter) {
 			continue
 		}
 		matched = append(matched, id)
@@ -484,7 +488,7 @@ func (b *PrincipalsBackend) QueryPrincipals(ctx context.Context, filter map[stri
 
 	total := len(matched)
 	if position >= total {
-		return []jmap.Id{}, total, nil
+		return []jmapcore.Id{}, total, nil
 	}
 	end := total
 	if limit != nil && position+int(*limit) < end {
@@ -493,12 +497,12 @@ func (b *PrincipalsBackend) QueryPrincipals(ctx context.Context, filter map[stri
 	return matched[position:end], total, nil
 }
 
-func (b *PrincipalsBackend) CreatePrincipal(ctx context.Context, p *jmap.Principal) (*jmap.Principal, error) {
+func (b *PrincipalsBackend) CreatePrincipal(ctx context.Context, p *jmapprincipals.Principal) (*jmapprincipals.Principal, error) {
 	if p == nil {
 		return nil, fmt.Errorf("principal is nil")
 	}
 	if p.ID == "" {
-		p.ID = jmap.Id(fmt.Sprintf("p-%d", time.Now().UnixNano()))
+		p.ID = jmapcore.Id(fmt.Sprintf("p-%d", time.Now().UnixNano()))
 	}
 	if p.Type == "" {
 		p.Type = "individual"
@@ -511,7 +515,7 @@ func (b *PrincipalsBackend) CreatePrincipal(ctx context.Context, p *jmap.Princip
 
 	b.mu.Lock()
 	if b.principalsCache == nil {
-		b.principalsCache = make(map[jmap.Id]*jmap.Principal)
+		b.principalsCache = make(map[jmapcore.Id]*jmapprincipals.Principal)
 	}
 	b.principalsCache[p.ID] = p
 	st := b.tracker.Record(p.ID, "create")
@@ -522,7 +526,7 @@ func (b *PrincipalsBackend) CreatePrincipal(ctx context.Context, p *jmap.Princip
 	return p, nil
 }
 
-func (b *PrincipalsBackend) UpdatePrincipal(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.Principal, error) {
+func (b *PrincipalsBackend) UpdatePrincipal(ctx context.Context, id jmapcore.Id, patch map[string]any) (*jmapprincipals.Principal, error) {
 	b.mu.Lock()
 
 	p, ok := b.principalsCache[id]
@@ -555,7 +559,7 @@ func (b *PrincipalsBackend) UpdatePrincipal(ctx context.Context, id jmap.Id, pat
 	return p, nil
 }
 
-func (b *PrincipalsBackend) DeletePrincipal(ctx context.Context, id jmap.Id) (bool, error) {
+func (b *PrincipalsBackend) DeletePrincipal(ctx context.Context, id jmapcore.Id) (bool, error) {
 	b.mu.Lock()
 	delete(b.principalsCache, id)
 	b.tracker.Record(id, "destroy")
@@ -563,25 +567,25 @@ func (b *PrincipalsBackend) DeletePrincipal(ctx context.Context, id jmap.Id) (bo
 	return true, nil
 }
 
-func (b *PrincipalsBackend) GetAvailability(ctx context.Context, principalID jmap.Id, utcStart, utcEnd string) ([]*jmap.AvailabilityWindow, error) {
+func (b *PrincipalsBackend) GetAvailability(ctx context.Context, principalID jmapcore.Id, utcStart, utcEnd string) ([]*jmapprincipals.AvailabilityWindow, error) {
 	b.mu.RLock()
 	cb := b.calBackend
 	p := b.principalsCache[principalID]
 	b.mu.RUnlock()
 
-	windows := make([]*jmap.AvailabilityWindow, 0)
+	windows := make([]*jmapprincipals.AvailabilityWindow, 0)
 	if cb == nil {
 		return windows, nil
 	}
 
-	winStart, hasStart := jmap.ParseRFC3339(utcStart)
-	winEnd, hasEnd := jmap.ParseRFC3339(utcEnd)
+	winStart, hasStart := jmapcalendar.ParseRFC3339(utcStart)
+	winEnd, hasEnd := jmapcalendar.ParseRFC3339(utcEnd)
 
 	var contexts []context.Context
 	if p != nil && len(p.AccountIDs) > 0 {
 		for accID := range p.AccountIDs {
-			pCtx := jmap.ContextWithAccountID(ctx, accID)
-			pCtx = jmap.ContextWithPrincipalAccountID(pCtx, accID)
+			pCtx := jmapauth.ContextWithAccountID(ctx, accID)
+			pCtx = jmapauth.ContextWithPrincipalAccountID(pCtx, accID)
 			contexts = append(contexts, pCtx)
 		}
 	} else {
@@ -593,7 +597,7 @@ func (b *PrincipalsBackend) GetAvailability(ctx context.Context, principalID jma
 		if err != nil {
 			continue
 		}
-		calInAvail := make(map[jmap.Id]string, len(cals))
+		calInAvail := make(map[jmapcore.Id]string, len(cals))
 		for _, cal := range cals {
 			calInAvail[cal.ID] = cal.IncludeInAvailability
 		}
@@ -639,14 +643,14 @@ func (b *PrincipalsBackend) GetAvailability(ctx context.Context, principalID jma
 				}
 			}
 
-			for _, inst := range jmap.ExpandRecurrenceInstances(ev, winEnd) {
+			for _, inst := range jmapcalendar.ExpandRecurrenceInstances(ev, winEnd) {
 				if hasEnd && !inst.Start.Before(winEnd) {
 					continue
 				}
 				if hasStart && !inst.End.After(winStart) {
 					continue
 				}
-				windows = append(windows, &jmap.AvailabilityWindow{
+				windows = append(windows, &jmapprincipals.AvailabilityWindow{
 					UTCStart:       inst.Start.UTC().Format(time.RFC3339),
 					UTCEnd:         inst.End.UTC().Format(time.RFC3339),
 					FreeBusyStatus: fb,
@@ -658,7 +662,7 @@ func (b *PrincipalsBackend) GetAvailability(ctx context.Context, principalID jma
 	return windows, nil
 }
 
-func isPrincipalAttending(ev *jmap.CalendarEvent, p *jmap.Principal) bool {
+func isPrincipalAttending(ev *jmapcalendar.CalendarEvent, p *jmapprincipals.Principal) bool {
 	if ev == nil || p == nil {
 		return false
 	}

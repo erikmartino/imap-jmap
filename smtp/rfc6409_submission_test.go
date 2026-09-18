@@ -9,6 +9,9 @@ import (
 	gosmtp "github.com/emersion/go-smtp"
 
 	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapcalendar"
+	"imap-jmap/jmap/jmapmail"
 	"imap-jmap/jmap/imapsmtp"
 	"imap-jmap/jmap/nextcloud"
 	"imap-jmap/jmap/spectest"
@@ -17,7 +20,7 @@ import (
 // submissionBackend builds a ReceiverBackend on the RFC 6409 Section 3.1
 // submission transport with a real credential verifier, ready for session
 // level tests.
-func submissionBackend(t *testing.T) (*ReceiverBackend, jmap.CalendarsBackend, jmap.MailBackend) {
+func submissionBackend(t *testing.T) (*ReceiverBackend, jmapcalendar.CalendarsBackend, jmapmail.MailBackend) {
 	t.Helper()
 	backend, cleanup := imapsmtp.NewEmbeddedBackend("bob@example.com", "alice@example.com", "carol@example.com", "user@example.com")
 	t.Cleanup(cleanup)
@@ -26,7 +29,7 @@ func submissionBackend(t *testing.T) (*ReceiverBackend, jmap.CalendarsBackend, j
 	rb := NewReceiverBackend(backend, backend, calBackend)
 	rb.Mode = TransportModeSubmission
 	rb.Authenticator = NewAuthBackendAuthenticator(jmap.NewMemoryAuthBackend())
-	rb.AccountResolver = jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
+	rb.AccountResolver = jmapauth.PrimaryDomainResolver{PrimaryDomain: "example.com"}
 	return rb, calBackend, backend
 }
 

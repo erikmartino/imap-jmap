@@ -4,15 +4,17 @@ import (
 	"context"
 	"testing"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmapsieve"
 	"imap-jmap/jmap/managesieve"
 )
 
 func testCtx() context.Context {
 	ctx := context.Background()
-	ctx = jmap.ContextWithSubject(ctx, "user@example.com")
-	ctx = jmap.ContextWithAccountID(ctx, "user@example.com")
-	ctx = jmap.ContextWithCredentials(ctx, "user@example.com", "user@example.com")
+	ctx = jmapauth.ContextWithSubject(ctx, "user@example.com")
+	ctx = jmapauth.ContextWithAccountID(ctx, "user@example.com")
+	ctx = jmapauth.ContextWithCredentials(ctx, "user@example.com", "user@example.com")
 	return ctx
 }
 
@@ -97,7 +99,7 @@ func TestManageSieveBackend(t *testing.T) {
 	}
 
 	// Create
-	s := &jmap.SieveScript{
+	s := &jmapsieve.SieveScript{
 		Name:     "filter1",
 		Content:  "require [\"fileinto\"];\nif header :contains \"Subject\" \"meeting\" {\n  fileinto \"Meetings\";\n}\n",
 		IsActive: true,
@@ -111,7 +113,7 @@ func TestManageSieveBackend(t *testing.T) {
 	}
 
 	// Get
-	fetched, notFound, err := backend.GetSieveScripts(ctx, []jmap.Id{created.ID})
+	fetched, notFound, err := backend.GetSieveScripts(ctx, []jmapcore.Id{created.ID})
 	if err != nil || len(notFound) > 0 || len(fetched) == 0 {
 		t.Fatalf("GetSieveScripts failed (notFound=%v): %v", notFound, err)
 	}

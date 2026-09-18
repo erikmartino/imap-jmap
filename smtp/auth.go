@@ -3,21 +3,21 @@ package smtp
 import (
 	"context"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
 )
 
-// AuthBackendAuthenticator adapts a jmap.AuthBackend to the SMTP Authenticator
+// AuthBackendAuthenticator adapts a jmapauth.AuthBackend to the SMTP Authenticator
 // interface (RFC 4954). It validates credentials with ValidateCredentials (which
 // issues no bearer token) and reports the subject's email address as the
 // authenticated identity used by the submission transport (RFC 6409 Section 6.1).
 type AuthBackendAuthenticator struct {
-	backend jmap.AuthBackend
+	backend jmapauth.AuthBackend
 }
 
 // NewAuthBackendAuthenticator returns an Authenticator backed by the given
-// jmap.AuthBackend. Credentials are valid exactly when the backend accepts them;
+// jmapauth.AuthBackend. Credentials are valid exactly when the backend accepts them;
 // the authenticated email is the username used to authenticate.
-func NewAuthBackendAuthenticator(backend jmap.AuthBackend) *AuthBackendAuthenticator {
+func NewAuthBackendAuthenticator(backend jmapauth.AuthBackend) *AuthBackendAuthenticator {
 	return &AuthBackendAuthenticator{backend: backend}
 }
 

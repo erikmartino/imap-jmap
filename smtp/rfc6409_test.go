@@ -6,7 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapmail"
 	"imap-jmap/jmap/imapsmtp"
 	jmapsmtp "imap-jmap/smtp"
 )
@@ -31,17 +32,17 @@ func TestRFC6409_MessageSubmission(t *testing.T) {
 
 	backend.SetSMTPAddr(addr)
 
-	ctx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject("user@example.com"))
-	em, err := backend.CreateEmail(ctx, &jmap.Email{
+	ctx := jmapauth.ContextWithAccountID(context.Background(), jmapauth.AccountIDForSubject("user@example.com"))
+	em, err := backend.CreateEmail(ctx, &jmapmail.Email{
 		Subject: "Submission Test",
-		From:    []jmap.EmailAddress{{Email: "user@example.com"}},
-		To:      []jmap.EmailAddress{{Email: "recipient@example.com"}},
+		From:    []jmapmail.EmailAddress{{Email: "user@example.com"}},
+		To:      []jmapmail.EmailAddress{{Email: "recipient@example.com"}},
 	})
 	if err != nil {
 		t.Fatalf("CreateEmail failed: %v", err)
 	}
 
-	sub, err := backend.CreateSubmission(ctx, &jmap.EmailSubmission{
+	sub, err := backend.CreateSubmission(ctx, &jmapmail.EmailSubmission{
 		EmailID:  em.ID,
 		ThreadID: em.ThreadID,
 	})

@@ -9,7 +9,7 @@ import (
 
 	"github.com/emersion/go-msgauth/dmarc"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
 	"imap-jmap/jmap/nextcloud"
 	"imap-jmap/jmap/spectest"
 )
@@ -30,7 +30,7 @@ func newAuthSession(verifier SenderVerifier) *Session {
 	_, calBackend, _, _, _, _ := nextcloud.NewEmbeddedBackend("user@example.com")
 	backend := NewReceiverBackend(nil, nil, calBackend)
 	backend.SenderVerifier = verifier
-	backend.AccountResolver = jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
+	backend.AccountResolver = jmapauth.PrimaryDomainResolver{PrimaryDomain: "example.com"}
 	return &Session{backend: backend}
 }
 

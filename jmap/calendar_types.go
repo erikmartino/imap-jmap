@@ -3,13 +3,13 @@ package jmap
 // This file re-exports all calendar domain types from the jmapcalendar sub-package
 // as type aliases, preserving full backward compatibility for all existing callers.
 
-import "imap-jmap/jmap/jmapcalendar"
+import (
+	"imap-jmap/jmap/jmapcalendar"
+	"imap-jmap/jmap/jmappush"
+)
 
 // CalendarRights defines access rights for a Calendar per JMAP for Calendars.
 type CalendarRights = jmapcalendar.CalendarRights
-
-// CalendarShare re-exports the jmapcalendar.CalendarShare type.
-type CalendarShare = jmapcalendar.CalendarShare
 
 // FullCalendarRights returns a CalendarRights with all permissions granted.
 var FullCalendarRights = jmapcalendar.FullCalendarRights
@@ -22,9 +22,6 @@ type NDay = jmapcalendar.NDay
 
 // OffsetTrigger defines an offset trigger object per RFC 8984 Section 4.5.2.
 type OffsetTrigger = jmapcalendar.OffsetTrigger
-
-// AbsoluteTrigger defines an absolute trigger object per RFC 8984 Section 4.5.2.
-type AbsoluteTrigger = jmapcalendar.AbsoluteTrigger
 
 // JSCalendarLocation defines a location object per RFC 8984 Section 4.2.5.
 type JSCalendarLocation = jmapcalendar.JSCalendarLocation
@@ -39,19 +36,7 @@ type JSCalendarRecurrenceRule = jmapcalendar.JSCalendarRecurrenceRule
 type JSCalendarAlert = jmapcalendar.JSCalendarAlert
 
 // CalendarAlert represents a triggered calendar alert per draft-ietf-jmap-calendars-27 Section 8.
-type CalendarAlert = jmapcalendar.CalendarAlert
-
-// JSCalendarLink defines a link or attachment object per RFC 8984 Section 4.2.7.
-type JSCalendarLink = jmapcalendar.JSCalendarLink
-
-// JSCalendarVirtualLocation defines a virtual location object per RFC 8984 Section 4.2.6.
-type JSCalendarVirtualLocation = jmapcalendar.JSCalendarVirtualLocation
-
-// JSCalendarRelation defines a relation object per RFC 8984 Section 4.1.3.
-type JSCalendarRelation = jmapcalendar.JSCalendarRelation
-
-// JSCalendarTimeZone defines a timeZone property object per RFC 8984 Section 4.7.2.
-type JSCalendarTimeZone = jmapcalendar.JSCalendarTimeZone
+type CalendarAlert = jmappush.CalendarAlert
 
 // ParticipantIdentity represents a URI that identifies the user within an account in an
 // event's participants per draft-ietf-jmap-calendars Section 3.

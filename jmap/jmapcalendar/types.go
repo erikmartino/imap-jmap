@@ -233,16 +233,6 @@ func (a *JSCalendarAlert) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// CalendarAlert represents a triggered calendar alert per draft-ietf-jmap-calendars-27 Section 8.
-type CalendarAlert struct {
-	Type            string  `json:"@type"`
-	AccountID       string  `json:"accountId"`
-	CalendarEventID string  `json:"calendarEventId"`
-	UID             string  `json:"uid"`
-	RecurrenceID    *string `json:"recurrenceId"`
-	AlertID         string  `json:"alertId"`
-}
-
 // JSCalendarLink defines a link or attachment object per RFC 8984 Section 4.2.7.
 type JSCalendarLink struct {
 	Type        string `json:"@type,omitempty"` // "Link"

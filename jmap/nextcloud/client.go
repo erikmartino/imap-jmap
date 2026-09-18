@@ -16,7 +16,7 @@ import (
 	"github.com/emersion/go-webdav/caldav"
 	"github.com/emersion/go-webdav/carddav"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
 )
 
 type retryTransport struct {
@@ -80,11 +80,11 @@ func NewClient(baseURL string) *Client {
 }
 
 func (c *Client) getUserAndPass(ctx context.Context) (string, string) {
-	accountID, hasAccount := jmap.AccountIDFromContext(ctx)
-	creds, hasCreds := jmap.CredentialsFromContext(ctx)
+	accountID, hasAccount := jmapauth.AccountIDFromContext(ctx)
+	creds, hasCreds := jmapauth.CredentialsFromContext(ctx)
 
 	if hasAccount && accountID != "" {
-		if subj, okSub := jmap.SubjectForAccountID(accountID); okSub && subj != "" {
+		if subj, okSub := jmapauth.SubjectForAccountID(accountID); okSub && subj != "" {
 			if !hasCreds || creds.Username == "" || creds.Username != subj {
 				return subj, subj
 			}
@@ -95,13 +95,13 @@ func (c *Client) getUserAndPass(ctx context.Context) (string, string) {
 		return creds.Username, creds.Password
 	}
 
-	subject, ok := jmap.SubjectFromContext(ctx)
+	subject, ok := jmapauth.SubjectFromContext(ctx)
 	if ok && subject != "" {
 		return subject, subject
 	}
 
 	if hasAccount && accountID != "" {
-		if subj, okSub := jmap.SubjectForAccountID(accountID); okSub && subj != "" {
+		if subj, okSub := jmapauth.SubjectForAccountID(accountID); okSub && subj != "" {
 			return subj, subj
 		}
 		return accountID, accountID

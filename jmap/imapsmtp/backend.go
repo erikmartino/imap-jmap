@@ -7,10 +7,14 @@ import (
 	"sync"
 	"time"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapblob"
+	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmapmail"
+	"imap-jmap/jmap/jmappush"
 )
 
-// IMAPSMTPBackend implements jmap.MailBackend and jmap.BlobBackend using external IMAP and SMTP servers.
+// IMAPSMTPBackend implements jmapmail.MailBackend and jmapblob.BlobBackend using external IMAP and SMTP servers.
 type IMAPSMTPBackend struct {
 	imapHost string
 	smtpHost string
@@ -19,10 +23,10 @@ type IMAPSMTPBackend struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	broadcaster *jmap.Broadcaster
+	broadcaster *jmappush.Broadcaster
 
 	accountsMu     sync.Mutex
-	activeAccounts map[string]jmap.AuthCredentials
+	activeAccounts map[string]jmapauth.AuthCredentials
 	idleMu         sync.Mutex
 	idleWatchers   map[string]*idleWatcherEntry
 	lastStates     map[string]string
@@ -35,33 +39,33 @@ type IMAPSMTPBackend struct {
 	lastSweep map[string]time.Time
 
 	submissionsMu sync.RWMutex
-	submissions   map[string]map[jmap.Id]*jmap.EmailSubmission
+	submissions   map[string]map[jmapcore.Id]*jmapmail.EmailSubmission
 	subTrackers   map[string]*subTracker
 
 	identitiesMu sync.RWMutex
-	identities   map[string]map[jmap.Id]*jmap.Identity
+	identities   map[string]map[jmapcore.Id]*jmapmail.Identity
 
 	movedMu  sync.RWMutex
-	movedIDs map[string]map[jmap.Id]jmap.Id
+	movedIDs map[string]map[jmapcore.Id]jmapcore.Id
 
 	mailboxMu              sync.RWMutex
-	mailboxMovedIDs        map[jmap.Id]jmap.Id
-	mailboxParentOverrides map[string]map[jmap.Id]*jmap.Id
-	mailboxSortOrders      map[string]map[jmap.Id]uint64
-	mailboxSubscribed      map[string]map[jmap.Id]bool
+	mailboxMovedIDs        map[jmapcore.Id]jmapcore.Id
+	mailboxParentOverrides map[string]map[jmapcore.Id]*jmapcore.Id
+	mailboxSortOrders      map[string]map[jmapcore.Id]uint64
+	mailboxSubscribed      map[string]map[jmapcore.Id]bool
 
 	quotaTrackersMu    sync.RWMutex
 	quotaTrackers      map[string]*itemTracker
 	identityTrackersMu sync.RWMutex
 	identityTrackers   map[string]*itemTracker
 	vacationMu         sync.RWMutex
-	vacationResponses  map[string]*jmap.VacationResponse
+	vacationResponses  map[string]*jmapmail.VacationResponse
 	vacationState      map[string]uint64
 	pushMu             sync.RWMutex
-	pushSubscriptions  map[string]map[jmap.Id]*jmap.PushSubscription
+	pushSubscriptions  map[string]map[jmapcore.Id]*jmapmail.PushSubscription
 	blobsMu            sync.RWMutex
-	blobs              map[string]*jmap.Blob
-	blobRefs           map[string]map[string]map[jmap.Id]bool
+	blobs              map[string]*jmapblob.Blob
+	blobRefs           map[string]map[string]map[jmapcore.Id]bool
 	accountQuotasMu  sync.RWMutex
 	accountQuotas    map[string]*accountQuota
 	emailMutationsMu sync.RWMutex
@@ -69,11 +73,11 @@ type IMAPSMTPBackend struct {
 	emailMutations   map[string][]itemChangeEntry
 }
 
-var _ jmap.MailBackend = (*IMAPSMTPBackend)(nil)
-var _ jmap.BlobBackend = (*IMAPSMTPBackend)(nil)
-var _ jmap.BlobReferenceBackend = (*IMAPSMTPBackend)(nil)
-var _ jmap.SubscriptionListener = (*IMAPSMTPBackend)(nil)
-var _ jmap.SMTPAvailableBackend = (*IMAPSMTPBackend)(nil)
+var _ jmapmail.MailBackend = (*IMAPSMTPBackend)(nil)
+var _ jmapblob.BlobBackend = (*IMAPSMTPBackend)(nil)
+var _ jmapblob.BlobReferenceBackend = (*IMAPSMTPBackend)(nil)
+var _ jmappush.SubscriptionListener = (*IMAPSMTPBackend)(nil)
+var _ jmapmail.SMTPAvailableBackend = (*IMAPSMTPBackend)(nil)
 
 // HasSMTPServer reports whether an outer SMTP server address is configured.
 func (b *IMAPSMTPBackend) HasSMTPServer() bool {
@@ -89,38 +93,38 @@ func New(imapHost, smtpHost string) *IMAPSMTPBackend {
 		pool:                   NewClientPoolWithSMTP(imapHost, smtpHost),
 		ctx:                    ctx,
 		cancel:                 cancel,
-		activeAccounts:         make(map[string]jmap.AuthCredentials),
+		activeAccounts:         make(map[string]jmapauth.AuthCredentials),
 		idleWatchers:           make(map[string]*idleWatcherEntry),
 		lastStates:             make(map[string]string),
 		lastSweep:              make(map[string]time.Time),
-		submissions:            make(map[string]map[jmap.Id]*jmap.EmailSubmission),
+		submissions:            make(map[string]map[jmapcore.Id]*jmapmail.EmailSubmission),
 		subTrackers:            make(map[string]*subTracker),
-		identities:             make(map[string]map[jmap.Id]*jmap.Identity),
-		movedIDs:               make(map[string]map[jmap.Id]jmap.Id),
-		mailboxMovedIDs:        make(map[jmap.Id]jmap.Id),
-		mailboxParentOverrides: make(map[string]map[jmap.Id]*jmap.Id),
+		identities:             make(map[string]map[jmapcore.Id]*jmapmail.Identity),
+		movedIDs:               make(map[string]map[jmapcore.Id]jmapcore.Id),
+		mailboxMovedIDs:        make(map[jmapcore.Id]jmapcore.Id),
+		mailboxParentOverrides: make(map[string]map[jmapcore.Id]*jmapcore.Id),
 		quotaTrackers:          make(map[string]*itemTracker),
 		identityTrackers:       make(map[string]*itemTracker),
-		vacationResponses:      make(map[string]*jmap.VacationResponse),
+		vacationResponses:      make(map[string]*jmapmail.VacationResponse),
 		vacationState:          make(map[string]uint64),
-		pushSubscriptions:      make(map[string]map[jmap.Id]*jmap.PushSubscription),
-		blobs:                  make(map[string]*jmap.Blob),
-		blobRefs:               make(map[string]map[string]map[jmap.Id]bool),
+		pushSubscriptions:      make(map[string]map[jmapcore.Id]*jmapmail.PushSubscription),
+		blobs:                  make(map[string]*jmapblob.Blob),
+		blobRefs:               make(map[string]map[string]map[jmapcore.Id]bool),
 		accountQuotas:          make(map[string]*accountQuota),
 		emailSeq:               make(map[string]uint64),
 		emailMutations:         make(map[string][]itemChangeEntry),
 	}
 }
 
-func (b *IMAPSMTPBackend) trackMovedEmail(accountID string, oldID, newID jmap.Id) {
+func (b *IMAPSMTPBackend) trackMovedEmail(accountID string, oldID, newID jmapcore.Id) {
 	b.movedMu.Lock()
 	defer b.movedMu.Unlock()
 	if b.movedIDs == nil {
-		b.movedIDs = make(map[string]map[jmap.Id]jmap.Id)
+		b.movedIDs = make(map[string]map[jmapcore.Id]jmapcore.Id)
 	}
 	accMoved := b.movedIDs[accountID]
 	if accMoved == nil {
-		accMoved = make(map[jmap.Id]jmap.Id)
+		accMoved = make(map[jmapcore.Id]jmapcore.Id)
 		b.movedIDs[accountID] = accMoved
 	}
 	for k, v := range accMoved {
@@ -131,13 +135,13 @@ func (b *IMAPSMTPBackend) trackMovedEmail(accountID string, oldID, newID jmap.Id
 	accMoved[oldID] = newID
 }
 
-func (b *IMAPSMTPBackend) resolveMovedEmailID(accountID string, id jmap.Id) jmap.Id {
+func (b *IMAPSMTPBackend) resolveMovedEmailID(accountID string, id jmapcore.Id) jmapcore.Id {
 	b.movedMu.RLock()
 	defer b.movedMu.RUnlock()
 	curr := id
 	if b.movedIDs != nil {
 		if accMoved, ok := b.movedIDs[accountID]; ok {
-			visited := make(map[jmap.Id]bool)
+			visited := make(map[jmapcore.Id]bool)
 			for next, ok := accMoved[curr]; ok; next, ok = accMoved[curr] {
 				if visited[curr] {
 					break
@@ -155,16 +159,16 @@ func (b *IMAPSMTPBackend) resolveMovedEmailID(accountID string, id jmap.Id) jmap
 	}
 	if strings.HasPrefix(string(curr), "email-") {
 		num := strings.TrimPrefix(string(curr), "email-")
-		return jmap.Id("mb-inbox-" + num)
+		return jmapcore.Id("mb-inbox-" + num)
 	}
 	return curr
 }
 
-func (b *IMAPSMTPBackend) trackMovedMailbox(oldID, newID jmap.Id) {
+func (b *IMAPSMTPBackend) trackMovedMailbox(oldID, newID jmapcore.Id) {
 	b.mailboxMu.Lock()
 	defer b.mailboxMu.Unlock()
 	if b.mailboxMovedIDs == nil {
-		b.mailboxMovedIDs = make(map[jmap.Id]jmap.Id)
+		b.mailboxMovedIDs = make(map[jmapcore.Id]jmapcore.Id)
 	}
 	for k, v := range b.mailboxMovedIDs {
 		if v == oldID {
@@ -174,7 +178,7 @@ func (b *IMAPSMTPBackend) trackMovedMailbox(oldID, newID jmap.Id) {
 	b.mailboxMovedIDs[oldID] = newID
 }
 
-func (b *IMAPSMTPBackend) resolveMovedMailboxID(id jmap.Id) jmap.Id {
+func (b *IMAPSMTPBackend) resolveMovedMailboxID(id jmapcore.Id) jmapcore.Id {
 	b.mailboxMu.RLock()
 	defer b.mailboxMu.RUnlock()
 	curr := id
@@ -184,19 +188,19 @@ func (b *IMAPSMTPBackend) resolveMovedMailboxID(id jmap.Id) jmap.Id {
 	return curr
 }
 
-func (b *IMAPSMTPBackend) setMailboxParentOverride(accountID string, id jmap.Id, parentID *jmap.Id) {
+func (b *IMAPSMTPBackend) setMailboxParentOverride(accountID string, id jmapcore.Id, parentID *jmapcore.Id) {
 	b.mailboxMu.Lock()
 	defer b.mailboxMu.Unlock()
 	if b.mailboxParentOverrides == nil {
-		b.mailboxParentOverrides = make(map[string]map[jmap.Id]*jmap.Id)
+		b.mailboxParentOverrides = make(map[string]map[jmapcore.Id]*jmapcore.Id)
 	}
 	if b.mailboxParentOverrides[accountID] == nil {
-		b.mailboxParentOverrides[accountID] = make(map[jmap.Id]*jmap.Id)
+		b.mailboxParentOverrides[accountID] = make(map[jmapcore.Id]*jmapcore.Id)
 	}
 	b.mailboxParentOverrides[accountID][id] = parentID
 }
 
-func (b *IMAPSMTPBackend) getMailboxParentOverride(accountID string, id jmap.Id) (*jmap.Id, bool) {
+func (b *IMAPSMTPBackend) getMailboxParentOverride(accountID string, id jmapcore.Id) (*jmapcore.Id, bool) {
 	b.mailboxMu.RLock()
 	defer b.mailboxMu.RUnlock()
 	if b.mailboxParentOverrides == nil || b.mailboxParentOverrides[accountID] == nil {
@@ -206,19 +210,19 @@ func (b *IMAPSMTPBackend) getMailboxParentOverride(accountID string, id jmap.Id)
 	return p, ok
 }
 
-func (b *IMAPSMTPBackend) setMailboxSortOrder(accountID string, id jmap.Id, sortOrder uint64) {
+func (b *IMAPSMTPBackend) setMailboxSortOrder(accountID string, id jmapcore.Id, sortOrder uint64) {
 	b.mailboxMu.Lock()
 	defer b.mailboxMu.Unlock()
 	if b.mailboxSortOrders == nil {
-		b.mailboxSortOrders = make(map[string]map[jmap.Id]uint64)
+		b.mailboxSortOrders = make(map[string]map[jmapcore.Id]uint64)
 	}
 	if b.mailboxSortOrders[accountID] == nil {
-		b.mailboxSortOrders[accountID] = make(map[jmap.Id]uint64)
+		b.mailboxSortOrders[accountID] = make(map[jmapcore.Id]uint64)
 	}
 	b.mailboxSortOrders[accountID][id] = sortOrder
 }
 
-func (b *IMAPSMTPBackend) getMailboxSortOrder(accountID string, id jmap.Id) (uint64, bool) {
+func (b *IMAPSMTPBackend) getMailboxSortOrder(accountID string, id jmapcore.Id) (uint64, bool) {
 	b.mailboxMu.RLock()
 	defer b.mailboxMu.RUnlock()
 	if b.mailboxSortOrders == nil || b.mailboxSortOrders[accountID] == nil {
@@ -228,19 +232,19 @@ func (b *IMAPSMTPBackend) getMailboxSortOrder(accountID string, id jmap.Id) (uin
 	return so, ok
 }
 
-func (b *IMAPSMTPBackend) setMailboxSubscribed(accountID string, id jmap.Id, sub bool) {
+func (b *IMAPSMTPBackend) setMailboxSubscribed(accountID string, id jmapcore.Id, sub bool) {
 	b.mailboxMu.Lock()
 	defer b.mailboxMu.Unlock()
 	if b.mailboxSubscribed == nil {
-		b.mailboxSubscribed = make(map[string]map[jmap.Id]bool)
+		b.mailboxSubscribed = make(map[string]map[jmapcore.Id]bool)
 	}
 	if b.mailboxSubscribed[accountID] == nil {
-		b.mailboxSubscribed[accountID] = make(map[jmap.Id]bool)
+		b.mailboxSubscribed[accountID] = make(map[jmapcore.Id]bool)
 	}
 	b.mailboxSubscribed[accountID][id] = sub
 }
 
-func (b *IMAPSMTPBackend) getMailboxSubscribed(accountID string, id jmap.Id) (bool, bool) {
+func (b *IMAPSMTPBackend) getMailboxSubscribed(accountID string, id jmapcore.Id) (bool, bool) {
 	b.mailboxMu.RLock()
 	defer b.mailboxMu.RUnlock()
 	if b.mailboxSubscribed == nil || b.mailboxSubscribed[accountID] == nil {
@@ -268,7 +272,7 @@ func (b *IMAPSMTPBackend) Close() error {
 }
 
 // SetBroadcaster attaches a Broadcaster for push notifications and registers as a SubscriptionListener.
-func (b *IMAPSMTPBackend) SetBroadcaster(bc *jmap.Broadcaster) {
+func (b *IMAPSMTPBackend) SetBroadcaster(bc *jmappush.Broadcaster) {
 	b.broadcaster = bc
 	if bc != nil {
 		bc.AddSubscriptionListener(b)
@@ -306,16 +310,16 @@ func (b *IMAPSMTPBackend) OnUnsubscribe(accountID string) {
 }
 
 func (b *IMAPSMTPBackend) RecordAccount(ctx context.Context) {
-	accountID, ok := jmap.AccountIDFromContext(ctx)
+	accountID, ok := jmapauth.AccountIDFromContext(ctx)
 	if !ok || accountID == "" {
 		return
 	}
-	creds, ok := jmap.CredentialsFromContext(ctx)
+	creds, ok := jmapauth.CredentialsFromContext(ctx)
 	if !ok || creds.Username == "" {
-		if subj, ok := jmap.SubjectFromContext(ctx); ok && subj != "" {
-			creds = jmap.AuthCredentials{Username: subj, Password: subj}
-		} else if sub, ok := jmap.SubjectForAccountID(accountID); ok && sub != "" {
-			creds = jmap.AuthCredentials{Username: sub, Password: sub}
+		if subj, ok := jmapauth.SubjectFromContext(ctx); ok && subj != "" {
+			creds = jmapauth.AuthCredentials{Username: subj, Password: subj}
+		} else if sub, ok := jmapauth.SubjectForAccountID(accountID); ok && sub != "" {
+			creds = jmapauth.AuthCredentials{Username: sub, Password: sub}
 		}
 	}
 	if creds.Username == "" {
@@ -335,7 +339,7 @@ func (b *IMAPSMTPBackend) publishStateChange(ctx context.Context) {
 	if b.broadcaster == nil {
 		return
 	}
-	accountID, ok := jmap.AccountIDFromContext(ctx)
+	accountID, ok := jmapauth.AccountIDFromContext(ctx)
 	if !ok || accountID == "" {
 		return
 	}
@@ -358,7 +362,7 @@ func (b *IMAPSMTPBackend) Pool() *ClientPool {
 
 type itemChangeEntry struct {
 	action string
-	id     jmap.Id
+	id     jmapcore.Id
 	state  uint64
 }
 
@@ -381,7 +385,7 @@ func (t *itemTracker) State() string {
 	return fmt.Sprintf("%d", t.counter)
 }
 
-func (t *itemTracker) Record(id jmap.Id, action string) string {
+func (t *itemTracker) Record(id jmapcore.Id, action string) string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.counter++
@@ -393,7 +397,7 @@ func (t *itemTracker) Record(id jmap.Id, action string) string {
 	return fmt.Sprintf("%d", t.counter)
 }
 
-func (t *itemTracker) Changes(sinceState string, maxChanges *uint64) (created, updated, destroyed []jmap.Id, newState string, hasMore bool) {
+func (t *itemTracker) Changes(sinceState string, maxChanges *uint64) (created, updated, destroyed []jmapcore.Id, newState string, hasMore bool) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
@@ -405,9 +409,9 @@ func (t *itemTracker) Changes(sinceState string, maxChanges *uint64) (created, u
 		return nil, nil, nil, fmt.Sprintf("%d", t.counter), true
 	}
 
-	createdSet := make(map[jmap.Id]bool)
-	updatedSet := make(map[jmap.Id]bool)
-	destroyedSet := make(map[jmap.Id]bool)
+	createdSet := make(map[jmapcore.Id]bool)
+	updatedSet := make(map[jmapcore.Id]bool)
+	destroyedSet := make(map[jmapcore.Id]bool)
 
 	for _, entry := range t.history {
 		if entry.state > since {
@@ -441,7 +445,7 @@ func (t *itemTracker) Changes(sinceState string, maxChanges *uint64) (created, u
 	return created, updated, destroyed, fmt.Sprintf("%d", t.counter), false
 }
 
-func (b *IMAPSMTPBackend) recordEmailMutation(accountID string, id jmap.Id, action string) {
+func (b *IMAPSMTPBackend) recordEmailMutation(accountID string, id jmapcore.Id, action string) {
 	b.emailMutationsMu.Lock()
 	defer b.emailMutationsMu.Unlock()
 	if b.emailSeq == nil {
@@ -476,7 +480,7 @@ type accountQuota struct {
 	messagesLimit uint64
 	octetsUsed    uint64
 	messagesUsed  uint64
-	emailSizes    map[jmap.Id]uint64
+	emailSizes    map[jmapcore.Id]uint64
 }
 
 func (b *IMAPSMTPBackend) getAccountQuota(accountID string) *accountQuota {
@@ -491,7 +495,7 @@ func (b *IMAPSMTPBackend) getAccountQuota(accountID string) *accountQuota {
 			hasLimits:     true,
 			octetsLimit:   1073741824, // 1 GiB default
 			messagesLimit: 50000,      // 50k messages default
-			emailSizes:    make(map[jmap.Id]uint64),
+			emailSizes:    make(map[jmapcore.Id]uint64),
 		}
 		b.accountQuotas[accountID] = aq
 	}
@@ -532,13 +536,13 @@ func (b *IMAPSMTPBackend) checkQuota(accountID string, octets uint64) error {
 
 	if aq.hasLimits {
 		if aq.octetsLimit > 0 && aq.octetsUsed+octets > aq.octetsLimit {
-			return jmap.SetError{
+			return jmapcore.SetError{
 				Type:        "overQuota",
 				Description: fmt.Sprintf("storage quota exceeded: %d + %d > %d octets", aq.octetsUsed, octets, aq.octetsLimit),
 			}
 		}
 		if aq.messagesLimit > 0 && aq.messagesUsed+1 > aq.messagesLimit {
-			return jmap.SetError{
+			return jmapcore.SetError{
 				Type:        "overQuota",
 				Description: fmt.Sprintf("message count quota exceeded: %d + 1 > %d messages", aq.messagesUsed, aq.messagesLimit),
 			}
@@ -547,7 +551,7 @@ func (b *IMAPSMTPBackend) checkQuota(accountID string, octets uint64) error {
 	return nil
 }
 
-func (b *IMAPSMTPBackend) recordEmailQuotaCreated(accountID string, emailID jmap.Id, size uint64) {
+func (b *IMAPSMTPBackend) recordEmailQuotaCreated(accountID string, emailID jmapcore.Id, size uint64) {
 	aq := b.getAccountQuota(accountID)
 	aq.mu.Lock()
 	aq.octetsUsed += size
@@ -560,7 +564,7 @@ func (b *IMAPSMTPBackend) recordEmailQuotaCreated(accountID string, emailID jmap
 	tracker.Record("quota-messages", "update")
 }
 
-func (b *IMAPSMTPBackend) recordEmailQuotaDeleted(accountID string, emailID jmap.Id) {
+func (b *IMAPSMTPBackend) recordEmailQuotaDeleted(accountID string, emailID jmapcore.Id) {
 	aq := b.getAccountQuota(accountID)
 	aq.mu.Lock()
 	size, ok := aq.emailSizes[emailID]
@@ -582,7 +586,7 @@ func (b *IMAPSMTPBackend) recordEmailQuotaDeleted(accountID string, emailID jmap
 	tracker.Record("quota-messages", "update")
 }
 
-func (b *IMAPSMTPBackend) trackMovedEmailQuota(accountID string, origID, newID jmap.Id) {
+func (b *IMAPSMTPBackend) trackMovedEmailQuota(accountID string, origID, newID jmapcore.Id) {
 	aq := b.getAccountQuota(accountID)
 	aq.mu.Lock()
 	defer aq.mu.Unlock()
@@ -604,7 +608,7 @@ func (b *IMAPSMTPBackend) getQuotaTracker(accountID string) *itemTracker {
 	return b.quotaTrackers[accountID]
 }
 
-func (b *IMAPSMTPBackend) getAccountQuotas(accountID string) []*jmap.Quota {
+func (b *IMAPSMTPBackend) getAccountQuotas(accountID string) []*jmapmail.Quota {
 	aq := b.getAccountQuota(accountID)
 	aq.mu.RLock()
 	octetsUsed := aq.octetsUsed
@@ -613,7 +617,7 @@ func (b *IMAPSMTPBackend) getAccountQuotas(accountID string) []*jmap.Quota {
 	messagesLimit := aq.messagesLimit
 	aq.mu.RUnlock()
 
-	return []*jmap.Quota{
+	return []*jmapmail.Quota{
 		{
 			ID:           "quota-octets",
 			ResourceType: "octets",

@@ -9,8 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"imap-jmap/jmap"
 	"imap-jmap/jmap/imapsmtp"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapmail"
+	"imap-jmap/jmap/jmapsieve"
 	"imap-jmap/jmap/managesieve"
 	"imap-jmap/jmap/spectest"
 	jmapsmtp "imap-jmap/smtp"
@@ -25,7 +27,7 @@ type sieveTestOutboundSender struct {
 	}
 }
 
-func (s *sieveTestOutboundSender) SendMail(ctx context.Context, from string, recipients []string, rawMessage []byte) map[string]jmap.OutboundDeliveryResult {
+func (s *sieveTestOutboundSender) SendMail(ctx context.Context, from string, recipients []string, rawMessage []byte) map[string]jmapmail.OutboundDeliveryResult {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sent = append(s.sent, struct {
@@ -37,19 +39,19 @@ func (s *sieveTestOutboundSender) SendMail(ctx context.Context, from string, rec
 		recipients: recipients,
 		data:       rawMessage,
 	})
-	res := make(map[string]jmap.OutboundDeliveryResult, len(recipients))
+	res := make(map[string]jmapmail.OutboundDeliveryResult, len(recipients))
 	for _, r := range recipients {
-		res[r] = jmap.OutboundDeliveryResult{Delivered: true, SmtpReply: "250 2.0.0 OK"}
+		res[r] = jmapmail.OutboundDeliveryResult{Delivered: true, SmtpReply: "250 2.0.0 OK"}
 	}
 	return res
 }
 
-func setupSieveDeliveryServer(t *testing.T) (backend *imapsmtp.IMAPSMTPBackend, sieveBackend jmap.SieveBackend, outbound *sieveTestOutboundSender, addr string, cleanup func()) {
+func setupSieveDeliveryServer(t *testing.T) (backend *imapsmtp.IMAPSMTPBackend, sieveBackend jmapsieve.SieveBackend, outbound *sieveTestOutboundSender, addr string, cleanup func()) {
 	t.Helper()
 	embeddedBackend, imapCleanup := imapsmtp.NewEmbeddedBackend("alice@example.com", "bob@example.com")
 	_, sieveBackend, sieveCleanup := managesieve.NewEmbeddedBackend("alice@example.com", "bob@example.com")
 	outbound = &sieveTestOutboundSender{}
-	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
+	resolver := jmapauth.PrimaryDomainResolver{PrimaryDomain: "example.com"}
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -85,8 +87,8 @@ func TestRFC5228_SieveFileinto(t *testing.T) {
 	backend, sieveBackend, _, addr, cleanup := setupSieveDeliveryServer(t)
 	defer cleanup()
 
-	bobID := jmap.AccountIDForSubject("bob@example.com")
-	bobCtx := jmap.ContextWithAccountID(context.Background(), bobID)
+	bobID := jmapauth.AccountIDForSubject("bob@example.com")
+	bobCtx := jmapauth.ContextWithAccountID(context.Background(), bobID)
 
 	// Create an active Sieve script for bob
 	script := `require ["fileinto"];
@@ -94,7 +96,7 @@ if header :contains "subject" "Receipt" {
     fileinto "Receipts";
 }
 `
-	_, err := sieveBackend.CreateSieveScript(bobCtx, &jmap.SieveScript{
+	_, err := sieveBackend.CreateSieveScript(bobCtx, &jmapsieve.SieveScript{
 		Name:     "sort-receipts",
 		IsActive: true,
 		Content:  script,
@@ -117,7 +119,7 @@ if header :contains "subject" "Receipt" {
 	}
 
 	// Verify message arrived in Receipts and not in Inbox
-	var delivered *jmap.Email
+	var delivered *jmapmail.Email
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		emails, _ := backend.GetAllEmails(bobCtx)
@@ -136,14 +138,14 @@ if header :contains "subject" "Receipt" {
 		t.Fatalf("message was not delivered to bob")
 	}
 
-	receiptsID := jmap.MailboxIDByName(bobCtx, backend, "Receipts")
+	receiptsID := jmapmail.MailboxIDByName(bobCtx, backend, "Receipts")
 	if receiptsID == "" {
 		t.Fatalf("Receipts mailbox was not created")
 	}
 	if !delivered.MailboxIDs[receiptsID] {
 		t.Errorf("expected email to be filed in Receipts mailbox %s, got mailboxes: %v", receiptsID, delivered.MailboxIDs)
 	}
-	inboxID := jmap.InboxMailboxID(bobCtx, backend)
+	inboxID := jmapmail.InboxMailboxID(bobCtx, backend)
 	if delivered.MailboxIDs[inboxID] {
 		t.Errorf("fileinto MUST cancel implicit keep in Inbox; email was also in Inbox")
 	}
@@ -158,14 +160,14 @@ func TestRFC5228_SieveDiscard(t *testing.T) {
 	backend, sieveBackend, _, addr, cleanup := setupSieveDeliveryServer(t)
 	defer cleanup()
 
-	bobID := jmap.AccountIDForSubject("bob@example.com")
-	bobCtx := jmap.ContextWithAccountID(context.Background(), bobID)
+	bobID := jmapauth.AccountIDForSubject("bob@example.com")
+	bobCtx := jmapauth.ContextWithAccountID(context.Background(), bobID)
 
 	script := `if header :contains "subject" "SpamMessage" {
     discard;
 }
 `
-	_, err := sieveBackend.CreateSieveScript(bobCtx, &jmap.SieveScript{
+	_, err := sieveBackend.CreateSieveScript(bobCtx, &jmapsieve.SieveScript{
 		Name:     "discard-spam",
 		IsActive: true,
 		Content:  script,
@@ -205,14 +207,14 @@ func TestRFC5228_SieveRedirect(t *testing.T) {
 	backend, sieveBackend, outbound, addr, cleanup := setupSieveDeliveryServer(t)
 	defer cleanup()
 
-	bobID := jmap.AccountIDForSubject("bob@example.com")
-	bobCtx := jmap.ContextWithAccountID(context.Background(), bobID)
+	bobID := jmapauth.AccountIDForSubject("bob@example.com")
+	bobCtx := jmapauth.ContextWithAccountID(context.Background(), bobID)
 
 	script := `if header :contains "subject" "ForwardExternal" {
     redirect "external-dest@otherdomain.com";
 }
 `
-	_, err := sieveBackend.CreateSieveScript(bobCtx, &jmap.SieveScript{
+	_, err := sieveBackend.CreateSieveScript(bobCtx, &jmapsieve.SieveScript{
 		Name:     "forward-external",
 		IsActive: true,
 		Content:  script,
@@ -269,15 +271,15 @@ func TestRFC5228_SieveReject(t *testing.T) {
 	_, sieveBackend, _, addr, cleanup := setupSieveDeliveryServer(t)
 	defer cleanup()
 
-	bobID := jmap.AccountIDForSubject("bob@example.com")
-	bobCtx := jmap.ContextWithAccountID(context.Background(), bobID)
+	bobID := jmapauth.AccountIDForSubject("bob@example.com")
+	bobCtx := jmapauth.ContextWithAccountID(context.Background(), bobID)
 
 	script := `require ["reject"];
 if header :contains "subject" "BlockedContent" {
     reject "we refuse this blocked content";
 }
 `
-	_, err := sieveBackend.CreateSieveScript(bobCtx, &jmap.SieveScript{
+	_, err := sieveBackend.CreateSieveScript(bobCtx, &jmapsieve.SieveScript{
 		Name:     "reject-script",
 		IsActive: true,
 		Content:  script,
@@ -313,15 +315,15 @@ func TestRFC5228_SieveAddFlag(t *testing.T) {
 	backend, sieveBackend, _, addr, cleanup := setupSieveDeliveryServer(t)
 	defer cleanup()
 
-	bobID := jmap.AccountIDForSubject("bob@example.com")
-	bobCtx := jmap.ContextWithAccountID(context.Background(), bobID)
+	bobID := jmapauth.AccountIDForSubject("bob@example.com")
+	bobCtx := jmapauth.ContextWithAccountID(context.Background(), bobID)
 
 	script := `require ["imap4flags"];
 if header :contains "subject" "HighPriority" {
     addflag "\\Flagged";
 }
 `
-	_, err := sieveBackend.CreateSieveScript(bobCtx, &jmap.SieveScript{
+	_, err := sieveBackend.CreateSieveScript(bobCtx, &jmapsieve.SieveScript{
 		Name:     "flag-priority",
 		IsActive: true,
 		Content:  script,
@@ -343,7 +345,7 @@ if header :contains "subject" "HighPriority" {
 		t.Fatalf("smtp.SendMail: %v", err)
 	}
 
-	var delivered *jmap.Email
+	var delivered *jmapmail.Email
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		emails, _ := backend.GetAllEmails(bobCtx)

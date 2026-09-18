@@ -9,30 +9,33 @@ import (
 
 	"github.com/foxcpp/go-sieve"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmappush"
+	"imap-jmap/jmap/jmapsieve"
 )
 
-// Backend implements jmap.SieveBackend by communicating with a ManageSieve (RFC 5804) server.
+// Backend implements jmapsieve.SieveBackend by communicating with a ManageSieve (RFC 5804) server.
 type Backend struct {
 	addr        string
 	mu          sync.RWMutex
 	trackersMu  sync.Mutex
-	trackers    map[string]*jmap.ChangeTracker
-	broadcaster *jmap.Broadcaster
-	nameToID    map[string]map[string]jmap.Id // user -> scriptName -> jmap.Id
-	idToName    map[string]map[jmap.Id]string // user -> jmap.Id -> scriptName
+	trackers    map[string]*jmappush.ChangeTracker
+	broadcaster *jmappush.Broadcaster
+	nameToID    map[string]map[string]jmapcore.Id // user -> scriptName -> jmapcore.Id
+	idToName    map[string]map[jmapcore.Id]string // user -> jmapcore.Id -> scriptName
 	idCounter   uint64
 }
 
-var _ jmap.SieveBackend = (*Backend)(nil)
+var _ jmapsieve.SieveBackend = (*Backend)(nil)
 
 // NewBackend creates a new ManageSieve-backed SieveBackend pointing at the given address.
 func NewBackend(addr string) *Backend {
 	return &Backend{
 		addr:     addr,
-		trackers: make(map[string]*jmap.ChangeTracker),
-		nameToID: make(map[string]map[string]jmap.Id),
-		idToName: make(map[string]map[jmap.Id]string),
+		trackers: make(map[string]*jmappush.ChangeTracker),
+		nameToID: make(map[string]map[string]jmapcore.Id),
+		idToName: make(map[string]map[jmapcore.Id]string),
 	}
 }
 
@@ -50,7 +53,7 @@ func NewEmbeddedBackend(usernames ...string) (*EmbeddedServer, *Backend, func())
 }
 
 // SetBroadcaster connects an event Broadcaster for push notifications.
-func (b *Backend) SetBroadcaster(bc *jmap.Broadcaster) {
+func (b *Backend) SetBroadcaster(bc *jmappush.Broadcaster) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.broadcaster = bc
@@ -58,34 +61,34 @@ func (b *Backend) SetBroadcaster(bc *jmap.Broadcaster) {
 
 func (b *Backend) emitStateChange(u, newState string) {
 	if b.broadcaster != nil && u != "" {
-		accID := jmap.AccountIDForSubject(u)
+		accID := jmapauth.AccountIDForSubject(u)
 		b.broadcaster.PublishStateChange(accID, "SieveScript", newState)
 	}
 }
 
-func (b *Backend) getTracker(u string) *jmap.ChangeTracker {
+func (b *Backend) getTracker(u string) *jmappush.ChangeTracker {
 	b.trackersMu.Lock()
 	defer b.trackersMu.Unlock()
 	t := b.trackers[u]
 	if t == nil {
-		t = jmap.NewChangeTracker(1000)
+		t = jmappush.NewChangeTracker(1000)
 		b.trackers[u] = t
 	}
 	return t
 }
 
 func (b *Backend) userAndPass(ctx context.Context) (string, string) {
-	creds, ok := jmap.CredentialsFromContext(ctx)
+	creds, ok := jmapauth.CredentialsFromContext(ctx)
 	if ok && creds.Username != "" {
 		return creds.Username, creds.Password
 	}
-	subj, _ := jmap.SubjectFromContext(ctx)
+	subj, _ := jmapauth.SubjectFromContext(ctx)
 	if subj != "" {
 		return subj, subj
 	}
-	accID, ok := jmap.AccountIDFromContext(ctx)
+	accID, ok := jmapauth.AccountIDFromContext(ctx)
 	if ok && accID != "" {
-		if s, valid := jmap.SubjectForAccountID(accID); valid && s != "" {
+		if s, valid := jmapauth.SubjectForAccountID(accID); valid && s != "" {
 			return s, s
 		}
 		return accID, accID
@@ -106,24 +109,24 @@ func (b *Backend) dial(ctx context.Context) (*Client, string, error) {
 	return c, user, nil
 }
 
-func (b *Backend) idForName(u, name string) jmap.Id {
+func (b *Backend) idForName(u, name string) jmapcore.Id {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.nameToID[u] == nil {
-		b.nameToID[u] = make(map[string]jmap.Id)
-		b.idToName[u] = make(map[jmap.Id]string)
+		b.nameToID[u] = make(map[string]jmapcore.Id)
+		b.idToName[u] = make(map[jmapcore.Id]string)
 	}
 	if id, exists := b.nameToID[u][name]; exists {
 		return id
 	}
 	b.idCounter++
-	id := jmap.Id(fmt.Sprintf("sieve-%d", b.idCounter))
+	id := jmapcore.Id(fmt.Sprintf("sieve-%d", b.idCounter))
 	b.nameToID[u][name] = id
 	b.idToName[u][id] = name
 	return id
 }
 
-func (b *Backend) nameForID(u string, id jmap.Id) string {
+func (b *Backend) nameForID(u string, id jmapcore.Id) string {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	if b.idToName[u] != nil {
@@ -135,12 +138,12 @@ func (b *Backend) nameForID(u string, id jmap.Id) string {
 	return string(id)
 }
 
-func (b *Backend) registerID(u, name string, id jmap.Id) {
+func (b *Backend) registerID(u, name string, id jmapcore.Id) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.nameToID[u] == nil {
-		b.nameToID[u] = make(map[string]jmap.Id)
-		b.idToName[u] = make(map[jmap.Id]string)
+		b.nameToID[u] = make(map[string]jmapcore.Id)
+		b.idToName[u] = make(map[jmapcore.Id]string)
 	}
 	b.nameToID[u][name] = id
 	b.idToName[u][id] = name
@@ -153,7 +156,7 @@ func (b *Backend) SieveScriptState(ctx context.Context) string {
 }
 
 // SieveScriptChanges returns created, updated, destroyed scripts since sinceState.
-func (b *Backend) SieveScriptChanges(ctx context.Context, sinceState string) (created, updated, destroyed []jmap.Id, newState string, hasMore bool) {
+func (b *Backend) SieveScriptChanges(ctx context.Context, sinceState string) (created, updated, destroyed []jmapcore.Id, newState string, hasMore bool) {
 	user, _ := b.userAndPass(ctx)
 	return b.getTracker(user).Changes(sinceState)
 }
@@ -171,7 +174,7 @@ func (b *Backend) ValidateSieveScript(ctx context.Context, content string) (bool
 }
 
 // GetSieveScripts fetches specific Sieve scripts by ID.
-func (b *Backend) GetSieveScripts(ctx context.Context, ids []jmap.Id) ([]*jmap.SieveScript, []jmap.Id, error) {
+func (b *Backend) GetSieveScripts(ctx context.Context, ids []jmapcore.Id) ([]*jmapsieve.SieveScript, []jmapcore.Id, error) {
 	c, user, err := b.dial(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -189,11 +192,11 @@ func (b *Backend) GetSieveScripts(ctx context.Context, ids []jmap.Id) ([]*jmap.S
 	}
 
 	if len(ids) == 0 {
-		var list []*jmap.SieveScript
+		var list []*jmapsieve.SieveScript
 		for _, info := range infos {
 			content, _ := c.GetScript(info.Name)
 			id := b.idForName(user, info.Name)
-			list = append(list, &jmap.SieveScript{
+			list = append(list, &jmapsieve.SieveScript{
 				ID:       id,
 				Name:     info.Name,
 				Content:  content,
@@ -204,8 +207,8 @@ func (b *Backend) GetSieveScripts(ctx context.Context, ids []jmap.Id) ([]*jmap.S
 		return list, nil, nil
 	}
 
-	var list []*jmap.SieveScript
-	var notFound []jmap.Id
+	var list []*jmapsieve.SieveScript
+	var notFound []jmapcore.Id
 
 	for _, id := range ids {
 		name := b.nameForID(user, id)
@@ -228,7 +231,7 @@ func (b *Backend) GetSieveScripts(ctx context.Context, ids []jmap.Id) ([]*jmap.S
 			continue
 		}
 
-		list = append(list, &jmap.SieveScript{
+		list = append(list, &jmapsieve.SieveScript{
 			ID:       id,
 			Name:     name,
 			Content:  content,
@@ -241,13 +244,13 @@ func (b *Backend) GetSieveScripts(ctx context.Context, ids []jmap.Id) ([]*jmap.S
 }
 
 // GetAllSieveScripts fetches all Sieve scripts for the user.
-func (b *Backend) GetAllSieveScripts(ctx context.Context) ([]*jmap.SieveScript, error) {
+func (b *Backend) GetAllSieveScripts(ctx context.Context) ([]*jmapsieve.SieveScript, error) {
 	list, _, err := b.GetSieveScripts(ctx, nil)
 	return list, err
 }
 
 // CreateSieveScript uploads and optionally activates a new Sieve script.
-func (b *Backend) CreateSieveScript(ctx context.Context, script *jmap.SieveScript) (*jmap.SieveScript, error) {
+func (b *Backend) CreateSieveScript(ctx context.Context, script *jmapsieve.SieveScript) (*jmapsieve.SieveScript, error) {
 	if script == nil {
 		return nil, fmt.Errorf("script is nil")
 	}
@@ -295,7 +298,7 @@ func (b *Backend) CreateSieveScript(ctx context.Context, script *jmap.SieveScrip
 }
 
 // UpdateSieveScript updates an existing Sieve script.
-func (b *Backend) UpdateSieveScript(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.SieveScript, error) {
+func (b *Backend) UpdateSieveScript(ctx context.Context, id jmapcore.Id, patch map[string]any) (*jmapsieve.SieveScript, error) {
 	c, user, err := b.dial(ctx)
 	if err != nil {
 		return nil, err
@@ -305,7 +308,7 @@ func (b *Backend) UpdateSieveScript(ctx context.Context, id jmap.Id, patch map[s
 	oldName := b.nameForID(user, id)
 	content, err := c.GetScript(oldName)
 	if err != nil {
-		return nil, fmt.Errorf("sieve script %s: %w", id, jmap.ErrNotFound)
+		return nil, fmt.Errorf("sieve script %s: %w", id, jmapcore.ErrNotFound)
 	}
 
 	newName := oldName
@@ -357,7 +360,7 @@ func (b *Backend) UpdateSieveScript(ctx context.Context, id jmap.Id, patch map[s
 	st := b.getTracker(user).Record(id, "update")
 	b.emitStateChange(user, st)
 
-	return &jmap.SieveScript{
+	return &jmapsieve.SieveScript{
 		ID:       id,
 		Name:     newName,
 		Content:  content,
@@ -367,7 +370,7 @@ func (b *Backend) UpdateSieveScript(ctx context.Context, id jmap.Id, patch map[s
 }
 
 // DeleteSieveScript deletes a Sieve script.
-func (b *Backend) DeleteSieveScript(ctx context.Context, id jmap.Id) (bool, error) {
+func (b *Backend) DeleteSieveScript(ctx context.Context, id jmapcore.Id) (bool, error) {
 	c, user, err := b.dial(ctx)
 	if err != nil {
 		return false, err
@@ -395,7 +398,7 @@ func (b *Backend) DeleteSieveScript(ctx context.Context, id jmap.Id) (bool, erro
 }
 
 // QuerySieveScripts filters scripts by name, isActive, isValid.
-func (b *Backend) QuerySieveScripts(ctx context.Context, filter map[string]any, position int, limit *uint64) ([]jmap.Id, int, error) {
+func (b *Backend) QuerySieveScripts(ctx context.Context, filter map[string]any, position int, limit *uint64) ([]jmapcore.Id, int, error) {
 	all, err := b.GetAllSieveScripts(ctx)
 	if err != nil {
 		return nil, 0, err
@@ -405,7 +408,7 @@ func (b *Backend) QuerySieveScripts(ctx context.Context, filter map[string]any, 
 	isActiveFilter, hasActiveFilter := filter["isActive"].(bool)
 	isValidFilter, hasValidFilter := filter["isValid"].(bool)
 
-	var matched []*jmap.SieveScript
+	var matched []*jmapsieve.SieveScript
 	for _, s := range all {
 		if nameFilter != "" && !strings.Contains(strings.ToLower(s.Name), strings.ToLower(nameFilter)) {
 			continue
@@ -427,9 +430,9 @@ func (b *Backend) QuerySieveScripts(ctx context.Context, filter map[string]any, 
 	})
 
 	total := len(matched)
-	position = jmap.NormalizePosition(position, total)
+	position = jmapcore.NormalizePosition(position, total)
 	if position >= total {
-		return []jmap.Id{}, total, nil
+		return []jmapcore.Id{}, total, nil
 	}
 
 	end := total
@@ -437,7 +440,7 @@ func (b *Backend) QuerySieveScripts(ctx context.Context, filter map[string]any, 
 		end = position + int(*limit)
 	}
 
-	ids := make([]jmap.Id, 0, end-position)
+	ids := make([]jmapcore.Id, 0, end-position)
 	for i := position; i < end; i++ {
 		ids = append(ids, matched[i].ID)
 	}

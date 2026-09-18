@@ -8,16 +8,18 @@ import (
 	"strings"
 
 	imappkg "imap-jmap/imap"
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmapmail"
 )
 
 // MailboxIDForName converts an IMAP folder name to a JMAP Mailbox ID.
-func MailboxIDForName(name string) jmap.Id {
-	return jmap.Id(imappkg.MailboxIDForName(name))
+func MailboxIDForName(name string) jmapcore.Id {
+	return jmapcore.Id(imappkg.MailboxIDForName(name))
 }
 
 // NameForMailboxID converts a JMAP Mailbox ID back to an IMAP folder name.
-func NameForMailboxID(id jmap.Id) (string, error) {
+func NameForMailboxID(id jmapcore.Id) (string, error) {
 	return imappkg.NameForMailboxID(string(id))
 }
 
@@ -27,7 +29,7 @@ func DetectRole(name string, attrs []string) string {
 }
 
 // GetAllMailboxes retrieves all mailboxes from upstream IMAP.
-func (b *IMAPSMTPBackend) GetAllMailboxes(ctx context.Context) ([]*jmap.Mailbox, error) {
+func (b *IMAPSMTPBackend) GetAllMailboxes(ctx context.Context) ([]*jmapmail.Mailbox, error) {
 	b.RecordAccount(ctx)
 	// Clean up the account's own [JMAP-BLOB:] staging messages in Drafts (lazy,
 	// rate-limited). This runs on the authenticated user's request, so it only
@@ -45,7 +47,7 @@ func (b *IMAPSMTPBackend) GetAllMailboxes(ctx context.Context) ([]*jmap.Mailbox,
 		return nil, fmt.Errorf("failed to list mailboxes: %w", err)
 	}
 
-	var result []*jmap.Mailbox
+	var result []*jmapmail.Mailbox
 	for _, fi := range folders {
 		hasNoSelect := false
 		for _, attr := range fi.Attrs {
@@ -62,7 +64,7 @@ func (b *IMAPSMTPBackend) GetAllMailboxes(ctx context.Context) ([]*jmap.Mailbox,
 		mbID := MailboxIDForName(name)
 		role := DetectRole(name, fi.Attrs)
 
-		var parentID *jmap.Id
+		var parentID *jmapcore.Id
 		if fi.Delimiter != 0 {
 			delimStr := string(fi.Delimiter)
 			if idx := strings.LastIndex(name, delimStr); idx > 0 {
@@ -82,11 +84,11 @@ func (b *IMAPSMTPBackend) GetAllMailboxes(ctx context.Context) ([]*jmap.Mailbox,
 			dispName = "Inbox"
 		}
 
-		accountID, _ := jmap.AccountIDFromContext(ctx)
+		accountID, _ := jmapauth.AccountIDFromContext(ctx)
 		if pOverride, ok := b.getMailboxParentOverride(accountID, mbID); ok {
 			parentID = pOverride
 		} else if role != "" {
-			if pOverride, ok := b.getMailboxParentOverride(accountID, jmap.Id("mb-"+role)); ok {
+			if pOverride, ok := b.getMailboxParentOverride(accountID, jmapcore.Id("mb-"+role)); ok {
 				parentID = pOverride
 			}
 		}
@@ -123,7 +125,7 @@ func (b *IMAPSMTPBackend) GetAllMailboxes(ctx context.Context) ([]*jmap.Mailbox,
 		if so, ok := b.getMailboxSortOrder(accountID, mbID); ok {
 			sortOrder = so
 		} else if role != "" {
-			if so, ok := b.getMailboxSortOrder(accountID, jmap.Id("mb-"+role)); ok {
+			if so, ok := b.getMailboxSortOrder(accountID, jmapcore.Id("mb-"+role)); ok {
 				sortOrder = so
 			}
 		}
@@ -132,12 +134,12 @@ func (b *IMAPSMTPBackend) GetAllMailboxes(ctx context.Context) ([]*jmap.Mailbox,
 		if sub, ok := b.getMailboxSubscribed(accountID, mbID); ok {
 			isSubscribed = sub
 		} else if role != "" {
-			if sub, ok := b.getMailboxSubscribed(accountID, jmap.Id("mb-"+role)); ok {
+			if sub, ok := b.getMailboxSubscribed(accountID, jmapcore.Id("mb-"+role)); ok {
 				isSubscribed = sub
 			}
 		}
 
-		mb := &jmap.Mailbox{
+		mb := &jmapmail.Mailbox{
 			ID:            mbID,
 			Name:          dispName,
 			ParentID:      parentID,
@@ -147,7 +149,7 @@ func (b *IMAPSMTPBackend) GetAllMailboxes(ctx context.Context) ([]*jmap.Mailbox,
 			UnreadEmails:  unread,
 			TotalThreads:  total,
 			UnreadThreads: unread,
-			MyRights: jmap.MailboxRights{
+			MyRights: jmapmail.MailboxRights{
 				MayReadItems:   !hasNoSelect,
 				MayAddItems:    !hasNoSelect,
 				MayRemoveItems: !hasNoSelect,
@@ -159,7 +161,7 @@ func (b *IMAPSMTPBackend) GetAllMailboxes(ctx context.Context) ([]*jmap.Mailbox,
 				MaySubmit:      true,
 				MayAdmin:       true,
 			},
-			IsSubscribed:  isSubscribed,
+			IsSubscribed: isSubscribed,
 		}
 		result = append(result, mb)
 	}
@@ -175,19 +177,19 @@ func (b *IMAPSMTPBackend) GetAllMailboxes(ctx context.Context) ([]*jmap.Mailbox,
 }
 
 // GetMailboxes fetches specified mailboxes by ID.
-func (b *IMAPSMTPBackend) GetMailboxes(ctx context.Context, ids []jmap.Id) ([]*jmap.Mailbox, []jmap.Id, error) {
+func (b *IMAPSMTPBackend) GetMailboxes(ctx context.Context, ids []jmapcore.Id) ([]*jmapmail.Mailbox, []jmapcore.Id, error) {
 	all, err := b.GetAllMailboxes(ctx)
 	if err != nil {
 		return nil, ids, err
 	}
 
-	allMap := make(map[jmap.Id]*jmap.Mailbox, len(all))
+	allMap := make(map[jmapcore.Id]*jmapmail.Mailbox, len(all))
 	for _, mb := range all {
 		allMap[mb.ID] = mb
 	}
 
-	var found []*jmap.Mailbox
-	var notFound []jmap.Id
+	var found []*jmapmail.Mailbox
+	var notFound []jmapcore.Id
 	for _, id := range ids {
 		if mb, ok := allMap[id]; ok {
 			found = append(found, mb)
@@ -209,7 +211,7 @@ func (b *IMAPSMTPBackend) GetMailboxes(ctx context.Context, ids []jmap.Id) ([]*j
 				found = append(found, mb)
 				continue
 			}
-			var matched *jmap.Mailbox
+			var matched *jmapmail.Mailbox
 			for _, m := range all {
 				if strings.EqualFold(m.Name, realName) || (m.Role != nil && strings.EqualFold(*m.Role, strings.TrimPrefix(string(id), "mb-"))) {
 					matched = m
@@ -228,7 +230,7 @@ func (b *IMAPSMTPBackend) GetMailboxes(ctx context.Context, ids []jmap.Id) ([]*j
 }
 
 // CreateMailbox creates a new IMAP mailbox.
-func (b *IMAPSMTPBackend) CreateMailbox(ctx context.Context, mb *jmap.Mailbox) (*jmap.Mailbox, error) {
+func (b *IMAPSMTPBackend) CreateMailbox(ctx context.Context, mb *jmapmail.Mailbox) (*jmapmail.Mailbox, error) {
 	folderName := mb.Name
 	if mb.ParentID != nil {
 		parentName, err := NameForMailboxID(*mb.ParentID)
@@ -253,7 +255,7 @@ func (b *IMAPSMTPBackend) CreateMailbox(ctx context.Context, mb *jmap.Mailbox) (
 	b.pool.ReleaseClient(ctx, client)
 
 	mb.ID = MailboxIDForName(folderName)
-	accountID, _ := jmap.AccountIDFromContext(ctx)
+	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	if mb.SortOrder != 0 {
 		b.setMailboxSortOrder(accountID, mb.ID, mb.SortOrder)
 	}
@@ -264,8 +266,8 @@ func (b *IMAPSMTPBackend) CreateMailbox(ctx context.Context, mb *jmap.Mailbox) (
 }
 
 // UpdateMailbox renames an IMAP mailbox or updates its metadata.
-func (b *IMAPSMTPBackend) UpdateMailbox(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.Mailbox, error) {
-	accountID, _ := jmap.AccountIDFromContext(ctx)
+func (b *IMAPSMTPBackend) UpdateMailbox(ctx context.Context, id jmapcore.Id, patch map[string]any) (*jmapmail.Mailbox, error) {
+	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	origID := id
 	id = b.resolveMovedMailboxID(id)
 
@@ -278,7 +280,7 @@ func (b *IMAPSMTPBackend) UpdateMailbox(ctx context.Context, id jmap.Id, patch m
 	if err != nil {
 		return nil, err
 	}
-	var target *jmap.Mailbox
+	var target *jmapmail.Mailbox
 	for _, mb := range all {
 		if mb.ID == id || mb.ID == origID || strings.EqualFold(mb.Name, folderName) {
 			target = mb
@@ -286,7 +288,7 @@ func (b *IMAPSMTPBackend) UpdateMailbox(ctx context.Context, id jmap.Id, patch m
 		}
 	}
 	if target == nil {
-		return nil, jmap.SetError{Type: "notFound", Description: "mailbox not found"}
+		return nil, jmapcore.SetError{Type: "notFound", Description: "mailbox not found"}
 	}
 
 	currentFolder := folderName
@@ -311,13 +313,13 @@ func (b *IMAPSMTPBackend) UpdateMailbox(ctx context.Context, id jmap.Id, patch m
 		target.IsSubscribed = prevSub
 	}
 
-	var newParentID *jmap.Id
+	var newParentID *jmapcore.Id
 	hasParentUpdate := false
 	if rawPID, ok := patch["parentId"]; ok {
 		hasParentUpdate = true
 		if rawPID != nil {
 			if pidStr, ok := rawPID.(string); ok && pidStr != "" {
-				p := jmap.Id(pidStr)
+				p := jmapcore.Id(pidStr)
 				newParentID = &p
 			}
 		}
@@ -396,7 +398,7 @@ func (b *IMAPSMTPBackend) UpdateMailbox(ctx context.Context, id jmap.Id, patch m
 }
 
 // DeleteMailbox deletes an IMAP mailbox.
-func (b *IMAPSMTPBackend) DeleteMailbox(ctx context.Context, id jmap.Id, onDestroyRemoveMessages bool) (bool, error) {
+func (b *IMAPSMTPBackend) DeleteMailbox(ctx context.Context, id jmapcore.Id, onDestroyRemoveMessages bool) (bool, error) {
 	origID := id
 	id = b.resolveMovedMailboxID(id)
 
@@ -409,7 +411,7 @@ func (b *IMAPSMTPBackend) DeleteMailbox(ctx context.Context, id jmap.Id, onDestr
 	if err != nil {
 		return false, err
 	}
-	var target *jmap.Mailbox
+	var target *jmapmail.Mailbox
 	for _, mb := range all {
 		if mb.ID == id || mb.ID == origID || strings.EqualFold(mb.Name, folderName) {
 			target = mb
@@ -427,7 +429,7 @@ func (b *IMAPSMTPBackend) DeleteMailbox(ctx context.Context, id jmap.Id, onDestr
 
 	for _, other := range all {
 		if other.ParentID != nil && (*other.ParentID == target.ID || *other.ParentID == id || *other.ParentID == origID) {
-			return false, jmap.SetError{Type: "mailboxHasChild"}
+			return false, jmapcore.SetError{Type: "mailboxHasChild"}
 		}
 	}
 

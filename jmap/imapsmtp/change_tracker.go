@@ -8,7 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapcore"
 )
 
 // FolderState represents the synchronization markers for a single IMAP folder.
@@ -75,7 +76,7 @@ func (b *IMAPSMTPBackend) GetCurrentCompositeState(ctx context.Context) (*Compos
 		return nil, err
 	}
 
-	accountID, _ := jmap.AccountIDFromContext(ctx)
+	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	cs := &CompositeState{
 		Version: 1,
 		Folders: make(map[string]FolderState),
@@ -122,7 +123,7 @@ func (b *IMAPSMTPBackend) MailboxState(ctx context.Context) string {
 }
 
 // MailboxChanges calculates changes in mailboxes since the given state.
-func (b *IMAPSMTPBackend) MailboxChanges(ctx context.Context, sinceState string, maxChanges *uint64) ([]jmap.Id, []jmap.Id, []jmap.Id, []string, string, bool) {
+func (b *IMAPSMTPBackend) MailboxChanges(ctx context.Context, sinceState string, maxChanges *uint64) ([]jmapcore.Id, []jmapcore.Id, []jmapcore.Id, []string, string, bool) {
 	current, err := b.GetCurrentCompositeState(ctx)
 	if err != nil {
 		return nil, nil, nil, nil, sinceState, false
@@ -135,9 +136,9 @@ func (b *IMAPSMTPBackend) MailboxChanges(ctx context.Context, sinceState string,
 		return nil, nil, nil, nil, newState, true
 	}
 
-	var created []jmap.Id
-	var updated []jmap.Id
-	var destroyed []jmap.Id
+	var created []jmapcore.Id
+	var updated []jmapcore.Id
+	var destroyed []jmapcore.Id
 
 	// Check new and updated folders
 	for folder, newFS := range current.Folders {
@@ -180,7 +181,7 @@ func (b *IMAPSMTPBackend) EmailState(ctx context.Context) string {
 }
 
 // EmailChanges calculates created, updated, and destroyed emails since the given state.
-func (b *IMAPSMTPBackend) EmailChanges(ctx context.Context, sinceState string, maxChanges *uint64) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
+func (b *IMAPSMTPBackend) EmailChanges(ctx context.Context, sinceState string, maxChanges *uint64) ([]jmapcore.Id, []jmapcore.Id, []jmapcore.Id, string, bool) {
 	current, err := b.GetCurrentCompositeState(ctx)
 	if err != nil {
 		return nil, nil, nil, sinceState, false
@@ -193,7 +194,7 @@ func (b *IMAPSMTPBackend) EmailChanges(ctx context.Context, sinceState string, m
 		return nil, nil, nil, newState, true
 	}
 
-	accountID, _ := jmap.AccountIDFromContext(ctx)
+	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 
 	b.emailMutationsMu.RLock()
 	mutations := b.emailMutations[accountID]
@@ -206,9 +207,9 @@ func (b *IMAPSMTPBackend) EmailChanges(ctx context.Context, sinceState string, m
 		hasMutationHistory = true
 	}
 
-	createdSet := make(map[jmap.Id]bool)
-	updatedSet := make(map[jmap.Id]bool)
-	destroyedSet := make(map[jmap.Id]bool)
+	createdSet := make(map[jmapcore.Id]bool)
+	updatedSet := make(map[jmapcore.Id]bool)
+	destroyedSet := make(map[jmapcore.Id]bool)
 
 	if hasMutationHistory {
 		for _, entry := range mutations {
@@ -296,14 +297,14 @@ func (b *IMAPSMTPBackend) EmailChanges(ctx context.Context, sinceState string, m
 		}
 	}
 
-	var created []jmap.Id
-	var updated []jmap.Id
-	var destroyed []jmap.Id
+	var created []jmapcore.Id
+	var updated []jmapcore.Id
+	var destroyed []jmapcore.Id
 
 	for id := range createdSet {
 		mbID, _, err := ParseEmailID(id)
 		if err == nil && (mbID == "mb-trash" || mbID == "mb-drafts") {
-			if emails, _, err := b.GetEmails(ctx, []jmap.Id{id}); err == nil && len(emails) == 0 {
+			if emails, _, err := b.GetEmails(ctx, []jmapcore.Id{id}); err == nil && len(emails) == 0 {
 				continue
 			}
 		}
@@ -336,7 +337,7 @@ func (b *IMAPSMTPBackend) ThreadState(ctx context.Context) string {
 }
 
 // ThreadChanges returns changes in threads since the given state.
-func (b *IMAPSMTPBackend) ThreadChanges(ctx context.Context, sinceState string, maxChanges *uint64) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
+func (b *IMAPSMTPBackend) ThreadChanges(ctx context.Context, sinceState string, maxChanges *uint64) ([]jmapcore.Id, []jmapcore.Id, []jmapcore.Id, string, bool) {
 	created, updated, destroyed, newState, hasMore := b.EmailChanges(ctx, sinceState, maxChanges)
 	return created, updated, destroyed, newState, hasMore
 }

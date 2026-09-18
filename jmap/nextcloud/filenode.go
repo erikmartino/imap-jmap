@@ -10,6 +10,9 @@ import (
 	"time"
 
 	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmappush"
 )
 
 // FileNodeBackend implements jmap.FileNodeBackend backed by Nextcloud WebDAV via github.com/emersion/go-webdav.
@@ -17,10 +20,10 @@ type FileNodeBackend struct {
 	client      *Client
 	mu          sync.RWMutex
 	trackersMu  sync.Mutex
-	broadcaster *jmap.Broadcaster
+	broadcaster *jmappush.Broadcaster
 
-	nodeTrackers map[string]*jmap.ChangeTracker
-	nodesCache   map[string]map[jmap.Id]*jmap.FileNode
+	nodeTrackers map[string]*jmappush.ChangeTracker
+	nodesCache   map[string]map[jmapcore.Id]*jmap.FileNode
 	nextID       uint64
 }
 
@@ -30,12 +33,12 @@ var _ jmap.FileNodeBackend = (*FileNodeBackend)(nil)
 func NewFileNodeBackend(client *Client) *FileNodeBackend {
 	return &FileNodeBackend{
 		client:       client,
-		nodeTrackers: make(map[string]*jmap.ChangeTracker),
-		nodesCache:   make(map[string]map[jmap.Id]*jmap.FileNode),
+		nodeTrackers: make(map[string]*jmappush.ChangeTracker),
+		nodesCache:   make(map[string]map[jmapcore.Id]*jmap.FileNode),
 	}
 }
 
-func (b *FileNodeBackend) SetBroadcaster(bc *jmap.Broadcaster) {
+func (b *FileNodeBackend) SetBroadcaster(bc *jmappush.Broadcaster) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.broadcaster = bc
@@ -44,7 +47,7 @@ func (b *FileNodeBackend) SetBroadcaster(bc *jmap.Broadcaster) {
 func (b *FileNodeBackend) emitStateChange(u, typeName, newState string) {
 	bc := b.broadcaster
 	if bc != nil {
-		accountID := jmap.AccountIDForSubject(u)
+		accountID := jmapauth.AccountIDForSubject(u)
 		bc.PublishStateChange(accountID, typeName, newState)
 		if accountID != u {
 			bc.PublishStateChange(u, typeName, newState)
@@ -57,11 +60,11 @@ func (b *FileNodeBackend) user(ctx context.Context) string {
 	return u
 }
 
-func (b *FileNodeBackend) getNodeTracker(u string) *jmap.ChangeTracker {
+func (b *FileNodeBackend) getNodeTracker(u string) *jmappush.ChangeTracker {
 	b.trackersMu.Lock()
 	defer b.trackersMu.Unlock()
 	if b.nodeTrackers[u] == nil {
-		b.nodeTrackers[u] = jmap.NewChangeTracker(1000)
+		b.nodeTrackers[u] = jmappush.NewChangeTracker(1000)
 	}
 	return b.nodeTrackers[u]
 }
@@ -70,7 +73,7 @@ func (b *FileNodeBackend) FileNodeState(ctx context.Context) string {
 	return b.getNodeTracker(b.user(ctx)).State()
 }
 
-func (b *FileNodeBackend) FileNodeChanges(ctx context.Context, sinceState string) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
+func (b *FileNodeBackend) FileNodeChanges(ctx context.Context, sinceState string) ([]jmapcore.Id, []jmapcore.Id, []jmapcore.Id, string, bool) {
 	return b.getNodeTracker(b.user(ctx)).Changes(sinceState)
 }
 
@@ -79,7 +82,7 @@ func (b *FileNodeBackend) GetAllFileNodes(ctx context.Context) ([]*jmap.FileNode
 	return nodes, err
 }
 
-func (b *FileNodeBackend) GetFileNodes(ctx context.Context, ids []jmap.Id) ([]*jmap.FileNode, []jmap.Id, error) {
+func (b *FileNodeBackend) GetFileNodes(ctx context.Context, ids []jmapcore.Id) ([]*jmap.FileNode, []jmapcore.Id, error) {
 	fs, u, err := b.client.WebDAV(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -92,7 +95,7 @@ func (b *FileNodeBackend) GetFileNodes(ctx context.Context, ids []jmap.Id) ([]*j
 
 	b.mu.Lock()
 	if b.nodesCache[u] == nil {
-		b.nodesCache[u] = make(map[jmap.Id]*jmap.FileNode)
+		b.nodesCache[u] = make(map[jmapcore.Id]*jmap.FileNode)
 	}
 
 	for _, fi := range fis {
@@ -115,7 +118,7 @@ func (b *FileNodeBackend) GetFileNodes(ctx context.Context, ids []jmap.Id) ([]*j
 
 		if existing == nil {
 			b.nextID++
-			nodeID := jmap.Id(fmt.Sprintf("fn-%d", b.nextID))
+			nodeID := jmapcore.Id(fmt.Sprintf("fn-%d", b.nextID))
 			nodeType := "file"
 			if fi.IsDir {
 				nodeType = "folder"
@@ -146,7 +149,7 @@ func (b *FileNodeBackend) GetFileNodes(ctx context.Context, ids []jmap.Id) ([]*j
 
 	userCache := b.nodesCache[u]
 	var list []*jmap.FileNode
-	var notFound []jmap.Id
+	var notFound []jmapcore.Id
 
 	if len(ids) > 0 {
 		for _, id := range ids {
@@ -181,7 +184,7 @@ func (b *FileNodeBackend) CreateFileNode(ctx context.Context, node *jmap.FileNod
 	b.mu.Lock()
 	if node.ID == "" {
 		b.nextID++
-		node.ID = jmap.Id(fmt.Sprintf("fn-%d", b.nextID))
+		node.ID = jmapcore.Id(fmt.Sprintf("fn-%d", b.nextID))
 	}
 	b.mu.Unlock()
 	nowStr := time.Now().UTC().Format(time.RFC3339)
@@ -204,7 +207,7 @@ func (b *FileNodeBackend) CreateFileNode(ctx context.Context, node *jmap.FileNod
 
 	b.mu.Lock()
 	if b.nodesCache[u] == nil {
-		b.nodesCache[u] = make(map[jmap.Id]*jmap.FileNode)
+		b.nodesCache[u] = make(map[jmapcore.Id]*jmap.FileNode)
 	}
 	action := "create"
 	if _, exists := b.nodesCache[u][node.ID]; exists {
@@ -218,13 +221,13 @@ func (b *FileNodeBackend) CreateFileNode(ctx context.Context, node *jmap.FileNod
 	return node, nil
 }
 
-func (b *FileNodeBackend) UpdateFileNode(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.FileNode, error) {
-	nodes, notFound, err := b.GetFileNodes(ctx, []jmap.Id{id})
+func (b *FileNodeBackend) UpdateFileNode(ctx context.Context, id jmapcore.Id, patch map[string]any) (*jmap.FileNode, error) {
+	nodes, notFound, err := b.GetFileNodes(ctx, []jmapcore.Id{id})
 	if err != nil {
 		return nil, err
 	}
 	if len(notFound) > 0 || len(nodes) == 0 {
-		return nil, jmap.ErrNotFound
+		return nil, jmapcore.ErrNotFound
 	}
 
 	u := b.user(ctx)
@@ -254,14 +257,14 @@ func (b *FileNodeBackend) UpdateFileNode(ctx context.Context, id jmap.Id, patch 
 			}
 		case "parentId":
 			if s, ok := v.(string); ok {
-				pid := jmap.Id(s)
+				pid := jmapcore.Id(s)
 				node.ParentID = &pid
 			} else if v == nil {
 				node.ParentID = nil
 			}
 		case "blobId":
 			if s, ok := v.(string); ok {
-				bid := jmap.Id(s)
+				bid := jmapcore.Id(s)
 				node.BlobID = &bid
 			} else if v == nil {
 				node.BlobID = nil
@@ -283,8 +286,8 @@ func (b *FileNodeBackend) UpdateFileNode(ctx context.Context, id jmap.Id, patch 
 	return node, nil
 }
 
-func (b *FileNodeBackend) DeleteFileNode(ctx context.Context, id jmap.Id) (bool, error) {
-	nodes, notFound, err := b.GetFileNodes(ctx, []jmap.Id{id})
+func (b *FileNodeBackend) DeleteFileNode(ctx context.Context, id jmapcore.Id) (bool, error) {
+	nodes, notFound, err := b.GetFileNodes(ctx, []jmapcore.Id{id})
 	if err != nil {
 		return false, err
 	}
@@ -315,13 +318,13 @@ func (b *FileNodeBackend) DeleteFileNode(ctx context.Context, id jmap.Id) (bool,
 	return true, nil
 }
 
-func (b *FileNodeBackend) QueryFileNodes(ctx context.Context, filter map[string]any, position int, limit *uint64) ([]jmap.Id, int, error) {
+func (b *FileNodeBackend) QueryFileNodes(ctx context.Context, filter map[string]any, position int, limit *uint64) ([]jmapcore.Id, int, error) {
 	nodes, _, err := b.GetFileNodes(ctx, nil)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	var matching []jmap.Id
+	var matching []jmapcore.Id
 	for _, n := range nodes {
 		if filter != nil {
 			if name, ok := filter["name"].(string); ok && name != "" {
@@ -354,9 +357,9 @@ func (b *FileNodeBackend) QueryFileNodes(ctx context.Context, filter map[string]
 	})
 
 	total := len(matching)
-	position = jmap.NormalizePosition(position, total)
+	position = jmapcore.NormalizePosition(position, total)
 	if position >= total {
-		return []jmap.Id{}, total, nil
+		return []jmapcore.Id{}, total, nil
 	}
 
 	end := total
@@ -364,7 +367,7 @@ func (b *FileNodeBackend) QueryFileNodes(ctx context.Context, filter map[string]
 		end = position + int(*limit)
 	}
 
-	ids := make([]jmap.Id, 0, end-position)
+	ids := make([]jmapcore.Id, 0, end-position)
 	for i := position; i < end; i++ {
 		ids = append(ids, matching[i])
 	}

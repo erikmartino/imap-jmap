@@ -10,7 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapblob"
+	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmapmail"
+	"imap-jmap/jmap/jmappush"
 )
 
 func getTestTargetServers() (string, string) {
@@ -37,9 +41,9 @@ func isIMAPReachable(addr string) bool {
 
 func testContext() context.Context {
 	ctx := context.Background()
-	ctx = jmap.ContextWithSubject(ctx, "user@example.com")
-	ctx = jmap.ContextWithAccountID(ctx, jmap.AccountIDForSubject("user@example.com"))
-	ctx = jmap.ContextWithCredentials(ctx, "user@example.com", "user@example.com")
+	ctx = jmapauth.ContextWithSubject(ctx, "user@example.com")
+	ctx = jmapauth.ContextWithAccountID(ctx, jmapauth.AccountIDForSubject("user@example.com"))
+	ctx = jmapauth.ContextWithCredentials(ctx, "user@example.com", "user@example.com")
 	return ctx
 }
 
@@ -86,7 +90,7 @@ func TestIMAPAuthBackend_SessionTokenFlow(t *testing.T) {
 	if subject != "user@example.com" {
 		t.Errorf("expected subject user@example.com, got %s", subject)
 	}
-	if accountID != jmap.AccountIDForSubject("user@example.com") {
+	if accountID != jmapauth.AccountIDForSubject("user@example.com") {
 		t.Errorf("unexpected account ID: %s", accountID)
 	}
 
@@ -121,7 +125,7 @@ func TestMailboxLifecycle(t *testing.T) {
 	}
 
 	// Verify INBOX exists
-	var inbox *jmap.Mailbox
+	var inbox *jmapmail.Mailbox
 	for _, mb := range mailboxes {
 		if mb.Name == "INBOX" || (mb.Role != nil && *mb.Role == "inbox") {
 			inbox = mb
@@ -134,7 +138,7 @@ func TestMailboxLifecycle(t *testing.T) {
 
 	// 2. Create custom mailbox
 	testFolder := fmt.Sprintf("TestFolder_%d", time.Now().UnixNano())
-	createdMb, err := be.CreateMailbox(ctx, &jmap.Mailbox{Name: testFolder})
+	createdMb, err := be.CreateMailbox(ctx, &jmapmail.Mailbox{Name: testFolder})
 	if err != nil {
 		t.Fatalf("CreateMailbox failed: %v", err)
 	}
@@ -143,7 +147,7 @@ func TestMailboxLifecycle(t *testing.T) {
 	}
 
 	// 3. Get created mailbox
-	found, notFound, err := be.GetMailboxes(ctx, []jmap.Id{createdMb.ID})
+	found, notFound, err := be.GetMailboxes(ctx, []jmapcore.Id{createdMb.ID})
 	if err != nil || len(found) != 1 || len(notFound) != 0 {
 		t.Fatalf("GetMailboxes failed: found=%d, notFound=%d, err=%v", len(found), len(notFound), err)
 	}
@@ -208,16 +212,16 @@ func TestEmailLifecycleAndFlags(t *testing.T) {
 	// 1. Create / Append an email
 	subjectText := fmt.Sprintf("JMAP Test Email %d", time.Now().UnixNano())
 	partID := "1"
-	email := &jmap.Email{
-		MailboxIDs: map[jmap.Id]bool{inboxID: true},
+	email := &jmapmail.Email{
+		MailboxIDs: map[jmapcore.Id]bool{inboxID: true},
 		Keywords:   map[string]bool{"$seen": true, "$flagged": true},
-		From:       []jmap.EmailAddress{{Name: "Sender", Email: "sender@example.com"}},
-		To:         []jmap.EmailAddress{{Name: "User", Email: "user@example.com"}},
+		From:       []jmapmail.EmailAddress{{Name: "Sender", Email: "sender@example.com"}},
+		To:         []jmapmail.EmailAddress{{Name: "User", Email: "user@example.com"}},
 		Subject:    subjectText,
-		BodyValues: map[string]jmap.EmailBodyValue{
+		BodyValues: map[string]jmapmail.EmailBodyValue{
 			"1": {Value: "Hello from JMAP IMAP test!"},
 		},
-		TextBody: []jmap.EmailBodyPart{
+		TextBody: []jmapmail.EmailBodyPart{
 			{PartID: &partID, Type: "text/plain"},
 		},
 	}
@@ -231,7 +235,7 @@ func TestEmailLifecycleAndFlags(t *testing.T) {
 	}
 
 	// 2. Fetch the created email
-	emails, notFound, err := be.GetEmails(ctx, []jmap.Id{created.ID})
+	emails, notFound, err := be.GetEmails(ctx, []jmapcore.Id{created.ID})
 	if err != nil || len(emails) != 1 || len(notFound) != 0 {
 		t.Fatalf("GetEmails failed: found=%d, notFound=%d, err=%v", len(emails), len(notFound), err)
 	}
@@ -298,7 +302,7 @@ func TestBlobStorage_TrashStagingAndEmailAttachmentRecovery(t *testing.T) {
 	be, cleanup := NewEmbeddedBackend("user@example.com")
 	defer cleanup()
 	ctx := testContext()
-	accountID := string(jmap.AccountIDForSubject("user@example.com"))
+	accountID := string(jmapauth.AccountIDForSubject("user@example.com"))
 
 	// 1. Fresh upload: verify staged in Trash and marked as read (\Seen)
 	uploadData := []byte("Fresh upload staged in trash folder")
@@ -329,7 +333,7 @@ func TestBlobStorage_TrashStagingAndEmailAttachmentRecovery(t *testing.T) {
 
 	// 2. Clear in-memory blob cache and recover from Trash
 	be.blobsMu.Lock()
-	be.blobs = make(map[string]*jmap.Blob)
+	be.blobs = make(map[string]*jmapblob.Blob)
 	be.blobsMu.Unlock()
 
 	recovered, ok, err := be.GetBlob(ctx, accountID, blob.ID)
@@ -353,20 +357,20 @@ func TestBlobStorage_TrashStagingAndEmailAttachmentRecovery(t *testing.T) {
 	pIDText := "1"
 	pIDAtt := "2"
 	fn := "document.pdf"
-	blobIDVal := jmap.Id(attBlob.ID)
-	email := &jmap.Email{
-		MailboxIDs: map[jmap.Id]bool{MailboxIDForName("INBOX"): true},
-		From:       []jmap.EmailAddress{{Name: "Sender", Email: "user@example.com"}},
-		To:         []jmap.EmailAddress{{Name: "Recipient", Email: "recipient@example.com"}},
+	blobIDVal := jmapcore.Id(attBlob.ID)
+	email := &jmapmail.Email{
+		MailboxIDs: map[jmapcore.Id]bool{MailboxIDForName("INBOX"): true},
+		From:       []jmapmail.EmailAddress{{Name: "Sender", Email: "user@example.com"}},
+		To:         []jmapmail.EmailAddress{{Name: "Recipient", Email: "recipient@example.com"}},
 		Subject:    "Email with PDF attachment",
-		BodyValues: map[string]jmap.EmailBodyValue{
+		BodyValues: map[string]jmapmail.EmailBodyValue{
 			"1": {Value: "Please find attached document."},
 			"2": {Value: string(attData)},
 		},
-		TextBody: []jmap.EmailBodyPart{
+		TextBody: []jmapmail.EmailBodyPart{
 			{PartID: &pIDText, Type: "text/plain"},
 		},
-		Attachments: []jmap.EmailBodyPart{
+		Attachments: []jmapmail.EmailBodyPart{
 			{PartID: &pIDAtt, BlobID: &blobIDVal, Type: "application/pdf", Name: &fn},
 		},
 	}
@@ -380,8 +384,8 @@ func TestBlobStorage_TrashStagingAndEmailAttachmentRecovery(t *testing.T) {
 
 	// Clear memory cache completely
 	be.blobsMu.Lock()
-	be.blobs = make(map[string]*jmap.Blob)
-	be.blobRefs = make(map[string]map[string]map[jmap.Id]bool)
+	be.blobs = make(map[string]*jmapblob.Blob)
+	be.blobRefs = make(map[string]map[string]map[jmapcore.Id]bool)
 	be.blobsMu.Unlock()
 
 	// Verify attachment is extracted directly from the email on IMAP without staging copy
@@ -409,7 +413,7 @@ func TestBlobStorage_TrashStagingAndEmailAttachmentRecovery(t *testing.T) {
 	}
 
 	be.blobsMu.Lock()
-	be.blobs = make(map[string]*jmap.Blob)
+	be.blobs = make(map[string]*jmapblob.Blob)
 	be.blobsMu.Unlock()
 
 	rec1, ok1, err1 := be.GetBlob(ctx, accountID, b1.ID)
@@ -432,15 +436,15 @@ func TestEmailSubmissionAndSMTP(t *testing.T) {
 
 	inboxID := MailboxIDForName("INBOX")
 	partID := "1"
-	email := &jmap.Email{
-		MailboxIDs: map[jmap.Id]bool{inboxID: true},
-		From:       []jmap.EmailAddress{{Name: "Sender", Email: "user@example.com"}},
-		To:         []jmap.EmailAddress{{Name: "Recipient", Email: "recipient@example.com"}},
+	email := &jmapmail.Email{
+		MailboxIDs: map[jmapcore.Id]bool{inboxID: true},
+		From:       []jmapmail.EmailAddress{{Name: "Sender", Email: "user@example.com"}},
+		To:         []jmapmail.EmailAddress{{Name: "Recipient", Email: "recipient@example.com"}},
 		Subject:    "Outbound SMTP Test",
-		BodyValues: map[string]jmap.EmailBodyValue{
+		BodyValues: map[string]jmapmail.EmailBodyValue{
 			"1": {Value: "Test outbound email message body."},
 		},
-		TextBody: []jmap.EmailBodyPart{
+		TextBody: []jmapmail.EmailBodyPart{
 			{PartID: &partID, Type: "text/plain"},
 		},
 	}
@@ -449,11 +453,11 @@ func TestEmailSubmissionAndSMTP(t *testing.T) {
 		t.Fatalf("CreateEmail for submission failed: %v", err)
 	}
 
-	sub := &jmap.EmailSubmission{
+	sub := &jmapmail.EmailSubmission{
 		EmailID: createdEmail.ID,
-		Envelope: &jmap.SubmissionEnvelope{
-			MailFrom: jmap.SubmissionAddress{Email: "user@example.com"},
-			RcptTo:   []jmap.SubmissionAddress{{Email: "recipient@example.com"}},
+		Envelope: &jmapmail.SubmissionEnvelope{
+			MailFrom: jmapmail.SubmissionAddress{Email: "user@example.com"},
+			RcptTo:   []jmapmail.SubmissionAddress{{Email: "recipient@example.com"}},
 		},
 	}
 
@@ -480,15 +484,15 @@ func TestEmailQuerySearchWildcardsAndOperators(t *testing.T) {
 	inboxID := MailboxIDForName("INBOX")
 	part1 := "1"
 	uniqueSubj := fmt.Sprintf("SearchableSubject_%d", time.Now().UnixNano())
-	email := &jmap.Email{
-		MailboxIDs: map[jmap.Id]bool{inboxID: true},
-		From:       []jmap.EmailAddress{{Name: "Search Sender", Email: "searcher@example.com"}},
-		To:         []jmap.EmailAddress{{Name: "Recipient", Email: "recipient@example.com"}},
+	email := &jmapmail.Email{
+		MailboxIDs: map[jmapcore.Id]bool{inboxID: true},
+		From:       []jmapmail.EmailAddress{{Name: "Search Sender", Email: "searcher@example.com"}},
+		To:         []jmapmail.EmailAddress{{Name: "Recipient", Email: "recipient@example.com"}},
 		Subject:    uniqueSubj,
-		BodyValues: map[string]jmap.EmailBodyValue{
+		BodyValues: map[string]jmapmail.EmailBodyValue{
 			"1": {Value: "UniqueBodyKeyword search testing payload."},
 		},
-		TextBody: []jmap.EmailBodyPart{
+		TextBody: []jmapmail.EmailBodyPart{
 			{PartID: &part1, Type: "text/plain"},
 		},
 	}
@@ -541,7 +545,7 @@ func TestIMAPIdlePushNotification(t *testing.T) {
 	defer cleanup()
 	defer be.Close()
 
-	broadcaster := jmap.NewBroadcaster()
+	broadcaster := jmappush.NewBroadcaster()
 	be.SetBroadcaster(broadcaster)
 
 	ch := broadcaster.Subscribe()
@@ -552,16 +556,16 @@ func TestIMAPIdlePushNotification(t *testing.T) {
 
 	// Trigger an email creation
 	inboxID := MailboxIDForName("INBOX")
-	_, err := be.CreateEmail(ctx, &jmap.Email{
-		MailboxIDs: map[jmap.Id]bool{inboxID: true},
+	_, err := be.CreateEmail(ctx, &jmapmail.Email{
+		MailboxIDs: map[jmapcore.Id]bool{inboxID: true},
 		Subject:    "Push Test Message",
-		TextBody: []jmap.EmailBodyPart{
+		TextBody: []jmapmail.EmailBodyPart{
 			{
 				PartID: stringPtr("1"),
 				Type:   "text/plain",
 			},
 		},
-		BodyValues: map[string]jmap.EmailBodyValue{
+		BodyValues: map[string]jmapmail.EmailBodyValue{
 			"1": {Value: "Push test content"},
 		},
 	})
@@ -569,7 +573,7 @@ func TestIMAPIdlePushNotification(t *testing.T) {
 		t.Fatalf("CreateEmail failed: %v", err)
 	}
 
-	accountID := jmap.AccountIDForSubject("user@example.com")
+	accountID := jmapauth.AccountIDForSubject("user@example.com")
 	select {
 	case sc := <-ch:
 		if sc == nil || sc.Changed[accountID] == nil || sc.Changed[accountID]["Email"] == "" {

@@ -6,22 +6,25 @@ import (
 	"strings"
 	"time"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapblob"
+	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmapmail"
 )
 
 // MDN (RFC 9007 Section 3)
 
-func (b *IMAPSMTPBackend) SendMDN(ctx context.Context, mdn *jmap.MDN) (*jmap.MDN, error) {
+func (b *IMAPSMTPBackend) SendMDN(ctx context.Context, mdn *jmapmail.MDN) (*jmapmail.MDN, error) {
 	if mdn.ForEmailID == "" {
 		return nil, fmt.Errorf("email ID is required")
 	}
-	emails, notFound, err := b.GetEmails(ctx, []jmap.Id{mdn.ForEmailID})
+	emails, notFound, err := b.GetEmails(ctx, []jmapcore.Id{mdn.ForEmailID})
 	if err != nil || len(notFound) > 0 || len(emails) == 0 {
 		return nil, fmt.Errorf("email %s not found", mdn.ForEmailID)
 	}
 	targetEmail := emails[0]
 	if mdn.ID == "" {
-		mdn.ID = jmap.Id(fmt.Sprintf("mdn-%d", time.Now().UnixNano()))
+		mdn.ID = jmapcore.Id(fmt.Sprintf("mdn-%d", time.Now().UnixNano()))
 	}
 	if mdn.Subject == "" {
 		mdn.Subject = fmt.Sprintf("Disposition Notification: %s", targetEmail.Subject)
@@ -32,17 +35,17 @@ func (b *IMAPSMTPBackend) SendMDN(ctx context.Context, mdn *jmap.MDN) (*jmap.MDN
 	return mdn, nil
 }
 
-func (b *IMAPSMTPBackend) ParseMDN(ctx context.Context, blobID jmap.Id) (*jmap.MDN, error) {
-	accountID, _ := jmap.AccountIDFromContext(ctx)
+func (b *IMAPSMTPBackend) ParseMDN(ctx context.Context, blobID jmapcore.Id) (*jmapmail.MDN, error) {
+	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	blob, found, err := b.GetBlob(ctx, accountID, string(blobID))
 	if err != nil || !found || blob == nil {
-		return nil, jmap.ErrBlobNotFound
+		return nil, jmapblob.ErrBlobNotFound
 	}
-	mdn, err := jmap.ParseMDNFromBytes(blob.Data)
+	mdn, err := jmapmail.ParseMDNFromBytes(blob.Data)
 	if err != nil {
 		return nil, err
 	}
-	mdn.ID = jmap.Id("mdn-parsed-" + string(blobID))
+	mdn.ID = jmapcore.Id("mdn-parsed-" + string(blobID))
 
 	// Match Original-Message-ID to an existing email on the server (RFC 9007 §3.2)
 	if mdn.OriginalMessageID != "" {

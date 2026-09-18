@@ -6,23 +6,25 @@ import (
 	"time"
 
 	imappkg "imap-jmap/imap"
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmapmail"
 )
 
 // EmailIDFor constructs a composite JMAP Email ID from a Mailbox ID and an IMAP UID.
-func EmailIDFor(mbID jmap.Id, uid uint32) jmap.Id {
-	return jmap.Id(imappkg.EmailIDFor(string(mbID), uid))
+func EmailIDFor(mbID jmapcore.Id, uid uint32) jmapcore.Id {
+	return jmapcore.Id(imappkg.EmailIDFor(string(mbID), uid))
 }
 
 // ParseEmailID deconstructs a JMAP Email ID into its Mailbox ID and IMAP UID.
-func ParseEmailID(id jmap.Id) (jmap.Id, uint32, error) {
+func ParseEmailID(id jmapcore.Id) (jmapcore.Id, uint32, error) {
 	mbID, uid, err := imappkg.ParseEmailID(string(id))
-	return jmap.Id(mbID), uid, err
+	return jmapcore.Id(mbID), uid, err
 }
 
 // ThreadIDFor generates a valid RFC 8620 JMAP Id for a thread from a Message-ID.
-func ThreadIDFor(messageID string, fallback jmap.Id) jmap.Id {
-	return jmap.Id(imappkg.ThreadIDFor(messageID, string(fallback)))
+func ThreadIDFor(messageID string, fallback jmapcore.Id) jmapcore.Id {
+	return jmapcore.Id(imappkg.ThreadIDFor(messageID, string(fallback)))
 }
 
 // MapIMAPFlagsToKeywords converts string flags to standard JMAP keywords.
@@ -36,7 +38,7 @@ func MapFlagsToKeywords(flags []string) map[string]bool {
 }
 
 // GetEmails fetches the requested emails by ID.
-func (b *IMAPSMTPBackend) GetEmails(ctx context.Context, ids []jmap.Id) ([]*jmap.Email, []jmap.Id, error) {
+func (b *IMAPSMTPBackend) GetEmails(ctx context.Context, ids []jmapcore.Id) ([]*jmapmail.Email, []jmapcore.Id, error) {
 	b.RecordAccount(ctx)
 	client, err := b.pool.GetClientForContext(ctx)
 	if err != nil {
@@ -45,11 +47,11 @@ func (b *IMAPSMTPBackend) GetEmails(ctx context.Context, ids []jmap.Id) ([]*jmap
 	defer b.pool.ReleaseClient(ctx, client)
 
 	// Group requested IDs by mailbox, tracking any aliased IDs from moves
-	aliasToOriginal := make(map[jmap.Id]jmap.Id)
-	mailboxUIDs := make(map[jmap.Id][]uint32)
-	var notFound []jmap.Id
+	aliasToOriginal := make(map[jmapcore.Id]jmapcore.Id)
+	mailboxUIDs := make(map[jmapcore.Id][]uint32)
+	var notFound []jmapcore.Id
 
-	accountID, _ := jmap.AccountIDFromContext(ctx)
+	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	for _, id := range ids {
 		resolved := b.resolveMovedEmailID(accountID, id)
 		if resolved != id {
@@ -63,8 +65,8 @@ func (b *IMAPSMTPBackend) GetEmails(ctx context.Context, ids []jmap.Id) ([]*jmap
 		mailboxUIDs[mbID] = append(mailboxUIDs[mbID], uid)
 	}
 
-	var found []*jmap.Email
-	foundMap := make(map[jmap.Id]*jmap.Email)
+	var found []*jmapmail.Email
+	foundMap := make(map[jmapcore.Id]*jmapmail.Email)
 
 	for mbID, uids := range mailboxUIDs {
 		folderName, err := NameForMailboxID(mbID)
@@ -89,7 +91,7 @@ func (b *IMAPSMTPBackend) GetEmails(ctx context.Context, ids []jmap.Id) ([]*jmap
 			}
 
 			emailID := EmailIDFor(mbID, msg.UID)
-			em, err := jmap.ParseRFC822(msg.Body)
+			em, err := jmapmail.ParseRFC822(msg.Body)
 			if err != nil {
 				continue
 			}
@@ -103,8 +105,8 @@ func (b *IMAPSMTPBackend) GetEmails(ctx context.Context, ids []jmap.Id) ([]*jmap
 			} else {
 				em.ID = emailID
 			}
-			em.BlobID = jmap.Id(emailID)
-			em.MailboxIDs = map[jmap.Id]bool{mbID: true}
+			em.BlobID = jmapcore.Id(emailID)
+			em.MailboxIDs = map[jmapcore.Id]bool{mbID: true}
 			em.Keywords = MapIMAPFlagsToKeywords(msg.Flags)
 			if !msg.InternalDate.IsZero() {
 				em.ReceivedAt = msg.InternalDate.UTC().Format(time.RFC3339Nano)
@@ -145,7 +147,7 @@ func (b *IMAPSMTPBackend) GetEmails(ctx context.Context, ids []jmap.Id) ([]*jmap
 }
 
 // GetAllEmails fetches all emails across all IMAP mailboxes.
-func (b *IMAPSMTPBackend) GetAllEmails(ctx context.Context) ([]*jmap.Email, error) {
+func (b *IMAPSMTPBackend) GetAllEmails(ctx context.Context) ([]*jmapmail.Email, error) {
 	client, err := b.pool.GetClientForContext(ctx)
 	if err != nil {
 		return nil, err
@@ -157,7 +159,7 @@ func (b *IMAPSMTPBackend) GetAllEmails(ctx context.Context) ([]*jmap.Email, erro
 		return nil, err
 	}
 
-	var allEmails []*jmap.Email
+	var allEmails []*jmapmail.Email
 
 	for _, m := range folders {
 		hasNoSelect := false
@@ -185,7 +187,7 @@ func (b *IMAPSMTPBackend) GetAllEmails(ctx context.Context) ([]*jmap.Email, erro
 			}
 
 			emailID := EmailIDFor(mbID, msg.UID)
-			em, err := jmap.ParseRFC822(msg.Body)
+			em, err := jmapmail.ParseRFC822(msg.Body)
 			if err != nil {
 				continue
 			}
@@ -194,8 +196,8 @@ func (b *IMAPSMTPBackend) GetAllEmails(ctx context.Context) ([]*jmap.Email, erro
 			}
 
 			em.ID = emailID
-			em.BlobID = jmap.Id(emailID)
-			em.MailboxIDs = map[jmap.Id]bool{mbID: true}
+			em.BlobID = jmapcore.Id(emailID)
+			em.MailboxIDs = map[jmapcore.Id]bool{mbID: true}
 			em.Keywords = MapIMAPFlagsToKeywords(msg.Flags)
 			if !msg.InternalDate.IsZero() {
 				em.ReceivedAt = msg.InternalDate.UTC().Format(time.RFC3339Nano)
@@ -221,33 +223,33 @@ func (b *IMAPSMTPBackend) GetAllEmails(ctx context.Context) ([]*jmap.Email, erro
 
 
 // QueryEmails searches emails based on JMAP filter criteria across mailboxes.
-func (b *IMAPSMTPBackend) QueryEmails(ctx context.Context, filter map[string]any, comparators []jmap.Comparator, position int, limit *uint64) ([]jmap.Id, int, error) {
+func (b *IMAPSMTPBackend) QueryEmails(ctx context.Context, filter map[string]any, comparators []jmapcore.Comparator, position int, limit *uint64) ([]jmapcore.Id, int, error) {
 	emails, err := b.GetAllEmails(ctx)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	var filtered []*jmap.Email
+	var filtered []*jmapmail.Email
 	for _, em := range emails {
-		if jmap.MatchesFilter(em, filter) {
+		if jmapmail.MatchesFilter(em, filter) {
 			filtered = append(filtered, em)
 		}
 	}
 
 	if len(comparators) == 0 {
-		comparators = []jmap.Comparator{{Property: "receivedAt", IsAscending: false}}
+		comparators = []jmapcore.Comparator{{Property: "receivedAt", IsAscending: false}}
 	}
-	jmap.SortEmails(filtered, comparators)
+	jmapmail.SortEmails(filtered, comparators)
 
-	var allIDs []jmap.Id
+	var allIDs []jmapcore.Id
 	for _, em := range filtered {
 		allIDs = append(allIDs, em.ID)
 	}
 
 	total := len(allIDs)
-	position = jmap.NormalizePosition(position, total)
+	position = jmapcore.NormalizePosition(position, total)
 	if position >= total {
-		return []jmap.Id{}, total, nil
+		return []jmapcore.Id{}, total, nil
 	}
 
 	end := total
@@ -262,13 +264,13 @@ func (b *IMAPSMTPBackend) QueryEmails(ctx context.Context, filter map[string]any
 }
 
 // GetThreads groups requested threads by thread ID.
-func (b *IMAPSMTPBackend) GetThreads(ctx context.Context, ids []jmap.Id) ([]*jmap.Thread, []jmap.Id, error) {
+func (b *IMAPSMTPBackend) GetThreads(ctx context.Context, ids []jmapcore.Id) ([]*jmapmail.Thread, []jmapcore.Id, error) {
 	allEmails, err := b.GetAllEmails(ctx)
 	if err != nil {
 		return nil, ids, err
 	}
 
-	threadEmails := make(map[jmap.Id][]jmap.Id)
+	threadEmails := make(map[jmapcore.Id][]jmapcore.Id)
 	for _, em := range allEmails {
 		alreadyInThread := false
 		for _, existingID := range threadEmails[em.ThreadID] {
@@ -282,8 +284,8 @@ func (b *IMAPSMTPBackend) GetThreads(ctx context.Context, ids []jmap.Id) ([]*jma
 		}
 	}
 
-	var found []*jmap.Thread
-	var notFound []jmap.Id
+	var found []*jmapmail.Thread
+	var notFound []jmapcore.Id
 
 	for _, id := range ids {
 		targetID := id
@@ -293,7 +295,7 @@ func (b *IMAPSMTPBackend) GetThreads(ctx context.Context, ids []jmap.Id) ([]*jma
 			isLegacyAlias = true
 		}
 		if eIDs, ok := threadEmails[targetID]; ok {
-			resultEmailIDs := make([]jmap.Id, len(eIDs))
+			resultEmailIDs := make([]jmapcore.Id, len(eIDs))
 			copy(resultEmailIDs, eIDs)
 			if isLegacyAlias {
 				for idx, eid := range resultEmailIDs {
@@ -302,7 +304,7 @@ func (b *IMAPSMTPBackend) GetThreads(ctx context.Context, ids []jmap.Id) ([]*jma
 					}
 				}
 			}
-			found = append(found, &jmap.Thread{
+			found = append(found, &jmapmail.Thread{
 				ID:       id,
 				EmailIDs: resultEmailIDs,
 			})
@@ -315,13 +317,13 @@ func (b *IMAPSMTPBackend) GetThreads(ctx context.Context, ids []jmap.Id) ([]*jma
 }
 
 // GetAllThreads retrieves all threads across all emails.
-func (b *IMAPSMTPBackend) GetAllThreads(ctx context.Context) ([]*jmap.Thread, error) {
+func (b *IMAPSMTPBackend) GetAllThreads(ctx context.Context) ([]*jmapmail.Thread, error) {
 	allEmails, err := b.GetAllEmails(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	threadEmails := make(map[jmap.Id][]jmap.Id)
+	threadEmails := make(map[jmapcore.Id][]jmapcore.Id)
 	for _, em := range allEmails {
 		// Deduplicate emails in the same thread that are identical copies across mailboxes or revisions
 		alreadyInThread := false
@@ -336,9 +338,9 @@ func (b *IMAPSMTPBackend) GetAllThreads(ctx context.Context) ([]*jmap.Thread, er
 		}
 	}
 
-	var threads []*jmap.Thread
+	var threads []*jmapmail.Thread
 	for tID, eIDs := range threadEmails {
-		threads = append(threads, &jmap.Thread{
+		threads = append(threads, &jmapmail.Thread{
 			ID:       tID,
 			EmailIDs: eIDs,
 		})
@@ -348,9 +350,9 @@ func (b *IMAPSMTPBackend) GetAllThreads(ctx context.Context) ([]*jmap.Thread, er
 }
 
 // VerifySmime checks S/MIME signatures on emails.
-func (b *IMAPSMTPBackend) VerifySmime(ctx context.Context, ids []jmap.Id) (map[jmap.Id]*jmap.SmimeVerificationResult, []jmap.Id, error) {
-	res := make(map[jmap.Id]*jmap.SmimeVerificationResult)
-	var notFound []jmap.Id
+func (b *IMAPSMTPBackend) VerifySmime(ctx context.Context, ids []jmapcore.Id) (map[jmapcore.Id]*jmapmail.SmimeVerificationResult, []jmapcore.Id, error) {
+	res := make(map[jmapcore.Id]*jmapmail.SmimeVerificationResult)
+	var notFound []jmapcore.Id
 	emails, nf, err := b.GetEmails(ctx, ids)
 	if err != nil {
 		return nil, ids, err
@@ -365,7 +367,7 @@ func (b *IMAPSMTPBackend) VerifySmime(ctx context.Context, ids []jmap.Id) (map[j
 		if em.SMIMEStatusAt != nil && *em.SMIMEStatusAt != "" {
 			stAt = *em.SMIMEStatusAt
 		}
-		res[em.ID] = &jmap.SmimeVerificationResult{
+		res[em.ID] = &jmapmail.SmimeVerificationResult{
 			SmimeStatus:       st,
 			SmimeStatusAt:     stAt,
 			SmimeErrors:       em.SMIMEErrors,

@@ -11,6 +11,9 @@ import (
 	"time"
 
 	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapblob"
+	"imap-jmap/jmap/jmapmail"
 	"imap-jmap/jmap/imapsmtp"
 	"imap-jmap/jmap/nextcloud"
 	"imap-jmap/jmap/spectest"
@@ -20,7 +23,7 @@ import (
 // startSMTPServer starts a real SMTP server on an ephemeral port and returns
 // its address plus the backends it stores into. The test waits until
 // the listener actually accepts connections.
-func startSMTPServer(t *testing.T, opts ...jmapsmtp.Option) (string, jmap.MailBackend, jmap.BlobBackend) {
+func startSMTPServer(t *testing.T, opts ...jmapsmtp.Option) (string, jmapmail.MailBackend, jmapblob.BlobBackend) {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -77,9 +80,9 @@ func plainAuth(addr, user, pass string) smtp.Auth {
 	return smtp.PlainAuth("", user, pass, host)
 }
 
-func storedRawMessage(t *testing.T, mailBackend jmap.MailBackend, blobBackend jmap.BlobBackend, recipient string) string {
+func storedRawMessage(t *testing.T, mailBackend jmapmail.MailBackend, blobBackend jmapblob.BlobBackend, recipient string) string {
 	t.Helper()
-	ctx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject(recipient))
+	ctx := jmapauth.ContextWithAccountID(context.Background(), jmapauth.AccountIDForSubject(recipient))
 	ids, _, err := mailBackend.QueryEmails(ctx, nil, nil, 0, nil)
 	if err != nil {
 		t.Fatalf("QueryEmails: %v", err)
@@ -91,18 +94,18 @@ func storedRawMessage(t *testing.T, mailBackend jmap.MailBackend, blobBackend jm
 	if err != nil {
 		t.Fatalf("GetEmails: %v", err)
 	}
-	blob, ok, err := blobBackend.GetBlob(ctx, jmap.AccountIDForSubject(recipient), string(emails[0].BlobID))
+	blob, ok, err := blobBackend.GetBlob(ctx, jmapauth.AccountIDForSubject(recipient), string(emails[0].BlobID))
 	if err != nil || !ok {
 		t.Fatalf("GetBlob: ok=%v err=%v", ok, err)
 	}
 	return string(blob.Data)
 }
 
-func submissionServer(t *testing.T) (string, jmap.MailBackend, jmap.BlobBackend) {
+func submissionServer(t *testing.T) (string, jmapmail.MailBackend, jmapblob.BlobBackend) {
 	return startSMTPServer(t,
 		jmapsmtp.WithTransportMode(jmapsmtp.TransportModeSubmission),
 		jmapsmtp.WithAuthenticator(jmapsmtp.NewAuthBackendAuthenticator(jmap.NewMemoryAuthBackend())),
-		jmapsmtp.WithAccountResolver(jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}),
+		jmapsmtp.WithAccountResolver(jmapauth.PrimaryDomainResolver{PrimaryDomain: "example.com"}),
 	)
 }
 

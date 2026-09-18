@@ -11,14 +11,18 @@ import (
 	"testing"
 	"time"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapblob"
+	"imap-jmap/jmap/jmapcalendar"
+	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmapmail"
 	"imap-jmap/jmap/imapsmtp"
 	"imap-jmap/jmap/nextcloud"
 	"imap-jmap/jmap/spectest"
 	jmapsmtp "imap-jmap/smtp"
 )
 
-func newSecurityTestBackends(t *testing.T, users ...string) (jmap.MailBackend, jmap.BlobBackend, jmap.CalendarsBackend) {
+func newSecurityTestBackends(t *testing.T, users ...string) (jmapmail.MailBackend, jmapblob.BlobBackend, jmapcalendar.CalendarsBackend) {
 	t.Helper()
 	backend, cleanup := imapsmtp.NewEmbeddedBackend(users...)
 	t.Cleanup(cleanup)
@@ -31,19 +35,19 @@ func TestRFC6047_SecurityHardening_EnvelopeIdentityBinding(t *testing.T) {
 	spectest.Require(t, "RFC6047", "3", spectest.MUST,
 		"Security Considerations: Require authenticated envelope sender to match iTIP actor.")
 
-	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
+	resolver := jmapauth.PrimaryDomainResolver{PrimaryDomain: "example.com"}
 	mailBackend, blobBackend, calBackend := newSecurityTestBackends(t, "bob@example.com", "alice@example.com", "eve@example.com")
 
 	const organizer = "bob@example.com"
 	const attendee = "alice@example.com"
 	const attacker = "eve@example.com"
-	bobCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject(organizer))
-	ev, err := calBackend.CreateCalendarEvent(bobCtx, &jmap.CalendarEvent{
+	bobCtx := jmapauth.ContextWithAccountID(context.Background(), jmapauth.AccountIDForSubject(organizer))
+	ev, err := calBackend.CreateCalendarEvent(bobCtx, &jmapcalendar.CalendarEvent{
 		UID:    "sec2-identity-uid@example.com",
 		Title:  "Security Audit",
 		Start:  "2026-09-25T10:00:00Z",
 		Status: "confirmed",
-		Participants: map[string]*jmap.JSCalendarParticipant{
+		Participants: map[string]*jmapcalendar.JSCalendarParticipant{
 			organizer: {Email: organizer, Roles: map[string]bool{"owner": true}},
 			attendee:  {Email: attendee, Roles: map[string]bool{"attendee": true}, ParticipationStatus: "needs-action"},
 		},
@@ -85,7 +89,7 @@ func TestRFC6047_SecurityHardening_EnvelopeIdentityBinding(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify Alice's status was NOT changed
-	updated, _, _ := calBackend.GetCalendarEvents(bobCtx, []jmap.Id{ev.ID})
+	updated, _, _ := calBackend.GetCalendarEvents(bobCtx, []jmapcore.Id{ev.ID})
 	if len(updated) > 0 {
 		p := updated[0].Participants[attendee]
 		if p.ParticipationStatus != "needs-action" {
@@ -98,19 +102,19 @@ func TestRFC6047_SecurityHardening_ParticipantAuthorization(t *testing.T) {
 	spectest.Require(t, "RFC5546", "5", spectest.MUST,
 		"Security Considerations: Participant authorization: REPLY ignored if sender is not on the event.")
 
-	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
+	resolver := jmapauth.PrimaryDomainResolver{PrimaryDomain: "example.com"}
 	mailBackend, blobBackend, calBackend := newSecurityTestBackends(t, "bob@example.com", "alice@example.com", "charlie@example.com")
 
 	const organizer = "bob@example.com"
 	const attendee = "alice@example.com"
 	const stranger = "charlie@example.com"
-	bobCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject(organizer))
-	ev, err := calBackend.CreateCalendarEvent(bobCtx, &jmap.CalendarEvent{
+	bobCtx := jmapauth.ContextWithAccountID(context.Background(), jmapauth.AccountIDForSubject(organizer))
+	ev, err := calBackend.CreateCalendarEvent(bobCtx, &jmapcalendar.CalendarEvent{
 		UID:    "sec3-auth-uid@example.com",
 		Title:  "Private Review",
 		Start:  "2026-09-25T14:00:00Z",
 		Status: "confirmed",
-		Participants: map[string]*jmap.JSCalendarParticipant{
+		Participants: map[string]*jmapcalendar.JSCalendarParticipant{
 			organizer: {Email: organizer, Roles: map[string]bool{"owner": true}},
 			attendee:  {Email: attendee, Roles: map[string]bool{"attendee": true}, ParticipationStatus: "needs-action"},
 		},
@@ -152,7 +156,7 @@ func TestRFC6047_SecurityHardening_ParticipantAuthorization(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify stranger was NOT added to event
-	updated, _, _ := calBackend.GetCalendarEvents(bobCtx, []jmap.Id{ev.ID})
+	updated, _, _ := calBackend.GetCalendarEvents(bobCtx, []jmapcore.Id{ev.ID})
 	if len(updated) > 0 {
 		if _, exists := updated[0].Participants[stranger]; exists {
 			t.Errorf("unauthorized stranger %s was added to event participants", stranger)
@@ -164,19 +168,19 @@ func TestRFC6047_SecurityHardening_ReplaySequenceDefence(t *testing.T) {
 	spectest.Require(t, "RFC5546", "2.1.4", spectest.MUST,
 		"Sequence defence: Stale iTIP messages with SEQUENCE < event.SEQUENCE are discarded.")
 
-	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
+	resolver := jmapauth.PrimaryDomainResolver{PrimaryDomain: "example.com"}
 	mailBackend, blobBackend, calBackend := newSecurityTestBackends(t, "bob@example.com", "alice@example.com")
 
 	const organizer = "bob@example.com"
 	const attendee = "alice@example.com"
-	bobCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject(organizer))
-	ev, err := calBackend.CreateCalendarEvent(bobCtx, &jmap.CalendarEvent{
+	bobCtx := jmapauth.ContextWithAccountID(context.Background(), jmapauth.AccountIDForSubject(organizer))
+	ev, err := calBackend.CreateCalendarEvent(bobCtx, &jmapcalendar.CalendarEvent{
 		UID:      "sec5-seq-uid@example.com",
 		Title:    "Sequence Test",
 		Start:    "2026-09-25T15:00:00Z",
 		Sequence: 5, // current sequence is 5
 		Status:   "confirmed",
-		Participants: map[string]*jmap.JSCalendarParticipant{
+		Participants: map[string]*jmapcalendar.JSCalendarParticipant{
 			organizer: {Email: organizer, Roles: map[string]bool{"owner": true}},
 			attendee:  {Email: attendee, Roles: map[string]bool{"attendee": true}, ParticipationStatus: "accepted"},
 		},
@@ -218,7 +222,7 @@ func TestRFC6047_SecurityHardening_ReplaySequenceDefence(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify Alice's status remains "accepted" and was not reverted to "declined" by the stale sequence message
-	updated, _, _ := calBackend.GetCalendarEvents(bobCtx, []jmap.Id{ev.ID})
+	updated, _, _ := calBackend.GetCalendarEvents(bobCtx, []jmapcore.Id{ev.ID})
 	if len(updated) > 0 {
 		p := updated[0].Participants[attendee]
 		if p.ParticipationStatus != "accepted" {
@@ -231,19 +235,19 @@ func TestRFC6047_SecurityHardening_InboundCancel(t *testing.T) {
 	spectest.Require(t, "RFC5546", "3.2.5", spectest.MUST,
 		"Inbound CANCEL from organizer marks the event cancelled.")
 
-	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
+	resolver := jmapauth.PrimaryDomainResolver{PrimaryDomain: "example.com"}
 	mailBackend, blobBackend, calBackend := newSecurityTestBackends(t, "organizer@example.com", "invitee@example.com")
 
 	const organizer = "organizer@example.com"
 	const invitee = "invitee@example.com"
-	inviteeCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject(invitee))
-	ev, err := calBackend.CreateCalendarEvent(inviteeCtx, &jmap.CalendarEvent{
+	inviteeCtx := jmapauth.ContextWithAccountID(context.Background(), jmapauth.AccountIDForSubject(invitee))
+	ev, err := calBackend.CreateCalendarEvent(inviteeCtx, &jmapcalendar.CalendarEvent{
 		UID:      "cancel-test-uid@example.com",
 		Title:    "Team Sync",
 		Start:    "2026-09-25T16:00:00Z",
 		Sequence: 1,
 		Status:   "confirmed",
-		Participants: map[string]*jmap.JSCalendarParticipant{
+		Participants: map[string]*jmapcalendar.JSCalendarParticipant{
 			organizer: {Email: organizer, Roles: map[string]bool{"owner": true}},
 			invitee:   {Email: invitee, Roles: map[string]bool{"attendee": true}, ParticipationStatus: "accepted"},
 		},
@@ -283,7 +287,7 @@ func TestRFC6047_SecurityHardening_InboundCancel(t *testing.T) {
 	_ = smtp.SendMail(addr, nil, organizer, []string{invitee}, cancelMsg)
 	time.Sleep(100 * time.Millisecond)
 
-	updated, _, _ := calBackend.GetCalendarEvents(inviteeCtx, []jmap.Id{ev.ID})
+	updated, _, _ := calBackend.GetCalendarEvents(inviteeCtx, []jmapcore.Id{ev.ID})
 	if len(updated) == 0 || updated[0].Status != "cancelled" {
 		t.Fatalf("expected event status cancelled, got %v", updated[0].Status)
 	}
@@ -379,7 +383,7 @@ func TestRFC5321_SEC6_MIMEPartLimits(t *testing.T) {
 		t.Fatalf("DATA failed unexpectedly for multi-part message: %v", dataErr)
 	}
 
-	ctx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject("user@example.com"))
+	ctx := jmapauth.ContextWithAccountID(context.Background(), jmapauth.AccountIDForSubject("user@example.com"))
 	emailIDs, _, err := mailBackend.QueryEmails(ctx, nil, nil, 0, nil)
 	if err != nil || len(emailIDs) == 0 {
 		t.Fatalf("Expected stored email in backend, got %d (err: %v)", len(emailIDs), err)

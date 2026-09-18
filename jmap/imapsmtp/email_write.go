@@ -7,7 +7,9 @@ import (
 	"time"
 
 	imappkg "imap-jmap/imap"
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmapmail"
 )
 
 // MapKeywordsToIMAPFlags converts JMAP keywords map to a slice of IMAP flag strings.
@@ -38,13 +40,13 @@ func MapKeywordsToIMAPFlags(keywords map[string]bool) []string {
 }
 
 // CreateEmail creates or imports an email into an IMAP mailbox via APPEND.
-func (b *IMAPSMTPBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jmap.Email, error) {
+func (b *IMAPSMTPBackend) CreateEmail(ctx context.Context, em *jmapmail.Email) (*jmapmail.Email, error) {
 	client, err := b.pool.GetClientForContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	destMbID := jmap.Id("")
+	destMbID := jmapcore.Id("")
 	for mbID := range em.MailboxIDs {
 		destMbID = mbID
 		break
@@ -57,10 +59,10 @@ func (b *IMAPSMTPBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jma
 		}
 	} else {
 		destMbID = MailboxIDForName("INBOX")
-		em.MailboxIDs = map[jmap.Id]bool{destMbID: true}
+		em.MailboxIDs = map[jmapcore.Id]bool{destMbID: true}
 	}
 
-	accountID, _ := jmap.AccountIDFromContext(ctx)
+	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	var rawBytes []byte
 	originalBlobID := em.BlobID
 	if em.BlobID != "" {
@@ -69,7 +71,7 @@ func (b *IMAPSMTPBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jma
 		}
 	}
 	if len(rawBytes) == 0 {
-		rawBytes = jmap.FormatEmailRFC822(em)
+		rawBytes = jmapmail.FormatEmailRFC822(em)
 	}
 	flags := MapKeywordsToIMAPFlags(em.Keywords)
 
@@ -97,7 +99,7 @@ func (b *IMAPSMTPBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jma
 
 	emailID := EmailIDFor(destMbID, uid)
 	em.ID = emailID
-	em.BlobID = jmap.Id(emailID)
+	em.BlobID = jmapcore.Id(emailID)
 	em.Size = emailSize
 	if em.ReceivedAt == "" {
 		em.ReceivedAt = msgTime.UTC().Format(time.RFC3339Nano)
@@ -135,9 +137,9 @@ func (b *IMAPSMTPBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jma
 }
 
 // UpdateEmail modifies keywords or moves an email to another IMAP mailbox.
-func (b *IMAPSMTPBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.Email, error) {
+func (b *IMAPSMTPBackend) UpdateEmail(ctx context.Context, id jmapcore.Id, patch map[string]any) (*jmapmail.Email, error) {
 	origID := id
-	accountID, _ := jmap.AccountIDFromContext(ctx)
+	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	id = b.resolveMovedEmailID(accountID, id)
 	mbID, uid, err := ParseEmailID(id)
 	if err != nil {
@@ -199,12 +201,12 @@ func (b *IMAPSMTPBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map
 	}
 
 	// Move / Mailbox update (supporting both mailboxIds object and mailboxIds/... patches)
-	var targetMoveMbID jmap.Id
+	var targetMoveMbID jmapcore.Id
 	if mbVal, ok := patch["mailboxIds"]; ok {
 		if mbMap, ok := mbVal.(map[string]any); ok {
 			for k, v := range mbMap {
 				if bVal, ok := v.(bool); ok && bVal {
-					targetMoveMbID = jmap.Id(k)
+					targetMoveMbID = jmapcore.Id(k)
 					break
 				}
 			}
@@ -212,7 +214,7 @@ func (b *IMAPSMTPBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map
 	}
 	for path, val := range patch {
 		if strings.HasPrefix(path, "mailboxIds/") {
-			mbKey := jmap.Id(strings.TrimPrefix(path, "mailboxIds/"))
+			mbKey := jmapcore.Id(strings.TrimPrefix(path, "mailboxIds/"))
 			if bVal, ok := val.(bool); ok && bVal {
 				targetMoveMbID = mbKey
 				break
@@ -232,16 +234,16 @@ func (b *IMAPSMTPBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map
 				b.trackMovedEmail(accountID, id, newID)
 				b.trackMovedEmailQuota(accountID, origID, newID)
 			}
-			emails, _, _ := b.GetEmails(ctx, []jmap.Id{origID})
-			accountID, _ := jmap.AccountIDFromContext(ctx)
+			emails, _, _ := b.GetEmails(ctx, []jmapcore.Id{origID})
+			accountID, _ := jmapauth.AccountIDFromContext(ctx)
 			b.recordEmailMutation(accountID, origID, "update")
 			b.publishStateChange(ctx)
 			if len(emails) > 0 {
 				return emails[0], nil
 			}
-			return &jmap.Email{
+			return &jmapmail.Email{
 				ID:         origID,
-				MailboxIDs: map[jmap.Id]bool{targetMoveMbID: true},
+				MailboxIDs: map[jmapcore.Id]bool{targetMoveMbID: true},
 			}, nil
 		}
 	}
@@ -249,7 +251,7 @@ func (b *IMAPSMTPBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map
 	b.pool.ReleaseClient(ctx, client)
 
 	// Fetch updated message
-	emails, _, err := b.GetEmails(ctx, []jmap.Id{origID})
+	emails, _, err := b.GetEmails(ctx, []jmapcore.Id{origID})
 	b.recordEmailMutation(accountID, origID, "update")
 	b.publishStateChange(ctx)
 	if err == nil && len(emails) > 0 {
@@ -262,8 +264,8 @@ func (b *IMAPSMTPBackend) UpdateEmail(ctx context.Context, id jmap.Id, patch map
 }
 
 // DeleteEmail removes an email from IMAP via \Deleted flag and EXPUNGE.
-func (b *IMAPSMTPBackend) DeleteEmail(ctx context.Context, id jmap.Id) (bool, error) {
-	accountID, _ := jmap.AccountIDFromContext(ctx)
+func (b *IMAPSMTPBackend) DeleteEmail(ctx context.Context, id jmapcore.Id) (bool, error) {
+	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	id = b.resolveMovedEmailID(accountID, id)
 	mbID, uid, err := ParseEmailID(id)
 	if err != nil {

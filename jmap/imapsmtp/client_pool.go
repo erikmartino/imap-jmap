@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"imap-jmap/imap"
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
 )
 
 const (
@@ -83,17 +83,17 @@ func (p *ClientPool) Close() error {
 
 // GetClientForContext extracts credentials from the request context and returns an authenticated IMAP client.
 func (p *ClientPool) GetClientForContext(ctx context.Context) (*imap.Client, error) {
-	creds, ok := jmap.CredentialsFromContext(ctx)
+	creds, ok := jmapauth.CredentialsFromContext(ctx)
 	if !ok {
 		// Fall back to subject if available
-		subject, hasSubject := jmap.SubjectFromContext(ctx)
+		subject, hasSubject := jmapauth.SubjectFromContext(ctx)
 		if hasSubject {
-			creds = jmap.AuthCredentials{Username: subject, Password: subject}
+			creds = jmapauth.AuthCredentials{Username: subject, Password: subject}
 		} else {
-			accountID, hasAccount := jmap.AccountIDFromContext(ctx)
+			accountID, hasAccount := jmapauth.AccountIDFromContext(ctx)
 			if hasAccount {
-				if sub, ok := jmap.SubjectForAccountID(accountID); ok {
-					creds = jmap.AuthCredentials{Username: sub, Password: sub}
+				if sub, ok := jmapauth.SubjectForAccountID(accountID); ok {
+					creds = jmapauth.AuthCredentials{Username: sub, Password: sub}
 				}
 			}
 		}
@@ -112,16 +112,16 @@ func (p *ClientPool) ReleaseClient(ctx context.Context, client *imap.Client) {
 		return
 	}
 
-	creds, ok := jmap.CredentialsFromContext(ctx)
+	creds, ok := jmapauth.CredentialsFromContext(ctx)
 	if !ok {
-		subject, hasSubject := jmap.SubjectFromContext(ctx)
+		subject, hasSubject := jmapauth.SubjectFromContext(ctx)
 		if hasSubject {
-			creds = jmap.AuthCredentials{Username: subject, Password: subject}
+			creds = jmapauth.AuthCredentials{Username: subject, Password: subject}
 		} else {
-			accountID, hasAccount := jmap.AccountIDFromContext(ctx)
+			accountID, hasAccount := jmapauth.AccountIDFromContext(ctx)
 			if hasAccount {
-				if sub, ok := jmap.SubjectForAccountID(accountID); ok {
-					creds = jmap.AuthCredentials{Username: sub, Password: sub}
+				if sub, ok := jmapauth.SubjectForAccountID(accountID); ok {
+					creds = jmapauth.AuthCredentials{Username: sub, Password: sub}
 				}
 			}
 		}
@@ -275,23 +275,23 @@ func (p *ClientPool) SendMail(ctx context.Context, from string, recipients []str
 	return c.Quit()
 }
 
-func extractCredentials(ctx context.Context) (jmap.AuthCredentials, error) {
-	creds, ok := jmap.CredentialsFromContext(ctx)
+func extractCredentials(ctx context.Context) (jmapauth.AuthCredentials, error) {
+	creds, ok := jmapauth.CredentialsFromContext(ctx)
 	if !ok || creds.Username == "" || creds.Password == "" {
-		subject, hasSubject := jmap.SubjectFromContext(ctx)
+		subject, hasSubject := jmapauth.SubjectFromContext(ctx)
 		if hasSubject && subject != "" {
-			creds = jmap.AuthCredentials{Username: subject, Password: subject}
+			creds = jmapauth.AuthCredentials{Username: subject, Password: subject}
 		} else {
-			accountID, hasAccount := jmap.AccountIDFromContext(ctx)
+			accountID, hasAccount := jmapauth.AccountIDFromContext(ctx)
 			if hasAccount && accountID != "" {
-				if sub, ok := jmap.SubjectForAccountID(accountID); ok && sub != "" {
-					creds = jmap.AuthCredentials{Username: sub, Password: sub}
+				if sub, ok := jmapauth.SubjectForAccountID(accountID); ok && sub != "" {
+					creds = jmapauth.AuthCredentials{Username: sub, Password: sub}
 				}
 			}
 		}
 	}
 	if creds.Username == "" || creds.Password == "" {
-		return jmap.AuthCredentials{}, errors.New("unauthorized: missing credentials in context")
+		return jmapauth.AuthCredentials{}, errors.New("unauthorized: missing credentials in context")
 	}
 	return creds, nil
 }

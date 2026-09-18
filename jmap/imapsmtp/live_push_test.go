@@ -12,7 +12,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmappush"
 )
 
 func TestLive_WebSocketPushOverIMAPIdle(t *testing.T) {
@@ -99,7 +100,7 @@ func TestLive_WebSocketPushOverIMAPIdle(t *testing.T) {
 
 	// 4. Wait to receive StateChange push over WebSocket
 	receivedPush := false
-	accountID := jmap.AccountIDForSubject("a@example.com")
+	accountID := jmapauth.AccountIDForSubject("a@example.com")
 
 	readDone := make(chan struct{})
 	go func() {
@@ -113,7 +114,7 @@ func TestLive_WebSocketPushOverIMAPIdle(t *testing.T) {
 				continue
 			}
 
-			var sc jmap.StateChange
+			var sc jmappush.StateChange
 			if err := json.Unmarshal(data, &sc); err == nil && sc.Type == "StateChange" {
 				if sc.Changed != nil && sc.Changed[accountID] != nil && sc.Changed[accountID]["Email"] != "" {
 					receivedPush = true

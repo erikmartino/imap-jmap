@@ -16,74 +16,78 @@ import (
 	"github.com/emersion/go-ical"
 	"github.com/emersion/go-webdav/caldav"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapcalendar"
+	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmapprincipals"
+	"imap-jmap/jmap/jmappush"
 )
 
-// CalendarsBackend implements jmap.CalendarsBackend backed by Nextcloud CalDAV via github.com/emersion/go-webdav/caldav.
+// CalendarsBackend implements jmapcalendar.CalendarsBackend backed by Nextcloud CalDAV via github.com/emersion/go-webdav/caldav.
 type CalendarsBackend struct {
 	client      *Client
 	mu          sync.RWMutex
 	trackersMu  sync.Mutex
-	broadcaster *jmap.Broadcaster
+	broadcaster *jmappush.Broadcaster
 
-	calTrackers          map[string]*jmap.ChangeTracker
-	eventTrackers        map[string]*jmap.ChangeTracker
-	identityTrackers     map[string]*jmap.ChangeTracker
-	notificationTrackers map[string]*jmap.ChangeTracker
+	calTrackers          map[string]*jmappush.ChangeTracker
+	eventTrackers        map[string]*jmappush.ChangeTracker
+	identityTrackers     map[string]*jmappush.ChangeTracker
+	notificationTrackers map[string]*jmappush.ChangeTracker
 
 	calsFingerprint    map[string]string
 	eventsFingerprint  map[string]string
 
-	calsCache          map[string][]*jmap.Calendar
-	calPaths           map[string]map[jmap.Id]string
+	calsCache          map[string][]*jmapcalendar.Calendar
+	calPaths           map[string]map[jmapcore.Id]string
 	homeSets           map[string]string
 	calsCacheTime      map[string]time.Time
-	eventsCache        map[string]map[jmap.Id]*jmap.CalendarEvent
+	eventsCache        map[string]map[jmapcore.Id]*jmapcalendar.CalendarEvent
 	eventsCacheTime    map[string]time.Time
-	identitiesCache    map[string]map[jmap.Id]*jmap.ParticipantIdentity
-	notificationsCache map[string]map[jmap.Id]*jmap.CalendarEventNotification
-	defaultCalendars   map[string]jmap.Id
-	calProps           map[string]map[jmap.Id]*jmap.Calendar
-	notifSeq           map[string]map[jmap.Id]uint64
+	identitiesCache    map[string]map[jmapcore.Id]*jmapcalendar.ParticipantIdentity
+	notificationsCache map[string]map[jmapcore.Id]*jmapcalendar.CalendarEventNotification
+	defaultCalendars   map[string]jmapcore.Id
+	calProps           map[string]map[jmapcore.Id]*jmapcalendar.Calendar
+	notifSeq           map[string]map[jmapcore.Id]uint64
 	nextNotifSeq       uint64
 	allowedAddresses          map[string]map[string]bool
-	shareNotificationsCache   map[string]map[jmap.Id]*jmap.ShareNotification
-	shareNotificationTrackers map[string]*jmap.ChangeTracker
-	userCalOverrides          map[string]map[jmap.Id]*jmap.Calendar
-	principalsBackend         jmap.PrincipalsBackend
+	shareNotificationsCache   map[string]map[jmapcore.Id]*jmapcalendar.ShareNotification
+	shareNotificationTrackers map[string]*jmappush.ChangeTracker
+	userCalOverrides          map[string]map[jmapcore.Id]*jmapcalendar.Calendar
+	principalsBackend         jmapprincipals.PrincipalsBackend
 }
 
-var _ jmap.CalendarsBackend = (*CalendarsBackend)(nil)
+var _ jmapcalendar.CalendarsBackend = (*CalendarsBackend)(nil)
 
 // NewCalendarsBackend initializes a new Nextcloud-backed CalendarsBackend.
 func NewCalendarsBackend(client *Client) *CalendarsBackend {
 	return &CalendarsBackend{
 		client:                    client,
-		calTrackers:               make(map[string]*jmap.ChangeTracker),
-		eventTrackers:             make(map[string]*jmap.ChangeTracker),
-		identityTrackers:          make(map[string]*jmap.ChangeTracker),
-		notificationTrackers:      make(map[string]*jmap.ChangeTracker),
+		calTrackers:               make(map[string]*jmappush.ChangeTracker),
+		eventTrackers:             make(map[string]*jmappush.ChangeTracker),
+		identityTrackers:          make(map[string]*jmappush.ChangeTracker),
+		notificationTrackers:      make(map[string]*jmappush.ChangeTracker),
 		calsFingerprint:           make(map[string]string),
 		eventsFingerprint:         make(map[string]string),
-		calsCache:                 make(map[string][]*jmap.Calendar),
-		calPaths:                  make(map[string]map[jmap.Id]string),
+		calsCache:                 make(map[string][]*jmapcalendar.Calendar),
+		calPaths:                  make(map[string]map[jmapcore.Id]string),
 		homeSets:                  make(map[string]string),
 		calsCacheTime:             make(map[string]time.Time),
-		eventsCache:               make(map[string]map[jmap.Id]*jmap.CalendarEvent),
+		eventsCache:               make(map[string]map[jmapcore.Id]*jmapcalendar.CalendarEvent),
 		eventsCacheTime:           make(map[string]time.Time),
-		identitiesCache:           make(map[string]map[jmap.Id]*jmap.ParticipantIdentity),
-		notificationsCache:        make(map[string]map[jmap.Id]*jmap.CalendarEventNotification),
-		defaultCalendars:          make(map[string]jmap.Id),
-		calProps:                  make(map[string]map[jmap.Id]*jmap.Calendar),
-		notifSeq:                  make(map[string]map[jmap.Id]uint64),
+		identitiesCache:           make(map[string]map[jmapcore.Id]*jmapcalendar.ParticipantIdentity),
+		notificationsCache:        make(map[string]map[jmapcore.Id]*jmapcalendar.CalendarEventNotification),
+		defaultCalendars:          make(map[string]jmapcore.Id),
+		calProps:                  make(map[string]map[jmapcore.Id]*jmapcalendar.Calendar),
+		notifSeq:                  make(map[string]map[jmapcore.Id]uint64),
 		allowedAddresses:          make(map[string]map[string]bool),
-		shareNotificationsCache:   make(map[string]map[jmap.Id]*jmap.ShareNotification),
-		shareNotificationTrackers: make(map[string]*jmap.ChangeTracker),
-		userCalOverrides:          make(map[string]map[jmap.Id]*jmap.Calendar),
+		shareNotificationsCache:   make(map[string]map[jmapcore.Id]*jmapcalendar.ShareNotification),
+		shareNotificationTrackers: make(map[string]*jmappush.ChangeTracker),
+		userCalOverrides:          make(map[string]map[jmapcore.Id]*jmapcalendar.Calendar),
 	}
 }
 
-func (b *CalendarsBackend) SetBroadcaster(bc *jmap.Broadcaster) {
+func (b *CalendarsBackend) SetBroadcaster(bc *jmappush.Broadcaster) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.broadcaster = bc
@@ -92,7 +96,7 @@ func (b *CalendarsBackend) SetBroadcaster(bc *jmap.Broadcaster) {
 func (b *CalendarsBackend) emitStateChange(u, typeName, newState string) {
 	bc := b.broadcaster
 	if bc != nil {
-		accountID := jmap.AccountIDForSubject(u)
+		accountID := jmapauth.AccountIDForSubject(u)
 		bc.PublishStateChange(accountID, typeName, newState)
 		if accountID != u {
 			bc.PublishStateChange(u, typeName, newState)
@@ -100,14 +104,14 @@ func (b *CalendarsBackend) emitStateChange(u, typeName, newState string) {
 	}
 }
 
-func eventFingerprint(ev *jmap.CalendarEvent) string {
+func eventFingerprint(ev *jmapcalendar.CalendarEvent) string {
 	if ev == nil {
 		return ""
 	}
 	return fmt.Sprintf("%s|%s|%s|%s|%s|%s|%d|%v", ev.ID, ev.Title, ev.Start, ev.Duration, ev.Updated, ev.Description, ev.Sequence, ev.CalendarIDs)
 }
 
-func eventsMapFingerprint(m map[jmap.Id]*jmap.CalendarEvent) string {
+func eventsMapFingerprint(m map[jmapcore.Id]*jmapcalendar.CalendarEvent) string {
 	ids := make([]string, 0, len(m))
 	for id := range m {
 		ids = append(ids, string(id))
@@ -115,12 +119,12 @@ func eventsMapFingerprint(m map[jmap.Id]*jmap.CalendarEvent) string {
 	sort.Strings(ids)
 	h := sha256.New()
 	for _, id := range ids {
-		fmt.Fprintf(h, "%s:%s;", id, eventFingerprint(m[jmap.Id(id)]))
+		fmt.Fprintf(h, "%s:%s;", id, eventFingerprint(m[jmapcore.Id(id)]))
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-func calsListFingerprint(cals []*jmap.Calendar) string {
+func calsListFingerprint(cals []*jmapcalendar.Calendar) string {
 	h := sha256.New()
 	for _, c := range cals {
 		if c != nil {
@@ -135,52 +139,52 @@ func (b *CalendarsBackend) user(ctx context.Context) string {
 	return u
 }
 
-func (b *CalendarsBackend) getCalTracker(u string) *jmap.ChangeTracker {
+func (b *CalendarsBackend) getCalTracker(u string) *jmappush.ChangeTracker {
 	b.trackersMu.Lock()
 	defer b.trackersMu.Unlock()
 	if b.calTrackers[u] == nil {
-		b.calTrackers[u] = jmap.NewChangeTracker(1000)
+		b.calTrackers[u] = jmappush.NewChangeTracker(1000)
 	}
 	return b.calTrackers[u]
 }
 
-func (b *CalendarsBackend) getEventTracker(u string) *jmap.ChangeTracker {
+func (b *CalendarsBackend) getEventTracker(u string) *jmappush.ChangeTracker {
 	b.trackersMu.Lock()
 	defer b.trackersMu.Unlock()
 	if b.eventTrackers[u] == nil {
-		b.eventTrackers[u] = jmap.NewChangeTracker(1000)
+		b.eventTrackers[u] = jmappush.NewChangeTracker(1000)
 	}
 	return b.eventTrackers[u]
 }
 
-func (b *CalendarsBackend) getIdentityTracker(u string) *jmap.ChangeTracker {
+func (b *CalendarsBackend) getIdentityTracker(u string) *jmappush.ChangeTracker {
 	b.trackersMu.Lock()
 	defer b.trackersMu.Unlock()
 	if b.identityTrackers[u] == nil {
-		b.identityTrackers[u] = jmap.NewChangeTracker(1000)
+		b.identityTrackers[u] = jmappush.NewChangeTracker(1000)
 	}
 	return b.identityTrackers[u]
 }
 
-func (b *CalendarsBackend) getNotificationTracker(u string) *jmap.ChangeTracker {
+func (b *CalendarsBackend) getNotificationTracker(u string) *jmappush.ChangeTracker {
 	b.trackersMu.Lock()
 	defer b.trackersMu.Unlock()
 	if b.notificationTrackers[u] == nil {
-		b.notificationTrackers[u] = jmap.NewChangeTracker(1000)
+		b.notificationTrackers[u] = jmappush.NewChangeTracker(1000)
 	}
 	return b.notificationTrackers[u]
 }
 
-func (b *CalendarsBackend) getShareNotificationTracker(u string) *jmap.ChangeTracker {
+func (b *CalendarsBackend) getShareNotificationTracker(u string) *jmappush.ChangeTracker {
 	b.trackersMu.Lock()
 	defer b.trackersMu.Unlock()
 	if b.shareNotificationTrackers[u] == nil {
-		b.shareNotificationTrackers[u] = jmap.NewChangeTracker(1000)
+		b.shareNotificationTrackers[u] = jmappush.NewChangeTracker(1000)
 	}
 	return b.shareNotificationTrackers[u]
 }
 
-func (b *CalendarsBackend) SetPrincipalsBackend(pb jmap.PrincipalsBackend) {
+func (b *CalendarsBackend) SetPrincipalsBackend(pb jmapprincipals.PrincipalsBackend) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.principalsBackend = pb
@@ -229,7 +233,7 @@ func (b *CalendarsBackend) CanAccessSharedAccount(principalAccountID, targetAcco
 	if principalAccountID == targetAccountID {
 		return true, true
 	}
-	targetUser, ok := jmap.SubjectForAccountID(targetAccountID)
+	targetUser, ok := jmapauth.SubjectForAccountID(targetAccountID)
 	if !ok || targetUser == "" {
 		targetUser = targetAccountID
 	}
@@ -262,28 +266,28 @@ func (b *CalendarsBackend) CalendarState(ctx context.Context) string {
 	return b.getCalTracker(b.user(ctx)).State()
 }
 
-func (b *CalendarsBackend) CalendarChanges(ctx context.Context, sinceState string) (created, updated, destroyed []jmap.Id, newState string, hasMoreChanges bool) {
+func (b *CalendarsBackend) CalendarChanges(ctx context.Context, sinceState string) (created, updated, destroyed []jmapcore.Id, newState string, hasMoreChanges bool) {
 	return b.getCalTracker(b.user(ctx)).Changes(sinceState)
 }
 
-func (b *CalendarsBackend) GetAllCalendars(ctx context.Context) ([]*jmap.Calendar, error) {
+func (b *CalendarsBackend) GetAllCalendars(ctx context.Context) ([]*jmapcalendar.Calendar, error) {
 	list, _, err := b.GetCalendars(ctx, nil)
 	return list, err
 }
 
-func filterCalendars(list []*jmap.Calendar, ids []jmap.Id) ([]*jmap.Calendar, []jmap.Id, error) {
+func filterCalendars(list []*jmapcalendar.Calendar, ids []jmapcore.Id) ([]*jmapcalendar.Calendar, []jmapcore.Id, error) {
 	if ids == nil {
-		return list, []jmap.Id{}, nil
+		return list, []jmapcore.Id{}, nil
 	}
 	if len(ids) == 0 {
-		return []*jmap.Calendar{}, []jmap.Id{}, nil
+		return []*jmapcalendar.Calendar{}, []jmapcore.Id{}, nil
 	}
-	idMap := make(map[jmap.Id]bool, len(ids))
+	idMap := make(map[jmapcore.Id]bool, len(ids))
 	for _, id := range ids {
 		idMap[id] = true
 	}
-	var filtered []*jmap.Calendar
-	foundMap := make(map[jmap.Id]bool, len(list))
+	var filtered []*jmapcalendar.Calendar
+	foundMap := make(map[jmapcore.Id]bool, len(list))
 	for _, c := range list {
 		if idMap[c.ID] || (idMap["cal-default"] && c.IsDefault) {
 			filtered = append(filtered, c)
@@ -293,14 +297,14 @@ func filterCalendars(list []*jmap.Calendar, ids []jmap.Id) ([]*jmap.Calendar, []
 			}
 		}
 	}
-	var notFound []jmap.Id
+	var notFound []jmapcore.Id
 	for _, id := range ids {
 		if !foundMap[id] {
 			notFound = append(notFound, id)
 		}
 	}
 	if notFound == nil {
-		notFound = []jmap.Id{}
+		notFound = []jmapcore.Id{}
 	}
 	return filtered, notFound, nil
 }
@@ -330,7 +334,7 @@ func (b *CalendarsBackend) getCalendarHomeSet(ctx context.Context, calClient *ca
 	return defaultHS
 }
 
-func (b *CalendarsBackend) getCalPath(u string, cid jmap.Id, homeSet string) string {
+func (b *CalendarsBackend) getCalPath(u string, cid jmapcore.Id, homeSet string) string {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	if b.calPaths[u] != nil {
@@ -344,7 +348,7 @@ func (b *CalendarsBackend) getCalPath(u string, cid jmap.Id, homeSet string) str
 	return "calendars/" + u + "/" + string(cid) + "/"
 }
 
-func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmap.Id) ([]*jmap.Calendar, []jmap.Id, error) {
+func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmapcore.Id) ([]*jmapcalendar.Calendar, []jmapcore.Id, error) {
 	calClient, u, err := b.client.CalDAV(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -354,31 +358,31 @@ func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmap.Id) ([]*
 	calList, err := calClient.FindCalendars(ctx, homeSet)
 	if err != nil {
 		// Fallback default personal calendar
-		defaultCal := &jmap.Calendar{
-			ID:        jmap.Id("personal"),
+		defaultCal := &jmapcalendar.Calendar{
+			ID:        jmapcore.Id("personal"),
 			Name:      "Personal Calendar",
 			IsVisible: true,
 			IsDefault: true,
 			SortOrder: 0,
-			MyRights:  jmap.FullCalendarRights(),
+			MyRights:  jmapcalendar.FullCalendarRights(),
 		}
 		b.mu.Lock()
 		if b.calPaths[u] == nil {
-			b.calPaths[u] = make(map[jmap.Id]string)
+			b.calPaths[u] = make(map[jmapcore.Id]string)
 		}
 		b.calPaths[u]["personal"] = strings.TrimRight(homeSet, "/") + "/personal/"
-		b.calsCache[u] = []*jmap.Calendar{defaultCal}
+		b.calsCache[u] = []*jmapcalendar.Calendar{defaultCal}
 		b.calsCacheTime[u] = time.Now()
 		b.mu.Unlock()
-		return filterCalendars([]*jmap.Calendar{defaultCal}, ids)
+		return filterCalendars([]*jmapcalendar.Calendar{defaultCal}, ids)
 	}
 
 	b.mu.RLock()
 	defID := b.defaultCalendars[u]
 	b.mu.RUnlock()
 
-	var list []*jmap.Calendar
-	pathMap := make(map[jmap.Id]string)
+	var list []*jmapcalendar.Calendar
+	pathMap := make(map[jmapcore.Id]string)
 	for _, c := range calList {
 		calID := path.Base(strings.TrimRight(c.Path, "/"))
 		if calID == "inbox" || calID == "outbox" || calID == "trashbin" {
@@ -390,7 +394,7 @@ func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmap.Id) ([]*
 			name = "Personal Calendar"
 		}
 
-		cid := jmap.Id(calID)
+		cid := jmapcore.Id(calID)
 		isDefault := false
 		if defID != "" {
 			isDefault = (cid == defID)
@@ -404,14 +408,14 @@ func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmap.Id) ([]*
 			incAvail = b.calProps[u][cid].IncludeInAvailability
 		}
 		b.mu.RUnlock()
-		cal := &jmap.Calendar{
+		cal := &jmapcalendar.Calendar{
 			ID:                    cid,
 			Name:                  name,
 			IsVisible:             true,
 			IsDefault:             isDefault,
 			SortOrder:             0,
 			IncludeInAvailability: incAvail,
-			MyRights:              jmap.FullCalendarRights(),
+			MyRights:              jmapcalendar.FullCalendarRights(),
 		}
 		b.mu.RLock()
 		if b.calProps[u] != nil && b.calProps[u][cid] != nil {
@@ -439,17 +443,17 @@ func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmap.Id) ([]*
 	}
 
 	if len(list) == 0 {
-		cid := jmap.Id("personal")
+		cid := jmapcore.Id("personal")
 		pathMap[cid] = strings.TrimRight(homeSet, "/") + "/personal/"
 		incAvail := "all"
-		cal := &jmap.Calendar{
+		cal := &jmapcalendar.Calendar{
 			ID:                    cid,
 			Name:                  "Personal Calendar",
 			IsVisible:             true,
 			IsDefault:             true,
 			SortOrder:             0,
 			IncludeInAvailability: incAvail,
-			MyRights:              jmap.FullCalendarRights(),
+			MyRights:              jmapcalendar.FullCalendarRights(),
 		}
 		b.mu.RLock()
 		if b.calProps[u] != nil && b.calProps[u][cid] != nil {
@@ -478,7 +482,7 @@ func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmap.Id) ([]*
 
 	b.mu.Lock()
 	if b.calPaths[u] == nil {
-		b.calPaths[u] = make(map[jmap.Id]string)
+		b.calPaths[u] = make(map[jmapcore.Id]string)
 	}
 	for k, v := range pathMap {
 		b.calPaths[u][k] = v
@@ -500,13 +504,13 @@ func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmap.Id) ([]*
 		b.emitStateChange(u, "Calendar", st)
 	}
 
-	callerAccountID, hasCaller := jmap.PrincipalAccountIDFromContext(ctx)
-	targetAccountID, _ := jmap.AccountIDFromContext(ctx)
+	callerAccountID, hasCaller := jmapauth.PrincipalAccountIDFromContext(ctx)
+	targetAccountID, _ := jmapauth.AccountIDFromContext(ctx)
 	isSharedCaller := hasCaller && callerAccountID != "" && callerAccountID != targetAccountID
 
 	callerUser := ""
 	if hasCaller && callerAccountID != "" {
-		if s, ok := jmap.SubjectForAccountID(callerAccountID); ok && s != "" {
+		if s, ok := jmapauth.SubjectForAccountID(callerAccountID); ok && s != "" {
 			callerUser = s
 		} else {
 			callerUser = callerAccountID
@@ -514,7 +518,7 @@ func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmap.Id) ([]*
 	}
 
 	if isSharedCaller {
-		var sharedList []*jmap.Calendar
+		var sharedList []*jmapcalendar.Calendar
 		for _, cal := range list {
 			if cal != nil && cal.ShareWith != nil && cal.ShareWith[callerAccountID] != nil {
 				calCopy := *cal
@@ -541,14 +545,14 @@ func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmap.Id) ([]*
 
 	for _, cal := range list {
 		if cal != nil && cal.ShareWith == nil {
-			cal.ShareWith = make(map[string]*jmap.CalendarRights)
+			cal.ShareWith = make(map[string]*jmapcalendar.CalendarRights)
 		}
 	}
 
 	return filterCalendars(list, ids)
 }
 
-func (b *CalendarsBackend) CreateCalendar(ctx context.Context, cal *jmap.Calendar) (*jmap.Calendar, error) {
+func (b *CalendarsBackend) CreateCalendar(ctx context.Context, cal *jmapcalendar.Calendar) (*jmapcalendar.Calendar, error) {
 	if cal == nil {
 		return nil, fmt.Errorf("calendar is nil")
 	}
@@ -558,15 +562,15 @@ func (b *CalendarsBackend) CreateCalendar(ctx context.Context, cal *jmap.Calenda
 	}
 
 	if cal.ID == "" {
-		cal.ID = jmap.Id(fmt.Sprintf("cal-%d", time.Now().UnixNano()))
+		cal.ID = jmapcore.Id(fmt.Sprintf("cal-%d", time.Now().UnixNano()))
 	}
 	if cal.IncludeInAvailability == "" {
 		cal.IncludeInAvailability = "all"
 	}
 	if cal.ShareWith == nil {
-		cal.ShareWith = make(map[string]*jmap.CalendarRights)
+		cal.ShareWith = make(map[string]*jmapcalendar.CalendarRights)
 	}
-	cal.MyRights = jmap.FullCalendarRights()
+	cal.MyRights = jmapcalendar.FullCalendarRights()
 
 	homeSet := b.getCalendarHomeSet(ctx, calClient, u)
 	calPath := strings.TrimRight(homeSet, "/") + "/" + string(cal.ID) + "/"
@@ -574,11 +578,11 @@ func (b *CalendarsBackend) CreateCalendar(ctx context.Context, cal *jmap.Calenda
 
 	b.mu.Lock()
 	if b.calPaths[u] == nil {
-		b.calPaths[u] = make(map[jmap.Id]string)
+		b.calPaths[u] = make(map[jmapcore.Id]string)
 	}
 	b.calPaths[u][cal.ID] = calPath
 	if b.calProps[u] == nil {
-		b.calProps[u] = make(map[jmap.Id]*jmap.Calendar)
+		b.calProps[u] = make(map[jmapcore.Id]*jmapcalendar.Calendar)
 	}
 	calCopy := *cal
 	b.calProps[u][cal.ID] = &calCopy
@@ -593,22 +597,22 @@ func (b *CalendarsBackend) CreateCalendar(ctx context.Context, cal *jmap.Calenda
 	return cal, nil
 }
 
-func (b *CalendarsBackend) UpdateCalendar(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.Calendar, error) {
-	cals, notFound, err := b.GetCalendars(ctx, []jmap.Id{id})
+func (b *CalendarsBackend) UpdateCalendar(ctx context.Context, id jmapcore.Id, patch map[string]any) (*jmapcalendar.Calendar, error) {
+	cals, notFound, err := b.GetCalendars(ctx, []jmapcore.Id{id})
 	if err != nil {
 		return nil, err
 	}
 	if len(notFound) > 0 || len(cals) == 0 {
-		return nil, jmap.ErrNotFound
+		return nil, jmapcore.ErrNotFound
 	}
 
-	callerAccountID, hasCaller := jmap.PrincipalAccountIDFromContext(ctx)
-	targetAccountID, _ := jmap.AccountIDFromContext(ctx)
+	callerAccountID, hasCaller := jmapauth.PrincipalAccountIDFromContext(ctx)
+	targetAccountID, _ := jmapauth.AccountIDFromContext(ctx)
 	isSharedCaller := hasCaller && callerAccountID != "" && callerAccountID != targetAccountID
 
 	callerUser := ""
 	if hasCaller && callerAccountID != "" {
-		if s, ok := jmap.SubjectForAccountID(callerAccountID); ok && s != "" {
+		if s, ok := jmapauth.SubjectForAccountID(callerAccountID); ok && s != "" {
 			callerUser = s
 		} else {
 			callerUser = callerAccountID
@@ -618,11 +622,11 @@ func (b *CalendarsBackend) UpdateCalendar(ctx context.Context, id jmap.Id, patch
 	if isSharedCaller {
 		b.mu.Lock()
 		if b.userCalOverrides[callerUser] == nil {
-			b.userCalOverrides[callerUser] = make(map[jmap.Id]*jmap.Calendar)
+			b.userCalOverrides[callerUser] = make(map[jmapcore.Id]*jmapcalendar.Calendar)
 		}
 		ov := b.userCalOverrides[callerUser][id]
 		if ov == nil {
-			ov = &jmap.Calendar{ID: id}
+			ov = &jmapcalendar.Calendar{ID: id}
 			b.userCalOverrides[callerUser][id] = ov
 		}
 		if nameVal, hasName := patch["name"]; hasName {
@@ -638,17 +642,17 @@ func (b *CalendarsBackend) UpdateCalendar(ctx context.Context, id jmap.Id, patch
 			}
 		}
 		b.mu.Unlock()
-		cals, _, _ = b.GetCalendars(ctx, []jmap.Id{id})
+		cals, _, _ = b.GetCalendars(ctx, []jmapcore.Id{id})
 		if len(cals) > 0 {
 			return cals[0], nil
 		}
-		return &jmap.Calendar{ID: id, Name: ov.Name, Description: ov.Description}, nil
+		return &jmapcalendar.Calendar{ID: id, Name: ov.Name, Description: ov.Description}, nil
 	}
 
 	u := b.user(ctx)
 	b.mu.Lock()
 	if b.calProps[u] == nil {
-		b.calProps[u] = make(map[jmap.Id]*jmap.Calendar)
+		b.calProps[u] = make(map[jmapcore.Id]*jmapcalendar.Calendar)
 	}
 	cp := b.calProps[u][id]
 	if cp == nil {
@@ -657,7 +661,7 @@ func (b *CalendarsBackend) UpdateCalendar(ctx context.Context, id jmap.Id, patch
 		b.calProps[u][id] = cp
 	}
 
-	oldShareWith := make(map[string]*jmap.CalendarRights)
+	oldShareWith := make(map[string]*jmapcalendar.CalendarRights)
 	if cp.ShareWith != nil {
 		for k, v := range cp.ShareWith {
 			if v != nil {
@@ -690,28 +694,28 @@ func (b *CalendarsBackend) UpdateCalendar(ctx context.Context, id jmap.Id, patch
 	type shareChange struct {
 		pUser string
 		pID   string
-		oldR  *jmap.CalendarRights
-		newR  *jmap.CalendarRights
+		oldR  *jmapcalendar.CalendarRights
+		newR  *jmapcalendar.CalendarRights
 	}
 	var changes []shareChange
 
 	for pID := range allPrincipals {
 		oldR := oldShareWith[pID]
-		var newR *jmap.CalendarRights
+		var newR *jmapcalendar.CalendarRights
 		if cp.ShareWith != nil {
 			newR = cp.ShareWith[pID]
 		}
 		if !equalCalendarRights(oldR, newR) {
 			pUser := pID
-			if s, ok := jmap.SubjectForAccountID(pID); ok && s != "" {
+			if s, ok := jmapauth.SubjectForAccountID(pID); ok && s != "" {
 				pUser = s
 			}
-			notifOldR := &jmap.CalendarRights{}
+			notifOldR := &jmapcalendar.CalendarRights{}
 			if oldR != nil {
 				rCopy := *oldR
 				notifOldR = &rCopy
 			}
-			notifNewR := &jmap.CalendarRights{}
+			notifNewR := &jmapcalendar.CalendarRights{}
 			if newR != nil {
 				rCopy := *newR
 				notifNewR = &rCopy
@@ -734,12 +738,12 @@ func (b *CalendarsBackend) UpdateCalendar(ctx context.Context, id jmap.Id, patch
 	}
 
 	for _, ch := range changes {
-		notifID := jmap.Id(fmt.Sprintf("sn-%d-%s", time.Now().UnixNano(), ch.pID))
+		notifID := jmapcore.Id(fmt.Sprintf("sn-%d-%s", time.Now().UnixNano(), ch.pID))
 		ownerSubj := u
 		ownerName := b.lookupUserNameLocked(ownerSubj)
-		notif := &jmap.ShareNotification{
+		notif := &jmapcalendar.ShareNotification{
 			ID: notifID,
-			ChangedBy: jmap.ShareNotificationPerson{
+			ChangedBy: jmapcalendar.ShareNotificationPerson{
 				PrincipalID: targetAccountID,
 				Name:        ownerName,
 				Email:       ownerSubj,
@@ -752,7 +756,7 @@ func (b *CalendarsBackend) UpdateCalendar(ctx context.Context, id jmap.Id, patch
 			Name:            nil,
 		}
 		if b.shareNotificationsCache[ch.pUser] == nil {
-			b.shareNotificationsCache[ch.pUser] = make(map[jmap.Id]*jmap.ShareNotification)
+			b.shareNotificationsCache[ch.pUser] = make(map[jmapcore.Id]*jmapcalendar.ShareNotification)
 		}
 		b.shareNotificationsCache[ch.pUser][notifID] = notif
 		stNotif := b.getShareNotificationTracker(ch.pUser).Record(notifID, "create")
@@ -768,16 +772,16 @@ func (b *CalendarsBackend) UpdateCalendar(ctx context.Context, id jmap.Id, patch
 		b.emitStateChange(sn.user, "ShareNotification", sn.state)
 	}
 
-	cals, _, _ = b.GetCalendars(ctx, []jmap.Id{id})
+	cals, _, _ = b.GetCalendars(ctx, []jmapcore.Id{id})
 	if len(cals) > 0 {
 		return cals[0], nil
 	}
 	name, _ := patch["name"].(string)
-	return &jmap.Calendar{ID: id, Name: name, IncludeInAvailability: cp.IncludeInAvailability, MyRights: jmap.FullCalendarRights()}, nil
+	return &jmapcalendar.Calendar{ID: id, Name: name, IncludeInAvailability: cp.IncludeInAvailability, MyRights: jmapcalendar.FullCalendarRights()}, nil
 }
 
-func (b *CalendarsBackend) DeleteCalendar(ctx context.Context, id jmap.Id) (bool, error) {
-	cals, notFound, err := b.GetCalendars(ctx, []jmap.Id{id})
+func (b *CalendarsBackend) DeleteCalendar(ctx context.Context, id jmapcore.Id) (bool, error) {
+	cals, notFound, err := b.GetCalendars(ctx, []jmapcore.Id{id})
 	if err != nil {
 		return false, err
 	}
@@ -799,7 +803,7 @@ func (b *CalendarsBackend) DeleteCalendar(ctx context.Context, id jmap.Id) (bool
 		delete(b.calPaths[u], id)
 	}
 	if b.calsCache[u] != nil {
-		var filtered []*jmap.Calendar
+		var filtered []*jmapcalendar.Calendar
 		for _, c := range b.calsCache[u] {
 			if c.ID != id {
 				filtered = append(filtered, c)
@@ -815,11 +819,11 @@ func (b *CalendarsBackend) DeleteCalendar(ctx context.Context, id jmap.Id) (bool
 	return true, nil
 }
 
-func (b *CalendarsBackend) SetDefaultCalendar(ctx context.Context, id jmap.Id) error {
+func (b *CalendarsBackend) SetDefaultCalendar(ctx context.Context, id jmapcore.Id) error {
 	u := b.user(ctx)
 	b.mu.Lock()
 	if b.defaultCalendars == nil {
-		b.defaultCalendars = make(map[string]jmap.Id)
+		b.defaultCalendars = make(map[string]jmapcore.Id)
 	}
 	b.defaultCalendars[u] = id
 	b.calsCacheTime[u] = time.Time{}
@@ -827,7 +831,7 @@ func (b *CalendarsBackend) SetDefaultCalendar(ctx context.Context, id jmap.Id) e
 	return nil
 }
 
-func (b *CalendarsBackend) CalendarHasEvents(ctx context.Context, id jmap.Id) (bool, error) {
+func (b *CalendarsBackend) CalendarHasEvents(ctx context.Context, id jmapcore.Id) (bool, error) {
 	events, _, err := b.GetCalendarEvents(ctx, nil)
 	if err != nil {
 		return false, err
@@ -845,35 +849,35 @@ func (b *CalendarsBackend) CalendarEventState(ctx context.Context) string {
 	return b.getEventTracker(b.user(ctx)).State()
 }
 
-func (b *CalendarsBackend) CalendarEventChanges(ctx context.Context, sinceState string) (created, updated, destroyed []jmap.Id, newState string, hasMoreChanges bool) {
+func (b *CalendarsBackend) CalendarEventChanges(ctx context.Context, sinceState string) (created, updated, destroyed []jmapcore.Id, newState string, hasMoreChanges bool) {
 	return b.getEventTracker(b.user(ctx)).Changes(sinceState)
 }
 
-func (b *CalendarsBackend) GetAllCalendarEvents(ctx context.Context) ([]*jmap.CalendarEvent, error) {
+func (b *CalendarsBackend) GetAllCalendarEvents(ctx context.Context) ([]*jmapcalendar.CalendarEvent, error) {
 	evs, _, err := b.GetCalendarEvents(ctx, nil)
 	return evs, err
 }
 
-func (b *CalendarsBackend) buildEventResponseFromCache(u string, ids []jmap.Id) ([]*jmap.CalendarEvent, []jmap.Id) {
+func (b *CalendarsBackend) buildEventResponseFromCache(u string, ids []jmapcore.Id) ([]*jmapcalendar.CalendarEvent, []jmapcore.Id) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	var list []*jmap.CalendarEvent
-	var notFound []jmap.Id
+	var list []*jmapcalendar.CalendarEvent
+	var notFound []jmapcore.Id
 	if ids == nil {
 		for _, ev := range b.eventsCache[u] {
 			list = append(list, ev)
 		}
 	} else if len(ids) == 0 {
-		list = []*jmap.CalendarEvent{}
-		notFound = []jmap.Id{}
+		list = []*jmapcalendar.CalendarEvent{}
+		notFound = []jmapcore.Id{}
 	} else {
 		for _, id := range ids {
 			if ev, ok := b.eventsCache[u][id]; ok {
 				list = append(list, ev)
 			} else if strings.Contains(string(id), "#") {
 				parts := strings.SplitN(string(id), "#", 2)
-				masterID := jmap.Id(parts[0])
+				masterID := jmapcore.Id(parts[0])
 				recID := parts[1]
 				if master, okMaster := b.eventsCache[u][masterID]; okMaster {
 					if master.Excluded != nil && master.Excluded[recID] {
@@ -914,12 +918,12 @@ func (b *CalendarsBackend) buildEventResponseFromCache(u string, ids []jmap.Id) 
 		}
 	}
 	if notFound == nil {
-		notFound = []jmap.Id{}
+		notFound = []jmapcore.Id{}
 	}
 	return list, notFound
 }
 
-func (b *CalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmap.Id) ([]*jmap.CalendarEvent, []jmap.Id, error) {
+func (b *CalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmapcore.Id) ([]*jmapcalendar.CalendarEvent, []jmapcore.Id, error) {
 	calClient, u, err := b.client.CalDAV(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -929,7 +933,7 @@ func (b *CalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmap.Id)
 	homeSet := b.getCalendarHomeSet(ctx, calClient, u)
 
 	type calResult struct {
-		calID jmap.Id
+		calID jmapcore.Id
 		objs  []caldav.CalendarObject
 	}
 	resChan := make(chan calResult, len(cals))
@@ -937,7 +941,7 @@ func (b *CalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmap.Id)
 
 	for _, cal := range cals {
 		wg.Add(1)
-		go func(cal *jmap.Calendar) {
+		go func(cal *jmapcalendar.Calendar) {
 			defer wg.Done()
 			calPath := b.getCalPath(u, cal.ID, homeSet)
 			objs, qErr := calClient.QueryCalendar(ctx, calPath, &caldav.CalendarQuery{
@@ -953,7 +957,7 @@ func (b *CalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmap.Id)
 	wg.Wait()
 	close(resChan)
 
-	freshMap := make(map[jmap.Id]*jmap.CalendarEvent)
+	freshMap := make(map[jmapcore.Id]*jmapcalendar.CalendarEvent)
 	for res := range resChan {
 		for _, calObj := range res.objs {
 			if calObj.Data == nil {
@@ -961,24 +965,24 @@ func (b *CalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmap.Id)
 			}
 			name := path.Base(calObj.Path)
 			rawID := strings.TrimSuffix(name, ".ics")
-			evID := jmap.Id(rawID)
+			evID := jmapcore.Id(rawID)
 
 			var buf bytes.Buffer
 			_ = ical.NewEncoder(&buf).Encode(calObj.Data)
 
-			parsedList, pErr := jmap.ParseICalendar(buf.Bytes())
+			parsedList, pErr := jmapcalendar.ParseICalendar(buf.Bytes())
 			if pErr == nil && len(parsedList) > 0 {
 				ev := parsedList[0]
 				ev.ID = evID
 				if existing, ok := freshMap[evID]; ok {
 					if existing.CalendarIDs == nil {
-						existing.CalendarIDs = make(map[jmap.Id]bool)
+						existing.CalendarIDs = make(map[jmapcore.Id]bool)
 					}
 					existing.CalendarIDs[res.calID] = true
 					continue
 				}
 				if ev.CalendarIDs == nil {
-					ev.CalendarIDs = make(map[jmap.Id]bool)
+					ev.CalendarIDs = make(map[jmapcore.Id]bool)
 				}
 				ev.CalendarIDs[res.calID] = true
 				b.mu.RLock()
@@ -1041,7 +1045,7 @@ func (b *CalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmap.Id)
 	return list, notFound, nil
 }
 
-func (b *CalendarsBackend) CreateCalendarEvent(ctx context.Context, event *jmap.CalendarEvent) (*jmap.CalendarEvent, error) {
+func (b *CalendarsBackend) CreateCalendarEvent(ctx context.Context, event *jmapcalendar.CalendarEvent) (*jmapcalendar.CalendarEvent, error) {
 	if event == nil {
 		return nil, fmt.Errorf("event is nil")
 	}
@@ -1051,7 +1055,7 @@ func (b *CalendarsBackend) CreateCalendarEvent(ctx context.Context, event *jmap.
 	}
 
 	if event.ID == "" {
-		event.ID = jmap.Id(fmt.Sprintf("event-%d", time.Now().UnixNano()))
+		event.ID = jmapcore.Id(fmt.Sprintf("event-%d", time.Now().UnixNano()))
 	}
 	if event.UID == "" {
 		event.UID = string(event.ID)
@@ -1060,10 +1064,10 @@ func (b *CalendarsBackend) CreateCalendarEvent(ctx context.Context, event *jmap.
 		event.TimeZone = "Etc/UTC"
 	}
 	if event.UTCStart == "" {
-		event.UTCStart = jmap.ComputeUTCStart(event.Start, event.TimeZone)
+		event.UTCStart = jmapcalendar.ComputeUTCStart(event.Start, event.TimeZone)
 	}
 	if event.UTCEnd == "" {
-		event.UTCEnd = jmap.ComputeUTCEnd(event.Start, event.Duration, event.TimeZone)
+		event.UTCEnd = jmapcalendar.ComputeUTCEnd(event.Start, event.Duration, event.TimeZone)
 	}
 
 	homeSet := b.getCalendarHomeSet(ctx, calClient, u)
@@ -1071,19 +1075,19 @@ func (b *CalendarsBackend) CreateCalendarEvent(ctx context.Context, event *jmap.
 	if len(event.CalendarIDs) > 0 {
 		cals, _, err := b.GetCalendars(ctx, nil)
 		if err == nil {
-			calMap := make(map[jmap.Id]bool, len(cals))
+			calMap := make(map[jmapcore.Id]bool, len(cals))
 			for _, c := range cals {
 				calMap[c.ID] = true
 			}
 			for cid := range event.CalendarIDs {
 				if cid != "cal-default" && !calMap[cid] {
-					return nil, jmap.SetError{Type: "notFound", Description: fmt.Sprintf("calendar %s not found", cid)}
+					return nil, jmapcore.SetError{Type: "notFound", Description: fmt.Sprintf("calendar %s not found", cid)}
 				}
 			}
 		}
 	}
 
-	calObj := jmap.CalendarEventToICalendar(event, "", "", "", "")
+	calObj := jmapcalendar.CalendarEventToICalendar(event, "", "", "", "")
 	written := false
 	for cid, isSet := range event.CalendarIDs {
 		if isSet && cid != "cal-default" && cid != "" {
@@ -1104,14 +1108,14 @@ func (b *CalendarsBackend) CreateCalendarEvent(ctx context.Context, event *jmap.
 			return nil, fmt.Errorf("failed to put calendar object via caldav client: %w", putErr)
 		}
 		if event.CalendarIDs == nil {
-			event.CalendarIDs = make(map[jmap.Id]bool)
+			event.CalendarIDs = make(map[jmapcore.Id]bool)
 		}
 		event.CalendarIDs["personal"] = true
 	}
 
 	b.mu.Lock()
 	if b.eventsCache[u] == nil {
-		b.eventsCache[u] = make(map[jmap.Id]*jmap.CalendarEvent)
+		b.eventsCache[u] = make(map[jmapcore.Id]*jmapcalendar.CalendarEvent)
 	}
 	action := "create"
 	if _, exists := b.eventsCache[u][event.ID]; exists {
@@ -1127,7 +1131,7 @@ func (b *CalendarsBackend) CreateCalendarEvent(ctx context.Context, event *jmap.
 	return event, nil
 }
 
-func parseAlertOffset(alert *jmap.JSCalendarAlert) time.Duration {
+func parseAlertOffset(alert *jmapcalendar.JSCalendarAlert) time.Duration {
 	if alert == nil || alert.Trigger == nil {
 		return 0
 	}
@@ -1135,9 +1139,9 @@ func parseAlertOffset(alert *jmap.JSCalendarAlert) time.Duration {
 	switch t := alert.Trigger.(type) {
 	case string:
 		offsetStr = t
-	case jmap.OffsetTrigger:
+	case jmapcalendar.OffsetTrigger:
 		offsetStr = t.Offset
-	case *jmap.OffsetTrigger:
+	case *jmapcalendar.OffsetTrigger:
 		offsetStr = t.Offset
 	case map[string]any:
 		if s, ok := t["offset"].(string); ok {
@@ -1188,14 +1192,14 @@ func parseEventTime(startStr, tzName string) time.Time {
 	return time.Time{}
 }
 
-func (b *CalendarsBackend) scheduleEventAlerts(user string, ev *jmap.CalendarEvent) {
+func (b *CalendarsBackend) scheduleEventAlerts(user string, ev *jmapcalendar.CalendarEvent) {
 	b.mu.RLock()
 	bc := b.broadcaster
 	b.mu.RUnlock()
 	if bc == nil || ev == nil || len(ev.Alerts) == 0 || ev.Start == "" {
 		return
 	}
-	accountID := jmap.AccountIDForSubject(user)
+	accountID := jmapauth.AccountIDForSubject(user)
 	startTime := parseEventTime(ev.Start, ev.TimeZone)
 	if startTime.IsZero() {
 		return
@@ -1215,7 +1219,7 @@ func (b *CalendarsBackend) scheduleEventAlerts(user string, ev *jmap.CalendarEve
 		evID := string(ev.ID)
 		evUID := ev.UID
 		time.AfterFunc(delay, func() {
-			calAlert := &jmap.CalendarAlert{
+			calAlert := &jmappush.CalendarAlert{
 				Type:            "CalendarAlert",
 				AccountID:       accountID,
 				CalendarEventID: evID,
@@ -1268,7 +1272,7 @@ func setNestedMapValue(m map[string]any, parts []string, val any) {
 	setNestedMapValue(sub, parts[1:], val)
 }
 
-func applyCalendarPatch(cal *jmap.Calendar, patch map[string]any) error {
+func applyCalendarPatch(cal *jmapcalendar.Calendar, patch map[string]any) error {
 	raw, err := json.Marshal(cal)
 	if err != nil {
 		return err
@@ -1291,7 +1295,7 @@ func applyCalendarPatch(cal *jmap.Calendar, patch map[string]any) error {
 	}
 	origID := cal.ID
 	origRights := cal.MyRights
-	var updatedCal jmap.Calendar
+	var updatedCal jmapcalendar.Calendar
 	if err := json.Unmarshal(rawUpdated, &updatedCal); err != nil {
 		return err
 	}
@@ -1301,7 +1305,7 @@ func applyCalendarPatch(cal *jmap.Calendar, patch map[string]any) error {
 	return nil
 }
 
-func applyEventPatch(ev *jmap.CalendarEvent, patch map[string]any) error {
+func applyEventPatch(ev *jmapcalendar.CalendarEvent, patch map[string]any) error {
 	raw, err := json.Marshal(ev)
 	if err != nil {
 		return err
@@ -1336,7 +1340,7 @@ func applyEventPatch(ev *jmap.CalendarEvent, patch map[string]any) error {
 	origUID := ev.UID
 	origType := ev.Type
 	origCalIDs := ev.CalendarIDs
-	var updatedEv jmap.CalendarEvent
+	var updatedEv jmapcalendar.CalendarEvent
 	if err := json.Unmarshal(rawUpdated, &updatedEv); err != nil {
 		return err
 	}
@@ -1356,9 +1360,9 @@ func applyEventPatch(ev *jmap.CalendarEvent, patch map[string]any) error {
 
 	if cid, ok := m["calendarId"].(string); ok && cid != "" {
 		if updatedEv.CalendarIDs == nil {
-			updatedEv.CalendarIDs = make(map[jmap.Id]bool)
+			updatedEv.CalendarIDs = make(map[jmapcore.Id]bool)
 		}
-		updatedEv.CalendarIDs[jmap.Id(cid)] = true
+		updatedEv.CalendarIDs[jmapcore.Id(cid)] = true
 	}
 
 	if len(updatedEv.CalendarIDs) == 0 {
@@ -1373,19 +1377,19 @@ func applyEventPatch(ev *jmap.CalendarEvent, patch map[string]any) error {
 		if locVal == nil {
 			updatedEv.Locations = nil
 		} else if locStr, ok := locVal.(string); ok {
-			updatedEv.Locations = map[string]*jmap.JSCalendarLocation{
+			updatedEv.Locations = map[string]*jmapcalendar.JSCalendarLocation{
 				"loc-1": {
 					Type: "Location",
 					Name: locStr,
 				},
 			}
 		} else if locBytes, err := json.Marshal(locVal); err == nil {
-			var loc jmap.JSCalendarLocation
+			var loc jmapcalendar.JSCalendarLocation
 			if err := json.Unmarshal(locBytes, &loc); err == nil {
 				if loc.Type == "" {
 					loc.Type = "Location"
 				}
-				updatedEv.Locations = map[string]*jmap.JSCalendarLocation{
+				updatedEv.Locations = map[string]*jmapcalendar.JSCalendarLocation{
 					"loc-1": &loc,
 				}
 			}
@@ -1400,7 +1404,7 @@ func applyEventPatch(ev *jmap.CalendarEvent, patch map[string]any) error {
 	}
 	if end, ok := m["end"].(string); ok && end != "" {
 		if updatedEv.Start != "" {
-			updatedEv.Duration = jmap.IcalDurationBetween(updatedEv.Start, end)
+			updatedEv.Duration = jmapcalendar.IcalDurationBetween(updatedEv.Start, end)
 		}
 	}
 	if rrule, hasRrule := m["recurrenceRule"]; hasRrule {
@@ -1408,10 +1412,10 @@ func applyEventPatch(ev *jmap.CalendarEvent, patch map[string]any) error {
 			updatedEv.RecurrenceRules = nil
 			updatedEv.RecurrenceRule = nil
 		} else if rruleBytes, err := json.Marshal(rrule); err == nil {
-			var r jmap.JSCalendarRecurrenceRule
+			var r jmapcalendar.JSCalendarRecurrenceRule
 			if err := json.Unmarshal(rruleBytes, &r); err == nil {
 				updatedEv.RecurrenceRule = &r
-				updatedEv.RecurrenceRules = []*jmap.JSCalendarRecurrenceRule{&r}
+				updatedEv.RecurrenceRules = []*jmapcalendar.JSCalendarRecurrenceRule{&r}
 			}
 		}
 	}
@@ -1420,10 +1424,10 @@ func applyEventPatch(ev *jmap.CalendarEvent, patch map[string]any) error {
 			updatedEv.ExcludedRecurrenceRules = nil
 			updatedEv.ExcludedRecurrenceRule = nil
 		} else if exruleBytes, err := json.Marshal(exrule); err == nil {
-			var r jmap.JSCalendarRecurrenceRule
+			var r jmapcalendar.JSCalendarRecurrenceRule
 			if err := json.Unmarshal(exruleBytes, &r); err == nil {
 				updatedEv.ExcludedRecurrenceRule = &r
-				updatedEv.ExcludedRecurrenceRules = []*jmap.JSCalendarRecurrenceRule{&r}
+				updatedEv.ExcludedRecurrenceRules = []*jmapcalendar.JSCalendarRecurrenceRule{&r}
 			}
 		}
 	}
@@ -1440,7 +1444,7 @@ func applyEventPatch(ev *jmap.CalendarEvent, patch map[string]any) error {
 		if t, err := time.Parse(time.RFC3339, utcStartStr); err == nil {
 			loc := time.UTC
 			if updatedEv.TimeZone != "" && updatedEv.TimeZone != "floating" {
-				loc = jmap.LoadLocation(updatedEv.TimeZone)
+				loc = jmapcalendar.LoadLocation(updatedEv.TimeZone)
 			}
 			updatedEv.Start = t.In(loc).Format("2006-01-02T15:04:05")
 			updatedEv.UTCStart = t.UTC().Format(time.RFC3339)
@@ -1448,15 +1452,15 @@ func applyEventPatch(ev *jmap.CalendarEvent, patch map[string]any) error {
 	}
 	if utcEndStr, ok := patch["utcEnd"].(string); ok && utcEndStr != "" {
 		if updatedEv.UTCStart != "" {
-			if dur := jmap.IcalDurationBetween(updatedEv.UTCStart, utcEndStr); dur != "" {
+			if dur := jmapcalendar.IcalDurationBetween(updatedEv.UTCStart, utcEndStr); dur != "" {
 				updatedEv.Duration = dur
 			}
 		}
 		updatedEv.UTCEnd = utcEndStr
 	}
 	updatedEv.Start = strings.TrimSuffix(updatedEv.Start, "Z")
-	updatedEv.UTCStart = jmap.ComputeUTCStart(updatedEv.Start, updatedEv.TimeZone)
-	updatedEv.UTCEnd = jmap.ComputeUTCEnd(updatedEv.Start, updatedEv.Duration, updatedEv.TimeZone)
+	updatedEv.UTCStart = jmapcalendar.ComputeUTCStart(updatedEv.Start, updatedEv.TimeZone)
+	updatedEv.UTCEnd = jmapcalendar.ComputeUTCEnd(updatedEv.Start, updatedEv.Duration, updatedEv.TimeZone)
 
 	for _, p := range updatedEv.Participants {
 		if p != nil {
@@ -1489,27 +1493,27 @@ func applyEventPatch(ev *jmap.CalendarEvent, patch map[string]any) error {
 	return nil
 }
 
-func (b *CalendarsBackend) UpdateCalendarEvent(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.CalendarEvent, error) {
+func (b *CalendarsBackend) UpdateCalendarEvent(ctx context.Context, id jmapcore.Id, patch map[string]any) (*jmapcalendar.CalendarEvent, error) {
 	if strings.Contains(string(id), "#") {
 		parts := strings.SplitN(string(id), "#", 2)
-		masterID := jmap.Id(parts[0])
+		masterID := jmapcore.Id(parts[0])
 		recID := parts[1]
-		masters, _, err := b.GetCalendarEvents(ctx, []jmap.Id{masterID})
+		masters, _, err := b.GetCalendarEvents(ctx, []jmapcore.Id{masterID})
 		if err != nil || len(masters) == 0 {
-			return nil, jmap.SetError{Type: "notFound", Description: fmt.Sprintf("event %s not found", id)}
+			return nil, jmapcore.SetError{Type: "notFound", Description: fmt.Sprintf("event %s not found", id)}
 		}
 		master := masters[0]
 		if len(master.RecurrenceRules) == 0 && len(master.RecurrenceOverrides) == 0 {
 			return b.UpdateCalendarEvent(ctx, masterID, patch)
 		}
 		if master.Excluded != nil && master.Excluded[recID] {
-			return nil, jmap.SetError{Type: "notFound", Description: fmt.Sprintf("instance %s not found", id)}
+			return nil, jmapcore.SetError{Type: "notFound", Description: fmt.Sprintf("instance %s not found", id)}
 		}
 		validOccurrence := false
 		if _, ok := master.RecurrenceOverrides[recID]; ok {
 			validOccurrence = true
 		} else {
-			instances := jmap.ExpandRecurrenceInstances(master, time.Time{})
+			instances := jmapcalendar.ExpandRecurrenceInstances(master, time.Time{})
 			for _, inst := range instances {
 				if inst.RecurrenceID == recID || strings.TrimSuffix(inst.RecurrenceID, "Z") == strings.TrimSuffix(recID, "Z") {
 					validOccurrence = true
@@ -1518,7 +1522,7 @@ func (b *CalendarsBackend) UpdateCalendarEvent(ctx context.Context, id jmap.Id, 
 			}
 		}
 		if !validOccurrence {
-			return nil, jmap.SetError{Type: "notFound", Description: fmt.Sprintf("instance %s not found", id)}
+			return nil, jmapcore.SetError{Type: "notFound", Description: fmt.Sprintf("instance %s not found", id)}
 		}
 
 		if master.RecurrenceOverrides == nil {
@@ -1558,7 +1562,7 @@ func (b *CalendarsBackend) UpdateCalendarEvent(ctx context.Context, id jmap.Id, 
 
 	u := b.user(ctx)
 	b.mu.RLock()
-	var ev *jmap.CalendarEvent
+	var ev *jmapcalendar.CalendarEvent
 	if b.eventsCache[u] != nil {
 		if cached, ok := b.eventsCache[u][id]; ok && cached != nil {
 			evCopy := *cached
@@ -1568,14 +1572,14 @@ func (b *CalendarsBackend) UpdateCalendarEvent(ctx context.Context, id jmap.Id, 
 	b.mu.RUnlock()
 
 	if ev == nil {
-		events, notFound, err := b.GetCalendarEvents(ctx, []jmap.Id{id})
+		events, notFound, err := b.GetCalendarEvents(ctx, []jmapcore.Id{id})
 		if err != nil || len(notFound) > 0 || len(events) == 0 {
-			return nil, fmt.Errorf("event %s not found: %w", id, jmap.ErrNotFound)
+			return nil, fmt.Errorf("event %s not found: %w", id, jmapcore.ErrNotFound)
 		}
 		ev = events[0]
 	}
 
-	oldCalendarIDs := make(map[jmap.Id]bool)
+	oldCalendarIDs := make(map[jmapcore.Id]bool)
 	for cid, isSet := range ev.CalendarIDs {
 		if isSet && cid != "" && cid != "cal-default" {
 			oldCalendarIDs[cid] = true
@@ -1593,8 +1597,8 @@ func (b *CalendarsBackend) UpdateCalendarEvent(ctx context.Context, id jmap.Id, 
 		ev.Sequence++
 	}
 	ev.Updated = time.Now().UTC().Format(time.RFC3339)
-	ev.UTCStart = jmap.ComputeUTCStart(ev.Start, ev.TimeZone)
-	ev.UTCEnd = jmap.ComputeUTCEnd(ev.Start, ev.Duration, ev.TimeZone)
+	ev.UTCStart = jmapcalendar.ComputeUTCStart(ev.Start, ev.TimeZone)
+	ev.UTCEnd = jmapcalendar.ComputeUTCEnd(ev.Start, ev.Duration, ev.TimeZone)
 
 	calClient, u, cErr := b.client.CalDAV(ctx)
 	if cErr == nil {
@@ -1610,12 +1614,12 @@ func (b *CalendarsBackend) UpdateCalendarEvent(ctx context.Context, id jmap.Id, 
 	return b.CreateCalendarEvent(ctx, ev)
 }
 
-func (b *CalendarsBackend) DeleteCalendarEvent(ctx context.Context, id jmap.Id) (bool, error) {
+func (b *CalendarsBackend) DeleteCalendarEvent(ctx context.Context, id jmapcore.Id) (bool, error) {
 	if strings.Contains(string(id), "#") {
 		parts := strings.SplitN(string(id), "#", 2)
-		masterID := jmap.Id(parts[0])
+		masterID := jmapcore.Id(parts[0])
 		recID := parts[1]
-		masters, _, err := b.GetCalendarEvents(ctx, []jmap.Id{masterID})
+		masters, _, err := b.GetCalendarEvents(ctx, []jmapcore.Id{masterID})
 		if err == nil && len(masters) > 0 {
 			master := masters[0]
 			if len(master.RecurrenceRules) == 0 && len(master.RecurrenceOverrides) == 0 {
@@ -1637,7 +1641,7 @@ func (b *CalendarsBackend) DeleteCalendarEvent(ctx context.Context, id jmap.Id) 
 		return false, nil
 	}
 
-	events, notFound, err := b.GetCalendarEvents(ctx, []jmap.Id{id})
+	events, notFound, err := b.GetCalendarEvents(ctx, []jmapcore.Id{id})
 	if err != nil {
 		return false, err
 	}
@@ -1678,7 +1682,7 @@ func (b *CalendarsBackend) DeleteCalendarEvent(ctx context.Context, id jmap.Id) 
 	return true, nil
 }
 
-func (b *CalendarsBackend) QueryCalendarEvents(ctx context.Context, filter map[string]any, sortCriteria []jmap.Comparator, position int, limit *uint64, expandRecurrences bool) ([]jmap.Id, int, error) {
+func (b *CalendarsBackend) QueryCalendarEvents(ctx context.Context, filter map[string]any, sortCriteria []jmapcore.Comparator, position int, limit *uint64, expandRecurrences bool) ([]jmapcore.Id, int, error) {
 	events, _, err := b.GetCalendarEvents(ctx, nil)
 	if err != nil {
 		return nil, 0, err
@@ -1686,28 +1690,28 @@ func (b *CalendarsBackend) QueryCalendarEvents(ctx context.Context, filter map[s
 
 	loc := time.UTC
 	if tz, ok := filter["__timeZone"].(string); ok && tz != "" {
-		loc = jmap.LoadLocation(tz)
+		loc = jmapcalendar.LoadLocation(tz)
 	}
 
-	var resultIDs []jmap.Id
+	var resultIDs []jmapcore.Id
 	if expandRecurrences {
 		horizon := time.Now().AddDate(2, 0, 0)
 		if beforeStr, _ := filter["before"].(string); beforeStr != "" {
-			if bt, ok := jmap.ParseLocalDateTimeBound(beforeStr, loc); ok {
+			if bt, ok := jmapcalendar.ParseLocalDateTimeBound(beforeStr, loc); ok {
 				if bt.After(horizon) {
 					horizon = bt.AddDate(0, 0, 1)
 				}
 			}
 		}
 
-		var expandedList []*jmap.CalendarEvent
+		var expandedList []*jmapcalendar.CalendarEvent
 		for _, ev := range events {
 			hasRules := len(ev.RecurrenceRules) > 0 || len(ev.RecurrenceOverrides) > 0
 			if hasRules {
-				instances := jmap.ExpandRecurrenceInstances(ev, horizon)
+				instances := jmapcalendar.ExpandRecurrenceInstances(ev, horizon)
 				for _, inst := range instances {
 					instEv := *ev
-					instEv.ID = jmap.Id(fmt.Sprintf("%s#%s", string(ev.ID), inst.RecurrenceID))
+					instEv.ID = jmapcore.Id(fmt.Sprintf("%s#%s", string(ev.ID), inst.RecurrenceID))
 					evIDCopy := ev.ID
 					instEv.BaseEventID = &evIDCopy
 					instEv.RecurrenceRules = nil
@@ -1723,51 +1727,51 @@ func (b *CalendarsBackend) QueryCalendarEvents(ctx context.Context, filter map[s
 						} else {
 							instLoc := loc
 							if ev.TimeZone != "" && ev.TimeZone != "floating" {
-								instLoc = jmap.LoadLocation(ev.TimeZone)
+								instLoc = jmapcalendar.LoadLocation(ev.TimeZone)
 							}
 							instEv.Start = inst.Start.In(instLoc).Format("2006-01-02T15:04:05")
 						}
 					}
-					instEv.UTCStart = jmap.ComputeUTCStart(instEv.Start, instEv.TimeZone)
-					instEv.UTCEnd = jmap.ComputeUTCEnd(instEv.Start, instEv.Duration, instEv.TimeZone)
+					instEv.UTCStart = jmapcalendar.ComputeUTCStart(instEv.Start, instEv.TimeZone)
+					instEv.UTCEnd = jmapcalendar.ComputeUTCEnd(instEv.Start, instEv.Duration, instEv.TimeZone)
 
-					if jmap.MatchCalendarEvent(&instEv, filter) {
+					if jmapcalendar.MatchCalendarEvent(&instEv, filter) {
 						expandedList = append(expandedList, &instEv)
 					}
 				}
 			} else {
 				instEv := *ev
-				instEv.ID = jmap.Id(fmt.Sprintf("%s#%s", string(ev.ID), ev.Start))
+				instEv.ID = jmapcore.Id(fmt.Sprintf("%s#%s", string(ev.ID), ev.Start))
 				evIDCopy := ev.ID
 				instEv.BaseEventID = &evIDCopy
-				if jmap.MatchCalendarEvent(&instEv, filter) {
+				if jmapcalendar.MatchCalendarEvent(&instEv, filter) {
 					expandedList = append(expandedList, &instEv)
 				}
 			}
 		}
 
-		jmap.SortCalendarEvents(expandedList, sortCriteria)
+		jmapcalendar.SortCalendarEvents(expandedList, sortCriteria)
 
 		for _, ev := range expandedList {
 			resultIDs = append(resultIDs, ev.ID)
 		}
 	} else {
-		var matched []*jmap.CalendarEvent
+		var matched []*jmapcalendar.CalendarEvent
 		for _, ev := range events {
-			if jmap.MatchCalendarEvent(ev, filter) {
+			if jmapcalendar.MatchCalendarEvent(ev, filter) {
 				matched = append(matched, ev)
 			}
 		}
-		jmap.SortCalendarEvents(matched, sortCriteria)
+		jmapcalendar.SortCalendarEvents(matched, sortCriteria)
 		for _, ev := range matched {
 			resultIDs = append(resultIDs, ev.ID)
 		}
 	}
 
 	total := len(resultIDs)
-	position = jmap.NormalizePosition(position, total)
+	position = jmapcore.NormalizePosition(position, total)
 	if position >= total {
-		return []jmap.Id{}, total, nil
+		return []jmapcore.Id{}, total, nil
 	}
 
 	end := total
@@ -1775,7 +1779,7 @@ func (b *CalendarsBackend) QueryCalendarEvents(ctx context.Context, filter map[s
 		end = position + int(*limit)
 	}
 
-	ids := make([]jmap.Id, 0, end-position)
+	ids := make([]jmapcore.Id, 0, end-position)
 	for i := position; i < end; i++ {
 		ids = append(ids, resultIDs[i])
 	}
@@ -1788,23 +1792,23 @@ func (b *CalendarsBackend) ParticipantIdentityState(ctx context.Context) string 
 	return b.getIdentityTracker(b.user(ctx)).State()
 }
 
-func (b *CalendarsBackend) ParticipantIdentityChanges(ctx context.Context, sinceState string) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
+func (b *CalendarsBackend) ParticipantIdentityChanges(ctx context.Context, sinceState string) ([]jmapcore.Id, []jmapcore.Id, []jmapcore.Id, string, bool) {
 	return b.getIdentityTracker(b.user(ctx)).Changes(sinceState)
 }
 
-func (b *CalendarsBackend) GetAllParticipantIdentities(ctx context.Context) ([]*jmap.ParticipantIdentity, error) {
+func (b *CalendarsBackend) GetAllParticipantIdentities(ctx context.Context) ([]*jmapcalendar.ParticipantIdentity, error) {
 	list, _, err := b.GetParticipantIdentities(ctx, nil)
 	return list, err
 }
 
-func (b *CalendarsBackend) GetParticipantIdentities(ctx context.Context, ids []jmap.Id) ([]*jmap.ParticipantIdentity, []jmap.Id, error) {
+func (b *CalendarsBackend) GetParticipantIdentities(ctx context.Context, ids []jmapcore.Id) ([]*jmapcalendar.ParticipantIdentity, []jmapcore.Id, error) {
 	u := b.user(ctx)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.identitiesCache[u] == nil {
-		b.identitiesCache[u] = make(map[jmap.Id]*jmap.ParticipantIdentity)
-		defaultID := jmap.Id("identity-default")
-		b.identitiesCache[u][defaultID] = &jmap.ParticipantIdentity{
+		b.identitiesCache[u] = make(map[jmapcore.Id]*jmapcalendar.ParticipantIdentity)
+		defaultID := jmapcore.Id("identity-default")
+		b.identitiesCache[u][defaultID] = &jmapcalendar.ParticipantIdentity{
 			ID:              defaultID,
 			Name:            u,
 			CalendarAddress: "mailto:" + u,
@@ -1813,8 +1817,8 @@ func (b *CalendarsBackend) GetParticipantIdentities(ctx context.Context, ids []j
 		}
 	}
 
-	var list []*jmap.ParticipantIdentity
-	var notFound []jmap.Id
+	var list []*jmapcalendar.ParticipantIdentity
+	var notFound []jmapcore.Id
 	if ids == nil {
 		for _, id := range b.identitiesCache[u] {
 			list = append(list, id)
@@ -1850,12 +1854,12 @@ func (b *CalendarsBackend) SetAllowedAddresses(user string, addrs []string) {
 	b.allowedAddresses[user] = m
 }
 
-func (b *CalendarsBackend) CreateParticipantIdentity(ctx context.Context, identity *jmap.ParticipantIdentity) (*jmap.ParticipantIdentity, error) {
+func (b *CalendarsBackend) CreateParticipantIdentity(ctx context.Context, identity *jmapcalendar.ParticipantIdentity) (*jmapcalendar.ParticipantIdentity, error) {
 	u := b.user(ctx)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.identitiesCache[u] == nil {
-		b.identitiesCache[u] = make(map[jmap.Id]*jmap.ParticipantIdentity)
+		b.identitiesCache[u] = make(map[jmapcore.Id]*jmapcalendar.ParticipantIdentity)
 	}
 
 	if identity.CalendarAddress != "" && !strings.HasPrefix(identity.CalendarAddress, "mailto:") {
@@ -1865,7 +1869,7 @@ func (b *CalendarsBackend) CreateParticipantIdentity(ctx context.Context, identi
 	if b.allowedAddresses != nil && len(b.allowedAddresses[u]) > 0 {
 		cleaned := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(identity.CalendarAddress)), "mailto:")
 		if !b.allowedAddresses[u][cleaned] {
-			return nil, jmap.SetError{
+			return nil, jmapcore.SetError{
 				Type:        "invalidProperties",
 				Description: "Calendar address not configured for this account.",
 				Properties:  []string{"calendarAddress"},
@@ -1875,7 +1879,7 @@ func (b *CalendarsBackend) CreateParticipantIdentity(ctx context.Context, identi
 
 	for _, existing := range b.identitiesCache[u] {
 		if strings.EqualFold(existing.CalendarAddress, identity.CalendarAddress) {
-			return nil, jmap.SetError{
+			return nil, jmapcore.SetError{
 				Type:        "invalidProperties",
 				Description: "Calendar address already in use.",
 				Properties:  []string{"calendarAddress"},
@@ -1898,9 +1902,9 @@ func (b *CalendarsBackend) CreateParticipantIdentity(ctx context.Context, identi
 			}
 		}
 		if allSingleLetters && maxLetter >= 'a'-1 && maxLetter < 'z' {
-			identity.ID = jmap.Id(string([]byte{maxLetter + 1}))
+			identity.ID = jmapcore.Id(string([]byte{maxLetter + 1}))
 		} else {
-			identity.ID = jmap.Id(fmt.Sprintf("pi-%d", time.Now().UnixNano()))
+			identity.ID = jmapcore.Id(fmt.Sprintf("pi-%d", time.Now().UnixNano()))
 		}
 	}
 	b.identitiesCache[u][identity.ID] = identity
@@ -1910,7 +1914,7 @@ func (b *CalendarsBackend) CreateParticipantIdentity(ctx context.Context, identi
 	return identity, nil
 }
 
-func (b *CalendarsBackend) UpdateParticipantIdentity(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.ParticipantIdentity, error) {
+func (b *CalendarsBackend) UpdateParticipantIdentity(ctx context.Context, id jmapcore.Id, patch map[string]any) (*jmapcalendar.ParticipantIdentity, error) {
 	u := b.user(ctx)
 	b.mu.Lock()
 	if pi, ok := b.identitiesCache[u][id]; ok {
@@ -1937,7 +1941,7 @@ func (b *CalendarsBackend) UpdateParticipantIdentity(ctx context.Context, id jma
 	return nil, fmt.Errorf("participant identity not found")
 }
 
-func (b *CalendarsBackend) DeleteParticipantIdentity(ctx context.Context, id jmap.Id) (bool, error) {
+func (b *CalendarsBackend) DeleteParticipantIdentity(ctx context.Context, id jmapcore.Id) (bool, error) {
 	u := b.user(ctx)
 	b.mu.Lock()
 	if _, ok := b.identitiesCache[u][id]; !ok {
@@ -1951,7 +1955,7 @@ func (b *CalendarsBackend) DeleteParticipantIdentity(ctx context.Context, id jma
 	return true, nil
 }
 
-func (b *CalendarsBackend) SetDefaultParticipantIdentity(ctx context.Context, id jmap.Id) error {
+func (b *CalendarsBackend) SetDefaultParticipantIdentity(ctx context.Context, id jmapcore.Id) error {
 	u := b.user(ctx)
 	b.mu.Lock()
 	if _, ok := b.identitiesCache[u][id]; ok {
@@ -1976,21 +1980,21 @@ func (b *CalendarsBackend) CalendarEventNotificationState(ctx context.Context) s
 	return b.getNotificationTracker(b.user(ctx)).State()
 }
 
-func (b *CalendarsBackend) CalendarEventNotificationChanges(ctx context.Context, sinceState string) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
+func (b *CalendarsBackend) CalendarEventNotificationChanges(ctx context.Context, sinceState string) ([]jmapcore.Id, []jmapcore.Id, []jmapcore.Id, string, bool) {
 	return b.getNotificationTracker(b.user(ctx)).Changes(sinceState)
 }
 
-func (b *CalendarsBackend) GetAllCalendarEventNotifications(ctx context.Context) ([]*jmap.CalendarEventNotification, error) {
+func (b *CalendarsBackend) GetAllCalendarEventNotifications(ctx context.Context) ([]*jmapcalendar.CalendarEventNotification, error) {
 	list, _, err := b.GetCalendarEventNotifications(ctx, nil)
 	return list, err
 }
 
-func (b *CalendarsBackend) GetCalendarEventNotifications(ctx context.Context, ids []jmap.Id) ([]*jmap.CalendarEventNotification, []jmap.Id, error) {
+func (b *CalendarsBackend) GetCalendarEventNotifications(ctx context.Context, ids []jmapcore.Id) ([]*jmapcalendar.CalendarEventNotification, []jmapcore.Id, error) {
 	u := b.user(ctx)
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	var list []*jmap.CalendarEventNotification
-	var notFound []jmap.Id
+	var list []*jmapcalendar.CalendarEventNotification
+	var notFound []jmapcore.Id
 	if ids == nil {
 		if b.notificationsCache[u] != nil {
 			for _, n := range b.notificationsCache[u] {
@@ -2013,14 +2017,14 @@ func (b *CalendarsBackend) GetCalendarEventNotifications(ctx context.Context, id
 	return list, notFound, nil
 }
 
-func (b *CalendarsBackend) CreateCalendarEventNotification(ctx context.Context, notification *jmap.CalendarEventNotification) (*jmap.CalendarEventNotification, error) {
+func (b *CalendarsBackend) CreateCalendarEventNotification(ctx context.Context, notification *jmapcalendar.CalendarEventNotification) (*jmapcalendar.CalendarEventNotification, error) {
 	u := b.user(ctx)
 	b.mu.Lock()
 	if b.notificationsCache[u] == nil {
-		b.notificationsCache[u] = make(map[jmap.Id]*jmap.CalendarEventNotification)
+		b.notificationsCache[u] = make(map[jmapcore.Id]*jmapcalendar.CalendarEventNotification)
 	}
 	if notification.ID == "" {
-		notification.ID = jmap.Id(fmt.Sprintf("notif-%d", time.Now().UnixNano()))
+		notification.ID = jmapcore.Id(fmt.Sprintf("notif-%d", time.Now().UnixNano()))
 	}
 	if notification.Created == "" {
 		notification.Created = time.Now().UTC().Format(time.RFC3339)
@@ -2028,7 +2032,7 @@ func (b *CalendarsBackend) CreateCalendarEventNotification(ctx context.Context, 
 	b.notificationsCache[u][notification.ID] = notification
 	b.nextNotifSeq++
 	if b.notifSeq[u] == nil {
-		b.notifSeq[u] = make(map[jmap.Id]uint64)
+		b.notifSeq[u] = make(map[jmapcore.Id]uint64)
 	}
 	b.notifSeq[u][notification.ID] = b.nextNotifSeq
 	st := b.getNotificationTracker(u).Record(notification.ID, "create")
@@ -2038,7 +2042,7 @@ func (b *CalendarsBackend) CreateCalendarEventNotification(ctx context.Context, 
 	return notification, nil
 }
 
-func (b *CalendarsBackend) DeleteCalendarEventNotification(ctx context.Context, id jmap.Id) (bool, error) {
+func (b *CalendarsBackend) DeleteCalendarEventNotification(ctx context.Context, id jmapcore.Id) (bool, error) {
 	u := b.user(ctx)
 	b.mu.Lock()
 	if b.notificationsCache[u] == nil {
@@ -2060,13 +2064,13 @@ func (b *CalendarsBackend) DeleteCalendarEventNotification(ctx context.Context, 
 	return true, nil
 }
 
-func (b *CalendarsBackend) QueryCalendarEventNotifications(ctx context.Context, filter map[string]any, sortCriteria []jmap.Comparator, position int, limit *uint64) ([]jmap.Id, int, error) {
+func (b *CalendarsBackend) QueryCalendarEventNotifications(ctx context.Context, filter map[string]any, sortCriteria []jmapcore.Comparator, position int, limit *uint64) ([]jmapcore.Id, int, error) {
 	u := b.user(ctx)
 	notifs, _, err := b.GetCalendarEventNotifications(ctx, nil)
 	if err != nil {
 		return nil, 0, err
 	}
-	var matched []*jmap.CalendarEventNotification
+	var matched []*jmapcalendar.CalendarEventNotification
 	for _, n := range notifs {
 		if matchCalendarEventNotification(n, filter) {
 			matched = append(matched, n)
@@ -2097,14 +2101,14 @@ func (b *CalendarsBackend) QueryCalendarEventNotifications(ctx context.Context, 
 		return matched[i].ID > matched[j].ID
 	})
 
-	resultIDs := make([]jmap.Id, 0, len(matched))
+	resultIDs := make([]jmapcore.Id, 0, len(matched))
 	for _, n := range matched {
 		resultIDs = append(resultIDs, n.ID)
 	}
 	total := len(resultIDs)
-	position = jmap.NormalizePosition(position, total)
+	position = jmapcore.NormalizePosition(position, total)
 	if position >= total {
-		return []jmap.Id{}, total, nil
+		return []jmapcore.Id{}, total, nil
 	}
 	end := total
 	if limit != nil && position+int(*limit) < end {
@@ -2113,7 +2117,7 @@ func (b *CalendarsBackend) QueryCalendarEventNotifications(ctx context.Context, 
 	return resultIDs[position:end], total, nil
 }
 
-func matchCalendarEventNotification(n *jmap.CalendarEventNotification, filter map[string]any) bool {
+func matchCalendarEventNotification(n *jmapcalendar.CalendarEventNotification, filter map[string]any) bool {
 	for k, v := range filter {
 		switch k {
 		case "after":
@@ -2135,7 +2139,7 @@ func matchCalendarEventNotification(n *jmap.CalendarEventNotification, filter ma
 			raw, _ := v.([]any)
 			matched := false
 			for _, item := range raw {
-				if idStr, ok := item.(string); ok && jmap.Id(idStr) == n.CalendarEventID {
+				if idStr, ok := item.(string); ok && jmapcore.Id(idStr) == n.CalendarEventID {
 					matched = true
 					break
 				}
@@ -2148,7 +2152,7 @@ func matchCalendarEventNotification(n *jmap.CalendarEventNotification, filter ma
 	return true
 }
 
-func equalCalendarRights(a, b *jmap.CalendarRights) bool {
+func equalCalendarRights(a, b *jmapcalendar.CalendarRights) bool {
 	if a == nil && b == nil {
 		return true
 	}
@@ -2164,18 +2168,18 @@ func (b *CalendarsBackend) ShareNotificationState(ctx context.Context) string {
 }
 
 // ShareNotificationChanges implements ShareNotification/changes per RFC 9670.
-func (b *CalendarsBackend) ShareNotificationChanges(ctx context.Context, sinceState string) (created, updated, destroyed []jmap.Id, newState string, hasMoreChanges bool) {
+func (b *CalendarsBackend) ShareNotificationChanges(ctx context.Context, sinceState string) (created, updated, destroyed []jmapcore.Id, newState string, hasMoreChanges bool) {
 	return b.getShareNotificationTracker(b.user(ctx)).Changes(sinceState)
 }
 
 // GetShareNotifications retrieves specific ShareNotifications by ID.
-func (b *CalendarsBackend) GetShareNotifications(ctx context.Context, ids []jmap.Id) (list []*jmap.ShareNotification, notFound []jmap.Id, err error) {
+func (b *CalendarsBackend) GetShareNotifications(ctx context.Context, ids []jmapcore.Id) (list []*jmapcalendar.ShareNotification, notFound []jmapcore.Id, err error) {
 	u := b.user(ctx)
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	var found []*jmap.ShareNotification
-	var missing []jmap.Id
+	var found []*jmapcalendar.ShareNotification
+	var missing []jmapcore.Id
 
 	for _, id := range ids {
 		if b.shareNotificationsCache[u] != nil && b.shareNotificationsCache[u][id] != nil {
@@ -2185,18 +2189,18 @@ func (b *CalendarsBackend) GetShareNotifications(ctx context.Context, ids []jmap
 		}
 	}
 	if missing == nil {
-		missing = []jmap.Id{}
+		missing = []jmapcore.Id{}
 	}
 	return found, missing, nil
 }
 
 // GetAllShareNotifications retrieves all ShareNotifications for the user.
-func (b *CalendarsBackend) GetAllShareNotifications(ctx context.Context) ([]*jmap.ShareNotification, error) {
+func (b *CalendarsBackend) GetAllShareNotifications(ctx context.Context) ([]*jmapcalendar.ShareNotification, error) {
 	u := b.user(ctx)
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	var list []*jmap.ShareNotification
+	var list []*jmapcalendar.ShareNotification
 	if b.shareNotificationsCache[u] != nil {
 		for _, n := range b.shareNotificationsCache[u] {
 			if n != nil {
@@ -2211,14 +2215,14 @@ func (b *CalendarsBackend) GetAllShareNotifications(ctx context.Context) ([]*jma
 }
 
 // CreateShareNotification creates a new ShareNotification.
-func (b *CalendarsBackend) CreateShareNotification(ctx context.Context, notification *jmap.ShareNotification) (*jmap.ShareNotification, error) {
+func (b *CalendarsBackend) CreateShareNotification(ctx context.Context, notification *jmapcalendar.ShareNotification) (*jmapcalendar.ShareNotification, error) {
 	if notification == nil {
 		return nil, fmt.Errorf("notification is nil")
 	}
 	u := b.user(ctx)
 	b.mu.Lock()
 	if b.shareNotificationsCache[u] == nil {
-		b.shareNotificationsCache[u] = make(map[jmap.Id]*jmap.ShareNotification)
+		b.shareNotificationsCache[u] = make(map[jmapcore.Id]*jmapcalendar.ShareNotification)
 	}
 	b.shareNotificationsCache[u][notification.ID] = notification
 	st := b.getShareNotificationTracker(u).Record(notification.ID, "create")
@@ -2229,7 +2233,7 @@ func (b *CalendarsBackend) CreateShareNotification(ctx context.Context, notifica
 }
 
 // DeleteShareNotification deletes a ShareNotification.
-func (b *CalendarsBackend) DeleteShareNotification(ctx context.Context, id jmap.Id) (bool, error) {
+func (b *CalendarsBackend) DeleteShareNotification(ctx context.Context, id jmapcore.Id) (bool, error) {
 	u := b.user(ctx)
 	b.mu.Lock()
 	if b.shareNotificationsCache[u] != nil {

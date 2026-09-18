@@ -9,7 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapblob"
+	"imap-jmap/jmap/jmapcalendar"
+	"imap-jmap/jmap/jmapmail"
 	"imap-jmap/jmap/imapsmtp"
 	"imap-jmap/jmap/spectest"
 	jmapsmtp "imap-jmap/smtp"
@@ -17,7 +20,7 @@ import (
 
 // startSMTPServerWithResolver starts an SMTP receiver on a loopback port using the
 // supplied backends and the given AccountResolver, waiting until the socket accepts.
-func startSMTPServerWithResolver(t *testing.T, mailBackend jmap.MailBackend, blobBackend jmap.BlobBackend, calBackend jmap.CalendarsBackend, resolver jmap.AccountResolver) string {
+func startSMTPServerWithResolver(t *testing.T, mailBackend jmapmail.MailBackend, blobBackend jmapblob.BlobBackend, calBackend jmapcalendar.CalendarsBackend, resolver jmapauth.AccountResolver) string {
 	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -44,7 +47,7 @@ func TestRFC5321_RejectExternalRecipient(t *testing.T) {
 
 	backend, cleanup := imapsmtp.NewEmbeddedBackend("sender@example.com", "user@example.com", "external@other.com")
 	defer cleanup()
-	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
+	resolver := jmapauth.PrimaryDomainResolver{PrimaryDomain: "example.com"}
 	addr := startSMTPServerWithResolver(t, backend, backend, nil, resolver)
 
 	msg := []byte("From: sender@example.com\r\n" +
@@ -63,7 +66,7 @@ func TestRFC5321_RejectExternalRecipient(t *testing.T) {
 
 	// Nothing may have been stored anywhere: the external recipient must not land in
 	// the default fallback account or in an account derived from the recipient.
-	fallbackCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject("user@example.com"))
+	fallbackCtx := jmapauth.ContextWithAccountID(context.Background(), jmapauth.AccountIDForSubject("user@example.com"))
 	fallbackEmails, err := backend.GetAllEmails(fallbackCtx)
 	if err != nil {
 		t.Fatalf("GetAllEmails(fallback): %v", err)
@@ -73,7 +76,7 @@ func TestRFC5321_RejectExternalRecipient(t *testing.T) {
 			t.Errorf("message for external recipient must not be stored in the fallback account")
 		}
 	}
-	derivedCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject("external@other.com"))
+	derivedCtx := jmapauth.ContextWithAccountID(context.Background(), jmapauth.AccountIDForSubject("external@other.com"))
 	derivedEmails, err := backend.GetAllEmails(derivedCtx)
 	if err != nil {
 		t.Fatalf("GetAllEmails(derived): %v", err)
@@ -91,7 +94,7 @@ func TestRFC5321_RejectExternalRecipient(t *testing.T) {
 func TestRFC5321_MixedRecipientsRejectExternal(t *testing.T) {
 	backend, cleanup := imapsmtp.NewEmbeddedBackend("sender@example.com", "user@example.com", "external@other.com")
 	defer cleanup()
-	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
+	resolver := jmapauth.PrimaryDomainResolver{PrimaryDomain: "example.com"}
 	addr := startSMTPServerWithResolver(t, backend, backend, nil, resolver)
 
 	c, err := smtp.Dial(addr)
@@ -129,12 +132,12 @@ func TestRFC5321_MixedRecipientsRejectExternal(t *testing.T) {
 	}
 
 	// Delivered only to the local recipient.
-	localCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject("user@example.com"))
+	localCtx := jmapauth.ContextWithAccountID(context.Background(), jmapauth.AccountIDForSubject("user@example.com"))
 	localEmails, err := backend.GetAllEmails(localCtx)
 	if err != nil {
 		t.Fatalf("GetAllEmails(local): %v", err)
 	}
-	var delivered *jmap.Email
+	var delivered *jmapmail.Email
 	for _, em := range localEmails {
 		if em.Subject == "Mixed" {
 			delivered = em
@@ -144,11 +147,11 @@ func TestRFC5321_MixedRecipientsRejectExternal(t *testing.T) {
 	if delivered == nil {
 		t.Fatalf("local recipient should have received the message")
 	}
-	inboxID := jmap.InboxMailboxID(localCtx, backend)
+	inboxID := jmapmail.InboxMailboxID(localCtx, backend)
 	if !delivered.MailboxIDs[inboxID] {
 		t.Errorf("expected the delivered message in the local recipient's Inbox")
 	}
-	externalCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject("external@other.com"))
+	externalCtx := jmapauth.ContextWithAccountID(context.Background(), jmapauth.AccountIDForSubject("external@other.com"))
 	externalEmails, err := backend.GetAllEmails(externalCtx)
 	if err != nil {
 		t.Fatalf("GetAllEmails(external): %v", err)
@@ -164,10 +167,10 @@ func TestRFC5321_MixedRecipientsRejectExternal(t *testing.T) {
 // simulate a storage outage, so the DATA transaction must report a failure reply
 // instead of acknowledging a message that was never stored.
 type failingMailBackend struct {
-	jmap.MailBackend
+	jmapmail.MailBackend
 }
 
-func (f *failingMailBackend) CreateEmail(ctx context.Context, em *jmap.Email) (*jmap.Email, error) {
+func (f *failingMailBackend) CreateEmail(ctx context.Context, em *jmapmail.Email) (*jmapmail.Email, error) {
 	return nil, fmt.Errorf("simulated storage outage")
 }
 
@@ -182,7 +185,7 @@ func TestRFC5321_DataStorageFailureReturns451(t *testing.T) {
 	backend, cleanup := imapsmtp.NewEmbeddedBackend("sender@example.com", "user@example.com")
 	defer cleanup()
 	badBackend := &failingMailBackend{MailBackend: backend}
-	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
+	resolver := jmapauth.PrimaryDomainResolver{PrimaryDomain: "example.com"}
 	addr := startSMTPServerWithResolver(t, badBackend, backend, nil, resolver)
 
 	msg := []byte("From: sender@example.com\r\n" +
@@ -202,7 +205,7 @@ func TestRFC5321_DataStorageFailureReturns451(t *testing.T) {
 	// The message must not be acknowledged as stored: the recipient account must not
 	// contain an email for the failed transaction. (The blob store has no delete API,
 	// so the raw blob PutBlob already wrote remains; the email referencing it is not.)
-	ctx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject("user@example.com"))
+	ctx := jmapauth.ContextWithAccountID(context.Background(), jmapauth.AccountIDForSubject("user@example.com"))
 	emails, err := badBackend.GetAllEmails(ctx)
 	if err != nil {
 		t.Fatalf("GetAllEmails: %v", err)

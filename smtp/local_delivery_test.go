@@ -8,7 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapmail"
 	"imap-jmap/jmap/imapsmtp"
 	"imap-jmap/jmap/spectest"
 	jmapsmtp "imap-jmap/smtp"
@@ -28,7 +29,7 @@ func TestLocalDelivery_UserToUserOverSMTP(t *testing.T) {
 
 	embeddedBackend, cleanup := imapsmtp.NewEmbeddedBackend("alice@example.com", "bob@example.com")
 	defer cleanup()
-	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
+	resolver := jmapauth.PrimaryDomainResolver{PrimaryDomain: "example.com"}
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -74,9 +75,9 @@ func TestLocalDelivery_UserToUserOverSMTP(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// It arrives in the recipient's account.
-	bobID := jmap.AccountIDForSubject(recipient)
-	bobCtx := jmap.ContextWithAccountID(context.Background(), bobID)
-	var delivered *jmap.Email
+	bobID := jmapauth.AccountIDForSubject(recipient)
+	bobCtx := jmapauth.ContextWithAccountID(context.Background(), bobID)
+	var delivered *jmapmail.Email
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		emails, _ := embeddedBackend.GetAllEmails(bobCtx)
@@ -94,13 +95,13 @@ func TestLocalDelivery_UserToUserOverSMTP(t *testing.T) {
 	if delivered == nil {
 		t.Fatalf("recipient %s did not receive the message", recipient)
 	}
-	inboxID := jmap.InboxMailboxID(bobCtx, embeddedBackend)
+	inboxID := jmapmail.InboxMailboxID(bobCtx, embeddedBackend)
 	if !delivered.MailboxIDs[inboxID] {
 		t.Errorf("expected the delivered message in the recipient's Inbox")
 	}
 
 	// It is NOT delivered to the sender's account (the sender is not a local recipient).
-	aliceCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject(sender))
+	aliceCtx := jmapauth.ContextWithAccountID(context.Background(), jmapauth.AccountIDForSubject(sender))
 	aliceEmails, _ := embeddedBackend.GetAllEmails(aliceCtx)
 	for _, em := range aliceEmails {
 		if em.Subject == subject {

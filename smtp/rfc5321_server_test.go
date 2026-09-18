@@ -8,7 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapcalendar"
+	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmapmail"
 	"imap-jmap/jmap/imapsmtp"
 	"imap-jmap/jmap/nextcloud"
 	jmapsmtp "imap-jmap/smtp"
@@ -78,7 +81,7 @@ func TestRFC5321_SMTPServerReceive(t *testing.T) {
 	// Give server time to listen
 	time.Sleep(100 * time.Millisecond)
 
-	accountCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject("user@example.com"))
+	accountCtx := jmapauth.ContextWithAccountID(context.Background(), jmapauth.AccountIDForSubject("user@example.com"))
 	initialEmails, err := memBackend.GetAllEmails(accountCtx)
 	if err != nil {
 		t.Fatalf("GetAllEmails failed: %v", err)
@@ -114,7 +117,7 @@ func TestRFC5321_SMTPServerReceive(t *testing.T) {
 	}
 
 	// Find newly delivered email
-	var delivered *jmap.Email
+	var delivered *jmapmail.Email
 	for _, em := range emails {
 		if em.Subject == "SMTP Test Delivery" {
 			delivered = em
@@ -131,7 +134,7 @@ func TestRFC5321_SMTPServerReceive(t *testing.T) {
 	}
 
 	// Verify Blob backend has stored the message payload
-	blob, found, err := memBlobBackend.GetBlob(context.Background(), jmap.AccountIDForSubject("user@example.com"), string(delivered.BlobID))
+	blob, found, err := memBlobBackend.GetBlob(context.Background(), jmapauth.AccountIDForSubject("user@example.com"), string(delivered.BlobID))
 	if err != nil || !found {
 		t.Errorf("expected blob %s to exist in BlobBackend, found=%v, err=%v", delivered.BlobID, found, err)
 	} else {
@@ -147,9 +150,9 @@ func TestRFC5321_SMTPServerReceive(t *testing.T) {
 	}
 
 	// Verify Mailbox stats updated
-	inboxID := jmap.InboxMailboxID(accountCtx, memBackend)
-	var mailboxes []*jmap.Mailbox
-	mailboxes, _, err = memBackend.GetMailboxes(accountCtx, []jmap.Id{inboxID})
+	inboxID := jmapmail.InboxMailboxID(accountCtx, memBackend)
+	var mailboxes []*jmapmail.Mailbox
+	mailboxes, _, err = memBackend.GetMailboxes(accountCtx, []jmapcore.Id{inboxID})
 	if err != nil || len(mailboxes) == 0 {
 		t.Fatalf("failed to retrieve Inbox mailbox")
 	}
@@ -169,14 +172,14 @@ func TestRFC6047_SMTPServerReceiveIMIPReply(t *testing.T) {
 	defer ncCleanup()
 	memCalBackend := calBackend
 
-	accountCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject("organizer@example.com"))
+	accountCtx := jmapauth.ContextWithAccountID(context.Background(), jmapauth.AccountIDForSubject("organizer@example.com"))
 
 	// 1. Create a calendar event with external participant
-	ev, err := memCalBackend.CreateCalendarEvent(accountCtx, &jmap.CalendarEvent{
+	ev, err := memCalBackend.CreateCalendarEvent(accountCtx, &jmapcalendar.CalendarEvent{
 		ID:    "evt-imip-100",
 		Title: "Project Review",
 		Start: "2026-09-10T14:00:00Z",
-		Participants: map[string]*jmap.JSCalendarParticipant{
+		Participants: map[string]*jmapcalendar.JSCalendarParticipant{
 			"client@example.com": {
 				Name:   "Client",
 				Email:  "client@example.com",
@@ -230,7 +233,7 @@ func TestRFC6047_SMTPServerReceiveIMIPReply(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// 4. Verify participant status in memCalBackend was auto-updated to "accepted"
-	events, _, err := memCalBackend.GetCalendarEvents(accountCtx, []jmap.Id{ev.ID})
+	events, _, err := memCalBackend.GetCalendarEvents(accountCtx, []jmapcore.Id{ev.ID})
 	if err != nil || len(events) == 0 {
 		t.Fatalf("GetCalendarEvents failed: %v", err)
 	}
@@ -252,7 +255,7 @@ func TestRFC5321_PerRecipientRouting(t *testing.T) {
 	defer cleanup()
 	memBackend := backend
 	memBlobBackend := backend
-	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
+	resolver := jmapauth.PrimaryDomainResolver{PrimaryDomain: "example.com"}
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -282,13 +285,13 @@ func TestRFC5321_PerRecipientRouting(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	targetAccountID := jmap.AccountIDForSubject(rcptAddr)
-	rcptCtx := jmap.ContextWithAccountID(context.Background(), targetAccountID)
+	targetAccountID := jmapauth.AccountIDForSubject(rcptAddr)
+	rcptCtx := jmapauth.ContextWithAccountID(context.Background(), targetAccountID)
 	emails, err := memBackend.GetAllEmails(rcptCtx)
 	if err != nil || len(emails) == 0 {
 		t.Fatalf("Target account %q did not receive message: err=%v, count=%d", targetAccountID, err, len(emails))
 	}
-	var found *jmap.Email
+	var found *jmapmail.Email
 	for _, em := range emails {
 		if em.Subject == "Per Recipient Test" {
 			found = em

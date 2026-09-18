@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
 	"imap-jmap/jmap/imapsmtp"
 	jmapsmtp "imap-jmap/smtp"
 )
@@ -50,7 +50,7 @@ func TestRFC5321_SMTPProtocolDelivery(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	accountCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject("recipient@example.com"))
+	accountCtx := jmapauth.ContextWithAccountID(context.Background(), jmapauth.AccountIDForSubject("recipient@example.com"))
 	emails, err := memBackend.GetAllEmails(accountCtx)
 	if err != nil || len(emails) == 0 {
 		t.Fatalf("Expected delivered email in MailBackend per RFC 5321, got 0")

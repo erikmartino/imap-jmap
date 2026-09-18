@@ -5,41 +5,43 @@ import (
 	"fmt"
 	"time"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmapmail"
 )
 
 // Identities (RFC 8621 Section 6)
 
 func (b *IMAPSMTPBackend) IdentityState(ctx context.Context) string {
-	accountID, _ := jmap.AccountIDFromContext(ctx)
+	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	return b.getIdentityTracker(accountID).State()
 }
 
-func (b *IMAPSMTPBackend) IdentityChanges(ctx context.Context, sinceState string, maxChanges *uint64) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
-	accountID, _ := jmap.AccountIDFromContext(ctx)
+func (b *IMAPSMTPBackend) IdentityChanges(ctx context.Context, sinceState string, maxChanges *uint64) ([]jmapcore.Id, []jmapcore.Id, []jmapcore.Id, string, bool) {
+	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	return b.getIdentityTracker(accountID).Changes(sinceState, maxChanges)
 }
 
-func (b *IMAPSMTPBackend) GetIdentities(ctx context.Context) ([]*jmap.Identity, error) {
+func (b *IMAPSMTPBackend) GetIdentities(ctx context.Context) ([]*jmapmail.Identity, error) {
 	email := "user@example.com"
-	if subject, ok := jmap.SubjectFromContext(ctx); ok && subject != "" {
+	if subject, ok := jmapauth.SubjectFromContext(ctx); ok && subject != "" {
 		email = subject
-	} else if accountID, ok := jmap.AccountIDFromContext(ctx); ok {
-		if sub, ok := jmap.SubjectForAccountID(accountID); ok {
+	} else if accountID, ok := jmapauth.AccountIDFromContext(ctx); ok {
+		if sub, ok := jmapauth.SubjectForAccountID(accountID); ok {
 			email = sub
 		}
 	}
 
-	accountID, _ := jmap.AccountIDFromContext(ctx)
+	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.identitiesMu.Lock()
 	defer b.identitiesMu.Unlock()
 
 	if b.identities[accountID] == nil {
-		b.identities[accountID] = make(map[jmap.Id]*jmap.Identity)
+		b.identities[accountID] = make(map[jmapcore.Id]*jmapmail.Identity)
 	}
 	m := b.identities[accountID]
 	if _, ok := m["id-primary"]; !ok {
-		m["id-primary"] = &jmap.Identity{
+		m["id-primary"] = &jmapmail.Identity{
 			ID:        "id-primary",
 			Name:      email,
 			Email:     email,
@@ -47,21 +49,21 @@ func (b *IMAPSMTPBackend) GetIdentities(ctx context.Context) ([]*jmap.Identity, 
 		}
 	}
 
-	list := make([]*jmap.Identity, 0, len(m))
+	list := make([]*jmapmail.Identity, 0, len(m))
 	for _, ident := range m {
 		list = append(list, ident)
 	}
 	return list, nil
 }
 
-func (b *IMAPSMTPBackend) CreateIdentity(ctx context.Context, identity *jmap.Identity) (*jmap.Identity, error) {
+func (b *IMAPSMTPBackend) CreateIdentity(ctx context.Context, identity *jmapmail.Identity) (*jmapmail.Identity, error) {
 	if identity.ID == "" {
-		identity.ID = jmap.Id(fmt.Sprintf("id-%d", time.Now().UnixNano()))
+		identity.ID = jmapcore.Id(fmt.Sprintf("id-%d", time.Now().UnixNano()))
 	}
-	accountID, _ := jmap.AccountIDFromContext(ctx)
+	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.identitiesMu.Lock()
 	if b.identities[accountID] == nil {
-		b.identities[accountID] = make(map[jmap.Id]*jmap.Identity)
+		b.identities[accountID] = make(map[jmapcore.Id]*jmapmail.Identity)
 	}
 	b.identities[accountID][identity.ID] = identity
 	b.identitiesMu.Unlock()
@@ -71,8 +73,8 @@ func (b *IMAPSMTPBackend) CreateIdentity(ctx context.Context, identity *jmap.Ide
 	return identity, nil
 }
 
-func (b *IMAPSMTPBackend) UpdateIdentity(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.Identity, error) {
-	accountID, _ := jmap.AccountIDFromContext(ctx)
+func (b *IMAPSMTPBackend) UpdateIdentity(ctx context.Context, id jmapcore.Id, patch map[string]any) (*jmapmail.Identity, error) {
+	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.identitiesMu.Lock()
 	defer b.identitiesMu.Unlock()
 	if m, ok := b.identities[accountID]; ok {
@@ -83,10 +85,10 @@ func (b *IMAPSMTPBackend) UpdateIdentity(ctx context.Context, id jmap.Id, patch 
 			if email, ok := patch["email"].(string); ok {
 				ident.Email = email
 			}
-			if replyTo, ok := patch["replyTo"].([]jmap.EmailAddress); ok {
+			if replyTo, ok := patch["replyTo"].([]jmapmail.EmailAddress); ok {
 				ident.ReplyTo = replyTo
 			}
-			if bcc, ok := patch["bcc"].([]jmap.EmailAddress); ok {
+			if bcc, ok := patch["bcc"].([]jmapmail.EmailAddress); ok {
 				ident.BCC = bcc
 			}
 			if textSig, ok := patch["textSignature"].(string); ok {
@@ -103,11 +105,11 @@ func (b *IMAPSMTPBackend) UpdateIdentity(ctx context.Context, id jmap.Id, patch 
 			return ident, nil
 		}
 	}
-	return nil, jmap.ErrNotFound
+	return nil, jmapcore.ErrNotFound
 }
 
-func (b *IMAPSMTPBackend) DeleteIdentity(ctx context.Context, id jmap.Id) (bool, error) {
-	accountID, _ := jmap.AccountIDFromContext(ctx)
+func (b *IMAPSMTPBackend) DeleteIdentity(ctx context.Context, id jmapcore.Id) (bool, error) {
+	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.identitiesMu.Lock()
 	defer b.identitiesMu.Unlock()
 	if m, ok := b.identities[accountID]; ok {

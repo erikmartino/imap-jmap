@@ -8,12 +8,14 @@ import (
 	"sync"
 	"time"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmapmail"
 )
 
 type subChangeEntry struct {
 	action string // "create", "update", "destroy"
-	id     jmap.Id
+	id     jmapcore.Id
 	state  uint64
 }
 
@@ -35,7 +37,7 @@ func (t *subTracker) State() string {
 	return fmt.Sprintf("sub-state-%d", t.counter)
 }
 
-func (t *subTracker) Record(id jmap.Id, action string) string {
+func (t *subTracker) Record(id jmapcore.Id, action string) string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.counter++
@@ -47,7 +49,7 @@ func (t *subTracker) Record(id jmap.Id, action string) string {
 	return fmt.Sprintf("sub-state-%d", t.counter)
 }
 
-func (t *subTracker) Changes(sinceState string, maxChanges *uint64) (created, updated, destroyed []jmap.Id, newState string, hasMore bool) {
+func (t *subTracker) Changes(sinceState string, maxChanges *uint64) (created, updated, destroyed []jmapcore.Id, newState string, hasMore bool) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
@@ -56,9 +58,9 @@ func (t *subTracker) Changes(sinceState string, maxChanges *uint64) (created, up
 	s = strings.TrimPrefix(s, "state-")
 	_, _ = fmt.Sscanf(s, "%d", &since)
 
-	createdSet := make(map[jmap.Id]bool)
-	updatedSet := make(map[jmap.Id]bool)
-	destroyedSet := make(map[jmap.Id]bool)
+	createdSet := make(map[jmapcore.Id]bool)
+	updatedSet := make(map[jmapcore.Id]bool)
+	destroyedSet := make(map[jmapcore.Id]bool)
 
 	for _, entry := range t.history {
 		if entry.state > since {
@@ -99,16 +101,16 @@ func (b *IMAPSMTPBackend) getSubTrackerLocked(accountID string) *subTracker {
 	return b.subTrackers[accountID]
 }
 
-func (b *IMAPSMTPBackend) getSubMapLocked(accountID string) map[jmap.Id]*jmap.EmailSubmission {
+func (b *IMAPSMTPBackend) getSubMapLocked(accountID string) map[jmapcore.Id]*jmapmail.EmailSubmission {
 	if b.submissions[accountID] == nil {
-		b.submissions[accountID] = make(map[jmap.Id]*jmap.EmailSubmission)
+		b.submissions[accountID] = make(map[jmapcore.Id]*jmapmail.EmailSubmission)
 	}
 	return b.submissions[accountID]
 }
 
 // CreateSubmission sends an outbound email via SMTP and stores a sent copy in IMAP Sent folder.
-func (b *IMAPSMTPBackend) CreateSubmission(ctx context.Context, sub *jmap.EmailSubmission) (*jmap.EmailSubmission, error) {
-	emails, _, err := b.GetEmails(ctx, []jmap.Id{sub.EmailID})
+func (b *IMAPSMTPBackend) CreateSubmission(ctx context.Context, sub *jmapmail.EmailSubmission) (*jmapmail.EmailSubmission, error) {
+	emails, _, err := b.GetEmails(ctx, []jmapcore.Id{sub.EmailID})
 	if err != nil || len(emails) == 0 {
 		return nil, fmt.Errorf("referenced email not found: %s", sub.EmailID)
 	}
@@ -116,7 +118,7 @@ func (b *IMAPSMTPBackend) CreateSubmission(ctx context.Context, sub *jmap.EmailS
 
 	rawBytes, _ := b.getRawEmailBytes(ctx, sub.EmailID)
 	if len(rawBytes) == 0 {
-		rawBytes = jmap.FormatEmailRFC822(em)
+		rawBytes = jmapmail.FormatEmailRFC822(em)
 	}
 
 	var from string
@@ -126,10 +128,10 @@ func (b *IMAPSMTPBackend) CreateSubmission(ctx context.Context, sub *jmap.EmailS
 		from = em.From[0].Email
 	}
 	if from == "" {
-		if subj, ok := jmap.SubjectFromContext(ctx); ok && subj != "" {
+		if subj, ok := jmapauth.SubjectFromContext(ctx); ok && subj != "" {
 			from = subj
-		} else if accID, ok := jmap.AccountIDFromContext(ctx); ok && accID != "" {
-			if s, ok := jmap.SubjectForAccountID(accID); ok {
+		} else if accID, ok := jmapauth.AccountIDFromContext(ctx); ok && accID != "" {
+			if s, ok := jmapauth.SubjectForAccountID(accID); ok {
 				from = s
 			}
 		}
@@ -176,7 +178,7 @@ func (b *IMAPSMTPBackend) CreateSubmission(ctx context.Context, sub *jmap.EmailS
 	}
 
 	if sub.ID == "" {
-		sub.ID = jmap.Id(fmt.Sprintf("sub-%d", time.Now().UnixNano()))
+		sub.ID = jmapcore.Id(fmt.Sprintf("sub-%d", time.Now().UnixNano()))
 	}
 	if sub.SendAt == "" {
 		sub.SendAt = time.Now().UTC().Format(time.RFC3339)
@@ -189,18 +191,18 @@ func (b *IMAPSMTPBackend) CreateSubmission(ctx context.Context, sub *jmap.EmailS
 	}
 
 	if sub.DeliveryStatus == nil {
-		sub.DeliveryStatus = make(map[string]jmap.DeliveryStatus)
+		sub.DeliveryStatus = make(map[string]jmapmail.DeliveryStatus)
 	}
 	for _, rcpt := range recipients {
 		if _, ok := sub.DeliveryStatus[rcpt]; !ok {
-			sub.DeliveryStatus[rcpt] = jmap.DeliveryStatus{
+			sub.DeliveryStatus[rcpt] = jmapmail.DeliveryStatus{
 				Delivered: "yes",
 				SmtpReply: "250 2.0.0 OK message queued",
 			}
 		}
 	}
 
-	accountID, _ := jmap.AccountIDFromContext(ctx)
+	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.submissionsMu.Lock()
 	m := b.getSubMapLocked(accountID)
 	m[sub.ID] = sub
@@ -217,7 +219,7 @@ func (b *IMAPSMTPBackend) publishSubmissionStateChange(ctx context.Context) {
 	if b.broadcaster == nil {
 		return
 	}
-	accountID, ok := jmap.AccountIDFromContext(ctx)
+	accountID, ok := jmapauth.AccountIDFromContext(ctx)
 	if !ok || accountID == "" {
 		return
 	}
@@ -226,23 +228,23 @@ func (b *IMAPSMTPBackend) publishSubmissionStateChange(ctx context.Context) {
 }
 
 func (b *IMAPSMTPBackend) SubmissionState(ctx context.Context) string {
-	accountID, _ := jmap.AccountIDFromContext(ctx)
+	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.submissionsMu.Lock()
 	defer b.submissionsMu.Unlock()
 	tr := b.getSubTrackerLocked(accountID)
 	return tr.State()
 }
 
-func (b *IMAPSMTPBackend) SubmissionChanges(ctx context.Context, sinceState string, maxChanges *uint64) ([]jmap.Id, []jmap.Id, []jmap.Id, string, bool) {
-	accountID, _ := jmap.AccountIDFromContext(ctx)
+func (b *IMAPSMTPBackend) SubmissionChanges(ctx context.Context, sinceState string, maxChanges *uint64) ([]jmapcore.Id, []jmapcore.Id, []jmapcore.Id, string, bool) {
+	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.submissionsMu.Lock()
 	defer b.submissionsMu.Unlock()
 	tr := b.getSubTrackerLocked(accountID)
 	return tr.Changes(sinceState, maxChanges)
 }
 
-func (b *IMAPSMTPBackend) UpdateSubmission(ctx context.Context, id jmap.Id, patch map[string]any) (*jmap.EmailSubmission, error) {
-	accountID, _ := jmap.AccountIDFromContext(ctx)
+func (b *IMAPSMTPBackend) UpdateSubmission(ctx context.Context, id jmapcore.Id, patch map[string]any) (*jmapmail.EmailSubmission, error) {
+	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.submissionsMu.Lock()
 
 	m := b.getSubMapLocked(accountID)
@@ -290,8 +292,8 @@ func (b *IMAPSMTPBackend) UpdateSubmission(ctx context.Context, id jmap.Id, patc
 	return sub, nil
 }
 
-func (b *IMAPSMTPBackend) DeleteSubmission(ctx context.Context, id jmap.Id) (bool, error) {
-	accountID, _ := jmap.AccountIDFromContext(ctx)
+func (b *IMAPSMTPBackend) DeleteSubmission(ctx context.Context, id jmapcore.Id) (bool, error) {
+	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.submissionsMu.Lock()
 
 	m := b.getSubMapLocked(accountID)
@@ -308,14 +310,14 @@ func (b *IMAPSMTPBackend) DeleteSubmission(ctx context.Context, id jmap.Id) (boo
 	return true, nil
 }
 
-func (b *IMAPSMTPBackend) GetSubmissions(ctx context.Context, ids []jmap.Id) ([]*jmap.EmailSubmission, []jmap.Id, error) {
-	accountID, _ := jmap.AccountIDFromContext(ctx)
+func (b *IMAPSMTPBackend) GetSubmissions(ctx context.Context, ids []jmapcore.Id) ([]*jmapmail.EmailSubmission, []jmapcore.Id, error) {
+	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.submissionsMu.RLock()
 	defer b.submissionsMu.RUnlock()
 
 	m := b.getSubMapLocked(accountID)
-	var list []*jmap.EmailSubmission
-	var notFound []jmap.Id
+	var list []*jmapmail.EmailSubmission
+	var notFound []jmapcore.Id
 
 	for _, id := range ids {
 		if sub, ok := m[id]; ok {
@@ -327,26 +329,26 @@ func (b *IMAPSMTPBackend) GetSubmissions(ctx context.Context, ids []jmap.Id) ([]
 	return list, notFound, nil
 }
 
-func (b *IMAPSMTPBackend) GetAllSubmissions(ctx context.Context) ([]*jmap.EmailSubmission, error) {
-	accountID, _ := jmap.AccountIDFromContext(ctx)
+func (b *IMAPSMTPBackend) GetAllSubmissions(ctx context.Context) ([]*jmapmail.EmailSubmission, error) {
+	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.submissionsMu.RLock()
 	defer b.submissionsMu.RUnlock()
 
 	m := b.getSubMapLocked(accountID)
-	list := make([]*jmap.EmailSubmission, 0, len(m))
+	list := make([]*jmapmail.EmailSubmission, 0, len(m))
 	for _, sub := range m {
 		list = append(list, sub)
 	}
 	return list, nil
 }
 
-func (b *IMAPSMTPBackend) QuerySubmissions(ctx context.Context, filter map[string]any, comparators []jmap.Comparator, position int, limit *uint64) ([]jmap.Id, int, error) {
+func (b *IMAPSMTPBackend) QuerySubmissions(ctx context.Context, filter map[string]any, comparators []jmapcore.Comparator, position int, limit *uint64) ([]jmapcore.Id, int, error) {
 	subs, err := b.GetAllSubmissions(ctx)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	var matched []*jmap.EmailSubmission
+	var matched []*jmapmail.EmailSubmission
 	for _, sub := range subs {
 		if matchSubmissionFilter(sub, filter) {
 			matched = append(matched, sub)
@@ -356,9 +358,9 @@ func (b *IMAPSMTPBackend) QuerySubmissions(ctx context.Context, filter map[strin
 	sortSubmissions(matched, comparators)
 
 	total := len(matched)
-	position = jmap.NormalizePosition(position, total)
+	position = jmapcore.NormalizePosition(position, total)
 	if position > total {
-		return []jmap.Id{}, total, nil
+		return []jmapcore.Id{}, total, nil
 	}
 
 	end := total
@@ -369,19 +371,19 @@ func (b *IMAPSMTPBackend) QuerySubmissions(ctx context.Context, filter map[strin
 		}
 	}
 
-	ids := make([]jmap.Id, 0, end-position)
+	ids := make([]jmapcore.Id, 0, end-position)
 	for _, sub := range matched[position:end] {
 		ids = append(ids, sub.ID)
 	}
 	return ids, total, nil
 }
 
-func matchSubmissionFilter(sub *jmap.EmailSubmission, filter map[string]any) bool {
+func matchSubmissionFilter(sub *jmapmail.EmailSubmission, filter map[string]any) bool {
 	if len(filter) == 0 {
 		return true
 	}
 
-	if match, isOp := jmap.EvalFilterOperator(filter, func(cond map[string]any) bool {
+	if match, isOp := jmapcore.EvalFilterOperator(filter, func(cond map[string]any) bool {
 		return matchSubmissionFilter(sub, cond)
 	}); isOp {
 		return match
@@ -415,9 +417,9 @@ func matchSubmissionFilter(sub *jmap.EmailSubmission, filter map[string]any) boo
 	return true
 }
 
-func sortSubmissions(subs []*jmap.EmailSubmission, comparators []jmap.Comparator) {
+func sortSubmissions(subs []*jmapmail.EmailSubmission, comparators []jmapcore.Comparator) {
 	if len(comparators) == 0 {
-		comparators = []jmap.Comparator{
+		comparators = []jmapcore.Comparator{
 			{Property: "sendAt", IsAscending: false},
 		}
 	}
@@ -447,12 +449,12 @@ func sortSubmissions(subs []*jmap.EmailSubmission, comparators []jmap.Comparator
 	})
 }
 
-func submissionIDFilter(filter map[string]any, key string) map[jmap.Id]bool {
-	set := make(map[jmap.Id]bool)
+func submissionIDFilter(filter map[string]any, key string) map[jmapcore.Id]bool {
+	set := make(map[jmapcore.Id]bool)
 	if raw, ok := filter[key].([]any); ok {
 		for _, v := range raw {
 			if s, ok := v.(string); ok {
-				set[jmap.Id(s)] = true
+				set[jmapcore.Id(s)] = true
 			}
 		}
 	}

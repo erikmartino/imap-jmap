@@ -9,7 +9,6 @@ type (
 	Mailbox                 = jmapmail.Mailbox
 	Thread                  = jmapmail.Thread
 	EmailAddress            = jmapmail.EmailAddress
-	EmailHeader             = jmapmail.EmailHeader
 	EmailBodyPart           = jmapmail.EmailBodyPart
 	EmailBodyValue          = jmapmail.EmailBodyValue
 	SmimeVerificationResult = jmapmail.SmimeVerificationResult
@@ -18,8 +17,6 @@ type (
 	SubmissionAddress       = jmapmail.SubmissionAddress
 	SubmissionEnvelope      = jmapmail.SubmissionEnvelope
 	DeliveryStatus          = jmapmail.DeliveryStatus
-	DSNParameters           = jmapmail.DSNParameters
-	MDNParameters           = jmapmail.MDNParameters
 	EmailSubmission         = jmapmail.EmailSubmission
 	SearchSnippet           = jmapmail.SearchSnippet
 	VacationResponse        = jmapmail.VacationResponse

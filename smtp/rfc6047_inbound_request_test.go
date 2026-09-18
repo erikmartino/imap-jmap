@@ -9,7 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapcalendar"
 	"imap-jmap/jmap/imapsmtp"
 	"imap-jmap/jmap/nextcloud"
 	"imap-jmap/jmap/spectest"
@@ -27,7 +28,7 @@ func TestRFC6047_InboundRequestFullFidelityMultipart(t *testing.T) {
 	spectest.Require(t, "RFC5546", "3.2.2", spectest.MUST,
 		"An inbound REQUEST imports the full event (recurrence, duration, location, participants).")
 
-	resolver := jmap.PrimaryDomainResolver{PrimaryDomain: "example.com"}
+	resolver := jmapauth.PrimaryDomainResolver{PrimaryDomain: "example.com"}
 	_, calBackend, _, _, _, ncCleanup := nextcloud.NewEmbeddedBackend("invitee@example.com")
 	defer ncCleanup()
 	backend, cleanup := imapsmtp.NewEmbeddedBackend("invitee@example.com")
@@ -37,7 +38,7 @@ func TestRFC6047_InboundRequestFullFidelityMultipart(t *testing.T) {
 
 	const organizer = "organizer@ext.test" // external organizer
 	const invitee = "invitee@example.com"  // local invitee
-	inviteeCtx := jmap.ContextWithAccountID(context.Background(), jmap.AccountIDForSubject(invitee))
+	inviteeCtx := jmapauth.ContextWithAccountID(context.Background(), jmapauth.AccountIDForSubject(invitee))
 
 	// The iCalendar REQUEST, CRLF-delimited per RFC 5545 Section 3.1.
 	ics := strings.Join([]string{
@@ -96,7 +97,7 @@ func TestRFC6047_InboundRequestFullFidelityMultipart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetAllCalendarEvents: %v", err)
 	}
-	var ev *jmap.CalendarEvent
+	var ev *jmapcalendar.CalendarEvent
 	for _, e := range all {
 		if e != nil && e.UID == "inbound-req-uid@example.com" {
 			ev = e

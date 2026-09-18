@@ -13,7 +13,7 @@ import (
 	"io"
 	"time"
 
-	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapauth"
 )
 
 // IMAPAuthBackend authenticates users directly against an upstream IMAP server and issues encrypted session tokens.
@@ -22,8 +22,8 @@ type IMAPAuthBackend struct {
 	secretKey []byte
 }
 
-var _ jmap.AuthBackend = (*IMAPAuthBackend)(nil)
-var _ jmap.TokenCredentialsExtractor = (*IMAPAuthBackend)(nil)
+var _ jmapauth.AuthBackend = (*IMAPAuthBackend)(nil)
+var _ jmapauth.TokenCredentialsExtractor = (*IMAPAuthBackend)(nil)
 
 type tokenPayload struct {
 	Username  string `json:"u"`
@@ -98,7 +98,7 @@ func (a *IMAPAuthBackend) ValidateCredentials(ctx context.Context, username, pas
 	// wasteful.
 	a.pool.ReleaseClientForUser(username, password, client)
 
-	return jmap.AccountIDForSubject(username), nil
+	return jmapauth.AccountIDForSubject(username), nil
 }
 
 // ValidateToken decrypts the session token and returns the authenticated accountID and subject username.
@@ -107,7 +107,7 @@ func (a *IMAPAuthBackend) ValidateToken(ctx context.Context, token string) (stri
 	if !ok {
 		return "", "", errors.New("invalid or expired session token")
 	}
-	return jmap.AccountIDForSubject(u), u, nil
+	return jmapauth.AccountIDForSubject(u), u, nil
 }
 
 // ExtractCredentials decrypts username and password from an encrypted session token.
