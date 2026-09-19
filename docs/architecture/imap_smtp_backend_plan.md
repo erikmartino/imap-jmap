@@ -145,21 +145,8 @@ The backend is isolated in `jmap/imapsmtp/` and implements the `jmap.MailBackend
 
 ---
 
-## 6. Implementation Phases & Milestones
-
-| Phase | Description | Deliverables |
-| :--- | :--- | :--- |
-| **Phase 1: Core Client Pool & Authentication** | Dynamic IMAP/SMTP connection pooling with request-context credential extraction. | `jmap/imapsmtp/client_pool.go` |
-| **Phase 2: Mailbox Operations** | Implement `Mailbox/get`, `Mailbox/set` (create, rename, delete) over IMAP `LIST`/`STATUS`/`CREATE`. | `jmap/imapsmtp/mailbox.go` |
-| **Phase 3: Email Fetching & Querying** | Implement `Email/get`, `Email/query` over IMAP `FETCH` and `SEARCH` across folders. | `jmap/imapsmtp/email_read.go` |
-| **Phase 4: Email Mutation & Flags** | Implement `Email/set` (update flags/keywords, move, delete) over IMAP `STORE`/`COPY`/`EXPUNGE`. | `jmap/imapsmtp/email_write.go` |
-| **Phase 5: State & Delta Sync** | Implement composite state tokens and `Email/changes`, `Mailbox/changes` tracking. | `jmap/imapsmtp/change_tracker.go` |
-| **Phase 6: SMTP Outbound Submission & Blobs** | Implement `EmailSubmission/set` over SMTP and staging draft blobs in IMAP `Drafts`. | `jmap/imapsmtp/submission.go`, `jmap/imapsmtp/blob.go` |
-| **Phase 7: Integration & Test Coverage** | Dedicated unit test suite with live IMAP (Dovecot) & SMTP (Mock-SMTP) backends. | `jmap/imapsmtp/*_test.go` |
-
----
-
-## 7. Spec Compliance & Architectural Constraints Verification
+## 6. Spec Compliance & Architectural Constraints Verification
 - **No Hardcoded Usernames**: Credentials extracted strictly from request context.
 - **Data Loss Prevention**: Partial flag updates in `Email/set` mutate only explicitly provided keywords.
 - **Standard Parsers**: MIME parsing via `go-message`, IMAP protocol handling via `go-imap`.
+

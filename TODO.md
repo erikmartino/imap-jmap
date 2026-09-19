@@ -82,14 +82,3 @@ Tie all production code to specification clauses and ensure 100% test coverage a
   - Enforce **Test -> Spec**: Every `spectest.RequireID` call in test code must exist in the canonical matrix.
   - Report complete coverage audit: tally and report all outstanding `MUST`, `SHOULD`, and `MAY` gaps on every test run.
 
----
-
-## Completed Milestones
-
-- **Autobahn WebSocket Test Suite (RFC 8887 / RFC 6455)**: Full RFC 8887 framing, binary frame rejection, ping/pong heartbeats, pipelining, and `maxSizeRequest` limits.
-- **S/MIME Signature Verification (RFC 9219 / RFC 8551)**: PKCS#7/CMS `SignedData` ASN.1 parser, certificate chain validation, and digest verification.
-- **Email Authentication (SPF, DKIM & DMARC)**: SPF evaluation, DKIM canonicalization, DMARC alignment, and RFC 8601 `Authentication-Results:` headers.
-- **Web Push ECE & VAPID (RFC 8291 / RFC 9749)**: RFC 8291 KAT test vectors with ECDH P-256 HKDF-SHA256, AES-128-GCM, and VAPID ES256 JWT authorization.
-- **Dovecot Pigeonhole Sieve (RFC 5228 / 5804 / 9661)**: Inbound Sieve execution, remote ManageSieve server/client, and JMAP Sieve script CRUD/filtering.
-- **IMAP/SMTP Reference Backend (`imapsmtp`)**: Full migration of Mail, Blob, Submission, Identity, VacationResponse, PushSubscription, and Quota to the live IMAP/SMTP gateway backend; retirement of legacy in-memory stores.
-- **Package Architecture & Layering**: Decoupled top-level `jmap` into self-contained packages (`jmapcore`, `jmaphandler`, `jmapauth`, `jmapblob`, `jmapmail`, `jmapcalendar`, `jmapcontacts`, `jmapsieve`, `jmapprincipals`, `jmappush`).
