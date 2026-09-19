@@ -218,7 +218,17 @@ func (b *CalendarsBackend) CanAccessSharedAccount(principalAccountID, targetAcco
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	known := ok || b.calProps[targetUser] != nil || b.calsCache[targetUser] != nil || b.defaultCalendars[targetUser] != "" || b.allowedAddresses[targetUser] != nil
+	known := b.calProps[targetUser] != nil || b.calsCache[targetUser] != nil || b.defaultCalendars[targetUser] != "" || b.allowedAddresses[targetUser] != nil
+	if !known && b.principalsBackend != nil {
+		if principals, err := b.principalsBackend.GetAllPrincipals(context.Background()); err == nil {
+			for _, p := range principals {
+				if p != nil && (p.AccountIDs[targetAccountID] || string(p.ID) == targetAccountID || strings.EqualFold(p.Email, targetUser) || strings.EqualFold(p.CalendarAddress, "mailto:"+targetUser)) {
+					known = true
+					break
+				}
+			}
+		}
+	}
 
 	for _, cp := range b.calProps[targetUser] {
 		if cp != nil && cp.ShareWith != nil && cp.ShareWith[principalAccountID] != nil {

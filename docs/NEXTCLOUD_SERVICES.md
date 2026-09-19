@@ -12,7 +12,7 @@ This document outlines additional Nextcloud services, applications, and APIs tha
   - Task lists mapped to CalDAV task collections (`TaskList/get`, `TaskList/set`).
   - Native tracking of subtasks, percentComplete, progress status, priorities, alarms, and recurrence.
 - **Integration Approach**:
-  - Connected over CalDAV using `github.com/emersion/go-webdav/caldav` querying `VTODO` components on Nextcloud calendar/task collections.
+  - Encapsulated strictly within `jmap/nextcloud/client.go` using `github.com/emersion/go-webdav/caldav` querying `VTODO` components on Nextcloud calendar/task collections. Domain packages operate purely on domain models.
 
 ---
 

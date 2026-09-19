@@ -1,29 +1,15 @@
-# JMAP Package Layered Architecture Refactoring
+# JMAP Package Layered Architecture
 
-## Problem
+## Architecture Overview
 
-The top-level `jmap` package is a monolith that plays too many roles simultaneously:
+The `imap-jmap` server codebase follows a strict layered architecture to prevent circular dependencies, ensure clean separation of concerns, and enable modular extensibility:
 
-- **Core JMAP types** (Id, SetError, envelope) — partly extracted to `jmapcore`
-- **Handler infrastructure** (MethodHandler, MethodRegistry, parseProperties, filterList, nilIfEmpty, newSetCreationRefs, SourceAccountContext, ValidateGetLimits, ValidateSetLimits) — still in `jmap`
-- **Auth context helpers** (AccountIDFromContext, PrincipalAccountIDFromContext, AccountResolver) — still in `jmap`
-- **Backend interfaces** (MailBackend, BlobBackend, PrincipalsBackend, ContactsBackend, SieveBackend, …) — still in `jmap`
-- **Domain types** (CalendarEvent, Calendar, JSCalendarParticipant, …) — partially extracted to `jmapcalendar`
-- **Domain handlers** (calendar, mail, contacts, sieve, filenode, principals, …) — still in `jmap`
+1. Each layer only imports **downward**.
+2. Domain packages are **fully self-contained** (domain types, backend interface, and method handlers).
+3. The top-level `jmap` package is a **thin wiring layer** (server routing, session negotiation, method registration).
+4. External adapters (`imapsmtp`, `nextcloud`, `managesieve`, `smtp`, `main.go`, and test suites) import domain and infrastructure sub-packages directly.
 
-Because the handler infrastructure and backend interfaces live in the top-level `jmap` package, domain sub-packages (like `jmapcalendar`) cannot import them without creating a circular dependency: `jmap` → `jmapcalendar` ← handlers need `jmap`.
-
-The result is that domain-specific handler files that belong logically in their domain sub-package (e.g. `calendar_event_handlers.go` in `jmapcalendar`) are instead left in the flat `jmap` package.
-
-## Goal
-
-A clean, layered architecture where:
-1. Each layer only imports **downward**
-2. Domain packages are **fully self-contained** (types + backend interface + handlers)
-3. The top-level `jmap` package becomes a **thin wiring layer** (server, session, registration, re-exports)
-4. All external callers (`nextcloud`, `smtp`, `main.go`, tests) are updated to import the right sub-package directly, removing type aliases from `jmap` once migration is complete
-
-## Proposed Layer Map
+## Layer Map
 
 ```
 Layer 0 — jmapcore
@@ -92,9 +78,9 @@ Layer 3 — jmap  [THIN WIRING]
     (imports: all layer 0–2 packages)
 ```
 
-## Implementation Steps
+## Implementation History & Migration Milestones
 
-Each step is independently buildable and testable. All steps preserve backward compatibility via type aliases until explicitly cleaned up.
+Each step was independently buildable and testable, preserving backward compatibility until callers were fully migrated:
 
 ### Step 1 — Create `jmaphandler`
 Move from `jmap/`:

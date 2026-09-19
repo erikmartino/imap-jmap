@@ -1,7 +1,7 @@
-# Architectural Design Plan: IMAP/SMTP Gateway Backend (`jmap/imapsmtp`)
+# Architectural Specification: IMAP/SMTP Gateway Backend (`jmap/imapsmtp`)
 
 ## Executive Summary
-This design plan outlines the architecture for adding a **live IMAP/SMTP gateway backend (`imapsmtp`)** to `imap-jmap` alongside the existing in-memory backend (`jmap/memory`). 
+This document outlines the architecture of the **live IMAP/SMTP gateway backend (`imapsmtp`)** in `imap-jmap`. `imapsmtp` is the primary and sole reference backend for Mail (`Email`, `Mailbox`, `Thread`), Blob, Submission, Identity, VacationResponse, PushSubscription, and Quota functionality, with legacy in-memory stores completely retired.
 
 Instead of reading/storing messages in a local memory data store, the `imapsmtp` backend dynamically translates JMAP requests into **IMAP operations** (for fetching mailboxes, listing threads, searching, reading headers/bodies, updating flags, creating/deleting folders, moving/destroying emails) and **SMTP commands** (for submitting outbound emails).
 
@@ -25,22 +25,20 @@ Credential context is extracted directly from the incoming JMAP HTTP request (vi
                                      |
                        MailBackend / BlobBackend
                                      |
-                +--------------------+--------------------+
-                |                                         |
-                v                                         v
-    +-----------------------+                 +-----------------------+
-    | Memory Backend        |                 | IMAP/SMTP Gateway     |
-    | (jmap/memory)         |                 | Backend (jmap/imapsmtp)|
-    +-----------------------+                 +-----------+-----------+
-                                                          |
-                                          +---------------+---------------+
-                                          |                               |
-                                          | IMAP4rev1/rev2                | SMTP (AUTH PLAIN)
-                                          v                               v
-                              +-----------------------+       +-----------------------+
-                              | Upstream IMAP Server  |       | Upstream SMTP Server  |
-                              | (e.g. Dovecot)        |       | (e.g. Postfix / Mock) |
-                              +-----------------------+       +-----------------------+
+                                     v
+                      +-----------------------------+
+                      |      IMAP/SMTP Gateway      |
+                      |   Backend (jmap/imapsmtp)   |
+                      +--------------+--------------+
+                                     |
+                     +---------------+---------------+
+                     |                               |
+                     | IMAP4rev1/rev2                | SMTP (AUTH PLAIN)
+                     v                               v
+         +-----------------------+       +-----------------------+
+         | Upstream IMAP Server  |       | Upstream SMTP Server  |
+         | (e.g. Dovecot)        |       | (e.g. Postfix / Mock) |
+         +-----------------------+       +-----------------------+
 ```
 
 ---
@@ -73,7 +71,7 @@ Credential context is extracted directly from the incoming JMAP HTTP request (vi
    - If available, IMAP `THREAD` is used directly; otherwise falls back to calculating thread groups via `Message-ID`, `In-Reply-To`, and `References` headers during envelope scans.
 
 6. **Non-Mail Capabilities**:
-   - In `imapsmtp` mode, non-mail capabilities (`jmap.ContactBackend`, `jmap.CalendarBackend`, `jmap.SieveBackend`) utilize the in-memory backend initially. Future phases will integrate live CardDAV, CalDAV, and ManageSieve (RFC 5804) adapters.
+   - Non-mail domains use dedicated production reference adapters: `jmap/nextcloud` for CalDAV/CardDAV/WebDAV (calendars, contacts/cards, filenodes, principals) and `jmap/managesieve` for Sieve scripts. In-process hermetic testing is powered by embedded adapters (`imapsmtp.NewEmbeddedBackend`, `nextcloud.NewEmbeddedBackend`, `managesieve.NewEmbeddedBackend`).
 
 ---
 
@@ -135,16 +133,15 @@ The backend is isolated in `jmap/imapsmtp/` and implements the `jmap.MailBackend
 ---
 
 ## 5. Configuration & Server Setup
-
-Server selection between `memory` and `imapsmtp` is governed by environment flags or initialization options:
-
-```
-BACKEND_TYPE=imapsmtp          # Options: "memory", "imapsmtp"
-IMAP_SERVER=dovecot:143        # External IMAP server host:port
-SMTP_SERVER=smtp:25            # External SMTP server host:port
-IMAP_TLS=false
-SMTP_TLS=false
-```
+ 
+ Gateway connectivity to upstream IMAP and SMTP servers is configured via standard environment variables:
+ 
+ ```
+ IMAP_SERVER=dovecot:143        # External IMAP server host:port
+ SMTP_SERVER=smtp:25            # External SMTP server host:port
+ IMAP_TLS=false
+ SMTP_TLS=false
+ ```
 
 ---
 
