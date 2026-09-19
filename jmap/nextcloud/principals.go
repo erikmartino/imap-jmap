@@ -169,10 +169,7 @@ func (b *PrincipalsBackend) EnsureUser(ctx context.Context, subject, password st
 	}
 	email := subject
 	userid := subject
-	if parts := strings.Split(subject, "@"); len(parts) > 0 {
-		userid = parts[0]
-	}
-	displayName := strings.Title(strings.ReplaceAll(userid, ".", " "))
+	displayName := subject
 	accID := jmapauth.AccountIDForSubject(email)
 	pid := jmapcore.Id("p-" + userid)
 
@@ -358,9 +355,6 @@ func (b *PrincipalsBackend) ensureCurrentPrincipal(ctx context.Context) {
 		defer b.mu.Unlock()
 		email := subj
 		userid := subj
-		if parts := strings.Split(subj, "@"); len(parts) > 0 {
-			userid = parts[0]
-		}
 		accID := jmapauth.AccountIDForSubject(email)
 		for _, existing := range b.principalsCache {
 			if existing.Email == email || existing.AccountIDs[accID] {
@@ -372,7 +366,7 @@ func (b *PrincipalsBackend) ensureCurrentPrincipal(ctx context.Context) {
 			pid = "p-primary"
 		}
 		if _, exists := b.principalsCache[pid]; !exists {
-			displayName := strings.Title(strings.ReplaceAll(userid, ".", " "))
+			displayName := userid
 			b.principalsCache[pid] = &jmapprincipals.Principal{
 				ID:                 pid,
 				Type:               "individual",

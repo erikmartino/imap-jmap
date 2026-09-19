@@ -118,6 +118,17 @@ func (b *ContactsBackend) GetAllAddressBooks(ctx context.Context) ([]*jmapcontac
 	return abs, err
 }
 
+func (b *ContactsBackend) ensureUser(ctx context.Context, u string) {
+	if !b.client.HasAdminAuth() || u == "" {
+		return
+	}
+	password := u
+	if creds, ok := jmapauth.CredentialsFromContext(ctx); ok && creds.Password != "" {
+		password = creds.Password
+	}
+	_ = b.client.CreateUser(ctx, u, password, u, u)
+}
+
 func (b *ContactsBackend) getAddressBookHomeSet(ctx context.Context, cardClient *carddav.Client, u string) string {
 	b.mu.RLock()
 	if hs, ok := b.homeSets[u]; ok && hs != "" {
@@ -125,6 +136,8 @@ func (b *ContactsBackend) getAddressBookHomeSet(ctx context.Context, cardClient 
 		return hs
 	}
 	b.mu.RUnlock()
+
+	b.ensureUser(ctx, u)
 
 	principal, err := cardClient.FindCurrentUserPrincipal(ctx)
 	if err == nil && principal != "" {

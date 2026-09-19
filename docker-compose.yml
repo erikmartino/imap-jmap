@@ -46,6 +46,7 @@ services:
       - ALLOW_CUSTOM_JMAP_ENDPOINT=true
       - STALWART_EXTENSIONS=false
       - NODE_TLS_REJECT_UNAUTHORIZED=0
+      - SESSION_SECRET=bulwark-secret-session-key-32b-long!!
     depends_on:
       - imap-jmap
     restart: unless-stopped

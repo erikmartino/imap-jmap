@@ -4,14 +4,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/emersion/go-ical"
 	"github.com/emersion/go-webdav"
 	"github.com/emersion/go-webdav/caldav"
 	"github.com/emersion/go-webdav/carddav"
@@ -66,6 +70,10 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 type Client struct {
 	BaseURL    string
 	HTTPClient *http.Client
+
+	mu       sync.RWMutex
+	homeSets map[string]string
+	calPaths map[string]map[string]string
 }
 
 // NewClient creates a new Nextcloud client helper.
@@ -76,6 +84,8 @@ func NewClient(baseURL string) *Client {
 			Transport: &retryTransport{base: http.DefaultTransport},
 			Timeout:   15 * time.Second,
 		},
+		homeSets: make(map[string]string),
+		calPaths: make(map[string]map[string]string),
 	}
 }
 
@@ -107,7 +117,7 @@ func (c *Client) getUserAndPass(ctx context.Context) (string, string) {
 		return accountID, accountID
 	}
 
-	return "user@example.com", "user@example.com"
+	return "", ""
 }
 
 // CalDAV returns an authenticated caldav.Client from github.com/emersion/go-webdav/caldav.
@@ -120,6 +130,279 @@ func (c *Client) CalDAV(ctx context.Context) (*caldav.Client, string, error) {
 		return nil, "", err
 	}
 	return client, user, nil
+}
+
+type propfindScheduleReq struct {
+	XMLName xml.Name             `xml:"DAV: propfind"`
+	Prop    propfindScheduleProp `xml:"prop"`
+}
+
+type propfindScheduleProp struct {
+	ScheduleDefaultCalendarURL *struct{} `xml:"urn:ietf:params:xml:ns:caldav schedule-default-calendar-URL,omitempty"`
+	ScheduleInboxURL           *struct{} `xml:"urn:ietf:params:xml:ns:caldav schedule-inbox-URL,omitempty"`
+}
+
+// FindScheduleDefaultCalendar finds the default calendar collection for scheduling
+// per RFC 6638 Section 9.2.1 by querying the user's principal resource or scheduling inbox.
+func (c *Client) FindScheduleDefaultCalendar(ctx context.Context, principal string) string {
+	if principal == "" {
+		return ""
+	}
+	user, pass := c.getUserAndPass(ctx)
+	if user == "" {
+		return ""
+	}
+	urlStr := c.BaseURL + principal
+	if !strings.HasPrefix(principal, "/") {
+		urlStr = c.BaseURL + "/" + principal
+	}
+	reqData, err := xml.Marshal(&propfindScheduleReq{
+		Prop: propfindScheduleProp{
+			ScheduleDefaultCalendarURL: &struct{}{},
+			ScheduleInboxURL:           &struct{}{},
+		},
+	})
+	if err != nil {
+		return ""
+	}
+	req, err := http.NewRequestWithContext(ctx, "PROPFIND", urlStr, bytes.NewReader(reqData))
+	if err != nil {
+		return ""
+	}
+	req.SetBasicAuth(user, pass)
+	req.Header.Set("Depth", "0")
+	req.Header.Set("Content-Type", "application/xml")
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return ""
+	}
+
+	var multi struct {
+		XMLName  xml.Name `xml:"multistatus"`
+		Response struct {
+			Propstat []struct {
+				Prop struct {
+					ScheduleDefaultCalendarURL struct {
+						Href string `xml:"href"`
+					} `xml:"schedule-default-calendar-URL"`
+					ScheduleInboxURL struct {
+						Href string `xml:"href"`
+					} `xml:"schedule-inbox-URL"`
+				} `xml:"prop"`
+				Status string `xml:"status"`
+			} `xml:"propstat"`
+		} `xml:"response"`
+	}
+	if err := xml.NewDecoder(resp.Body).Decode(&multi); err != nil {
+		return ""
+	}
+	var inboxURL string
+	for _, ps := range multi.Response.Propstat {
+		if strings.Contains(ps.Status, "200") {
+			if ps.Prop.ScheduleDefaultCalendarURL.Href != "" {
+				return path.Base(strings.TrimRight(ps.Prop.ScheduleDefaultCalendarURL.Href, "/"))
+			}
+			if ps.Prop.ScheduleInboxURL.Href != "" {
+				inboxURL = ps.Prop.ScheduleInboxURL.Href
+			}
+		}
+	}
+	if inboxURL != "" && inboxURL != principal {
+		return c.FindScheduleDefaultCalendar(ctx, inboxURL)
+	}
+	return ""
+}
+
+// CalendarInfo represents calendar collection metadata retrieved from Nextcloud.
+type CalendarInfo struct {
+	ID          string
+	Name        string
+	Description string
+	IsDefault   bool
+}
+
+// CalendarObjectInfo represents a calendar object (event/todo) retrieved from Nextcloud.
+type CalendarObjectInfo struct {
+	ID      string
+	Data    *ical.Calendar
+	ModTime time.Time
+	ETag    string
+}
+
+func (c *Client) getCalendarHomeSet(ctx context.Context, calClient *caldav.Client, u string) string {
+	c.mu.RLock()
+	if hs, ok := c.homeSets[u]; ok && hs != "" {
+		c.mu.RUnlock()
+		return hs
+	}
+	c.mu.RUnlock()
+
+	principal, err := calClient.FindCurrentUserPrincipal(ctx)
+	if err == nil && principal != "" {
+		homeSet, err := calClient.FindCalendarHomeSet(ctx, principal)
+		if err == nil && homeSet != "" {
+			c.mu.Lock()
+			c.homeSets[u] = homeSet
+			c.mu.Unlock()
+			return homeSet
+		}
+	}
+	defaultHS := "calendars/" + u + "/"
+	c.mu.Lock()
+	c.homeSets[u] = defaultHS
+	c.mu.Unlock()
+	return defaultHS
+}
+
+func (c *Client) getCalPath(ctx context.Context, calClient *caldav.Client, u, calID string) string {
+	c.mu.RLock()
+	if c.calPaths[u] != nil {
+		if p, ok := c.calPaths[u][calID]; ok && p != "" {
+			c.mu.RUnlock()
+			return p
+		}
+	}
+	c.mu.RUnlock()
+
+	homeSet := c.getCalendarHomeSet(ctx, calClient, u)
+	if homeSet != "" {
+		return strings.TrimRight(homeSet, "/") + "/" + calID + "/"
+	}
+	return "calendars/" + u + "/" + calID + "/"
+}
+
+// ListCalendars retrieves all calendars for the authenticated user from Nextcloud.
+func (c *Client) ListCalendars(ctx context.Context) ([]*CalendarInfo, string, error) {
+	calClient, u, err := c.CalDAV(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	homeSet := c.getCalendarHomeSet(ctx, calClient, u)
+	calList, err := calClient.FindCalendars(ctx, homeSet)
+	if err != nil {
+		return nil, u, err
+	}
+
+	principal, _ := calClient.FindCurrentUserPrincipal(ctx)
+	scheduleDefaultCalID := c.FindScheduleDefaultCalendar(ctx, principal)
+
+	var list []*CalendarInfo
+	c.mu.Lock()
+	if c.calPaths[u] == nil {
+		c.calPaths[u] = make(map[string]string)
+	}
+	for _, cal := range calList {
+		calID := path.Base(strings.TrimRight(cal.Path, "/"))
+		if calID == "inbox" || calID == "outbox" || calID == "trashbin" {
+			continue
+		}
+		c.calPaths[u][calID] = cal.Path
+		name := cal.Name
+		if name == "" {
+			name = calID
+		}
+		isDefault := false
+		if scheduleDefaultCalID != "" {
+			isDefault = (calID == scheduleDefaultCalID)
+		} else if len(list) == 0 {
+			isDefault = true
+		}
+		list = append(list, &CalendarInfo{
+			ID:          calID,
+			Name:        name,
+			Description: cal.Description,
+			IsDefault:   isDefault,
+		})
+	}
+	c.mu.Unlock()
+	return list, u, nil
+}
+
+// CreateCalendar creates a new calendar collection in Nextcloud.
+func (c *Client) CreateCalendar(ctx context.Context, calID string) error {
+	calClient, u, err := c.CalDAV(ctx)
+	if err != nil {
+		return err
+	}
+	calPath := c.getCalPath(ctx, calClient, u, calID)
+	return calClient.Mkdir(ctx, calPath)
+}
+
+// DeleteCalendar removes a calendar collection in Nextcloud.
+func (c *Client) DeleteCalendar(ctx context.Context, calID string) error {
+	calClient, u, err := c.CalDAV(ctx)
+	if err != nil {
+		return err
+	}
+	calPath := c.getCalPath(ctx, calClient, u, calID)
+	c.mu.Lock()
+	if c.calPaths[u] != nil {
+		delete(c.calPaths[u], calID)
+	}
+	c.mu.Unlock()
+	return calClient.RemoveAll(ctx, calPath)
+}
+
+// QueryCalendarObjects queries all calendar objects in a Nextcloud calendar collection.
+func (c *Client) QueryCalendarObjects(ctx context.Context, calID string) ([]*CalendarObjectInfo, error) {
+	calClient, u, err := c.CalDAV(ctx)
+	if err != nil {
+		return nil, err
+	}
+	calPath := c.getCalPath(ctx, calClient, u, calID)
+	objs, err := calClient.QueryCalendar(ctx, calPath, &caldav.CalendarQuery{
+		CompFilter: caldav.CompFilter{
+			Name: "VCALENDAR",
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	res := make([]*CalendarObjectInfo, len(objs))
+	for i, obj := range objs {
+		name := path.Base(obj.Path)
+		eventID := strings.TrimSuffix(name, ".ics")
+		res[i] = &CalendarObjectInfo{
+			ID:      eventID,
+			Data:    obj.Data,
+			ModTime: obj.ModTime,
+			ETag:    obj.ETag,
+		}
+	}
+	return res, nil
+}
+
+// PutCalendarObject creates or replaces a calendar object in a Nextcloud calendar collection.
+func (c *Client) PutCalendarObject(ctx context.Context, calID, eventID string, calObj *ical.Calendar) error {
+	calClient, u, err := c.CalDAV(ctx)
+	if err != nil {
+		return err
+	}
+	eventFilename := eventID
+	if !strings.HasSuffix(eventID, ".ics") {
+		eventFilename = eventID + ".ics"
+	}
+	eventPath := c.getCalPath(ctx, calClient, u, calID) + eventFilename
+	_, err = calClient.PutCalendarObject(ctx, eventPath, calObj)
+	return err
+}
+
+// DeleteCalendarObject deletes a calendar object from a Nextcloud calendar collection.
+func (c *Client) DeleteCalendarObject(ctx context.Context, calID, eventID string) error {
+	calClient, u, err := c.CalDAV(ctx)
+	if err != nil {
+		return err
+	}
+	eventFilename := eventID
+	if !strings.HasSuffix(eventID, ".ics") {
+		eventFilename = eventID + ".ics"
+	}
+	eventPath := c.getCalPath(ctx, calClient, u, calID) + eventFilename
+	return calClient.RemoveAll(ctx, eventPath)
 }
 
 // CardDAV returns an authenticated carddav.Client from github.com/emersion/go-webdav/carddav.
@@ -388,10 +671,10 @@ func (c *Client) EnsureUserInTeam(ctx context.Context, userid, password, email, 
 		displayname = userid
 	}
 	if email == "" {
-		email = userid + "@example.com"
+		email = userid
 	}
 	if password == "" {
-		password = email
+		password = userid
 	}
 
 	// Check if user exists

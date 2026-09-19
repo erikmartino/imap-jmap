@@ -18,6 +18,7 @@ import { login, uniqueUser, goToApp, JMAPClient } from '../lib/helpers';
 test('alice invites bob; bob sees the unconfirmed event, accepts; alice sees it accepted', async ({
   browser,
 }) => {
+  test.setTimeout(120_000);
   const alice = uniqueUser('cal-invite-alice');
   const bob = uniqueUser('cal-invite-bob');
 

@@ -220,6 +220,9 @@ func TestEmbeddedNextcloudCalendars(t *testing.T) {
 	if len(cals) == 0 {
 		t.Fatalf("Expected at least 1 calendar, got 0")
 	}
+	if !cals[0].IsDefault {
+		t.Errorf("Expected first calendar to have IsDefault=true via RFC 6638 discovery")
+	}
 
 	// 2. Create CalendarEvent
 	ev := &jmapcalendar.CalendarEvent{

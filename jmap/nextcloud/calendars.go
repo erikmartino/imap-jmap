@@ -7,14 +7,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"path"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/emersion/go-ical"
-	"github.com/emersion/go-webdav/caldav"
 
 	"imap-jmap/jmap/jmapauth"
 	"imap-jmap/jmap/jmapcalendar"
@@ -23,7 +21,7 @@ import (
 	"imap-jmap/jmap/jmappush"
 )
 
-// CalendarsBackend implements jmapcalendar.CalendarsBackend backed by Nextcloud CalDAV via github.com/emersion/go-webdav/caldav.
+// CalendarsBackend implements jmapcalendar.CalendarsBackend backed by Nextcloud.
 type CalendarsBackend struct {
 	client      *Client
 	mu          sync.RWMutex
@@ -39,8 +37,6 @@ type CalendarsBackend struct {
 	eventsFingerprint  map[string]string
 
 	calsCache          map[string][]*jmapcalendar.Calendar
-	calPaths           map[string]map[jmapcore.Id]string
-	homeSets           map[string]string
 	calsCacheTime      map[string]time.Time
 	eventsCache        map[string]map[jmapcore.Id]*jmapcalendar.CalendarEvent
 	eventsCacheTime    map[string]time.Time
@@ -70,8 +66,6 @@ func NewCalendarsBackend(client *Client) *CalendarsBackend {
 		calsFingerprint:           make(map[string]string),
 		eventsFingerprint:         make(map[string]string),
 		calsCache:                 make(map[string][]*jmapcalendar.Calendar),
-		calPaths:                  make(map[string]map[jmapcore.Id]string),
-		homeSets:                  make(map[string]string),
 		calsCacheTime:             make(map[string]time.Time),
 		eventsCache:               make(map[string]map[jmapcore.Id]*jmapcalendar.CalendarEvent),
 		eventsCacheTime:           make(map[string]time.Time),
@@ -204,22 +198,6 @@ func (b *CalendarsBackend) lookupUserNameLocked(subj string) string {
 			}
 		}
 	}
-	if subj == "jdoe@example.com" {
-		return "John Doe"
-	}
-	if subj == "jane.smith@example.com" {
-		return "Jane Smith"
-	}
-	parts := strings.Split(subj, "@")
-	if len(parts) > 0 {
-		nameParts := strings.Split(parts[0], ".")
-		for i, part := range nameParts {
-			if len(part) > 0 {
-				nameParts[i] = strings.ToUpper(part[:1]) + part[1:]
-			}
-		}
-		return strings.Join(nameParts, " ")
-	}
 	return subj
 }
 
@@ -240,12 +218,7 @@ func (b *CalendarsBackend) CanAccessSharedAccount(principalAccountID, targetAcco
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	known := false
-	if b.calProps[targetUser] != nil || b.calsCache[targetUser] != nil || b.calPaths[targetUser] != nil || b.defaultCalendars[targetUser] != "" || b.allowedAddresses[targetUser] != nil {
-		known = true
-	} else if strings.Contains(targetUser, "@") {
-		known = true
-	}
+	known := ok || b.calProps[targetUser] != nil || b.calsCache[targetUser] != nil || b.defaultCalendars[targetUser] != "" || b.allowedAddresses[targetUser] != nil
 
 	for _, cp := range b.calProps[targetUser] {
 		if cp != nil && cp.ShareWith != nil && cp.ShareWith[principalAccountID] != nil {
@@ -309,72 +282,21 @@ func filterCalendars(list []*jmapcalendar.Calendar, ids []jmapcore.Id) ([]*jmapc
 	return filtered, notFound, nil
 }
 
-func (b *CalendarsBackend) getCalendarHomeSet(ctx context.Context, calClient *caldav.Client, u string) string {
-	b.mu.RLock()
-	if hs, ok := b.homeSets[u]; ok && hs != "" {
-		b.mu.RUnlock()
-		return hs
+func (b *CalendarsBackend) ensureUser(ctx context.Context, u string) {
+	if !b.client.HasAdminAuth() || u == "" {
+		return
 	}
-	b.mu.RUnlock()
-
-	principal, err := calClient.FindCurrentUserPrincipal(ctx)
-	if err == nil && principal != "" {
-		homeSet, err := calClient.FindCalendarHomeSet(ctx, principal)
-		if err == nil && homeSet != "" {
-			b.mu.Lock()
-			b.homeSets[u] = homeSet
-			b.mu.Unlock()
-			return homeSet
-		}
+	password := u
+	if creds, ok := jmapauth.CredentialsFromContext(ctx); ok && creds.Password != "" {
+		password = creds.Password
 	}
-	defaultHS := "calendars/" + u + "/"
-	b.mu.Lock()
-	b.homeSets[u] = defaultHS
-	b.mu.Unlock()
-	return defaultHS
-}
-
-func (b *CalendarsBackend) getCalPath(u string, cid jmapcore.Id, homeSet string) string {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	if b.calPaths[u] != nil {
-		if p, ok := b.calPaths[u][cid]; ok && p != "" {
-			return p
-		}
-	}
-	if homeSet != "" {
-		return strings.TrimRight(homeSet, "/") + "/" + string(cid) + "/"
-	}
-	return "calendars/" + u + "/" + string(cid) + "/"
+	_ = b.client.CreateUser(ctx, u, password, u, u)
 }
 
 func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmapcore.Id) ([]*jmapcalendar.Calendar, []jmapcore.Id, error) {
-	calClient, u, err := b.client.CalDAV(ctx)
+	calList, u, err := b.client.ListCalendars(ctx)
 	if err != nil {
 		return nil, nil, err
-	}
-
-	homeSet := b.getCalendarHomeSet(ctx, calClient, u)
-	calList, err := calClient.FindCalendars(ctx, homeSet)
-	if err != nil {
-		// Fallback default personal calendar
-		defaultCal := &jmapcalendar.Calendar{
-			ID:        jmapcore.Id("personal"),
-			Name:      "Personal Calendar",
-			IsVisible: true,
-			IsDefault: true,
-			SortOrder: 0,
-			MyRights:  jmapcalendar.FullCalendarRights(),
-		}
-		b.mu.Lock()
-		if b.calPaths[u] == nil {
-			b.calPaths[u] = make(map[jmapcore.Id]string)
-		}
-		b.calPaths[u]["personal"] = strings.TrimRight(homeSet, "/") + "/personal/"
-		b.calsCache[u] = []*jmapcalendar.Calendar{defaultCal}
-		b.calsCacheTime[u] = time.Now()
-		b.mu.Unlock()
-		return filterCalendars([]*jmapcalendar.Calendar{defaultCal}, ids)
 	}
 
 	b.mu.RLock()
@@ -382,35 +304,26 @@ func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmapcore.Id) 
 	b.mu.RUnlock()
 
 	var list []*jmapcalendar.Calendar
-	pathMap := make(map[jmapcore.Id]string)
 	for _, c := range calList {
-		calID := path.Base(strings.TrimRight(c.Path, "/"))
-		if calID == "inbox" || calID == "outbox" || calID == "trashbin" {
-			continue
-		}
-
-		name := c.Name
-		if name == "" || strings.EqualFold(name, "Personal") {
-			name = "Personal Calendar"
-		}
-
-		cid := jmapcore.Id(calID)
-		isDefault := false
+		cid := jmapcore.Id(c.ID)
+		isDefault := c.IsDefault
 		if defID != "" {
 			isDefault = (cid == defID)
-		} else {
-			isDefault = (calID == "personal" || strings.EqualFold(name, "Personal") || strings.EqualFold(name, "Personal Calendar"))
 		}
-		pathMap[cid] = c.Path
 		incAvail := "all"
 		b.mu.RLock()
 		if b.calProps[u] != nil && b.calProps[u][cid] != nil && b.calProps[u][cid].IncludeInAvailability != "" {
 			incAvail = b.calProps[u][cid].IncludeInAvailability
 		}
 		b.mu.RUnlock()
+		var desc *string
+		if c.Description != "" {
+			desc = &c.Description
+		}
 		cal := &jmapcalendar.Calendar{
 			ID:                    cid,
-			Name:                  name,
+			Name:                  c.Name,
+			Description:           desc,
 			IsVisible:             true,
 			IsDefault:             isDefault,
 			SortOrder:             0,
@@ -442,51 +355,18 @@ func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmapcore.Id) 
 		list = append(list, cal)
 	}
 
-	if len(list) == 0 {
-		cid := jmapcore.Id("personal")
-		pathMap[cid] = strings.TrimRight(homeSet, "/") + "/personal/"
-		incAvail := "all"
-		cal := &jmapcalendar.Calendar{
-			ID:                    cid,
-			Name:                  "Personal Calendar",
-			IsVisible:             true,
-			IsDefault:             true,
-			SortOrder:             0,
-			IncludeInAvailability: incAvail,
-			MyRights:              jmapcalendar.FullCalendarRights(),
+	hasDefault := false
+	for _, c := range list {
+		if c.IsDefault {
+			hasDefault = true
+			break
 		}
-		b.mu.RLock()
-		if b.calProps[u] != nil && b.calProps[u][cid] != nil {
-			cp := b.calProps[u][cid]
-			if cp.Name != "" {
-				cal.Name = cp.Name
-			}
-			cal.Description = cp.Description
-			cal.Color = cp.Color
-			cal.TimeZone = cp.TimeZone
-			cal.SortOrder = cp.SortOrder
-			cal.IsSubscribed = cp.IsSubscribed
-			cal.IsVisible = cp.IsVisible
-			if cp.IncludeInAvailability != "" {
-				cal.IncludeInAvailability = cp.IncludeInAvailability
-			}
-			cal.DefaultAlertsWithTime = cp.DefaultAlertsWithTime
-			cal.DefaultAlertsWithoutTime = cp.DefaultAlertsWithoutTime
-			if cp.ShareWith != nil {
-				cal.ShareWith = cp.ShareWith
-			}
-		}
-		b.mu.RUnlock()
-		list = append(list, cal)
+	}
+	if !hasDefault && len(list) > 0 {
+		list[0].IsDefault = true
 	}
 
 	b.mu.Lock()
-	if b.calPaths[u] == nil {
-		b.calPaths[u] = make(map[jmapcore.Id]string)
-	}
-	for k, v := range pathMap {
-		b.calPaths[u][k] = v
-	}
 	newFp := calsListFingerprint(list)
 	oldFp := b.calsFingerprint[u]
 	b.calsFingerprint[u] = newFp
@@ -556,10 +436,7 @@ func (b *CalendarsBackend) CreateCalendar(ctx context.Context, cal *jmapcalendar
 	if cal == nil {
 		return nil, fmt.Errorf("calendar is nil")
 	}
-	calClient, u, err := b.client.CalDAV(ctx)
-	if err != nil {
-		return nil, err
-	}
+	u := b.user(ctx)
 
 	if cal.ID == "" {
 		cal.ID = jmapcore.Id(fmt.Sprintf("cal-%d", time.Now().UnixNano()))
@@ -572,15 +449,9 @@ func (b *CalendarsBackend) CreateCalendar(ctx context.Context, cal *jmapcalendar
 	}
 	cal.MyRights = jmapcalendar.FullCalendarRights()
 
-	homeSet := b.getCalendarHomeSet(ctx, calClient, u)
-	calPath := strings.TrimRight(homeSet, "/") + "/" + string(cal.ID) + "/"
-	_ = calClient.Mkdir(ctx, calPath)
+	_ = b.client.CreateCalendar(ctx, string(cal.ID))
 
 	b.mu.Lock()
-	if b.calPaths[u] == nil {
-		b.calPaths[u] = make(map[jmapcore.Id]string)
-	}
-	b.calPaths[u][cal.ID] = calPath
 	if b.calProps[u] == nil {
 		b.calProps[u] = make(map[jmapcore.Id]*jmapcalendar.Calendar)
 	}
@@ -789,19 +660,10 @@ func (b *CalendarsBackend) DeleteCalendar(ctx context.Context, id jmapcore.Id) (
 		return false, nil
 	}
 
-	calClient, u, err := b.client.CalDAV(ctx)
-	if err != nil {
-		return false, err
-	}
-
-	homeSet := b.getCalendarHomeSet(ctx, calClient, u)
-	calPath := b.getCalPath(u, id, homeSet)
-	_ = calClient.RemoveAll(ctx, calPath)
+	u := b.user(ctx)
+	_ = b.client.DeleteCalendar(ctx, string(id))
 
 	b.mu.Lock()
-	if b.calPaths[u] != nil {
-		delete(b.calPaths[u], id)
-	}
 	if b.calsCache[u] != nil {
 		var filtered []*jmapcalendar.Calendar
 		for _, c := range b.calsCache[u] {
@@ -924,17 +786,12 @@ func (b *CalendarsBackend) buildEventResponseFromCache(u string, ids []jmapcore.
 }
 
 func (b *CalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmapcore.Id) ([]*jmapcalendar.CalendarEvent, []jmapcore.Id, error) {
-	calClient, u, err := b.client.CalDAV(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-
+	u := b.user(ctx)
 	cals, _, _ := b.GetCalendars(ctx, nil)
-	homeSet := b.getCalendarHomeSet(ctx, calClient, u)
 
 	type calResult struct {
 		calID jmapcore.Id
-		objs  []caldav.CalendarObject
+		objs  []*CalendarObjectInfo
 	}
 	resChan := make(chan calResult, len(cals))
 	var wg sync.WaitGroup
@@ -943,12 +800,7 @@ func (b *CalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmapcore
 		wg.Add(1)
 		go func(cal *jmapcalendar.Calendar) {
 			defer wg.Done()
-			calPath := b.getCalPath(u, cal.ID, homeSet)
-			objs, qErr := calClient.QueryCalendar(ctx, calPath, &caldav.CalendarQuery{
-				CompFilter: caldav.CompFilter{
-					Name: "VCALENDAR",
-				},
-			})
+			objs, qErr := b.client.QueryCalendarObjects(ctx, string(cal.ID))
 			if qErr == nil {
 				resChan <- calResult{calID: cal.ID, objs: objs}
 			}
@@ -960,12 +812,10 @@ func (b *CalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmapcore
 	freshMap := make(map[jmapcore.Id]*jmapcalendar.CalendarEvent)
 	for res := range resChan {
 		for _, calObj := range res.objs {
-			if calObj.Data == nil {
+			if calObj.Data == nil || calObj.ID == "" {
 				continue
 			}
-			name := path.Base(calObj.Path)
-			rawID := strings.TrimSuffix(name, ".ics")
-			evID := jmapcore.Id(rawID)
+			evID := jmapcore.Id(calObj.ID)
 
 			var buf bytes.Buffer
 			_ = ical.NewEncoder(&buf).Encode(calObj.Data)
@@ -1049,11 +899,7 @@ func (b *CalendarsBackend) CreateCalendarEvent(ctx context.Context, event *jmapc
 	if event == nil {
 		return nil, fmt.Errorf("event is nil")
 	}
-	calClient, u, err := b.client.CalDAV(ctx)
-	if err != nil {
-		return nil, err
-	}
-
+	u := b.user(ctx)
 	if event.ID == "" {
 		event.ID = jmapcore.Id(fmt.Sprintf("event-%d", time.Now().UnixNano()))
 	}
@@ -1070,19 +916,28 @@ func (b *CalendarsBackend) CreateCalendarEvent(ctx context.Context, event *jmapc
 		event.UTCEnd = jmapcalendar.ComputeUTCEnd(event.Start, event.Duration, event.TimeZone)
 	}
 
-	homeSet := b.getCalendarHomeSet(ctx, calClient, u)
+	cals, _, _ := b.GetCalendars(ctx, nil)
+	calMap := make(map[jmapcore.Id]bool, len(cals))
+	var defaultID jmapcore.Id
+	for _, c := range cals {
+		calMap[c.ID] = true
+		if c.IsDefault && defaultID == "" {
+			defaultID = c.ID
+		}
+	}
+	if defaultID == "" && len(cals) > 0 {
+		defaultID = cals[0].ID
+	}
 
 	if len(event.CalendarIDs) > 0 {
-		cals, _, err := b.GetCalendars(ctx, nil)
-		if err == nil {
-			calMap := make(map[jmapcore.Id]bool, len(cals))
-			for _, c := range cals {
-				calMap[c.ID] = true
-			}
-			for cid := range event.CalendarIDs {
-				if cid != "cal-default" && !calMap[cid] {
-					return nil, jmapcore.SetError{Type: "notFound", Description: fmt.Sprintf("calendar %s not found", cid)}
+		for cid := range event.CalendarIDs {
+			if cid == "cal-default" {
+				delete(event.CalendarIDs, "cal-default")
+				if defaultID != "" {
+					event.CalendarIDs[defaultID] = true
 				}
+			} else if len(calMap) > 0 && !calMap[cid] {
+				return nil, jmapcore.SetError{Type: "notFound", Description: fmt.Sprintf("calendar %s not found", cid)}
 			}
 		}
 	}
@@ -1090,27 +945,26 @@ func (b *CalendarsBackend) CreateCalendarEvent(ctx context.Context, event *jmapc
 	calObj := jmapcalendar.CalendarEventToICalendar(event, "", "", "", "")
 	written := false
 	for cid, isSet := range event.CalendarIDs {
-		if isSet && cid != "cal-default" && cid != "" {
-			calPath := b.getCalPath(u, cid, homeSet)
-			eventPath := strings.TrimRight(calPath, "/") + "/" + string(event.ID) + ".ics"
-			_, putErr := calClient.PutCalendarObject(ctx, eventPath, calObj)
+		if isSet && cid != "" {
+			putErr := b.client.PutCalendarObject(ctx, string(cid), string(event.ID), calObj)
 			if putErr != nil {
-				return nil, fmt.Errorf("failed to put calendar object via caldav client: %w", putErr)
+				return nil, fmt.Errorf("failed to put calendar object via nextcloud backend: %w", putErr)
 			}
 			written = true
 		}
 	}
 	if !written {
-		calPath := b.getCalPath(u, "personal", homeSet)
-		eventPath := strings.TrimRight(calPath, "/") + "/" + string(event.ID) + ".ics"
-		_, putErr := calClient.PutCalendarObject(ctx, eventPath, calObj)
+		if defaultID == "" {
+			return nil, jmapcore.SetError{Type: "notFound", Description: "no calendar available to create event"}
+		}
+		putErr := b.client.PutCalendarObject(ctx, string(defaultID), string(event.ID), calObj)
 		if putErr != nil {
-			return nil, fmt.Errorf("failed to put calendar object via caldav client: %w", putErr)
+			return nil, fmt.Errorf("failed to put calendar object via nextcloud backend: %w", putErr)
 		}
 		if event.CalendarIDs == nil {
 			event.CalendarIDs = make(map[jmapcore.Id]bool)
 		}
-		event.CalendarIDs["personal"] = true
+		event.CalendarIDs[defaultID] = true
 	}
 
 	b.mu.Lock()
@@ -1600,14 +1454,9 @@ func (b *CalendarsBackend) UpdateCalendarEvent(ctx context.Context, id jmapcore.
 	ev.UTCStart = jmapcalendar.ComputeUTCStart(ev.Start, ev.TimeZone)
 	ev.UTCEnd = jmapcalendar.ComputeUTCEnd(ev.Start, ev.Duration, ev.TimeZone)
 
-	calClient, u, cErr := b.client.CalDAV(ctx)
-	if cErr == nil {
-		homeSet := b.getCalendarHomeSet(ctx, calClient, u)
-		for oldCID := range oldCalendarIDs {
-			if !ev.CalendarIDs[oldCID] {
-				oldPath := strings.TrimRight(b.getCalPath(u, oldCID, homeSet), "/") + "/" + string(id) + ".ics"
-				_ = calClient.RemoveAll(ctx, oldPath)
-			}
+	for oldCID := range oldCalendarIDs {
+		if !ev.CalendarIDs[oldCID] {
+			_ = b.client.DeleteCalendarObject(ctx, string(oldCID), string(id))
 		}
 	}
 
@@ -1650,24 +1499,29 @@ func (b *CalendarsBackend) DeleteCalendarEvent(ctx context.Context, id jmapcore.
 	}
 	targetEv := events[0]
 
-	calClient, u, err := b.client.CalDAV(ctx)
-	if err != nil {
-		return false, err
-	}
-
-	homeSet := b.getCalendarHomeSet(ctx, calClient, u)
+	u := b.user(ctx)
 	if len(targetEv.CalendarIDs) > 0 {
 		for cid, isSet := range targetEv.CalendarIDs {
 			if isSet && cid != "" && cid != "cal-default" {
-				calPath := b.getCalPath(u, cid, homeSet)
-				eventPath := strings.TrimRight(calPath, "/") + "/" + string(id) + ".ics"
-				_ = calClient.RemoveAll(ctx, eventPath)
+				_ = b.client.DeleteCalendarObject(ctx, string(cid), string(id))
 			}
 		}
 	} else {
-		calPath := b.getCalPath(u, "personal", homeSet)
-		eventPath := strings.TrimRight(calPath, "/") + "/" + string(id) + ".ics"
-		_ = calClient.RemoveAll(ctx, eventPath)
+		defaultID := jmapcore.Id("")
+		if cals, _, err := b.GetCalendars(ctx, nil); err == nil {
+			for _, c := range cals {
+				if c.IsDefault {
+					defaultID = c.ID
+					break
+				}
+			}
+			if defaultID == "" && len(cals) > 0 {
+				defaultID = cals[0].ID
+			}
+		}
+		if defaultID != "" {
+			_ = b.client.DeleteCalendarObject(ctx, string(defaultID), string(id))
+		}
 	}
 
 	b.mu.Lock()

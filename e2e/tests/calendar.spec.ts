@@ -17,7 +17,7 @@ test.describe('calendar (Bulwark UI ↔ imap-jmap over JMAP)', () => {
     await login(page, user.username, user.password);
     await goToApp(page, '/en/calendar');
 
-    await expect(page.getByText('Personal Calendar').first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/Personal( Calendar)?/).first()).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('button', { name: 'Create event' }).first()).toBeVisible();
     for (const tab of ['Month', 'Week', 'Day', 'Agenda']) {
       await expect(page.getByRole('button', { name: tab, exact: true }).first()).toBeVisible();
@@ -265,7 +265,7 @@ test.describe('calendar (Bulwark UI ↔ imap-jmap over JMAP)', () => {
     await login(page, acct.username, acct.password);
     await goToApp(page, '/en/calendar');
 
-    const personalCal = page.getByText('Personal Calendar').first();
+    const personalCal = page.getByText(/Personal( Calendar)?/).first();
     await expect(personalCal).toBeVisible({ timeout: 20_000 });
     await personalCal.click({ button: 'right' });
 

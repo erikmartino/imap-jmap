@@ -1,10 +1,13 @@
 package nextcloud
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path"
@@ -575,6 +578,38 @@ func NewEmbeddedServer(usernames ...string) (*httptest.Server, *Client, func()) 
 		// Principal Discovery & Home Sets
 		if reqPath == "/remote.php/dav" || reqPath == "/remote.php/dav/" || strings.HasPrefix(reqPath, "/remote.php/dav/principals") {
 			u := userFromCtx(r.Context())
+			if r.Method == "PROPFIND" {
+				bodyBytes, _ := io.ReadAll(r.Body)
+				r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+				if bytes.Contains(bodyBytes, []byte("schedule-default-calendar-URL")) {
+					defaultCalURL := "/remote.php/dav/calendars/" + u + "/personal/"
+					type embeddedHref struct {
+						Href string `xml:"href"`
+					}
+					type embeddedPropfindResp struct {
+						XMLName  xml.Name `xml:"DAV: multistatus"`
+						Response struct {
+							Href     string `xml:"href"`
+							Propstat struct {
+								Prop struct {
+									ScheduleDefaultCalendarURL embeddedHref `xml:"urn:ietf:params:xml:ns:caldav schedule-default-calendar-URL"`
+									ScheduleInboxURL           embeddedHref `xml:"urn:ietf:params:xml:ns:caldav schedule-inbox-URL"`
+								} `xml:"prop"`
+								Status string `xml:"status"`
+							} `xml:"propstat"`
+						} `xml:"response"`
+					}
+					resp := embeddedPropfindResp{}
+					resp.Response.Href = r.URL.Path
+					resp.Response.Propstat.Status = "HTTP/1.1 200 OK"
+					resp.Response.Propstat.Prop.ScheduleDefaultCalendarURL.Href = defaultCalURL
+					resp.Response.Propstat.Prop.ScheduleInboxURL.Href = "/remote.php/dav/calendars/" + u + "/inbox/"
+					w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+					w.WriteHeader(http.StatusMultiStatus)
+					_ = xml.NewEncoder(w).Encode(resp)
+					return
+				}
+			}
 			webdav.ServePrincipal(w, r, &webdav.ServePrincipalOptions{
 				CurrentUserPrincipalPath: "/remote.php/dav/principals/users/" + u + "/",
 				HomeSets: []webdav.BackendSuppliedHomeSet{
