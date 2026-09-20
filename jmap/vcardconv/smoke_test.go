@@ -54,7 +54,9 @@ func TestSmokeToVCard(t *testing.T) {
 		{"created", `{"created":"2022-09-30T14:35:10Z"}`, "CREATED;VALUE=timestamp:20220930T143510Z"},
 		{"updated", `{"updated":"2021-10-31T22:27:10Z"}`, "REV:20211031T222710Z"},
 		{"kind_group", `{"kind":"group","members":{"urn:uuid:03a0e51f-d1aa-4385-8a53-e29025acd8af":true}}`, "KIND:group"},
+		{"kind_group_abserver", `{"kind":"group","members":{"urn:uuid:03a0e51f-d1aa-4385-8a53-e29025acd8af":true}}`, "X-ADDRESSBOOKSERVER-KIND:GROUP"},
 		{"kind_group_member", `{"kind":"group","members":{"urn:uuid:03a0e51f-d1aa-4385-8a53-e29025acd8af":true}}`, "MEMBER:urn:uuid:03a0e51f-d1aa-4385-8a53-e29025acd8af"},
+		{"kind_group_abserver_member", `{"kind":"group","members":{"urn:uuid:03a0e51f-d1aa-4385-8a53-e29025acd8af":true}}`, "X-ADDRESSBOOKSERVER-MEMBER:urn:uuid:03a0e51f-d1aa-4385-8a53-e29025acd8af"},
 		{"keywords", `{"keywords":{"internet":true,"IETF":true}}`, "CATEGORIES:IETF,internet"},
 		{"personalInfo_expert", `{"personalInfo":{"pi2":{"kind":"expertise","value":"chemistry","level":"high"}}}`, "EXPERTISE;PROP-ID=pi2;LEVEL=expert:chemistry"},
 		{"personalInfo_hobby", `{"personalInfo":{"pi1":{"kind":"hobby","value":"reading","level":"high"}}}`, "HOBBY;PROP-ID=pi1;LEVEL=HIGH:reading"},
@@ -132,6 +134,7 @@ func TestSmokeFromVCard(t *testing.T) {
 		{"jspref", "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:urn:uuid:x\r\nFN:Jane Doe\r\nJSPROP;JSPTR=\"name/example.com:foo2\";VALUE=TEXT:{\"bar\":\"baz\"}\r\nJSPROP;JSPTR=\"example.com:foo\";VALUE=TEXT:\"bar\"\r\nEND:VCARD\r\n", `"example.com:foo":"bar"`},
 		{"jsptr_name", "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:urn:uuid:x\r\nFN:Jane Doe\r\nJSPROP;JSPTR=\"name/example.com:foo2\";VALUE=TEXT:{\"bar\":\"baz\"}\r\nJSPROP;JSPTR=\"example.com:foo\";VALUE=TEXT:\"bar\"\r\nEND:VCARD\r\n", `"name":{"full":"Jane Doe","example.com:foo2":{"bar":"baz"}}`},
 		{"localized", "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:urn:uuid:x\r\nN;ALTID=1:Vasiliev;Ivan;Petrovich;Mr.;;;\r\nN;ALTID=1;LANGUAGE=uk-Cyrl:Васильев;Иван;Петрович;г-н;;;\r\nFN;DERIVED=TRUE;ALTID=1:Mr. Ivan Petrovich Vasiliev\r\nEND:VCARD\r\n", `"localizations":{}`},
+		{"nextcloud_group", "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:urn:uuid:x\r\nFN;DERIVED=TRUE:Team\r\nX-ADDRESSBOOKSERVER-KIND:GROUP\r\nX-ADDRESSBOOKSERVER-MEMBER:urn:uuid:03a0e51f-d1aa-4385-8a53-e29025acd8af\r\nEND:VCARD\r\n", `"kind":"group"`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

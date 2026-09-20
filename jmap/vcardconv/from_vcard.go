@@ -123,6 +123,8 @@ func cardToJSCard(card vcard.Card) (map[string]any, error) {
 	out["version"] = cardVersion(card)
 	if kind := card.Value(vcard.FieldKind); kind != "" {
 		out["kind"] = strings.ToLower(kind)
+	} else if abKind := card.Value("X-ADDRESSBOOKSERVER-KIND"); abKind != "" {
+		out["kind"] = strings.ToLower(abKind)
 	}
 	if pid := card.Value(vcard.FieldProductID); pid != "" {
 		out["prodId"] = pid
@@ -274,12 +276,12 @@ func applyNames(out map[string]any, card vcard.Card) {
 		if g.base {
 			if name != nil {
 				if _, hasFull := name["full"]; !hasFull && g.fn != nil {
-					if !strings.EqualFold(param(g.fn, "DERIVED"), "true") && strings.TrimSpace(g.fn.Value) != "" {
+					if (!strings.EqualFold(param(g.fn, "DERIVED"), "true") || strings.EqualFold(strField(out, "kind"), "group")) && strings.TrimSpace(g.fn.Value) != "" {
 						name["full"] = g.fn.Value
 					}
 				}
 				out["name"] = name
-			} else if g.fn != nil && strings.TrimSpace(g.fn.Value) != "" && !strings.EqualFold(param(g.fn, "DERIVED"), "true") {
+			} else if g.fn != nil && strings.TrimSpace(g.fn.Value) != "" && (!strings.EqualFold(param(g.fn, "DERIVED"), "true") || strings.EqualFold(strField(out, "kind"), "group")) {
 				// Only FN, no N: populate full (RFC 9555 §2.5.2). Do NOT fabricate components!
 				out["name"] = map[string]any{"full": g.fn.Value}
 			}
@@ -304,6 +306,15 @@ func applyNames(out map[string]any, card vcard.Card) {
 		if len(patch) > 0 {
 			langs[g.lang] = patch
 			out["localizations"] = langs
+		}
+	}
+
+	if strings.EqualFold(strField(out, "kind"), "group") && out["name"] == nil && len(fns) > 0 {
+		for _, fn := range fns {
+			if strings.TrimSpace(fn.Value) != "" {
+				out["name"] = map[string]any{"full": strings.TrimSpace(fn.Value)}
+				break
+			}
 		}
 	}
 }
@@ -1148,7 +1159,14 @@ func applyKeywords(out map[string]any, card vcard.Card) {
 func applyMembers(out map[string]any, card vcard.Card) {
 	members := map[string]any{}
 	for _, f := range card[vcard.FieldMember] {
-		members[f.Value] = true
+		if strings.TrimSpace(f.Value) != "" {
+			members[f.Value] = true
+		}
+	}
+	for _, f := range card["X-ADDRESSBOOKSERVER-MEMBER"] {
+		if strings.TrimSpace(f.Value) != "" {
+			members[f.Value] = true
+		}
 	}
 	if len(members) > 0 {
 		out["members"] = members
@@ -1306,6 +1324,7 @@ var handledProps = map[string]bool{
 	"RELATED": true, "BDAY": true, "DEATHDATE": true, "ANNIVERSARY": true,
 	"BIRTHPLACE": true, "DEATHPLACE": true, "GRAMGENDER": true, "PRONOUNS": true,
 	"LANG": true, "JSPROP": true, "X-ABLABEL": true,
+	"X-ADDRESSBOOKSERVER-KIND": true, "X-ADDRESSBOOKSERVER-MEMBER": true,
 }
 
 func applyVCardPropsAndJSPROP(out map[string]any, card vcard.Card) {

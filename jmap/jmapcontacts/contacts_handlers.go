@@ -212,6 +212,39 @@ func handleAddressBookSet(backend ContactsBackend) jmaphandler.MethodHandler {
 	}
 }
 
+func normalizeCardName(card *Card) {
+	if card == nil || card.Name == nil {
+		return
+	}
+	if len(card.Name.Components) == 0 && card.Name.Full != "" {
+		if strings.EqualFold(card.Kind, "group") {
+			card.Name.Components = []*JSContactNameComponent{
+				{Value: card.Name.Full, Kind: "given"},
+			}
+		} else {
+			parts := strings.Fields(card.Name.Full)
+			if len(parts) == 1 {
+				card.Name.Components = []*JSContactNameComponent{
+					{Value: parts[0], Kind: "given"},
+				}
+			} else if len(parts) >= 2 {
+				card.Name.Components = []*JSContactNameComponent{
+					{Value: parts[0], Kind: "given"},
+					{Value: strings.Join(parts[1:], " "), Kind: "surname"},
+				}
+			}
+		}
+	} else if card.Name.Full == "" && len(card.Name.Components) > 0 {
+		var compVals []string
+		for _, c := range card.Name.Components {
+			if c != nil && c.Value != "" {
+				compVals = append(compVals, c.Value)
+			}
+		}
+		card.Name.Full = strings.Join(compVals, " ")
+	}
+}
+
 func handleCardGet(backend ContactsBackend) jmaphandler.MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
@@ -247,29 +280,7 @@ func handleCardGet(backend ContactsBackend) jmaphandler.MethodHandler {
 			if card.Version == "" {
 				card.Version = "1.0"
 			}
-			if card.Name != nil {
-				if len(card.Name.Components) == 0 && card.Name.Full != "" {
-					parts := strings.Fields(card.Name.Full)
-					if len(parts) == 1 {
-						card.Name.Components = []*JSContactNameComponent{
-							{Value: parts[0], Kind: "given"},
-						}
-					} else if len(parts) >= 2 {
-						card.Name.Components = []*JSContactNameComponent{
-							{Value: parts[0], Kind: "given"},
-							{Value: strings.Join(parts[1:], " "), Kind: "surname"},
-						}
-					}
-				} else if card.Name.Full == "" && len(card.Name.Components) > 0 {
-					var compVals []string
-					for _, c := range card.Name.Components {
-						if c != nil && c.Value != "" {
-							compVals = append(compVals, c.Value)
-						}
-					}
-					card.Name.Full = strings.Join(compVals, " ")
-				}
-			}
+			normalizeCardName(card)
 		}
 		if notFound == nil {
 			notFound = []jmapcore.Id{}
@@ -341,6 +352,7 @@ func handleCardSet(backend ContactsBackend) jmaphandler.MethodHandler {
 				if card.Version == "" {
 					card.Version = "1.0"
 				}
+				normalizeCardName(&card)
 
 				createdCard, err := backend.CreateCard(ctx, &card)
 				if err != nil {

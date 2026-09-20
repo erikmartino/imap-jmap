@@ -241,6 +241,44 @@ export class JMAPClient {
     return resp.list ?? [];
   }
 
+  /** Creates a group contact card and returns its ID (RFC 9610). */
+  async createGroupCard(name: string, memberIds: string[]): Promise<string> {
+    const members: Record<string, boolean> = {};
+    for (const id of memberIds) {
+      members[id] = true;
+    }
+    const resp = await this.callWith(
+      'ContactCard/set',
+      {
+        create: {
+          g1: {
+            kind: 'group',
+            name: {
+              components: [{ kind: 'given', value: name }],
+              isOrdered: true,
+            },
+            members,
+          },
+        },
+      },
+      [CONTACTS_CAPABILITY]
+    );
+    const created = resp.created?.['g1'];
+    if (!created) {
+      throw new Error(`Failed to create group card: ${JSON.stringify(resp.notCreated)}`);
+    }
+    return created.id;
+  }
+
+  /** Returns all contact cards with kind="group" (RFC 9610). */
+  async groupCards(): Promise<any[]> {
+    const query = await this.callWith('ContactCard/query', { filter: { kind: 'group' } }, [CONTACTS_CAPABILITY]);
+    const ids: string[] = query.ids ?? [];
+    if (ids.length === 0) return [];
+    const resp = await this.callWith('ContactCard/get', { ids }, [CONTACTS_CAPABILITY]);
+    return resp.list ?? [];
+  }
+
   private async callWith(method: string, args: Record<string, unknown>, using: string[]): Promise<any> {
     const responses = await this.api([[method, { accountId: this.accountId, ...args }, 'c0']], { using });
     return responses[0][1];

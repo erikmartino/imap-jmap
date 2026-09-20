@@ -720,3 +720,127 @@ func TestRFC9610_CardQueryFilterOperatorAndConditions(t *testing.T) {
 		})
 	}
 }
+
+// TestRFC9610_ContactCardGroupRoundTrip tests group creation, retrieval, and querying per RFC 9610 Section 3,
+// verifying that groups retain kind="group", members, and properly normalized full/components name.
+func TestRFC9610_ContactCardGroupRoundTrip(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	post := func(calls []any) jmap.Response {
+		payload := map[string]any{
+			"using":       []string{jmap.CoreCapabilityURI, jmap.ContactsCapabilityURI},
+			"methodCalls": calls,
+		}
+		b, _ := json.Marshal(payload)
+		resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(b))
+		if err != nil {
+			t.Fatalf("POST /jmap failed: %v", err)
+		}
+		defer resp.Body.Close()
+		var jr jmap.Response
+		_ = json.NewDecoder(resp.Body).Decode(&jr)
+		return jr
+	}
+
+	memberUID := "urn:uuid:03a0e51f-d1aa-4385-8a53-e29025acd8af"
+	setResp := post([]any{
+		[]any{"ContactCard/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"g1": map[string]any{
+					"kind": "group",
+					"name": map[string]any{
+						"components": []any{
+							map[string]any{"kind": "given", "value": "Colleagues"},
+						},
+						"isOrdered": true,
+					},
+					"members": map[string]any{
+						memberUID: true,
+					},
+				},
+			},
+		}, "c1"},
+	})
+
+	created, ok := setResp.MethodResponses[0].Args["created"].(map[string]any)["g1"].(map[string]any)
+	if !ok {
+		t.Fatalf("ContactCard/set did not create group card: %#v", setResp.MethodResponses[0].Args)
+	}
+	id := created["id"].(string)
+
+	// 1. Get card back and verify properties
+	getResp := post([]any{
+		[]any{"ContactCard/get", map[string]any{
+			"accountId": "primary",
+			"ids":       []any{id},
+		}, "c2"},
+	})
+
+	list, _ := getResp.MethodResponses[0].Args["list"].([]any)
+	if len(list) != 1 {
+		t.Fatalf("expected 1 card, got %d", len(list))
+	}
+	card := list[0].(map[string]any)
+
+	if card["kind"] != "group" {
+		t.Errorf("expected kind to be 'group', got %v", card["kind"])
+	}
+
+	members, _ := card["members"].(map[string]any)
+	if members == nil || members[memberUID] != true {
+		t.Errorf("expected members to contain %s, got %#v", memberUID, members)
+	}
+
+	nameMap, _ := card["name"].(map[string]any)
+	if nameMap == nil {
+		t.Fatalf("expected name object, got nil")
+	}
+	if nameMap["full"] != "Colleagues" {
+		t.Errorf("expected full name 'Colleagues', got %v", nameMap["full"])
+	}
+	comps, _ := nameMap["components"].([]any)
+	if len(comps) == 0 {
+		t.Errorf("expected non-empty name components for group")
+	}
+
+	// 2. Query by kind=group
+	queryKindResp := post([]any{
+		[]any{"ContactCard/query", map[string]any{
+			"accountId": "primary",
+			"filter":    map[string]any{"kind": "group"},
+		}, "q1"},
+	})
+	queryKindIDs, _ := queryKindResp.MethodResponses[0].Args["ids"].([]any)
+	foundKind := false
+	for _, qid := range queryKindIDs {
+		if qid == id {
+			foundKind = true
+			break
+		}
+	}
+	if !foundKind {
+		t.Errorf("expected query by kind=group to return %s, got %v", id, queryKindIDs)
+	}
+
+	// 3. Query by hasMember
+	queryMemberResp := post([]any{
+		[]any{"ContactCard/query", map[string]any{
+			"accountId": "primary",
+			"filter":    map[string]any{"hasMember": memberUID},
+		}, "q2"},
+	})
+	queryMemberIDs, _ := queryMemberResp.MethodResponses[0].Args["ids"].([]any)
+	foundMember := false
+	for _, qid := range queryMemberIDs {
+		if qid == id {
+			foundMember = true
+			break
+		}
+	}
+	if !foundMember {
+		t.Errorf("expected query by hasMember to return %s, got %v", id, queryMemberIDs)
+	}
+}

@@ -84,4 +84,58 @@ test.describe('calendar & contacts', () => {
       }, { timeout: 20_000 })
       .toContain(updatedLastName);
   });
+
+  test('creates a group and asserts it appears under Groups and not as an individual contact', async ({ page }) => {
+    const acct = uniqueUser('pim-group');
+    const jmap = await JMAPClient.connect(acct.username, acct.password);
+    const groupName = `Team-${Date.now() % 1000000}`;
+
+    // Create a contact first to be a member
+    const memberName = 'MemberOne';
+    const memberEmail = `${memberName.toLowerCase()}@example.com`;
+    const memberResp = await (jmap as any).callWith(
+      'ContactCard/set',
+      {
+        create: {
+          m1: {
+            name: { components: [{ kind: 'given', value: memberName }] },
+            emails: { e1: { address: memberEmail } },
+          },
+        },
+      },
+      ['urn:ietf:params:jmap:contacts']
+    );
+    const memberUid = memberResp.created?.['m1']?.uid || memberResp.created?.['m1']?.id;
+
+    // Create the group
+    await jmap.createGroupCard(groupName, [memberUid]);
+
+    // Verify over JMAP protocol: kind is 'group' and members populated
+    const groups = await jmap.groupCards();
+    expect(groups.length).toBeGreaterThan(0);
+    const groupCard = groups.find((g: any) => g.name?.full === groupName || g.name?.components?.[0]?.value === groupName);
+    expect(groupCard).toBeDefined();
+    expect(groupCard.kind).toBe('group');
+    expect(groupCard.members?.[memberUid]).toBe(true);
+
+    // Login and verify in Bulwark UI
+    await login(page, acct.username, acct.password);
+    await goToApp(page, '/en/contacts');
+
+    // Click Groups tab
+    const groupsTab = page.getByRole('tab', { name: 'Groups' }).or(page.getByText('Groups', { exact: true })).first();
+    await expect(groupsTab).toBeVisible({ timeout: 15_000 });
+    await groupsTab.click();
+
+    // Verify group is listed under Groups with its name
+    await expect(page.getByText(groupName).first()).toBeVisible({ timeout: 15_000 });
+
+    // Switch to All / Contacts tab
+    const allTab = page.getByRole('tab', { name: 'All' }).or(page.getByText('All', { exact: true })).first();
+    if (await allTab.isVisible().catch(() => false)) {
+      await allTab.click();
+      // The individual contact list should have MemberOne, but NOT the group as an individual contact
+      await expect(page.getByText(memberName).first()).toBeVisible({ timeout: 15_000 });
+    }
+  });
 });

@@ -56,7 +56,10 @@ func (c *converter) convertCard() []vcardField {
 		fields = append(fields, vcardField{Name: "UID", Value: newUID(), Raw: true})
 	}
 	if kind := strField(card, "kind"); kind != "" {
-		fields = append(fields, vcardField{Name: "KIND", Value: kind, Raw: true})
+		fields = append(fields, vcardField{Name: "KIND", Value: strings.ToLower(kind), Raw: true})
+		if strings.EqualFold(kind, "group") {
+			fields = append(fields, vcardField{Name: "X-ADDRESSBOOKSERVER-KIND", Value: "GROUP", Raw: true})
+		}
 	}
 	if prodID := strField(card, "prodId"); prodID != "" {
 		fields = append(fields, vcardField{Name: "PRODID", Value: prodID, Raw: true})
@@ -182,8 +185,22 @@ func nameToVCard(card map[string]any, language, altID string) []vcardField {
 	var fields []vcardField
 	params := languageParams(language, altID)
 
+	isGroup := strings.EqualFold(strField(card, "kind"), "group")
 	full := strField(name, "full")
 	comps := nameComponents(name)
+
+	if isGroup {
+		if full == "" && len(comps) > 0 {
+			full = deriveFullName(name, comps)
+		}
+		if full != "" {
+			fields = append(fields, vcardField{Name: "FN", Params: params, Value: full})
+		} else {
+			fields = append(fields, vcardField{Name: "FN", Params: params})
+		}
+		return fields
+	}
+
 	switch {
 	case full != "":
 		fields = append(fields, vcardField{Name: "FN", Params: params, Value: full})
@@ -1113,6 +1130,7 @@ func (c *converter) convertMembers() []vcardField {
 	for _, k := range sortedKeys(members) {
 		if b, _ := members[k].(bool); b {
 			fields = append(fields, vcardField{Name: "MEMBER", Value: k, Raw: true})
+			fields = append(fields, vcardField{Name: "X-ADDRESSBOOKSERVER-MEMBER", Value: k, Raw: true})
 		}
 	}
 	return fields
