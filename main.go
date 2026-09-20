@@ -163,7 +163,11 @@ func main() {
 		ncClient := nextcloud.NewClient(nextcloudURL)
 		calBackend = nextcloud.NewCalendarsBackend(ncClient)
 		contactsBackend = nextcloud.NewContactsBackend(ncClient)
-		fileNodeBackend = nextcloud.NewFileNodeBackend(ncClient)
+		ncFileNodeBackend := nextcloud.NewFileNodeBackend(ncClient)
+		fileNodeBackend = ncFileNodeBackend
+		ncBlobBackend := nextcloud.NewBlobBackend(ncClient, ncFileNodeBackend)
+		ncBlobBackend.SetFallback(gwBackend)
+		blobBackend = ncBlobBackend
 		principalsBackend = nextcloud.NewPrincipalsBackend(ncClient, calBackend)
 	}
 

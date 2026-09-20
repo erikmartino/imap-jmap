@@ -292,17 +292,6 @@ func filterCalendars(list []*jmapcalendar.Calendar, ids []jmapcore.Id) ([]*jmapc
 	return filtered, notFound, nil
 }
 
-func (b *CalendarsBackend) ensureUser(ctx context.Context, u string) {
-	if !b.client.HasAdminAuth() || u == "" {
-		return
-	}
-	password := u
-	if creds, ok := jmapauth.CredentialsFromContext(ctx); ok && creds.Password != "" {
-		password = creds.Password
-	}
-	_ = b.client.CreateUser(ctx, u, password, u, u)
-}
-
 func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmapcore.Id) ([]*jmapcalendar.Calendar, []jmapcore.Id, error) {
 	calList, u, err := b.client.ListCalendars(ctx)
 	if err != nil {

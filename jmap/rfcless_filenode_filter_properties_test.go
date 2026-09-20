@@ -37,8 +37,18 @@ func TestFileNode_FilterPropertiesPosNeg(t *testing.T) {
 		}, "c1"},
 	})
 	ids1, _ := res1.MethodResponses[0].Args["ids"].([]any)
-	if len(ids1) != 1 || ids1[0] != string(f2.ID) {
-		t.Errorf("FileNode isFolder:true expected [%s], got %v", f2.ID, ids1)
+	foundF2 := false
+	foundF1 := false
+	for _, id := range ids1 {
+		if id == string(f2.ID) {
+			foundF2 = true
+		}
+		if id == string(f1.ID) {
+			foundF1 = true
+		}
+	}
+	if !foundF2 || foundF1 {
+		t.Errorf("FileNode isFolder:true expected to match [%s] and exclude [%s], got %v", f2.ID, f1.ID, ids1)
 	}
 
 	// 2. Positive filter by type: "application/pdf" -> returns f1

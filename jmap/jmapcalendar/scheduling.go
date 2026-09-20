@@ -30,6 +30,7 @@ import (
 // address so owner/organizer/recipient comparisons are scheme- and case-insensitive.
 func normalizeCalendarAddress(addr string) string {
 	addr = strings.TrimSpace(addr)
+	addr = strings.ReplaceAll(strings.ReplaceAll(addr, "\r", ""), "\n", "")
 	if i := strings.Index(strings.ToLower(addr), "mailto:"); i == 0 {
 		addr = addr[len("mailto:"):]
 	}
@@ -146,6 +147,9 @@ func sendSchedulingEmail(ctx context.Context, mailBackend jmapmail.MailBackend, 
 	if mailBackend == nil || toAddr == "" || ics == "" {
 		return fmt.Errorf("missing mailBackend, toAddr, or ics data")
 	}
+	subject = strings.ReplaceAll(strings.ReplaceAll(subject, "\r", ""), "\n", " ")
+	fromAddr = strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(fromAddr, "\r", ""), "\n", ""))
+	toAddr = strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(toAddr, "\r", ""), "\n", ""))
 	if fromAddr == "" {
 		fromAddr = "calendar@example.com"
 	}

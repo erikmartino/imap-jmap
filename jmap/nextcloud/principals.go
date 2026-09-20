@@ -3,6 +3,8 @@ package nextcloud
 import (
 	"context"
 	"fmt"
+	"net/mail"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -28,90 +30,14 @@ type PrincipalsBackend struct {
 
 var _ jmapprincipals.PrincipalsBackend = (*PrincipalsBackend)(nil)
 
-// NewPrincipalsBackend initializes a Nextcloud PrincipalsBackend and seeds default groups and users in Nextcloud.
+// NewPrincipalsBackend initializes a Nextcloud PrincipalsBackend without hardcoded accounts.
 func NewPrincipalsBackend(client *Client, calBackend jmapcalendar.CalendarsBackend) *PrincipalsBackend {
-	b := &PrincipalsBackend{
+	return &PrincipalsBackend{
 		client:          client,
 		calBackend:      calBackend,
 		principalsCache: make(map[jmapcore.Id]*jmapprincipals.Principal),
 		tracker:         jmappush.NewChangeTracker(1000),
 	}
-
-	initialUsers := []struct {
-		userid, email, displayname string
-	}{
-		{"primary", "user@example.com", "User Example"},
-		{"alice", "alice@example.com", "Alice Smith"},
-		{"bob", "bob@example.com", "Bob Jones"},
-		{"carol", "carol@example.com", "Carol Danvers"},
-	}
-	for _, u := range initialUsers {
-		pid := jmapcore.Id("p-" + u.userid)
-		b.principalsCache[pid] = &jmapprincipals.Principal{
-			ID:                 pid,
-			Type:               "individual",
-			Name:               u.displayname,
-			Email:              u.email,
-			CalendarAddress:    "mailto:" + u.email,
-			MayGetAvailability: true,
-			MayShareWith:       true,
-			AccountIDs:         map[string]bool{jmapauth.AccountIDForSubject(u.email): true},
-		}
-	}
-	b.principalsCache["p-team"] = &jmapprincipals.Principal{
-		ID:                 "p-team",
-		Type:               "group",
-		Name:               "Engineering Team",
-		Email:              "team@example.com",
-		CalendarAddress:    "mailto:team@example.com",
-		MayGetAvailability: false,
-		MayShareWith:       true,
-		Members:            map[string]bool{"p-alice": true, "p-bob": true, "p-carol": true, "p-primary": true},
-	}
-	b.principalsCache["p-all"] = &jmapprincipals.Principal{
-		ID:                 "p-all",
-		Type:               "group",
-		Name:               "All Staff",
-		Email:              "all@example.com",
-		CalendarAddress:    "mailto:all@example.com",
-		MayGetAvailability: false,
-		MayShareWith:       true,
-		Members:            map[string]bool{"p-alice": true, "p-bob": true, "p-carol": true, "p-primary": true},
-	}
-	b.principalsCache["p-marketing"] = &jmapprincipals.Principal{
-		ID:                 "p-marketing",
-		Type:               "group",
-		Name:               "Marketing",
-		Email:              "marketing@example.com",
-		CalendarAddress:    "mailto:marketing@example.com",
-		MayGetAvailability: false,
-		MayShareWith:       true,
-		Members:            map[string]bool{"p-carol": true},
-	}
-
-	if !client.HasAdminAuth() {
-		// Run without admin provisioning or seeding
-		return b
-	}
-
-	// Asynchronously seed default Nextcloud groups and team members when admin credentials are provided
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		// Ensure groups exist in Nextcloud
-		_ = client.EnsureGroup(ctx, "team")
-		_ = client.EnsureGroup(ctx, "all")
-		_ = client.EnsureGroup(ctx, "marketing")
-
-		for _, u := range initialUsers {
-			_ = client.EnsureUserInTeam(ctx, u.userid, u.email, u.email, u.displayname)
-		}
-
-		b.refreshCache(ctx)
-	}()
-
-	return b
 }
 
 // SetCalendarsBackend sets the CalendarsBackend used for free/busy availability computation.
@@ -122,21 +48,28 @@ func (b *PrincipalsBackend) SetCalendarsBackend(cb jmapcalendar.CalendarsBackend
 }
 
 // SeedUser seeds an individual user principal into the cache.
-func (b *PrincipalsBackend) SeedUser(email, displayName string) {
+func (b *PrincipalsBackend) SeedUser(id jmapcore.Id, email, displayName string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	for _, p := range b.principalsCache {
+	acctID := jmapauth.AccountIDForSubject(email)
+	if id == "" {
+		id = jmapcore.Id("p-" + email)
+	}
+	for existingID, p := range b.principalsCache {
 		if p != nil && strings.EqualFold(p.Email, email) {
 			if displayName != "" {
 				p.Name = displayName
 			}
+			if existingID != id {
+				delete(b.principalsCache, existingID)
+				p.ID = id
+				b.principalsCache[id] = p
+			}
 			return
 		}
 	}
-	acctID := jmapauth.AccountIDForSubject(email)
-	pid := jmapcore.Id(acctID)
-	b.principalsCache[pid] = &jmapprincipals.Principal{
-		ID:                 pid,
+	b.principalsCache[id] = &jmapprincipals.Principal{
+		ID:                 id,
 		Type:               "individual",
 		Name:               displayName,
 		Email:              email,
@@ -144,6 +77,15 @@ func (b *PrincipalsBackend) SeedUser(email, displayName string) {
 		MayGetAvailability: true,
 		MayShareWith:       true,
 		AccountIDs:         map[string]bool{acctID: true},
+	}
+}
+
+// SeedPrincipal seeds a principal directly into the cache.
+func (b *PrincipalsBackend) SeedPrincipal(p *jmapprincipals.Principal) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if p != nil && p.ID != "" {
+		b.principalsCache[p.ID] = p
 	}
 }
 
@@ -201,50 +143,31 @@ func (b *PrincipalsBackend) EnsureUser(ctx context.Context, subject, password st
 
 	b.emitStateChange(subject, "Principal", st)
 
-	if b.client.HasAdminAuth() {
-		go func() {
-			bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			_ = b.client.EnsureUserInTeam(bgCtx, userid, password, email, displayName)
-		}()
+	if b.client != nil {
+		_ = b.client.EnsureUserInTeam(ctx, userid, password, email, displayName)
 	}
 	return nil
 }
 
-func (b *PrincipalsBackend) refreshCache(ctx context.Context) {
-	b.refreshMu.Lock()
-	defer b.refreshMu.Unlock()
-
-	userIDs, err := b.client.GetUsers(ctx)
-	if err != nil {
+func (b *PrincipalsBackend) ensureCurrentPrincipal(ctx context.Context) {
+	subj, ok := jmapauth.SubjectFromContext(ctx)
+	if !ok || subj == "" {
 		return
 	}
-
-	newCache := make(map[jmapcore.Id]*jmapprincipals.Principal)
-
-	// Users
-	for _, uid := range userIDs {
-		if uid == "admin" || uid == "cn" {
-			continue
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	email := subj
+	userid := subj
+	accID := jmapauth.AccountIDForSubject(email)
+	for _, existing := range b.principalsCache {
+		if existing.Email == email || existing.AccountIDs[accID] {
+			return
 		}
-		displayName := strings.Title(strings.ReplaceAll(uid, ".", " "))
-		email := uid + "@example.com"
-		if strings.Contains(uid, "@") {
-			email = uid
-		}
-		details, dErr := b.client.GetUserDetails(ctx, uid)
-		if dErr == nil && details != nil {
-			if details.DisplayName != "" {
-				displayName = details.DisplayName
-			}
-			if details.Email != "" {
-				email = details.Email
-			}
-		}
-		accID := jmapauth.AccountIDForSubject(email)
-		pid := jmapcore.Id("p-" + uid)
-
-		newCache[pid] = &jmapprincipals.Principal{
+	}
+	pid := jmapcore.Id("p-" + userid)
+	if _, exists := b.principalsCache[pid]; !exists {
+		displayName := userid
+		b.principalsCache[pid] = &jmapprincipals.Principal{
 			ID:                 pid,
 			Type:               "individual",
 			Name:               displayName,
@@ -255,137 +178,199 @@ func (b *PrincipalsBackend) refreshCache(ctx context.Context) {
 			AccountIDs:         map[string]bool{accID: true},
 		}
 	}
+}
 
-	// Groups
-	groupIDs, gErr := b.client.GetGroups(ctx)
-	if gErr == nil {
-		for _, gid := range groupIDs {
-			if gid == "admin" {
-				continue
+// domainFromContext extracts the domain name from the authenticated user subject,
+// account ID, or Nextcloud client base URL. Returns empty string if no domain is known.
+func domainFromContext(ctx context.Context, client *Client) string {
+	if ctx != nil {
+		if subj, ok := jmapauth.SubjectFromContext(ctx); ok && subj != "" {
+			if parts := strings.Split(subj, "@"); len(parts) == 2 && parts[1] != "" {
+				return strings.ToLower(parts[1])
 			}
-			members, _ := b.client.GetGroupMembers(ctx, gid)
-			membersMap := make(map[string]bool)
-			for _, m := range members {
+		}
+		if accID, ok := jmapauth.AccountIDFromContext(ctx); ok && accID != "" {
+			if subj, okSub := jmapauth.SubjectForAccountID(accID); okSub && strings.Contains(subj, "@") {
+				parts := strings.Split(subj, "@")
+				return strings.ToLower(parts[len(parts)-1])
+			}
+		}
+		if creds, okCreds := jmapauth.CredentialsFromContext(ctx); okCreds && strings.Contains(creds.Username, "@") {
+			parts := strings.Split(creds.Username, "@")
+			return strings.ToLower(parts[len(parts)-1])
+		}
+	}
+	if client != nil && client.BaseURL != "" {
+		if u, err := url.Parse(client.BaseURL); err == nil {
+			host := u.Hostname()
+			if host != "" && host != "localhost" && host != "127.0.0.1" {
+				return strings.ToLower(host)
+			}
+		}
+	}
+	return ""
+}
+
+func safeGroupEmailAndCalendarAddress(ctx context.Context, client *Client, gid string) (string, string) {
+	// If gid is already an email address, validate it
+	if strings.Contains(gid, "@") {
+		if addr, err := mail.ParseAddress(gid); err == nil && addr != nil {
+			cleanAddr := strings.ReplaceAll(strings.ReplaceAll(addr.Address, "\r", ""), "\n", "")
+			return cleanAddr, "mailto:" + cleanAddr
+		}
+	}
+	// Discover domain dynamically from authenticated user / server context
+	domain := domainFromContext(ctx, client)
+	if domain == "" {
+		// Do not fabricate a fake domain when none is known; in JMAP draft-ietf-jmap-principals,
+		// email and calendarAddress are optional (omitted/null) when the group has no email address.
+		return "", ""
+	}
+	// Sanitize local part: only alphanumeric, hyphen, underscore, dot
+	safeLocal := strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' {
+			return r
+		}
+		if r == ' ' {
+			return '-'
+		}
+		return -1
+	}, gid)
+	safeLocal = strings.Trim(safeLocal, ".-")
+	if safeLocal == "" {
+		safeLocal = "group"
+	}
+	email := safeLocal + "@" + domain
+	return email, "mailto:" + email
+}
+
+func sanitizeDisplayName(name string) string {
+	name = strings.ReplaceAll(name, "\r", "")
+	name = strings.ReplaceAll(name, "\n", " ")
+	return strings.TrimSpace(name)
+}
+
+// collectGroupMembership queries Nextcloud for groups and their members using the user's credentials.
+// It is invoked on demand only when group membership information is required by the JMAP API.
+func (b *PrincipalsBackend) collectGroupMembership(ctx context.Context) {
+	if b.client == nil {
+		return
+	}
+	b.refreshMu.Lock()
+	defer b.refreshMu.Unlock()
+
+	groups, err := b.client.GetGroups(ctx)
+	if err != nil {
+		return
+	}
+
+	for _, gid := range groups {
+		if gid == "admin" || !IsValidGroupID(gid) {
+			continue
+		}
+		members, err := b.client.GetGroupMembers(ctx, gid)
+		if err != nil {
+			continue
+		}
+		membersMap := make(map[string]bool, len(members))
+		for _, m := range members {
+			if IsValidUserID(m) {
 				membersMap["p-"+m] = true
 			}
+		}
 
-			groupName := gid
-			switch strings.ToLower(gid) {
-			case "team":
-				groupName = "Engineering Team"
-			case "all":
-				groupName = "All Staff"
-			case "marketing":
-				groupName = "Marketing Group"
-			default:
-				groupName = strings.Title(strings.ReplaceAll(gid, "-", " "))
+		pid := jmapcore.Id("p-" + gid)
+		groupName := gid
+		switch strings.ToLower(gid) {
+		case "team":
+			groupName = "Engineering Team"
+		case "all":
+			groupName = "All Staff"
+		case "marketing":
+			groupName = "Marketing Group"
+		default:
+			groupName = strings.Title(strings.ReplaceAll(gid, "-", " "))
+		}
+		groupName = sanitizeDisplayName(groupName)
+		email, calAddr := safeGroupEmailAndCalendarAddress(ctx, b.client, gid)
+
+		b.mu.Lock()
+		if existing, ok := b.principalsCache[pid]; ok {
+			if existing.Members == nil {
+				existing.Members = make(map[string]bool)
 			}
-
-			pid := jmapcore.Id("p-" + gid)
-			newCache[pid] = &jmapprincipals.Principal{
+			for m := range membersMap {
+				existing.Members[m] = true
+			}
+		} else {
+			b.principalsCache[pid] = &jmapprincipals.Principal{
 				ID:                 pid,
 				Type:               "group",
 				Name:               groupName,
-				Email:              gid + "@example.com",
+				Email:              email,
 				Description:        groupName + " in Nextcloud",
-				CalendarAddress:    "mailto:" + gid + "@example.com",
+				CalendarAddress:    calAddr,
 				Members:            membersMap,
 				MayGetAvailability: true,
 				MayShareWith:       true,
 			}
 		}
-	}
-
-	if _, ok := newCache["p-team"]; !ok {
-		newCache["p-team"] = &jmapprincipals.Principal{
-			ID:                 "p-team",
-			Type:               "group",
-			Name:               "Engineering Team",
-			Email:              "team@example.com",
-			CalendarAddress:    "mailto:team@example.com",
-			MayGetAvailability: false,
-			MayShareWith:       true,
-			Members:            map[string]bool{"p-alice": true, "p-bob": true, "p-carol": true, "p-primary": true},
-		}
-	}
-	if _, ok := newCache["p-all"]; !ok {
-		newCache["p-all"] = &jmapprincipals.Principal{
-			ID:                 "p-all",
-			Type:               "group",
-			Name:               "All Staff",
-			Email:              "all@example.com",
-			CalendarAddress:    "mailto:all@example.com",
-			MayGetAvailability: false,
-			MayShareWith:       true,
-			Members:            map[string]bool{"p-alice": true, "p-bob": true, "p-carol": true, "p-primary": true},
-		}
-	}
-	if _, ok := newCache["p-marketing"]; !ok {
-		newCache["p-marketing"] = &jmapprincipals.Principal{
-			ID:                 "p-marketing",
-			Type:               "group",
-			Name:               "Marketing Group",
-			Email:              "marketing@example.com",
-			CalendarAddress:    "mailto:marketing@example.com",
-			MayGetAvailability: false,
-			MayShareWith:       true,
-			Members:            map[string]bool{"p-carol": true},
-		}
-	}
-
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	for k, v := range newCache {
-		if existing, exists := b.principalsCache[k]; exists && existing.Type == "group" {
-			for m := range existing.Members {
-				v.Members[m] = true
-			}
-		}
-		b.principalsCache[k] = v
+		b.mu.Unlock()
 	}
 }
 
-func (b *PrincipalsBackend) ensureCurrentPrincipal(ctx context.Context) {
-	subj, ok := jmapauth.SubjectFromContext(ctx)
-	if !ok || subj == "" {
+func (b *PrincipalsBackend) collectSingleGroupMembership(ctx context.Context, gid string) {
+	if b.client == nil || gid == "" || gid == "admin" || !IsValidGroupID(gid) {
 		return
 	}
-	if !b.client.HasAdminAuth() {
-		b.mu.Lock()
-		defer b.mu.Unlock()
-		email := subj
-		userid := subj
-		accID := jmapauth.AccountIDForSubject(email)
-		for _, existing := range b.principalsCache {
-			if existing.Email == email || existing.AccountIDs[accID] {
-				return
-			}
-		}
-		pid := jmapcore.Id("p-" + userid)
-		if userid == "user" {
-			pid = "p-primary"
-		}
-		if _, exists := b.principalsCache[pid]; !exists {
-			displayName := userid
-			b.principalsCache[pid] = &jmapprincipals.Principal{
-				ID:                 pid,
-				Type:               "individual",
-				Name:               displayName,
-				Email:              email,
-				CalendarAddress:    "mailto:" + email,
-				MayGetAvailability: true,
-				MayShareWith:       true,
-				AccountIDs:         map[string]bool{accID: true},
-			}
-		}
+	members, err := b.client.GetGroupMembers(ctx, gid)
+	if err != nil {
 		return
 	}
-	creds, _ := jmapauth.CredentialsFromContext(ctx)
-	pass := creds.Password
-	if pass == "" {
-		pass = subj
+	membersMap := make(map[string]bool, len(members))
+	for _, m := range members {
+		if IsValidUserID(m) {
+			membersMap["p-"+m] = true
+		}
 	}
-	_ = b.EnsureUser(ctx, subj, pass)
+
+	pid := jmapcore.Id("p-" + gid)
+	groupName := gid
+	switch strings.ToLower(gid) {
+	case "team":
+		groupName = "Engineering Team"
+	case "all":
+		groupName = "All Staff"
+	case "marketing":
+		groupName = "Marketing Group"
+	default:
+		groupName = strings.Title(strings.ReplaceAll(gid, "-", " "))
+	}
+	groupName = sanitizeDisplayName(groupName)
+	email, calAddr := safeGroupEmailAndCalendarAddress(ctx, b.client, gid)
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if existing, ok := b.principalsCache[pid]; ok {
+		if existing.Members == nil {
+			existing.Members = make(map[string]bool)
+		}
+		for m := range membersMap {
+			existing.Members[m] = true
+		}
+	} else {
+		b.principalsCache[pid] = &jmapprincipals.Principal{
+			ID:                 pid,
+			Type:               "group",
+			Name:               groupName,
+			Email:              email,
+			Description:        groupName + " in Nextcloud",
+			CalendarAddress:    calAddr,
+			Members:            membersMap,
+			MayGetAvailability: true,
+			MayShareWith:       true,
+		}
+	}
 }
 
 func (b *PrincipalsBackend) PrincipalState(ctx context.Context) string {
@@ -402,11 +387,19 @@ func (b *PrincipalsBackend) GetPrincipals(ctx context.Context, ids []jmapcore.Id
 		return list, []jmapcore.Id{}, err
 	}
 
-	b.mu.RLock()
-	empty := len(b.principalsCache) == 0
-	b.mu.RUnlock()
-	if empty {
-		b.refreshCache(ctx)
+	b.ensureCurrentPrincipal(ctx)
+
+	// Collect group membership on demand only when a group principal is requested
+	for _, id := range ids {
+		b.mu.RLock()
+		p, ok := b.principalsCache[id]
+		b.mu.RUnlock()
+		if (ok && p.Type == "group") || strings.HasPrefix(string(id), "p-") {
+			gid := strings.TrimPrefix(string(id), "p-")
+			if IsValidGroupID(gid) {
+				b.collectSingleGroupMembership(ctx, gid)
+			}
+		}
 	}
 
 	b.mu.RLock()
@@ -437,13 +430,7 @@ func (b *PrincipalsBackend) GetPrincipals(ctx context.Context, ids []jmapcore.Id
 
 func (b *PrincipalsBackend) GetAllPrincipals(ctx context.Context) ([]*jmapprincipals.Principal, error) {
 	b.ensureCurrentPrincipal(ctx)
-
-	b.mu.RLock()
-	empty := len(b.principalsCache) == 0
-	b.mu.RUnlock()
-	if empty {
-		b.refreshCache(ctx)
-	}
+	b.collectGroupMembership(ctx)
 
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -462,7 +449,7 @@ func (b *PrincipalsBackend) QueryPrincipals(ctx context.Context, filter map[stri
 	empty := len(b.principalsCache) == 0
 	b.mu.RUnlock()
 	if empty {
-		b.refreshCache(ctx)
+		b.collectGroupMembership(ctx)
 	}
 
 	b.mu.RLock()
@@ -502,9 +489,26 @@ func (b *PrincipalsBackend) CreatePrincipal(ctx context.Context, p *jmapprincipa
 		p.Type = "individual"
 	}
 	if p.Type == "group" {
-		_ = b.client.CreateGroup(ctx, p.Name)
-	} else {
-		_ = b.client.CreateUser(ctx, string(p.ID), p.Email, p.Email, p.Name)
+		groupName := p.Name
+		if groupName == "" {
+			groupName = string(p.ID)
+		}
+		if !IsValidGroupID(groupName) {
+			return nil, fmt.Errorf("invalid group name %q: contains prohibited characters or injection sequence", groupName)
+		}
+		p.Name = sanitizeDisplayName(groupName)
+		if p.Email == "" {
+			email, calAddr := safeGroupEmailAndCalendarAddress(ctx, b.client, groupName)
+			p.Email = email
+			p.CalendarAddress = calAddr
+		}
+	}
+	if b.client != nil {
+		if p.Type == "group" {
+			_ = b.client.CreateGroup(ctx, p.Name)
+		} else {
+			_ = b.client.CreateUser(ctx, string(p.ID), p.Email, p.Email, p.Name)
+		}
 	}
 
 	b.mu.Lock()
@@ -530,12 +534,20 @@ func (b *PrincipalsBackend) UpdatePrincipal(ctx context.Context, id jmapcore.Id,
 	}
 
 	if name, ok := patch["name"].(string); ok {
-		p.Name = name
+		if p.Type == "group" && !IsValidGroupID(name) {
+			b.mu.Unlock()
+			return nil, fmt.Errorf("invalid group name %q: contains prohibited characters or injection sequence", name)
+		}
+		p.Name = sanitizeDisplayName(name)
 	}
 	if desc, ok := patch["description"].(string); ok {
-		p.Description = desc
+		p.Description = sanitizeDisplayName(desc)
 	}
 	if email, ok := patch["email"].(string); ok {
+		if strings.ContainsAny(email, "\r\n") {
+			b.mu.Unlock()
+			return nil, fmt.Errorf("invalid email address: contains CRLF")
+		}
 		p.Email = email
 	}
 	if mayGet, ok := patch["mayGetAvailability"].(bool); ok {

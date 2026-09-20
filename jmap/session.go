@@ -6,6 +6,7 @@ import (
 
 	"imap-jmap/jmap/jmapcalendar"
 	"imap-jmap/jmap/jmapcontacts"
+	"imap-jmap/jmap/jmapfilenode"
 	"imap-jmap/jmap/jmapsession"
 	"imap-jmap/jmap/jmapsieve"
 )
@@ -78,12 +79,10 @@ type PrincipalCapability struct {
 }
 
 // FileNodeCapabilityURI is the JMAP capability URI for FileNode file storage extension.
-const FileNodeCapabilityURI = "urn:ietf:params:jmap:filenode"
+const FileNodeCapabilityURI = jmapfilenode.FileNodeCapabilityURI
 
 // FileNodeCapability defines the capability object for "urn:ietf:params:jmap:filenode".
-type FileNodeCapability struct {
-	MaxFileSize uint64 `json:"maxFileSize,omitempty"`
-}
+type FileNodeCapability = jmapfilenode.FileNodeCapability
 
 // ImapAccessCapability defines the capability object for "urn:ietf:params:jmap:imapaccess" per RFC 9698 Section 2.
 type ImapAccessCapability struct{}

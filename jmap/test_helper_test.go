@@ -91,9 +91,9 @@ func newTestServer(opts ...jmap.Option) *jmap.Server {
 	srv := jmap.NewServer(nil, allOpts...)
 	if srvAuth, ok := srv.AuthBackend.(*jmap.MemoryAuthBackend); ok {
 		if srvAuth == memAuth {
-			// For standard tests, only seed mail and filenodes so calendar and contact query/sort
+			// For standard tests, only seed mail so calendar, contact, and filenode query/sort
 			// tests start with clean, unpolluted stores.
-			srvAuth.SetBackends(gwBackend, srv.BlobBackend, nil, nil, fb)
+			srvAuth.SetBackends(gwBackend, srv.BlobBackend, nil, nil, nil)
 		} else {
 			// A custom auth backend explicitly provided by a test (e.g. TestRFCLess_FirstUseAccountSeeding)
 			// gets all backends wired for full account seeding.

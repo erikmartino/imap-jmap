@@ -6,6 +6,7 @@ import (
 	"imap-jmap/jmap/jmapblob"
 	"imap-jmap/jmap/jmapcalendar"
 	"imap-jmap/jmap/jmapcontacts"
+	"imap-jmap/jmap/jmapfilenode"
 	"imap-jmap/jmap/jmapmail"
 	"imap-jmap/jmap/jmapprincipals"
 	"imap-jmap/jmap/jmapsieve"
@@ -48,16 +49,8 @@ type CalendarsBackend = jmapcalendar.CalendarsBackend
 type SieveBackend = jmapsieve.SieveBackend
 
 // FileNodeBackend defines the storage interface for the JMAP FileNode file storage extension.
-type FileNodeBackend interface {
-	FileNodeState(ctx context.Context) string
-	FileNodeChanges(ctx context.Context, sinceState string) (created, updated, destroyed []Id, newState string, hasMoreChanges bool)
-	GetFileNodes(ctx context.Context, ids []Id) (list []*FileNode, notFound []Id, err error)
-	GetAllFileNodes(ctx context.Context) ([]*FileNode, error)
-	CreateFileNode(ctx context.Context, node *FileNode) (*FileNode, error)
-	UpdateFileNode(ctx context.Context, id Id, patch map[string]any) (*FileNode, error)
-	DeleteFileNode(ctx context.Context, id Id) (bool, error)
-	QueryFileNodes(ctx context.Context, filter map[string]any, position int, limit *uint64) (ids []Id, total int, err error)
-}
+// The canonical definition lives in jmapfilenode; this is a type alias for backward compatibility.
+type FileNodeBackend = jmapfilenode.FileNodeBackend
 
 // IMAPAccessBackend defines the storage interface for JMAPACCESS Extension for IMAP (RFC 9698) resources.
 type IMAPAccessBackend interface {

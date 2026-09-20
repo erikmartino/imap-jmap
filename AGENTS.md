@@ -13,6 +13,17 @@ The overriding goal of this project is that **a client MUST NOT be able to deter
 ### Zero Hardcoded or Default Accounts
 Application and backend code MUST NOT contain hardcoded or default usernames (such as `user@example.com` or `"default"` account fallbacks). Account context, user subjects, and account IDs MUST ALWAYS be extracted dynamically from request context or authentication headers. Standard fixed test accounts or sample seed users are permitted ONLY within test suites (`*_test.go`, Playwright e2e test files) or explicit server seed functions.
 
+### Zero Admin Passwords or Elevated Privileges
+In production environments, `imap-jmap` runs without administrative access, and admin passwords are not available. Code MUST NOT use, expect, or rely on admin passwords, admin usernames, or privileged admin endpoints at any time:
+- All upstream protocols (IMAP, SMTP, WebDAV, CalDAV, CardDAV, ManageSieve) MUST authenticate strictly using the end-user's credentials provided in the request context or authentication headers.
+- Never use admin credentials for WebDAV file access, CalDAV calendars, CardDAV address books, user provisioning, or discovery.
+- The server MUST operate fully and gracefully when no admin credentials exist. Do not rely on `NEXTCLOUD_ADMIN_USER` or `NEXTCLOUD_ADMIN_PASSWORD` in any production codepaths.
+
+### Fully Stateless & Zero Local Filesystem Sync
+`imap-jmap` is a fully stateless proxy and protocol translation server. Upstream data (mail, files, calendars, contacts, blobs) MUST NOT be synced or mirrored to the local host filesystem, and persistent local caches on disk are strictly prohibited:
+- All reads and writes MUST go directly to upstream wire servers (IMAP, SMTP, WebDAV, CalDAV, CardDAV, ManageSieve) on demand.
+- Directory and collection listings MUST NOT download or cache full file/message bodies in memory or on disk. Metadata must be retrieved on demand and payload bodies streamed only when explicitly requested.
+
 ---
 
 ## 2. Layering, Module Boundaries & Backend Encapsulation

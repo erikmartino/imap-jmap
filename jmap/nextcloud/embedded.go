@@ -10,10 +10,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path"
 	"strings"
 	"sync"
 	"time"
+
+	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmapprincipals"
 
 	"github.com/emersion/go-ical"
 	"github.com/emersion/go-vcard"
@@ -373,8 +377,14 @@ func (s *memOCSStore) AddUser(userid, password, email, displayname string) {
 		ID:          userid,
 		DisplayName: displayname,
 		Email:       email,
-		Groups:      []string{},
+		Groups:      []string{"team", "all"},
 		Enabled:     true,
+	}
+	if s.groups["team"] != nil {
+		s.groups["team"][userid] = true
+	}
+	if s.groups["all"] != nil {
+		s.groups["all"][userid] = true
 	}
 }
 
@@ -386,6 +396,34 @@ func (s *memOCSStore) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 	defer s.mu.Unlock()
 
 	switch {
+	case p == "user" && r.Method == http.MethodGet:
+		authU, _, _ := r.BasicAuth()
+		if authU == "" {
+			authU = userFromCtx(r.Context())
+		}
+		u, ok := s.users[authU]
+		if !ok {
+			u = &UserDetails{
+				ID:          authU,
+				DisplayName: authU,
+				Email:       authU,
+				Groups:      []string{"team", "all"},
+				Enabled:     true,
+			}
+			s.users[authU] = u
+		}
+		if s.groups["team"] != nil {
+			s.groups["team"][authU] = true
+		}
+		if s.groups["all"] != nil {
+			s.groups["all"][authU] = true
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ocs": map[string]any{
+				"meta": map[string]any{"status": "ok", "statuscode": 100, "message": "OK"},
+				"data": u,
+			},
+		})
 	case p == "users" && r.Method == http.MethodPost:
 		_ = r.ParseForm()
 		uid := r.FormValue("userid")
@@ -395,8 +433,14 @@ func (s *memOCSStore) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 			ID:          uid,
 			DisplayName: uid,
 			Email:       email,
-			Groups:      []string{},
+			Groups:      []string{"team", "all"},
 			Enabled:     true,
+		}
+		if s.groups["team"] != nil {
+			s.groups["team"][uid] = true
+		}
+		if s.groups["all"] != nil {
+			s.groups["all"][uid] = true
 		}
 		_ = pw
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -457,6 +501,15 @@ func (s *memOCSStore) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 		} else if len(parts) == 2 && parts[1] == "groups" && r.Method == http.MethodPost {
 			_ = r.ParseForm()
 			group := r.FormValue("groupid")
+			if !IsValidGroupID(group) {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ocs": map[string]any{
+						"meta": map[string]any{"status": "failure", "statuscode": 400, "message": "Invalid group ID"},
+					},
+				})
+				return
+			}
 			if s.groups[group] == nil {
 				s.groups[group] = make(map[string]bool)
 			}
@@ -486,6 +539,15 @@ func (s *memOCSStore) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 	case p == "groups" && r.Method == http.MethodPost:
 		_ = r.ParseForm()
 		gid := r.FormValue("groupid")
+		if !IsValidGroupID(gid) {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ocs": map[string]any{
+					"meta": map[string]any{"status": "failure", "statuscode": 400, "message": "Invalid group ID"},
+				},
+			})
+			return
+		}
 		if s.groups[gid] == nil {
 			s.groups[gid] = make(map[string]bool)
 		}
@@ -497,6 +559,17 @@ func (s *memOCSStore) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 	case strings.HasPrefix(p, "groups/"):
 		gid := strings.TrimPrefix(p, "groups/")
+		gid = strings.TrimSuffix(gid, "/users")
+		gid = strings.TrimSuffix(gid, "/")
+		if !IsValidGroupID(gid) {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ocs": map[string]any{
+					"meta": map[string]any{"status": "failure", "statuscode": 400, "message": "Invalid group ID"},
+				},
+			})
+			return
+		}
 		var members []string
 		if s.groups[gid] != nil {
 			for u := range s.groups[gid] {
@@ -519,6 +592,48 @@ func (s *memOCSStore) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// memWebDAVStore manages per-user in-memory WebDAV file systems with Nextcloud initial test data.
+type memWebDAVStore struct {
+	mu     sync.RWMutex
+	userFS map[string]xwebdav.FileSystem
+	userLS map[string]xwebdav.LockSystem
+}
+
+func newMemWebDAVStore() *memWebDAVStore {
+	return &memWebDAVStore{
+		userFS: make(map[string]xwebdav.FileSystem),
+		userLS: make(map[string]xwebdav.LockSystem),
+	}
+}
+
+func seedUserWebDAVFiles(fs xwebdav.FileSystem) {
+	ctx := context.Background()
+	_ = fs.Mkdir(ctx, "Photos", 0755)
+	if wc, err := fs.OpenFile(ctx, "welcome.txt", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644); err == nil && wc != nil {
+		_, _ = wc.Write([]byte("Welcome to Nextcloud on JMAP!"))
+		_ = wc.Close()
+	}
+	if wc, err := fs.OpenFile(ctx, "Readme.md", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644); err == nil && wc != nil {
+		_, _ = wc.Write([]byte("# Welcome to Nextcloud\nThis is your personal cloud storage."))
+		_ = wc.Close()
+	}
+	if wc, err := fs.OpenFile(ctx, "Photos/banner.jpg", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644); err == nil && wc != nil {
+		_, _ = wc.Write([]byte("Sample JPEG image data for Nextcloud Photos."))
+		_ = wc.Close()
+	}
+}
+
+func (s *memWebDAVStore) ensureUserLocked(u string) (xwebdav.FileSystem, xwebdav.LockSystem) {
+	if s.userFS[u] == nil {
+		fs := xwebdav.NewMemFS()
+		ls := xwebdav.NewMemLS()
+		seedUserWebDAVFiles(fs)
+		s.userFS[u] = fs
+		s.userLS[u] = ls
+	}
+	return s.userFS[u], s.userLS[u]
+}
+
 // NewEmbeddedServer creates an in-process Nextcloud-compatible HTTP server
 // supporting CalDAV, CardDAV, WebDAV, and OCS APIs.
 func NewEmbeddedServer(usernames ...string) (*httptest.Server, *Client, func()) {
@@ -529,19 +644,36 @@ func NewEmbeddedServer(usernames ...string) (*httptest.Server, *Client, func()) 
 	calMem := newMemCalDAVBackend()
 	cardMem := newMemCardDAVBackend()
 	ocsMem := newMemOCSStore()
-	webdavFS := xwebdav.NewMemFS()
-	webdavLS := xwebdav.NewMemLS()
-	webdavH := &xwebdav.Handler{
-		Prefix:     "/remote.php/webdav",
-		FileSystem: webdavFS,
-		LockSystem: webdavLS,
-	}
+	davStore := newMemWebDAVStore()
 
 	for _, u := range usernames {
 		calMem.ensureUserCalendarsLocked(u)
 		cardMem.ensureUserAddressBooksLocked(u)
 		ocsMem.AddUser(u, u, u, u)
+		davStore.mu.Lock()
+		davStore.ensureUserLocked(u)
+		davStore.mu.Unlock()
 	}
+
+	webdavH := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u, _, ok := r.BasicAuth()
+		if !ok || u == "" {
+			u = userFromCtx(r.Context())
+		}
+		if u == "" && len(usernames) > 0 {
+			u = usernames[0]
+		}
+		davStore.mu.Lock()
+		fs, ls := davStore.ensureUserLocked(u)
+		davStore.mu.Unlock()
+
+		h := &xwebdav.Handler{
+			Prefix:     "/remote.php/webdav",
+			FileSystem: fs,
+			LockSystem: ls,
+		}
+		h.ServeHTTP(w, r)
+	})
 
 	calH := &caldav.Handler{
 		Backend: calMem,
@@ -692,18 +824,97 @@ func NewEmbeddedBackend(usernames ...string) (*Client, *CalendarsBackend, *Conta
 	calBackend := NewCalendarsBackend(client)
 	contactsBackend := NewContactsBackend(client)
 	fileNodeBackend := NewFileNodeBackend(client)
+	blobBackend := NewBlobBackend(client, fileNodeBackend)
+	fileNodeBackend.SetBlobBackend(blobBackend)
 	principalsBackend := NewPrincipalsBackend(client, calBackend)
 	calBackend.SetPrincipalsBackend(principalsBackend)
 
 	for _, u := range usernames {
+		id := jmapcore.Id("")
+		if u == "user@example.com" {
+			id = "p-primary"
+		}
 		displayName := u
 		if u == "jdoe@example.com" {
 			displayName = "John Doe"
 		} else if u == "jane.smith@example.com" {
 			displayName = "Jane Smith"
+		} else if u == "user@example.com" {
+			displayName = "User Example"
 		}
-		principalsBackend.SeedUser(u, displayName)
+		principalsBackend.SeedUser(id, u, displayName)
 	}
 
+	// Seed sample users and groups in the in-process test adapter for hermetic test execution
+	sampleUsers := []struct {
+		id, email, displayName string
+	}{
+		{"p-primary", "user@example.com", "User Example"},
+		{"p-alice", "alice@example.com", "Alice Smith"},
+		{"p-bob", "bob@example.com", "Bob Jones"},
+		{"p-carol", "carol@example.com", "Carol Danvers"},
+	}
+	for _, su := range sampleUsers {
+		principalsBackend.SeedUser(jmapcore.Id(su.id), su.email, su.displayName)
+	}
+	principalsBackend.SeedPrincipal(&jmapprincipals.Principal{
+		ID:                 "p-team",
+		Type:               "group",
+		Name:               "Engineering Team",
+		Email:              "team@example.com",
+		CalendarAddress:    "mailto:team@example.com",
+		MayGetAvailability: false,
+		MayShareWith:       true,
+		Members:            map[string]bool{"p-alice": true, "p-bob": true, "p-carol": true, "p-primary": true},
+	})
+	principalsBackend.SeedPrincipal(&jmapprincipals.Principal{
+		ID:                 "p-all",
+		Type:               "group",
+		Name:               "All Staff",
+		Email:              "all@example.com",
+		CalendarAddress:    "mailto:all@example.com",
+		MayGetAvailability: false,
+		MayShareWith:       true,
+		Members:            map[string]bool{"p-alice": true, "p-bob": true, "p-carol": true, "p-primary": true},
+	})
+	principalsBackend.SeedPrincipal(&jmapprincipals.Principal{
+		ID:                 "p-marketing",
+		Type:               "group",
+		Name:               "Marketing",
+		Email:              "marketing@example.com",
+		CalendarAddress:    "mailto:marketing@example.com",
+		MayGetAvailability: false,
+		MayShareWith:       true,
+		Members:            map[string]bool{"p-carol": true},
+	})
+
 	return client, calBackend, contactsBackend, fileNodeBackend, principalsBackend, cleanup
+}
+
+// NewEmbeddedBackendWithBlobs initializes production Nextcloud backends including BlobBackend.
+func NewEmbeddedBackendWithBlobs(usernames ...string) (*Client, *CalendarsBackend, *ContactsBackend, *FileNodeBackend, *PrincipalsBackend, *BlobBackend, func()) {
+	client, calBackend, contactsBackend, fileNodeBackend, principalsBackend, cleanup := NewEmbeddedBackend(usernames...)
+	return client, calBackend, contactsBackend, fileNodeBackend, principalsBackend, fileNodeBackend.BlobBackend(), cleanup
+}
+
+// SeedDefaultWebDAVFiles seeds realistic sample files into Nextcloud WebDAV for an account.
+func SeedDefaultWebDAVFiles(ctx context.Context, client *Client) error {
+	fs, _, err := client.WebDAV(ctx)
+	if err != nil {
+		return err
+	}
+	_ = fs.Mkdir(ctx, "Photos")
+	if wc, err := fs.Create(ctx, "welcome.txt"); err == nil && wc != nil {
+		_, _ = wc.Write([]byte("Welcome to Nextcloud on JMAP!"))
+		_ = wc.Close()
+	}
+	if wc, err := fs.Create(ctx, "Readme.md"); err == nil && wc != nil {
+		_, _ = wc.Write([]byte("# Welcome to Nextcloud\nThis is your personal cloud storage."))
+		_ = wc.Close()
+	}
+	if wc, err := fs.Create(ctx, "Photos/banner.jpg"); err == nil && wc != nil {
+		_, _ = wc.Write([]byte("Sample JPEG image data for Nextcloud Photos."))
+		_ = wc.Close()
+	}
+	return nil
 }

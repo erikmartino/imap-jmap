@@ -327,11 +327,12 @@ func TestFileNode_QueryChanges(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	// Baseline query state with no nodes.
+	// Baseline query state.
 	q0 := doFileNodeRequest(t, ts.URL, []any{
 		[]any{"FileNode/query", map[string]any{"accountId": "primary"}, "c1"},
 	})
 	baseState, _ := q0.MethodResponses[0].Args["queryState"].(string)
+	baseIDs, _ := q0.MethodResponses[0].Args["ids"].([]any)
 
 	// Create a node after the baseline.
 	setResp := doFileNodeRequest(t, ts.URL, []any{
@@ -342,7 +343,7 @@ func TestFileNode_QueryChanges(t *testing.T) {
 	})
 	newID := setResp.MethodResponses[0].Args["created"].(map[string]any)["f1"].(map[string]any)["id"].(string)
 
-	// queryChanges since the baseline MUST report the new node as added at index 0.
+	// queryChanges since the baseline MUST report the new node as added.
 	qc := doFileNodeRequest(t, ts.URL, []any{
 		[]any{"FileNode/queryChanges", map[string]any{
 			"accountId":       "primary",
@@ -358,8 +359,8 @@ func TestFileNode_QueryChanges(t *testing.T) {
 	if added["id"] != newID {
 		t.Errorf("added id = %v, want %q", added["id"], newID)
 	}
-	if added["index"].(float64) != 0 {
-		t.Errorf("added index = %v, want 0", added["index"])
+	if added["index"].(float64) != float64(len(baseIDs)) {
+		t.Errorf("added index = %v, want %d", added["index"], len(baseIDs))
 	}
 }
 

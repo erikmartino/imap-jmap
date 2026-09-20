@@ -12,6 +12,7 @@ import (
 	"imap-jmap/jmap/jmapcalendar"
 	"imap-jmap/jmap/jmapcontacts"
 	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmapprincipals"
 	"imap-jmap/jmap/nextcloud"
 )
 
@@ -373,4 +374,166 @@ func TestEmbeddedNextcloudPrincipals(t *testing.T) {
 	}
 	_ = windows
 }
+
+func TestEmbeddedNextcloudGroupMembershipOnDemand(t *testing.T) {
+	client, _, _, _, principalsBackend, cleanup := nextcloud.NewEmbeddedBackend("alice@example.com")
+	defer cleanup()
+
+	ctx := context.Background()
+	ctx = jmapauth.ContextWithAccountID(ctx, "alice@example.com")
+	ctx = jmapauth.ContextWithSubject(ctx, "alice@example.com")
+	ctx = jmapauth.ContextWithCredentials(ctx, "alice@example.com", "alice@example.com")
+
+	// 1. Verify user can query their own user info via Nextcloud OCS using user credentials
+	user, err := client.GetCurrentUser(ctx)
+	if err != nil {
+		t.Fatalf("GetCurrentUser failed: %v", err)
+	}
+	if user.ID != "alice@example.com" {
+		t.Errorf("Expected user ID 'alice@example.com', got %q", user.ID)
+	}
+	if len(user.Groups) == 0 {
+		t.Errorf("Expected user to belong to at least 1 group, got %v", user.Groups)
+	}
+
+	// 2. Fetch specific group principal p-team on demand
+	principals, notFound, err := principalsBackend.GetPrincipals(ctx, []jmapcore.Id{"p-team"})
+	if err != nil {
+		t.Fatalf("GetPrincipals for p-team failed: %v", err)
+	}
+	if len(notFound) > 0 || len(principals) == 0 {
+		t.Fatalf("Expected p-team to be found, notFound=%v", notFound)
+	}
+	team := principals[0]
+	if team.Type != "group" {
+		t.Errorf("Expected type 'group', got %q", team.Type)
+	}
+	if team.Members == nil || !team.Members["p-alice@example.com"] {
+		t.Errorf("Expected alice@example.com to be in p-team members: %v", team.Members)
+	}
+
+	// 3. Add a new user via user credentials
+	bobCtx := context.Background()
+	bobCtx = jmapauth.ContextWithAccountID(bobCtx, "bob@example.com")
+	bobCtx = jmapauth.ContextWithSubject(bobCtx, "bob@example.com")
+	bobCtx = jmapauth.ContextWithCredentials(bobCtx, "bob@example.com", "bob@example.com")
+
+	err = principalsBackend.EnsureUser(bobCtx, "bob@example.com", "bob@example.com")
+	if err != nil {
+		t.Fatalf("EnsureUser failed: %v", err)
+	}
+
+	// 4. GetAllPrincipals should collect group memberships and contain both members
+	all, err := principalsBackend.GetAllPrincipals(ctx)
+	if err != nil {
+		t.Fatalf("GetAllPrincipals failed: %v", err)
+	}
+	var teamGroup *jmapprincipals.Principal
+	for _, p := range all {
+		if p.ID == "p-team" {
+			teamGroup = p
+			break
+		}
+	}
+	if teamGroup == nil {
+		t.Fatalf("Expected p-team in GetAllPrincipals")
+	}
+	if !teamGroup.Members["p-alice@example.com"] {
+		t.Errorf("Expected alice in teamGroup.Members: %v", teamGroup.Members)
+	}
+	if !teamGroup.Members["p-bob@example.com"] {
+		t.Errorf("Expected bob in teamGroup.Members: %v", teamGroup.Members)
+	}
+}
+
+func TestGroupNamesInjectionPrevention(t *testing.T) {
+	// 1. IsValidGroupID tests
+	validGroups := []string{
+		"team",
+		"all",
+		"marketing-group",
+		"eng_team",
+		"dev.team",
+		"sales team",
+		"Level-1_Support.v2",
+	}
+	for _, g := range validGroups {
+		if !nextcloud.IsValidGroupID(g) {
+			t.Errorf("Expected valid group ID %q to pass validation", g)
+		}
+	}
+
+	invalidGroups := []string{
+		"",
+		"../../admin",
+		"../",
+		"team/users",
+		"team\\users",
+		"team\r\nBcc: evil@example.com",
+		"team\n",
+		"team\r",
+		"team\x00",
+		"team?format=json",
+		"team#section",
+		"team%2f",
+		"<script>alert(1)</script>",
+		"team; rm -rf /",
+		"team|cat /etc/passwd",
+		"team\"quote",
+		"team'quote",
+		"team:colon",
+	}
+	for _, g := range invalidGroups {
+		if nextcloud.IsValidGroupID(g) {
+			t.Errorf("Expected invalid group ID %q to fail validation", g)
+		}
+	}
+
+	// 2. Client API rejects invalid group IDs
+	client, _, _, _, principalsBackend, cleanup := nextcloud.NewEmbeddedBackend("alice@example.com")
+	defer cleanup()
+
+	ctx := context.Background()
+	ctx = jmapauth.ContextWithAccountID(ctx, "alice@example.com")
+	ctx = jmapauth.ContextWithSubject(ctx, "alice@example.com")
+	ctx = jmapauth.ContextWithCredentials(ctx, "alice@example.com", "alice@example.com")
+
+	if _, err := client.GetGroupMembers(ctx, "../../admin"); err == nil {
+		t.Errorf("Expected GetGroupMembers with path traversal to fail")
+	}
+	if err := client.CreateGroup(ctx, "team\r\nBcc:evil@example.com"); err == nil {
+		t.Errorf("Expected CreateGroup with CRLF to fail")
+	}
+	if err := client.AddUserToGroup(ctx, "alice", "team/evil"); err == nil {
+		t.Errorf("Expected AddUserToGroup with slash to fail")
+	}
+
+	// 3. PrincipalsBackend rejects malicious group IDs and names
+	_, notFound, err := principalsBackend.GetPrincipals(ctx, []jmapcore.Id{"p-../../admin", "p-team\r\n"})
+	if err != nil {
+		t.Fatalf("GetPrincipals failed: %v", err)
+	}
+	if len(notFound) != 2 {
+		t.Errorf("Expected both malicious IDs to be returned in notFound, got %v", notFound)
+	}
+
+	// 4. CreatePrincipal rejects malicious group name
+	_, err = principalsBackend.CreatePrincipal(ctx, &jmapprincipals.Principal{
+		Type: "group",
+		Name: "../../admin",
+	})
+	if err == nil {
+		t.Errorf("Expected CreatePrincipal with path traversal to fail")
+	}
+
+	_, err = principalsBackend.CreatePrincipal(ctx, &jmapprincipals.Principal{
+		Type: "group",
+		Name: "evil\r\nBcc: victim@example.com",
+	})
+	if err == nil {
+		t.Errorf("Expected CreatePrincipal with CRLF to fail")
+	}
+}
+
+
 

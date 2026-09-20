@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"path"
 	"strings"
 	"sync"
@@ -461,25 +460,10 @@ type ocsEnvelope[T any] struct {
 	} `json:"ocs"`
 }
 
-// HasAdminAuth reports whether Nextcloud admin credentials are configured in the environment.
-func (c *Client) HasAdminAuth() bool {
-	return os.Getenv("NEXTCLOUD_ADMIN_USER") != "" && os.Getenv("NEXTCLOUD_ADMIN_PASSWORD") != ""
-}
-
-// AdminAuth returns admin credentials from environment, or false if not configured.
-func (c *Client) AdminAuth() (string, string, bool) {
-	adminUser := os.Getenv("NEXTCLOUD_ADMIN_USER")
-	adminPass := os.Getenv("NEXTCLOUD_ADMIN_PASSWORD")
-	if adminUser == "" || adminPass == "" {
-		return "", "", false
-	}
-	return adminUser, adminPass, true
-}
-
-func (c *Client) adminRequest(ctx context.Context, method, endpoint string, body url.Values) ([]byte, error) {
-	adminUser, adminPass, ok := c.AdminAuth()
-	if !ok {
-		return nil, fmt.Errorf("nextcloud admin credentials not configured")
+func (c *Client) userRequest(ctx context.Context, method, endpoint string, body url.Values) ([]byte, error) {
+	user, pass := c.getUserAndPass(ctx)
+	if user == "" {
+		return nil, fmt.Errorf("nextcloud user credentials not configured in context")
 	}
 	reqURL := c.BaseURL + endpoint
 	var reqBody io.Reader
@@ -490,7 +474,7 @@ func (c *Client) adminRequest(ctx context.Context, method, endpoint string, body
 	if err != nil {
 		return nil, err
 	}
-	req.SetBasicAuth(adminUser, adminPass)
+	req.SetBasicAuth(user, pass)
 	req.Header.Set("OCS-APIRequest", "true")
 	req.Header.Set("Accept", "application/json")
 	if body != nil {
@@ -513,14 +497,14 @@ func (c *Client) adminRequest(ctx context.Context, method, endpoint string, body
 	return respBytes, nil
 }
 
-// CreateUser provisions a user in Nextcloud.
+// CreateUser provisions a user in Nextcloud using the caller's credentials.
 func (c *Client) CreateUser(ctx context.Context, userid, password, email, displayname string) error {
 	data := url.Values{
 		"userid":   {userid},
 		"password": {password},
 		"email":    {email},
 	}
-	respBytes, err := c.adminRequest(ctx, http.MethodPost, "/ocs/v1.php/cloud/users", data)
+	respBytes, err := c.userRequest(ctx, http.MethodPost, "/ocs/v1.php/cloud/users", data)
 	if err != nil {
 		return err
 	}
@@ -537,20 +521,68 @@ func (c *Client) CreateUser(ctx context.Context, userid, password, email, displa
 	return nil
 }
 
+// IsValidGroupID validates that a group ID does not contain path traversal,
+// control characters, URL injection characters, or header injection characters.
+func IsValidGroupID(groupid string) bool {
+	if groupid == "" || len(groupid) > 255 {
+		return false
+	}
+	// Prevent path traversal
+	if strings.Contains(groupid, "..") || strings.Contains(groupid, "/") || strings.Contains(groupid, "\\") {
+		return false
+	}
+	// Prevent control characters, CRLF, URL delimiters, and injection characters
+	for _, r := range groupid {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+		switch r {
+		case '?', '#', '&', '%', '<', '>', '"', '\'', ';', ':', '|', '\x00':
+			return false
+		}
+	}
+	return true
+}
+
+// IsValidUserID validates that a user ID does not contain path traversal,
+// control characters, or injection sequences.
+func IsValidUserID(userid string) bool {
+	if userid == "" || len(userid) > 255 {
+		return false
+	}
+	if strings.Contains(userid, "..") || strings.Contains(userid, "/") || strings.Contains(userid, "\\") {
+		return false
+	}
+	for _, r := range userid {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+		switch r {
+		case '?', '#', '&', '%', '<', '>', '"', '\'', ';', ':', '|', '\x00':
+			return false
+		}
+	}
+	return true
+}
+
 // SetUserDisplayName sets the display name for a Nextcloud user.
 func (c *Client) SetUserDisplayName(ctx context.Context, userid, displayname string) error {
+	if !IsValidUserID(userid) {
+		return fmt.Errorf("invalid user id %q", userid)
+	}
+	cleanDisplayName := strings.ReplaceAll(strings.ReplaceAll(displayname, "\r", ""), "\n", " ")
 	endpoint := fmt.Sprintf("/ocs/v1.php/cloud/users/%s", url.PathEscape(userid))
 	data := url.Values{
 		"key":   {"displayname"},
-		"value": {displayname},
+		"value": {cleanDisplayName},
 	}
-	_, err := c.adminRequest(ctx, http.MethodPut, endpoint, data)
+	_, err := c.userRequest(ctx, http.MethodPut, endpoint, data)
 	return err
 }
 
-// GetUsers lists all user IDs in Nextcloud.
+// GetUsers lists all user IDs in Nextcloud accessible to the authenticated user.
 func (c *Client) GetUsers(ctx context.Context) ([]string, error) {
-	respBytes, err := c.adminRequest(ctx, http.MethodGet, "/ocs/v1.php/cloud/users?format=json", nil)
+	respBytes, err := c.userRequest(ctx, http.MethodGet, "/ocs/v1.php/cloud/users?format=json", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -564,10 +596,29 @@ func (c *Client) GetUsers(ctx context.Context) ([]string, error) {
 	return env.OCS.Data.Users, nil
 }
 
+// GetCurrentUser gets the authenticated user's details from Nextcloud.
+func (c *Client) GetCurrentUser(ctx context.Context) (*UserDetails, error) {
+	respBytes, err := c.userRequest(ctx, http.MethodGet, "/ocs/v1.php/cloud/user?format=json", nil)
+	if err != nil {
+		return nil, err
+	}
+	var env ocsEnvelope[UserDetails]
+	if err := json.Unmarshal(respBytes, &env); err != nil {
+		return nil, err
+	}
+	if env.OCS.Meta.StatusCode != 100 {
+		return nil, fmt.Errorf("get current user failed: %s (code %d)", env.OCS.Meta.Message, env.OCS.Meta.StatusCode)
+	}
+	return &env.OCS.Data, nil
+}
+
 // GetUserDetails gets user details from Nextcloud.
 func (c *Client) GetUserDetails(ctx context.Context, userid string) (*UserDetails, error) {
+	if !IsValidUserID(userid) {
+		return nil, fmt.Errorf("invalid user id %q", userid)
+	}
 	endpoint := fmt.Sprintf("/ocs/v1.php/cloud/users/%s?format=json", url.PathEscape(userid))
-	respBytes, err := c.adminRequest(ctx, http.MethodGet, endpoint, nil)
+	respBytes, err := c.userRequest(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -583,8 +634,11 @@ func (c *Client) GetUserDetails(ctx context.Context, userid string) (*UserDetail
 
 // CreateGroup creates a group in Nextcloud.
 func (c *Client) CreateGroup(ctx context.Context, groupid string) error {
+	if !IsValidGroupID(groupid) {
+		return fmt.Errorf("invalid group id %q: contains prohibited characters or injection sequence", groupid)
+	}
 	data := url.Values{"groupid": {groupid}}
-	respBytes, err := c.adminRequest(ctx, http.MethodPost, "/ocs/v1.php/cloud/groups", data)
+	respBytes, err := c.userRequest(ctx, http.MethodPost, "/ocs/v1.php/cloud/groups", data)
 	if err != nil {
 		return err
 	}
@@ -598,9 +652,9 @@ func (c *Client) CreateGroup(ctx context.Context, groupid string) error {
 	return nil
 }
 
-// GetGroups lists all groups in Nextcloud.
+// GetGroups lists groups accessible to the authenticated user in Nextcloud.
 func (c *Client) GetGroups(ctx context.Context) ([]string, error) {
-	respBytes, err := c.adminRequest(ctx, http.MethodGet, "/ocs/v1.php/cloud/groups?format=json", nil)
+	respBytes, err := c.userRequest(ctx, http.MethodGet, "/ocs/v1.php/cloud/groups?format=json", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -616,8 +670,11 @@ func (c *Client) GetGroups(ctx context.Context) ([]string, error) {
 
 // GetGroupMembers lists members in a group in Nextcloud.
 func (c *Client) GetGroupMembers(ctx context.Context, groupid string) ([]string, error) {
+	if !IsValidGroupID(groupid) {
+		return nil, fmt.Errorf("invalid group id %q: contains prohibited characters or injection sequence", groupid)
+	}
 	endpoint := fmt.Sprintf("/ocs/v1.php/cloud/groups/%s/users?format=json", url.PathEscape(groupid))
-	respBytes, err := c.adminRequest(ctx, http.MethodGet, endpoint, nil)
+	respBytes, err := c.userRequest(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -633,9 +690,15 @@ func (c *Client) GetGroupMembers(ctx context.Context, groupid string) ([]string,
 
 // AddUserToGroup adds a user to a group in Nextcloud.
 func (c *Client) AddUserToGroup(ctx context.Context, userid, groupid string) error {
+	if !IsValidUserID(userid) {
+		return fmt.Errorf("invalid user id %q", userid)
+	}
+	if !IsValidGroupID(groupid) {
+		return fmt.Errorf("invalid group id %q: contains prohibited characters or injection sequence", groupid)
+	}
 	endpoint := fmt.Sprintf("/ocs/v1.php/cloud/users/%s/groups", url.PathEscape(userid))
 	data := url.Values{"groupid": {groupid}}
-	respBytes, err := c.adminRequest(ctx, http.MethodPost, endpoint, data)
+	respBytes, err := c.userRequest(ctx, http.MethodPost, endpoint, data)
 	if err != nil {
 		return err
 	}
@@ -651,6 +714,9 @@ func (c *Client) AddUserToGroup(ctx context.Context, userid, groupid string) err
 
 // EnsureGroup creates a group in Nextcloud if it does not exist.
 func (c *Client) EnsureGroup(ctx context.Context, groupid string) error {
+	if !IsValidGroupID(groupid) {
+		return fmt.Errorf("invalid group id %q: contains prohibited characters or injection sequence", groupid)
+	}
 	groups, err := c.GetGroups(ctx)
 	if err == nil {
 		for _, g := range groups {
@@ -664,7 +730,7 @@ func (c *Client) EnsureGroup(ctx context.Context, groupid string) error {
 
 // EnsureUserInTeam ensures a user exists in Nextcloud and is added to the "team" group.
 func (c *Client) EnsureUserInTeam(ctx context.Context, userid, password, email, displayname string) error {
-	if !c.HasAdminAuth() || userid == "" {
+	if userid == "" {
 		return nil
 	}
 	if displayname == "" {
