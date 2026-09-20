@@ -14,7 +14,8 @@ import (
 )
 
 // TestFileNode_CapabilityAndHandlers tests advertising urn:ietf:params:jmap:filenode and FileNode/* handlers.
-// FileNode is a custom (non-RFC) file-storage extension; see the rfcless_ test prefix convention.
+// FileNode implements the draft-ietf-jmap-filenode (JMAP File Storage) Internet-Draft specification;
+// see the rfcless_ test prefix convention for pre-RFC specifications.
 func TestFileNode_CapabilityAndHandlers(t *testing.T) {
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())

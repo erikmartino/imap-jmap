@@ -71,13 +71,16 @@ This document outlines additional Nextcloud services, applications, and APIs tha
 
 ---
 
-## 7. File Shares & Access Control (`urn:ietf:params:jmap:filenode`)
-- **Nextcloud Component**: Nextcloud OCS Share API (`/ocs/v2.php/apps/files_sharing/api/v1/shares`).
-- **JMAP Protocol Equivalent**: JMAP FileNode with share descriptors (`FileShare/get`, `FileShare/set`).
+## 7. Files & File Sharing (`draft-ietf-jmap-filenode` / `urn:ietf:params:jmap:filenode`)
+- **Nextcloud Component**: Nextcloud WebDAV file storage (`/remote.php/webdav`) and Nextcloud OCS Share API (`/ocs/v2.php/apps/files_sharing/api/v1/shares`).
+- **JMAP Protocol Equivalent**: [draft-ietf-jmap-filenode](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-filenode) (JMAP File Storage extension by Bron Gondwana) providing filesystem metadata (`FileNode/get`, `FileNode/set`, `FileNode/query`, `FileNode/changes`, `FileNode/queryChanges`).
 - **Capabilities & Methods**:
-  - Public links, password-protected shares, user/group shares, expiration dates, and permission masks (read, write, reshare).
+  - `FileNode/get`, `FileNode/set`, `FileNode/query`, `FileNode/changes`, `FileNode/queryChanges`.
+  - Properties: `id`, `name`, `parentId`, `blobId`, `size`, `type` (media type), `isFolder` (or `nodeType`: `"file"` / `"directory"`), `createdAt`, `updatedAt`.
+  - Enforces strict file vs. directory separation: files require non-null `blobId` and media type; directories require `isFolder: true` and null `blobId`.
+  - Future expansion: Public links, password-protected shares, user/group shares, expiration dates, and permission masks (`FileShare/get`, `FileShare/set`).
 - **Integration Approach**:
-  - Map Nextcloud OCS Share API onto JMAP FileNode sharing properties and methods.
+  - Encapsulated within `jmap/nextcloud/filenode.go` and `jmap/nextcloud/blob.go` using `github.com/emersion/go-webdav` client. Domain logic is exposed via `jmap/jmapfilenode`.
 
 ---
 
