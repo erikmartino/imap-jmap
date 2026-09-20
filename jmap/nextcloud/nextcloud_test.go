@@ -535,5 +535,172 @@ func TestGroupNamesInjectionPrevention(t *testing.T) {
 	}
 }
 
+func TestNextcloudFilesAreFilesNotFolders(t *testing.T) {
+	_, _, _, fileNodeBackend, _, blobBackend, cleanup := nextcloud.NewEmbeddedBackendWithBlobs("user@example.com")
+	defer cleanup()
+	ctx := testContext()
+
+	// 1. Create a folder
+	folderNode := &jmap.FileNode{
+		Name:     "DocumentsFolder",
+		IsFolder: true,
+		Type:     "folder",
+	}
+	folder, err := fileNodeBackend.CreateFileNode(ctx, folderNode)
+	if err != nil {
+		t.Fatalf("CreateFileNode for folder failed: %v", err)
+	}
+	if !folder.IsFolder {
+		t.Errorf("Expected folder.IsFolder to be true, got false")
+	}
+	if folder.Type != "folder" {
+		t.Errorf("Expected folder.Type to be 'folder', got %q", folder.Type)
+	}
+	if folder.BlobID != nil {
+		t.Errorf("Folder must not have BlobID, got %v", folder.BlobID)
+	}
+	if folder.Size != 0 {
+		t.Errorf("Folder must have size 0, got %d", folder.Size)
+	}
+
+	// 2. Create a file inside folder
+	fileContent := []byte("Sample text document content")
+	blob, err := blobBackend.PutBlob(ctx, "user@example.com", "text/plain", fileContent)
+	if err != nil {
+		t.Fatalf("PutBlob failed: %v", err)
+	}
+	blobID := jmapcore.Id(blob.ID)
+
+	fileNode := &jmap.FileNode{
+		Name:     "sample.txt",
+		ParentID: &folder.ID,
+		BlobID:   &blobID,
+		IsFolder: false,
+	}
+	file, err := fileNodeBackend.CreateFileNode(ctx, fileNode)
+	if err != nil {
+		t.Fatalf("CreateFileNode for file failed: %v", err)
+	}
+	if file.IsFolder {
+		t.Errorf("Expected file.IsFolder to be false, got true")
+	}
+	if file.Type == "folder" || file.Type == "directory" {
+		t.Errorf("File must not have folder type, got %q", file.Type)
+	}
+	if file.Type != "text/plain" {
+		t.Errorf("Expected file.Type 'text/plain', got %q", file.Type)
+	}
+	if file.BlobID == nil || *file.BlobID != blobID {
+		t.Errorf("File BlobID mismatch: got %v, want %v", file.BlobID, blobID)
+	}
+
+	// 3. Collision check: cannot create a file where a folder exists
+	collidingFile := &jmap.FileNode{
+		Name:     "DocumentsFolder",
+		IsFolder: false,
+		Type:     "text/plain",
+	}
+	if _, err := fileNodeBackend.CreateFileNode(ctx, collidingFile); err == nil {
+		t.Errorf("Expected creating a file at an existing folder path to fail")
+	}
+
+	// 4. Collision check: cannot create a folder where a file exists
+	collidingFolder := &jmap.FileNode{
+		Name:     "sample.txt",
+		ParentID: &folder.ID,
+		IsFolder: true,
+		Type:     "folder",
+	}
+	if _, err := fileNodeBackend.CreateFileNode(ctx, collidingFolder); err == nil {
+		t.Errorf("Expected creating a folder at an existing file path to fail")
+	}
+
+	// 5. Immutability of isFolder on Update: file cannot become a folder
+	if _, err := fileNodeBackend.UpdateFileNode(ctx, file.ID, map[string]any{"isFolder": true}); err == nil {
+		t.Errorf("Expected updating file isFolder to true to fail")
+	}
+	if _, err := fileNodeBackend.UpdateFileNode(ctx, file.ID, map[string]any{"type": "folder"}); err == nil {
+		t.Errorf("Expected updating file type to 'folder' to fail")
+	}
+
+	// 6. Immutability of isFolder on Update: folder cannot become a file
+	if _, err := fileNodeBackend.UpdateFileNode(ctx, folder.ID, map[string]any{"isFolder": false}); err == nil {
+		t.Errorf("Expected updating folder isFolder to false to fail")
+	}
+	if _, err := fileNodeBackend.UpdateFileNode(ctx, folder.ID, map[string]any{"type": "text/plain"}); err == nil {
+		t.Errorf("Expected updating folder type to 'text/plain' to fail")
+	}
+	if _, err := fileNodeBackend.UpdateFileNode(ctx, folder.ID, map[string]any{"blobId": string(blobID)}); err == nil {
+		t.Errorf("Expected setting blobId on a folder to fail")
+	}
+
+	// 7. GetFileByBlobID must only return files, never folders
+	relPath, cType, _, err := fileNodeBackend.GetFileByBlobID(ctx, string(blobID))
+	if err != nil {
+		t.Fatalf("GetFileByBlobID failed: %v", err)
+	}
+	if relPath != "DocumentsFolder/sample.txt" {
+		t.Errorf("GetFileByBlobID path mismatch: got %q", relPath)
+	}
+	if cType != "text/plain" {
+		t.Errorf("GetFileByBlobID type mismatch: got %q", cType)
+	}
+
+	// 8. QueryFileNodes: positive and negative filtering for files vs folders
+	fileIDs, totalFiles, err := fileNodeBackend.QueryFileNodes(ctx, map[string]any{"isFolder": false}, 0, nil)
+	if err != nil {
+		t.Fatalf("QueryFileNodes for files failed: %v", err)
+	}
+	for _, fid := range fileIDs {
+		if fid == folder.ID {
+			t.Errorf("Folder ID %s returned in isFolder:false query", folder.ID)
+		}
+	}
+	_ = totalFiles
+
+	folderIDs, totalFolders, err := fileNodeBackend.QueryFileNodes(ctx, map[string]any{"isFolder": true}, 0, nil)
+	if err != nil {
+		t.Fatalf("QueryFileNodes for folders failed: %v", err)
+	}
+	for _, fid := range folderIDs {
+		if fid == file.ID {
+			t.Errorf("File ID %s returned in isFolder:true query", file.ID)
+		}
+	}
+	_ = totalFolders
+
+	// Query with type: "file"
+	typeFileIDs, _, err := fileNodeBackend.QueryFileNodes(ctx, map[string]any{"type": "file"}, 0, nil)
+	if err != nil {
+		t.Fatalf("QueryFileNodes for type:file failed: %v", err)
+	}
+	for _, fid := range typeFileIDs {
+		if fid == folder.ID {
+			t.Errorf("Folder ID %s returned in type:file query", folder.ID)
+		}
+	}
+
+	// Query with type: "folder"
+	typeFolderIDs, _, err := fileNodeBackend.QueryFileNodes(ctx, map[string]any{"type": "folder"}, 0, nil)
+	if err != nil {
+		t.Fatalf("QueryFileNodes for type:folder failed: %v", err)
+	}
+	for _, fid := range typeFolderIDs {
+		if fid == file.ID {
+			t.Errorf("File ID %s returned in type:folder query", file.ID)
+		}
+	}
+
+	// 9. BlobReferenceBackend lookup: folders never match
+	refs, err := blobBackend.LookupBlobReferences(ctx, []string{"FileNode"}, blobID)
+	if err != nil {
+		t.Fatalf("LookupBlobReferences failed: %v", err)
+	}
+	if len(refs["FileNode"]) != 1 || refs["FileNode"][0] != file.ID {
+		t.Errorf("Expected blob reference to file %s, got %v", file.ID, refs["FileNode"])
+	}
+}
+
+
 
 

@@ -208,6 +208,9 @@ func (b *BlobBackend) GetBlob(ctx context.Context, accountID, blobID string) (*j
 			b.RegisterCachedBlob(u, blob)
 			return blob, true, nil
 		} else if filePath != "" {
+			if stat, err := fs.Stat(ctx, filePath); err == nil && stat.IsDir {
+				return nil, false, fmt.Errorf("cannot read blob from %q: path is a folder, not a file", filePath)
+			}
 			if rc, err := fs.Open(ctx, filePath); err == nil {
 				fileData, errRead := io.ReadAll(rc)
 				_ = rc.Close()
@@ -246,6 +249,10 @@ func (b *BlobBackend) GetAllBlobs(ctx context.Context, accountID string) ([]*jma
 	if fs, _, err := b.client.WebDAV(ctx); err == nil {
 		if fis, err := fs.ReadDir(ctx, ".blobs", false); err == nil {
 			for _, fi := range fis {
+				if fi.IsDir {
+					// Ensure directories inside .blobs are not treated as blobs
+					continue
+				}
 				base := path.Base(fi.Path)
 				if base == "" || base == "." || base == ".." || base == ".blobs" || path.Ext(base) == ".meta" {
 					continue
@@ -310,7 +317,7 @@ func (b *BlobBackend) LookupBlobReferences(ctx context.Context, typeNames []stri
 				nodes, err := b.fnBackend.GetAllFileNodes(ctx)
 				if err == nil {
 					for _, node := range nodes {
-						if node != nil && node.BlobID != nil && *node.BlobID == blobID {
+						if node != nil && !node.IsFolder && node.Type != "folder" && node.Type != "directory" && node.BlobID != nil && *node.BlobID == blobID {
 							matched["FileNode"] = append(matched["FileNode"], node.ID)
 						}
 					}

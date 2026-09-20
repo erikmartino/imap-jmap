@@ -257,7 +257,7 @@ func (b *FileNodeBackend) syncFromWebDAV(ctx context.Context, u string) error {
 					if existing.Size > 0 && node.Size == 0 {
 						node.Size = existing.Size
 					}
-					if existing.Type != "" {
+					if existing.Type != "" && existing.Type != "folder" && existing.Type != "directory" {
 						node.Type = existing.Type
 					}
 					if existing.BlobID != nil {
@@ -266,6 +266,11 @@ func (b *FileNodeBackend) syncFromWebDAV(ctx context.Context, u string) error {
 					if existing.CreatedAt != "" {
 						node.CreatedAt = existing.CreatedAt
 					}
+				}
+				// Ensure files are strictly files and not folders
+				node.IsFolder = false
+				if node.Type == "" || node.Type == "folder" || node.Type == "directory" {
+					node.Type = mimeTypeForName(nodeName)
 				}
 				b.nodesCache[u][nodeID] = node
 				b.mu.Unlock()
@@ -288,7 +293,7 @@ func (b *FileNodeBackend) GetFileByBlobID(ctx context.Context, blobID string) (s
 	}
 
 	for id, n := range userCache {
-		if n.BlobID != nil && string(*n.BlobID) == blobID {
+		if !n.IsFolder && n.Type != "folder" && n.Type != "directory" && n.BlobID != nil && string(*n.BlobID) == blobID {
 			rel := b.idToPath[u][id]
 			return rel, n.Type, nil, nil
 		}
@@ -388,8 +393,31 @@ func (b *FileNodeBackend) CreateFileNode(ctx context.Context, node *jmapfilenode
 	if node.IsFolder || node.Type == "folder" || node.Type == "directory" {
 		node.IsFolder = true
 		node.Type = "folder"
+		node.BlobID = nil
+		node.Size = 0
+
+		if stat, err := fs.Stat(ctx, targetRel); err == nil && !stat.IsDir {
+			b.mu.Lock()
+			delete(b.pathToID[u], targetRel)
+			delete(b.idToPath[u], node.ID)
+			b.mu.Unlock()
+			return nil, fmt.Errorf("cannot create folder %q: path is an existing file", targetRel)
+		}
 		_ = fs.Mkdir(ctx, targetRel)
 	} else {
+		node.IsFolder = false
+		if node.Type == "" || node.Type == "file" || node.Type == "folder" || node.Type == "directory" {
+			node.Type = mimeTypeForName(node.Name)
+		}
+
+		if stat, err := fs.Stat(ctx, targetRel); err == nil && stat.IsDir {
+			b.mu.Lock()
+			delete(b.pathToID[u], targetRel)
+			delete(b.idToPath[u], node.ID)
+			b.mu.Unlock()
+			return nil, fmt.Errorf("cannot create file %q: path is an existing folder", targetRel)
+		}
+
 		wc, err := fs.Create(ctx, targetRel)
 		if err == nil && wc != nil {
 			var writtenData []byte
@@ -398,7 +426,7 @@ func (b *FileNodeBackend) CreateFileNode(ctx context.Context, node *jmapfilenode
 					_, _ = wc.Write(blob.Data)
 					writtenData = blob.Data
 					node.Size = uint64(len(blob.Data))
-					if node.Type == "" || node.Type == "file" {
+					if node.Type == "" || node.Type == "file" || node.Type == "folder" || node.Type == "directory" {
 						node.Type = blob.Type
 					}
 				}
@@ -411,7 +439,7 @@ func (b *FileNodeBackend) CreateFileNode(ctx context.Context, node *jmapfilenode
 				node.BlobID = &bid
 			}
 		}
-		if node.Type == "" {
+		if node.Type == "" || node.Type == "file" || node.Type == "folder" || node.Type == "directory" {
 			node.Type = mimeTypeForName(node.Name)
 		}
 	}
@@ -453,6 +481,7 @@ func (b *FileNodeBackend) UpdateFileNode(ctx context.Context, id jmapcore.Id, pa
 	oldName := node.Name
 	oldParent := node.ParentID
 
+	oldIsFolder := node.IsFolder
 	for k, v := range patch {
 		switch k {
 		case "name":
@@ -461,15 +490,31 @@ func (b *FileNodeBackend) UpdateFileNode(ctx context.Context, id jmapcore.Id, pa
 			}
 		case "type":
 			if s, ok := v.(string); ok {
-				node.Type = s
+				if node.IsFolder {
+					if s != "folder" && s != "directory" {
+						b.mu.Unlock()
+						return nil, fmt.Errorf("cannot set file MIME type %q on a folder", s)
+					}
+				} else {
+					if s == "folder" || s == "directory" {
+						b.mu.Unlock()
+						return nil, fmt.Errorf("cannot set folder type on a file")
+					}
+					node.Type = s
+				}
 			}
 		case "isFolder":
 			if bVal, ok := v.(bool); ok {
-				node.IsFolder = bVal
+				if bVal != oldIsFolder {
+					b.mu.Unlock()
+					return nil, fmt.Errorf("cannot change isFolder on an existing node: file cannot become folder or vice versa")
+				}
 			}
 		case "size":
 			if f, ok := v.(float64); ok {
-				node.Size = uint64(f)
+				if !node.IsFolder {
+					node.Size = uint64(f)
+				}
 			}
 		case "parentId":
 			if s, ok := v.(string); ok && s != "" {
@@ -479,6 +524,10 @@ func (b *FileNodeBackend) UpdateFileNode(ctx context.Context, id jmapcore.Id, pa
 				node.ParentID = nil
 			}
 		case "blobId":
+			if node.IsFolder {
+				b.mu.Unlock()
+				return nil, fmt.Errorf("cannot set blobId on a folder")
+			}
 			if s, ok := v.(string); ok && s != "" {
 				bid := jmapcore.Id(s)
 				node.BlobID = &bid
@@ -506,6 +555,14 @@ func (b *FileNodeBackend) UpdateFileNode(ctx context.Context, id jmapcore.Id, pa
 		b.mu.RUnlock()
 
 		if fs, _, err := b.client.WebDAV(ctx); err == nil && oldRel != "" && newRel != oldRel {
+			if stat, err := fs.Stat(ctx, newRel); err == nil {
+				if !node.IsFolder && stat.IsDir {
+					return nil, fmt.Errorf("cannot move file to %q: destination is an existing folder", newRel)
+				}
+				if node.IsFolder && !stat.IsDir {
+					return nil, fmt.Errorf("cannot move folder to %q: destination is an existing file", newRel)
+				}
+			}
 			_ = fs.Move(ctx, oldRel, newRel, nil)
 			b.mu.Lock()
 			delete(b.pathToID[u], oldRel)
@@ -612,7 +669,15 @@ func (b *FileNodeBackend) QueryFileNodes(ctx context.Context, filter map[string]
 				}
 			}
 			if typeVal, ok := filter["type"].(string); ok && typeVal != "" {
-				if !strings.EqualFold(n.Type, typeVal) {
+				if typeVal == "file" {
+					if n.IsFolder || n.Type == "folder" || n.Type == "directory" {
+						continue
+					}
+				} else if typeVal == "folder" || typeVal == "directory" {
+					if !n.IsFolder && n.Type != "folder" && n.Type != "directory" {
+						continue
+					}
+				} else if !strings.EqualFold(n.Type, typeVal) {
 					continue
 				}
 			}
