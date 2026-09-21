@@ -41,8 +41,8 @@ func TestRFC8621_SMTPReceiveToJMAPPushIntegration(t *testing.T) {
 	}()
 	defer smtpServer.Close()
 
-	// Give servers a moment to bind
-	time.Sleep(50 * time.Millisecond)
+	// Give servers a moment to bind and finish initial account seeding
+	time.Sleep(200 * time.Millisecond)
 
 	// 4. Connect SSE Push Client to GET /eventsource
 	sseURL := ts.URL + "/eventsource?types=Email,Mailbox&closeafter=state"
@@ -60,8 +60,9 @@ func TestRFC8621_SMTPReceiveToJMAPPushIntegration(t *testing.T) {
 
 	// 5. Send an email via SMTP in background
 	sentSubject := "Live SMTP Push Update Test"
+	smtpDone := make(chan error, 1)
 	go func() {
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 		from := "push-sender@example.com"
 		to := []string{"user@example.com"}
 		msg := []byte("From: Push Sender <push-sender@example.com>\r\n" +
@@ -71,7 +72,7 @@ func TestRFC8621_SMTPReceiveToJMAPPushIntegration(t *testing.T) {
 			"\r\n" +
 			"Testing real-time JMAP SSE push delivery upon SMTP intake.")
 
-		_ = smtp.SendMail(smtpAddr, nil, from, to, msg)
+		smtpDone <- smtp.SendMail(smtpAddr, nil, from, to, msg)
 	}()
 
 	// 6. Read SSE Push Stream and verify StateChange event received
@@ -84,8 +85,14 @@ func TestRFC8621_SMTPReceiveToJMAPPushIntegration(t *testing.T) {
 			eventLine = line
 		} else if strings.HasPrefix(line, "data:") {
 			dataLine = line
-			break
+			if strings.Contains(dataLine, "StateChange") && strings.Contains(dataLine, "Email") {
+				break
+			}
 		}
+	}
+
+	if err := <-smtpDone; err != nil {
+		t.Fatalf("smtp.SendMail failed: %v", err)
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -121,41 +128,38 @@ func TestRFC8621_SMTPReceiveToJMAPPushIntegration(t *testing.T) {
 		},
 	}
 	reqBytes, _ := json.Marshal(jmapReqBody)
-	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(reqBytes))
-	if err != nil {
-		t.Fatalf("POST /jmap Email/get failed: %v", err)
-	}
-	defer resp.Body.Close()
 
-	var jmapResp struct {
-		MethodResponses []any `json:"methodResponses"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&jmapResp); err != nil {
-		t.Fatalf("Failed to decode JMAP response: %v", err)
-	}
-
-	if len(jmapResp.MethodResponses) == 0 {
-		t.Fatalf("Empty JMAP method response")
-	}
-
-	methodCall := jmapResp.MethodResponses[0].([]any)
-	if methodCall[0] != "Email/get" {
-		t.Fatalf("Expected Email/get method response, got %v", methodCall[0])
-	}
-
-	respArgs := methodCall[1].(map[string]any)
-	list := respArgs["list"].([]any)
-
+	deadline := time.Now().Add(2 * time.Second)
 	found := false
-	for _, rawItem := range list {
-		item := rawItem.(map[string]any)
-		if item["subject"] == sentSubject {
-			found = true
-			if item["blobId"] == "" {
-				t.Errorf("Email missing blobId")
+	for {
+		resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(reqBytes))
+		if err == nil {
+			var jmapResp struct {
+				MethodResponses []any `json:"methodResponses"`
 			}
+			if err := json.NewDecoder(resp.Body).Decode(&jmapResp); err == nil && len(jmapResp.MethodResponses) > 0 {
+				methodCall := jmapResp.MethodResponses[0].([]any)
+				if methodCall[0] == "Email/get" {
+					respArgs := methodCall[1].(map[string]any)
+					list, _ := respArgs["list"].([]any)
+					for _, rawItem := range list {
+						item := rawItem.(map[string]any)
+						if item["subject"] == sentSubject {
+							found = true
+							if item["blobId"] == "" {
+								t.Errorf("Email missing blobId")
+							}
+							break
+						}
+					}
+				}
+			}
+			resp.Body.Close()
+		}
+		if found || time.Now().After(deadline) {
 			break
 		}
+		time.Sleep(50 * time.Millisecond)
 	}
 
 	if !found {
