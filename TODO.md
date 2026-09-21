@@ -1,3 +1,8 @@
+Active session
+
+agy --conversation=a57c9712-9454-4ec8-848b-1dbeddc72cc1
+
+
 # TODO — Architecture & RFC Conformance Roadmap
 
 **Authoritative Guidelines**: See [`AGENTS.md`](./AGENTS.md) for core principles:
