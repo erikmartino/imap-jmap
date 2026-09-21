@@ -220,7 +220,46 @@ func (b *IMAPSMTPBackend) GetAllEmails(ctx context.Context) ([]*jmapmail.Email, 
 	return allEmails, nil
 }
 
+// EmailsWithKeyword returns the ids of messages carrying the given JMAP keyword across
+// all selectable mailboxes, using a server-side IMAP SEARCH so only matching messages
+// are transferred (unlike QueryEmails, which materialises every message's metadata).
+// It is used to process Sieve-tagged iTIP mail.
+func (b *IMAPSMTPBackend) EmailsWithKeyword(ctx context.Context, keyword string) ([]jmapcore.Id, error) {
+	client, err := b.pool.GetClientForContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer b.pool.ReleaseClient(ctx, client)
 
+	folders, err := client.ListFolders("", "*")
+	if err != nil {
+		return nil, err
+	}
+	flag := imappkg.MapJMAPKeywordToIMAPFlag(keyword)
+
+	var ids []jmapcore.Id
+	for _, m := range folders {
+		selectable := true
+		for _, attr := range m.Attrs {
+			if strings.EqualFold(attr, "\\NoSelect") {
+				selectable = false
+				break
+			}
+		}
+		if !selectable {
+			continue
+		}
+		uids, err := client.SearchKeyword(m.Name, flag)
+		if err != nil {
+			continue
+		}
+		mbID := MailboxIDForName(m.Name)
+		for _, uid := range uids {
+			ids = append(ids, EmailIDFor(mbID, uid))
+		}
+	}
+	return ids, nil
+}
 
 // QueryEmails searches emails based on JMAP filter criteria across mailboxes.
 func (b *IMAPSMTPBackend) QueryEmails(ctx context.Context, filter map[string]any, comparators []jmapcore.Comparator, position int, limit *uint64) ([]jmapcore.Id, int, error) {

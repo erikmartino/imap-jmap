@@ -335,6 +335,28 @@ func (c *Client) SearchSubject(folder string, query string) (res []uint32, err e
 	return res, nil
 }
 
+// SearchKeyword returns the UIDs of messages in the folder carrying the given IMAP
+// keyword/flag, evaluated server-side so no message bodies are transferred.
+func (c *Client) SearchKeyword(folder, keyword string) (res []uint32, err error) {
+	defer c.logCmd("SEARCH", "folder", folder, "keyword", keyword)(&err)
+	if _, err := c.cli.Select(folder, nil).Wait(); err != nil {
+		return nil, err
+	}
+	searchCmd := c.cli.UIDSearch(&imap.SearchCriteria{
+		Flag: []imap.Flag{imap.Flag(keyword)},
+	}, nil)
+	data, err := searchCmd.Wait()
+	if err != nil {
+		return nil, err
+	}
+	uids := data.AllUIDs()
+	res = make([]uint32, 0, len(uids))
+	for _, u := range uids {
+		res = append(res, uint32(u))
+	}
+	return res, nil
+}
+
 // StagingMessage holds basic metadata and raw body for a staging message.
 type StagingMessage struct {
 	UID          uint32

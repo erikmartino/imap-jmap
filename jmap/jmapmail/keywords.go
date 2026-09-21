@@ -181,3 +181,31 @@ func MapJMAPKeywordsToIMAPFlags(keywords map[string]bool) []string {
 	sort.Strings(flags)
 	return flags
 }
+
+// internalKeywords are proxy-internal IMAP keywords that MUST NOT be exposed to clients.
+// The upstream Sieve filter tags incoming iTIP mail with "$itip" so imap-jmap can find
+// and process it; that tag is an implementation detail, not a user keyword.
+var internalKeywords = map[string]bool{
+	"$itip": true,
+}
+
+// IsInternalKeyword reports whether kw is a proxy-internal keyword.
+func IsInternalKeyword(kw string) bool {
+	return internalKeywords[strings.ToLower(strings.TrimSpace(kw))]
+}
+
+// VisibleKeywords returns the client-visible view of a keyword set, dropping
+// proxy-internal keywords. The input map is not modified.
+func VisibleKeywords(keywords map[string]bool) map[string]bool {
+	if len(keywords) == 0 {
+		return keywords
+	}
+	out := make(map[string]bool, len(keywords))
+	for k, v := range keywords {
+		if IsInternalKeyword(k) {
+			continue
+		}
+		out[k] = v
+	}
+	return out
+}

@@ -643,6 +643,14 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	reqCtx = WithRequestScope(reqCtx)
 	reqCtx = withResponseSpill(reqCtx)
 
+	// Apply iTIP mail that the upstream Sieve filter tagged with $itip, using the
+	// caller's credentials. Request-driven (no background job) and only on sync
+	// methods, so the calendar reflects replies/requests/cancels delivered by the
+	// real mail server.
+	if (usingSet[MailCapabilityURI] || usingSet[CalendarsCapabilityURI]) && itipTriggered(req.MethodCalls) {
+		s.ProcessMailboxITIP(reqCtx)
+	}
+
 	for _, call := range req.MethodCalls {
 		// Check that required capability for method is present in 'using'
 		reqCap := requiredCapabilityForMethod(call.Name)

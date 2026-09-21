@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"mime"
 	"net"
 	"net/mail"
 	"net/textproto"
@@ -15,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	gomail "github.com/emersion/go-message/mail"
 	"github.com/emersion/go-sasl"
 	"github.com/emersion/go-smtp"
 	"github.com/foxcpp/go-sieve"
@@ -525,162 +523,18 @@ func (s *Session) Data(r io.Reader) error {
 		// 3. Auto-process iMIP invitation responses and incoming invitations (RFC 6047 /
 		//    RFC 5546). The text/calendar part is extracted with a real MIME parser (which
 		//    also decodes any Content-Transfer-Encoding) rather than scanning the raw bytes.
+		//    SEC-1 sender authentication is evaluated once per message and must pass before
+		//    any iTIP is auto-applied; fail closed.
 		if s.backend.CalendarsBackend != nil {
-			icsBody := extractCalendarBody(data)
-			if icsBody == "" {
-				continue
-			}
-			msg, err := jmapcalendar.ParseITIPMessage(icsBody)
-			if err == nil && msg != nil && msg.UID != "" {
-				// SEC-1 sender authentication gate: SPF/DKIM/DMARC verification is
-				// performed once per message and must pass before any iTIP is
-				// auto-applied. Fail closed: unauthenticated or unverifiable senders
-				// are still delivered to the mailbox but never mutate calendar state.
+			if icsBody := jmapcalendar.ExtractCalendarBody(data); icsBody != "" {
 				if !authChecked {
 					authChecked = true
 					authOK, authReason = s.checkSenderAuth(rawData)
 				}
 				if !authOK {
-					log.Printf("SMTP receiver: not applying iTIP %s for account %s: %s", msg.Method, targetAccountID, authReason)
-					continue
-				}
-
-				senderClean := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(s.from, "mailto:")))
-
-				if strings.EqualFold(msg.Method, "REPLY") {
-					// Envelope <-> iTIP identity binding (SEC-2)
-					attendeeEmail := ""
-					if len(msg.Attendees) > 0 && msg.Attendees[0].Email != "" {
-						attendeeEmail = msg.Attendees[0].Email
-					} else if s.from != "" {
-						attendeeEmail = s.from
-					}
-					attendeeClean := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(attendeeEmail, "mailto:")))
-					if senderClean != "" && attendeeClean != "" && senderClean != attendeeClean {
-						log.Printf("SMTP receiver warning: ignoring iTIP REPLY: envelope sender %q does not match attendee %q (SEC-2)", s.from, attendeeEmail)
-						continue
-					}
-
-					ev := s.findEventByUID(rcptCtx, msg.UID)
-					if ev != nil {
-						// Participant authorization (SEC-3)
-						partKey := findParticipantKey(ev, attendeeEmail)
-						if partKey == "" {
-							log.Printf("SMTP receiver warning: ignoring iTIP REPLY: attendee %q is not a participant on event %s (SEC-3)", attendeeEmail, ev.ID)
-							continue
-						}
-
-						// Replay / out-of-order defence (SEC-5)
-						if msg.Sequence > 0 && ev.Sequence > 0 && msg.Sequence < ev.Sequence {
-							log.Printf("SMTP receiver warning: ignoring stale iTIP REPLY: message sequence %d < event sequence %d (SEC-5)", msg.Sequence, ev.Sequence)
-							continue
-						}
-
-						status := strings.ToLower(msg.Status)
-						if status == "" {
-							status = "accepted"
-						}
-
-						patch := map[string]any{
-							"participants/" + partKey + "/participationStatus": status,
-							"participants/" + partKey + "/status":              status,
-							"participants/" + partKey + "/scheduleStatus":      "2.0;delivered",
-						}
-						if msg.Sequence > ev.Sequence {
-							patch["sequence"] = msg.Sequence
-						}
-
-						if _, err := s.backend.CalendarsBackend.UpdateCalendarEvent(rcptCtx, ev.ID, patch); err == nil {
-							log.Printf("SMTP receiver: applied iTIP REPLY to event %s: participant %s -> %s", ev.ID, attendeeEmail, status)
-							replyEmail := attendeeEmail
-							s.backend.CalendarsBackend.CreateCalendarEventNotification(rcptCtx, &jmapcalendar.CalendarEventNotification{
-								Type:            "updated",
-								CalendarEventID: ev.ID,
-								ChangedBy: jmapcalendar.CalendarEventNotificationPerson{
-									Email:           &replyEmail,
-									CalendarAddress: &replyEmail,
-								},
-								Event:      ev,
-								EventPatch: patch,
-							})
-						}
-					}
-				} else if strings.EqualFold(msg.Method, "REQUEST") {
-					// Envelope <-> iTIP identity binding (SEC-2)
-					orgClean := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(msg.Organizer, "mailto:")))
-					if senderClean != "" && orgClean != "" && senderClean != orgClean {
-						log.Printf("SMTP receiver warning: ignoring iTIP REQUEST: envelope sender %q does not match organizer %q (SEC-2)", s.from, msg.Organizer)
-						continue
-					}
-
-					imported := parseImportedEvent(icsBody, msg)
-					if existing := s.findEventByUID(rcptCtx, imported.UID); existing != nil {
-						// Replay / out-of-order defence (SEC-5)
-						if msg.Sequence > 0 && existing.Sequence > 0 && msg.Sequence < existing.Sequence {
-							log.Printf("SMTP receiver warning: ignoring stale iTIP REQUEST: message sequence %d < event sequence %d (SEC-5)", msg.Sequence, existing.Sequence)
-							continue
-						}
-
-						// Re-REQUEST: re-sync the mutable core details onto the copy.
-						patch := map[string]any{"title": imported.Title, "start": imported.Start}
-						if imported.Duration != "" {
-							patch["duration"] = imported.Duration
-						}
-						if msg.Sequence >= existing.Sequence {
-							patch["sequence"] = msg.Sequence
-						}
-						_, _ = s.backend.CalendarsBackend.UpdateCalendarEvent(rcptCtx, existing.ID, patch)
-					} else {
-						imported.ID = ""
-						imported.CalendarIDs = map[jmapcore.Id]bool{"cal-default": true}
-						if imported.Status == "" {
-							imported.Status = "tentative"
-						}
-						ensureOwnerParticipant(imported, s.from)
-						createdEv, err := s.backend.CalendarsBackend.CreateCalendarEvent(rcptCtx, imported)
-						if err == nil && createdEv != nil {
-							log.Printf("SMTP receiver: auto-imported incoming invitation into calendar event %s (%s)", createdEv.ID, createdEv.Title)
-						}
-					}
-				} else if strings.EqualFold(msg.Method, "CANCEL") {
-					// Envelope <-> iTIP identity binding & Participant authorization (SEC-2, SEC-3)
-					ev := s.findEventByUID(rcptCtx, msg.UID)
-					if ev != nil {
-						orgClean := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(msg.Organizer, "mailto:")))
-						if senderClean != "" && orgClean != "" && senderClean != orgClean {
-							log.Printf("SMTP receiver warning: ignoring iTIP CANCEL: envelope sender %q does not match organizer %q (SEC-2)", s.from, msg.Organizer)
-							continue
-						}
-						if senderClean != "" && !isEventOrganizer(ev, s.from) && orgClean != "" && !isEventOrganizer(ev, orgClean) {
-							log.Printf("SMTP receiver warning: ignoring iTIP CANCEL: sender %q is not the organizer of event %s (SEC-3)", s.from, ev.ID)
-							continue
-						}
-
-						// Replay / out-of-order defence (SEC-5)
-						if msg.Sequence > 0 && ev.Sequence > 0 && msg.Sequence < ev.Sequence {
-							log.Printf("SMTP receiver warning: ignoring stale iTIP CANCEL: message sequence %d < event sequence %d (SEC-5)", msg.Sequence, ev.Sequence)
-							continue
-						}
-
-						patch := map[string]any{"status": "cancelled"}
-						if msg.Sequence >= ev.Sequence {
-							patch["sequence"] = msg.Sequence
-						}
-						if _, err := s.backend.CalendarsBackend.UpdateCalendarEvent(rcptCtx, ev.ID, patch); err == nil {
-							log.Printf("SMTP receiver: cancelled event %s from iTIP CANCEL", ev.ID)
-							fromEmail := s.from
-							s.backend.CalendarsBackend.CreateCalendarEventNotification(rcptCtx, &jmapcalendar.CalendarEventNotification{
-								Type:            "deleted",
-								CalendarEventID: ev.ID,
-								ChangedBy: jmapcalendar.CalendarEventNotificationPerson{
-									Email:           &fromEmail,
-									CalendarAddress: &fromEmail,
-								},
-								Event:      ev,
-								EventPatch: patch,
-							})
-						}
-					}
+					log.Printf("SMTP receiver: not applying iTIP for account %s: %s", targetAccountID, authReason)
+				} else {
+					jmapcalendar.ApplyITIP(rcptCtx, s.backend.CalendarsBackend, icsBody, s.from)
 				}
 			}
 		}
@@ -793,156 +647,6 @@ func remoteIP(remoteAddr string) net.IP {
 		return nil
 	}
 	return net.ParseIP(host)
-}
-
-// extractCalendarBody returns the decoded body of the message's text/calendar MIME part
-// (RFC 6047 Section 2.4), using a real MIME reader that also decodes any
-// Content-Transfer-Encoding (base64 / quoted-printable). Only a genuine text/calendar
-// part is honoured, so scheduling logic can never be driven by iCalendar-looking text
-// smuggled into an unrelated part. Returns "" when the message carries no calendar part.
-func extractCalendarBody(raw []byte) string {
-	mr, err := gomail.CreateReader(bytes.NewReader(raw))
-	if err != nil {
-		return ""
-	}
-	partsCount := 0
-	for {
-		if partsCount >= MaxMIMEParts {
-			break
-		}
-		p, err := mr.NextPart()
-		if err != nil {
-			break
-		}
-		partsCount++
-		mediaType, _, _ := mime.ParseMediaType(p.Header.Get("Content-Type"))
-		if strings.EqualFold(mediaType, "text/calendar") {
-			body, err := io.ReadAll(p.Body)
-			if err != nil {
-				return ""
-			}
-			return string(body)
-		}
-	}
-	return ""
-}
-
-// parseImportedEvent parses the (already MIME-extracted) text/calendar body into a full
-// CalendarEvent (RFC 5545 → RFC 8984), preferring the VEVENT whose UID matches the iTIP
-// message and falling back to a title+start event from the scanned iTIP fields.
-func parseImportedEvent(ics string, msg *jmapcalendar.ITIPMessage) *jmapcalendar.CalendarEvent {
-	if events, err := jmapcalendar.ParseICalendar([]byte(ics)); err == nil {
-		for _, e := range events {
-			if e != nil && e.UID == msg.UID {
-				return e
-			}
-		}
-		if len(events) > 0 && events[0] != nil {
-			return events[0]
-		}
-	}
-	title := msg.Summary
-	if title == "" {
-		title = "External Meeting Invitation"
-	}
-	return &jmapcalendar.CalendarEvent{UID: msg.UID, Title: title, Start: msg.Start}
-}
-
-func findParticipantKey(ev *jmapcalendar.CalendarEvent, attendeeEmail string) string {
-	if ev == nil || attendeeEmail == "" {
-		return ""
-	}
-	clean := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(attendeeEmail, "mailto:")))
-	for key, p := range ev.Participants {
-		if strings.ToLower(key) == clean || strings.ToLower(key) == "mailto:"+clean {
-			return key
-		}
-		if p != nil {
-			if strings.EqualFold(strings.TrimPrefix(p.Email, "mailto:"), clean) {
-				return key
-			}
-			if p.SendTo != nil {
-				for _, val := range p.SendTo {
-					if strings.EqualFold(strings.TrimPrefix(val, "mailto:"), clean) {
-						return key
-					}
-				}
-			}
-		}
-	}
-	return ""
-}
-
-func isEventOrganizer(ev *jmapcalendar.CalendarEvent, email string) bool {
-	if ev == nil || email == "" {
-		return false
-	}
-	clean := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(email, "mailto:")))
-	for key, p := range ev.Participants {
-		if p == nil {
-			continue
-		}
-		isOrg := false
-		if (p.Roles != nil && (p.Roles["owner"] || p.Roles["organizer"] || p.Roles["chair"])) ||
-			p.Role == "owner" || p.Role == "organizer" || p.Role == "chair" {
-			isOrg = true
-		}
-		if isOrg {
-			if strings.ToLower(key) == clean || strings.EqualFold(strings.TrimPrefix(p.Email, "mailto:"), clean) {
-				return true
-			}
-			if p.SendTo != nil {
-				for _, val := range p.SendTo {
-					if strings.EqualFold(strings.TrimPrefix(val, "mailto:"), clean) {
-						return true
-					}
-				}
-			}
-		}
-	}
-	return false
-}
-
-// ensureOwnerParticipant guarantees the imported event has an owner participant (the
-// organizer), adding the SMTP envelope sender as owner when the ICS carried none.
-func ensureOwnerParticipant(ev *jmapcalendar.CalendarEvent, from string) {
-	for _, p := range ev.Participants {
-		if p != nil && ((p.Roles != nil && p.Roles["owner"]) || p.Role == "owner") {
-			return
-		}
-	}
-	if from == "" {
-		return
-	}
-	if ev.Participants == nil {
-		ev.Participants = make(map[string]*jmapcalendar.JSCalendarParticipant)
-	}
-	ev.Participants[from] = &jmapcalendar.JSCalendarParticipant{
-		Email: from,
-		Role:  "owner",
-		Roles: map[string]bool{"owner": true},
-	}
-}
-
-// findEventByUID locates the calendar event whose iCalendar UID (RFC 5546 Section
-// 2.1.5) matches uid. It scans the account's events by their "uid" property, and
-// falls back to treating uid as a JMAP id for events imported before uid tracking.
-func (s *Session) findEventByUID(ctx context.Context, uid string) *jmapcalendar.CalendarEvent {
-	if s.backend.CalendarsBackend == nil || uid == "" {
-		return nil
-	}
-	if all, err := s.backend.CalendarsBackend.GetAllCalendarEvents(ctx); err == nil {
-		for _, ev := range all {
-			if ev != nil && ev.UID == uid {
-				return ev
-			}
-		}
-	}
-	events, _, err := s.backend.CalendarsBackend.GetCalendarEvents(ctx, []jmapcore.Id{jmapcore.Id(uid)})
-	if err == nil && len(events) > 0 {
-		return events[0]
-	}
-	return nil
 }
 
 // buildReceivedHeader constructs an RFC 5321 Section 4.4 / RFC 5322 Section 3.6.7

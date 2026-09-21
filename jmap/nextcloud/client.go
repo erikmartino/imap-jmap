@@ -14,6 +14,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/emersion/go-ical"
@@ -98,6 +99,50 @@ type Client struct {
 	// is always cached in memory: it is stable, bounded, not user content, and never
 	// persisted to disk, so it does not make the proxy stateful.
 	cacheDisabled bool
+
+	// calListMu guards calListCache, a short-TTL cache of the calendar collection
+	// list. The list is discovery metadata (ids/names/descriptions), so it is cached
+	// across requests to avoid a CalDAV PROPFIND on every Calendar/get; the
+	// CTag/sync-token state is never served from here and stays live.
+	calListMu    sync.Mutex
+	calListCache map[string]*cachedCalendarList
+}
+
+// calendarListTTL bounds how long a cached calendar list is reused before it is
+// refreshed from CalDAV.
+const calendarListTTL = 30 * time.Second
+
+type cachedCalendarList struct {
+	at   time.Time
+	user string
+	list []*CalendarInfo
+}
+
+func (c *Client) cachedCalendarList(user string) ([]*CalendarInfo, string, bool) {
+	c.calListMu.Lock()
+	defer c.calListMu.Unlock()
+	entry := c.calListCache[user]
+	if entry == nil || time.Since(entry.at) >= calendarListTTL {
+		return nil, "", false
+	}
+	return entry.list, entry.user, true
+}
+
+func (c *Client) storeCalendarList(user string, list []*CalendarInfo) {
+	c.calListMu.Lock()
+	defer c.calListMu.Unlock()
+	if c.calListCache == nil {
+		c.calListCache = make(map[string]*cachedCalendarList)
+	}
+	c.calListCache[user] = &cachedCalendarList{at: time.Now(), user: user, list: list}
+}
+
+// invalidateCalendarList drops the cached calendar list for a user after a calendar
+// create/delete so the change is visible immediately.
+func (c *Client) invalidateCalendarList(user string) {
+	c.calListMu.Lock()
+	defer c.calListMu.Unlock()
+	delete(c.calListCache, user)
 }
 
 func isCacheDisabledEnv() bool {
@@ -131,6 +176,7 @@ func NewClient(baseURL string) *Client {
 		},
 		discovery:     newMemDiscoveryCache(),
 		cacheDisabled: isCacheDisabledEnv(),
+		calListCache:  make(map[string]*cachedCalendarList),
 	}
 }
 
@@ -390,6 +436,13 @@ func (c *Client) ListCalendars(ctx context.Context) ([]*CalendarInfo, string, er
 	if err != nil {
 		return nil, "", err
 	}
+	// Cross-request metadata cache: the calendar collection list changes rarely, so
+	// reuse it for a short TTL instead of issuing a CalDAV PROPFIND on every
+	// Calendar/get. The CTag/sync-token state must stay live, so it is fetched
+	// separately by GetCalendarSyncStatuses and is never served from here.
+	if list, cachedUser, ok := c.cachedCalendarList(u); ok {
+		return list, cachedUser, nil
+	}
 	// Resolve the principal once and reuse it for both the home-set and the
 	// schedule-default discovery PROPFINDs.
 	principal := c.getPrincipal(ctx, calClient, u)
@@ -420,6 +473,7 @@ func (c *Client) ListCalendars(ctx context.Context) ([]*CalendarInfo, string, er
 			IsDefault:   isDefault,
 		})
 	}
+	c.storeCalendarList(u, list)
 	return list, u, nil
 }
 
@@ -432,6 +486,7 @@ func (c *Client) CreateCalendar(ctx context.Context, calID string) error {
 	calPath := c.getCalPath(ctx, calClient, u, calID)
 	err = calClient.Mkdir(ctx, calPath)
 	invalidateRequestCalendarCollections(ctx, u)
+	c.invalidateCalendarList(u)
 	return err
 }
 
@@ -445,6 +500,7 @@ func (c *Client) DeleteCalendar(ctx context.Context, calID string) error {
 	c.discoveryFor(ctx).DeleteCal(u, calID)
 	err = calClient.RemoveAll(ctx, calPath)
 	invalidateRequestCalendarCollections(ctx, u)
+	c.invalidateCalendarList(u)
 	return err
 }
 

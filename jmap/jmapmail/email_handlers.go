@@ -181,7 +181,7 @@ func FormatEmailGet(em *Email, props []string, parsedHeaderProps []*ParsedHeader
 			"blobId":        em.BlobID,
 			"threadId":      em.ThreadID,
 			"mailboxIds":    em.MailboxIDs,
-			"keywords":      em.Keywords,
+			"keywords":      VisibleKeywords(em.Keywords),
 			"size":          em.Size,
 			"receivedAt":    em.ReceivedAt,
 			"messageId":     em.MessageID,
@@ -240,7 +240,7 @@ func FormatEmailGet(em *Email, props []string, parsedHeaderProps []*ParsedHeader
 		case "mailboxIds":
 			out["mailboxIds"] = em.MailboxIDs
 		case "keywords":
-			out["keywords"] = em.Keywords
+			out["keywords"] = VisibleKeywords(em.Keywords)
 		case "size":
 			out["size"] = em.Size
 		case "receivedAt":
