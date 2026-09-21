@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -494,6 +495,296 @@ func (c *Client) DeleteCalendarObject(ctx context.Context, calID, eventID string
 	}
 	eventPath := c.getCalPath(ctx, calClient, u, calID) + eventFilename
 	return calClient.RemoveAll(ctx, eventPath)
+}
+
+func (c *Client) buildURL(endpoint string) string {
+	if strings.HasPrefix(endpoint, "http://") || strings.HasPrefix(endpoint, "https://") {
+		return endpoint
+	}
+	if !strings.HasPrefix(endpoint, "/") {
+		return c.BaseURL + "/" + endpoint
+	}
+	return c.BaseURL + endpoint
+}
+
+// CalendarSyncStatus contains synchronization tokens and metadata for a CalDAV calendar collection.
+type CalendarSyncStatus struct {
+	ID        string
+	Path      string
+	Name      string
+	CTag      string
+	SyncToken string
+}
+
+// SyncCollectionChange represents an added/modified or deleted event in a CalDAV calendar.
+type SyncCollectionChange struct {
+	EventID string
+	Href    string
+	ETag    string
+	Deleted bool
+}
+
+// SyncCollectionResult represents the outcome of an RFC 6578 sync-collection REPORT.
+type SyncCollectionResult struct {
+	NewSyncToken string
+	Changes      []SyncCollectionChange
+}
+
+// ErrInvalidSyncToken is returned when CalDAV rejects a sync token as expired or invalid.
+var ErrInvalidSyncToken = errors.New("caldav: invalid or expired sync-token")
+
+// GetCalendarSyncStatuses queries the calendar home set with PROPFIND Depth: 1 to retrieve
+// the collection tag (CS:getctag) and sync-token (D:sync-token) for all user calendars in a single request.
+func (c *Client) GetCalendarSyncStatuses(ctx context.Context) (map[string]*CalendarSyncStatus, error) {
+	calClient, u, err := c.CalDAV(ctx)
+	if err != nil {
+		return nil, err
+	}
+	homeSet := c.getCalendarHomeSet(ctx, calClient, u)
+	if homeSet == "" {
+		return nil, fmt.Errorf("caldav: could not find calendar home set for %s", u)
+	}
+
+	urlStr := c.buildURL(homeSet)
+
+	reqXML := `<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:" xmlns:CS="http://calendarserver.org/ns/">
+  <D:prop>
+    <D:resourcetype/>
+    <D:displayname/>
+    <CS:getctag/>
+    <D:sync-token/>
+  </D:prop>
+</D:propfind>`
+
+	req, err := http.NewRequestWithContext(ctx, "PROPFIND", urlStr, strings.NewReader(reqXML))
+	if err != nil {
+		return nil, err
+	}
+	user, pass := c.getUserAndPass(ctx)
+	req.SetBasicAuth(user, pass)
+	req.Header.Set("Depth", "1")
+	req.Header.Set("Content-Type", "application/xml; charset=utf-8")
+
+	start := time.Now()
+	resp, err := c.HTTPClient.Do(req)
+	duration := time.Since(start)
+	statusCode := 0
+	if resp != nil {
+		statusCode = resp.StatusCode
+	}
+	slog.Info("Nextcloud/DAV request",
+		"user", user,
+		"method", req.Method,
+		"path", req.URL.Path,
+		"status", statusCode,
+		"duration_ms", duration.Milliseconds(),
+		"attempt", 1,
+		"error", err,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("caldav: PROPFIND failed with status %d", resp.StatusCode)
+	}
+
+	type propfindMultiStatus struct {
+		XMLName   xml.Name `xml:"multistatus"`
+		Responses []struct {
+			Href     string `xml:"href"`
+			Propstat []struct {
+				Prop struct {
+					ResourceType struct {
+						InnerXML []byte `xml:",innerxml"`
+					} `xml:"resourcetype"`
+					DisplayName string `xml:"displayname"`
+					GetCTag     string `xml:"getctag"`
+					SyncToken   string `xml:"sync-token"`
+				} `xml:"prop"`
+				Status string `xml:"status"`
+			} `xml:"propstat"`
+		} `xml:"response"`
+	}
+
+	var ms propfindMultiStatus
+	if err := xml.NewDecoder(resp.Body).Decode(&ms); err != nil {
+		return nil, fmt.Errorf("caldav: failed to decode PROPFIND response: %w", err)
+	}
+
+	cleanHome := strings.TrimRight(homeSet, "/") + "/"
+	res := make(map[string]*CalendarSyncStatus)
+
+	for _, r := range ms.Responses {
+		cleanHref := strings.TrimRight(r.Href, "/") + "/"
+		if cleanHref == cleanHome || strings.HasSuffix(cleanHome, cleanHref) || strings.HasSuffix(cleanHref, cleanHome) {
+			continue
+		}
+
+		calID := path.Base(strings.TrimRight(r.Href, "/"))
+		if calID == "" || calID == "." || calID == "/" || calID == "inbox" || calID == "outbox" || calID == "trashbin" {
+			continue
+		}
+
+		var dispName, ctag, syncToken string
+		isCalendar := false
+
+		for _, ps := range r.Propstat {
+			if strings.Contains(ps.Status, "200") {
+				if bytes.Contains(ps.Prop.ResourceType.InnerXML, []byte("calendar")) {
+					isCalendar = true
+				}
+				if ps.Prop.DisplayName != "" {
+					dispName = ps.Prop.DisplayName
+				}
+				if ps.Prop.GetCTag != "" {
+					ctag = ps.Prop.GetCTag
+				}
+				if ps.Prop.SyncToken != "" {
+					syncToken = ps.Prop.SyncToken
+				}
+			}
+		}
+
+		if !isCalendar {
+			continue
+		}
+
+		c.discovery.SetCalPath(u, calID, r.Href)
+
+		res[calID] = &CalendarSyncStatus{
+			ID:        calID,
+			Path:      r.Href,
+			Name:      dispName,
+			CTag:      ctag,
+			SyncToken: syncToken,
+		}
+	}
+
+	return res, nil
+}
+
+// SyncCalendarCollection performs an RFC 6578 sync-collection REPORT to retrieve changes since the specified sync token.
+func (c *Client) SyncCalendarCollection(ctx context.Context, calID, syncToken string) (*SyncCollectionResult, error) {
+	calClient, u, err := c.CalDAV(ctx)
+	if err != nil {
+		return nil, err
+	}
+	calPath := c.getCalPath(ctx, calClient, u, calID)
+	urlStr := c.buildURL(calPath)
+
+	type syncPropReq struct {
+		GetETag *struct{} `xml:"DAV: getetag"`
+	}
+	type syncReq struct {
+		XMLName   xml.Name    `xml:"DAV: sync-collection"`
+		SyncToken string      `xml:"DAV: sync-token"`
+		SyncLevel string      `xml:"DAV: sync-level"`
+		Prop      syncPropReq `xml:"DAV: prop"`
+	}
+
+	reqBody, err := xml.Marshal(&syncReq{
+		SyncToken: syncToken,
+		SyncLevel: "1",
+		Prop: syncPropReq{
+			GetETag: &struct{}{},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "REPORT", urlStr, bytes.NewReader(reqBody))
+	if err != nil {
+		return nil, err
+	}
+	user, pass := c.getUserAndPass(ctx)
+	req.SetBasicAuth(user, pass)
+	req.Header.Set("Content-Type", "application/xml; charset=utf-8")
+
+	start := time.Now()
+	resp, err := c.HTTPClient.Do(req)
+	duration := time.Since(start)
+	statusCode := 0
+	if resp != nil {
+		statusCode = resp.StatusCode
+	}
+	slog.Info("Nextcloud/DAV request",
+		"user", user,
+		"method", req.Method,
+		"path", req.URL.Path,
+		"status", statusCode,
+		"duration_ms", duration.Milliseconds(),
+		"attempt", 1,
+		"error", err,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusBadRequest {
+		return nil, ErrInvalidSyncToken
+	}
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("caldav: sync-collection failed with status %d", resp.StatusCode)
+	}
+
+	type syncMultiStatus struct {
+		XMLName   xml.Name `xml:"multistatus"`
+		SyncToken string   `xml:"sync-token"`
+		Responses []struct {
+			Href     string `xml:"href"`
+			Status   string `xml:"status"`
+			Propstat []struct {
+				Prop struct {
+					GetETag string `xml:"getetag"`
+				} `xml:"prop"`
+				Status string `xml:"status"`
+			} `xml:"propstat"`
+		} `xml:"response"`
+	}
+
+	var ms syncMultiStatus
+	if err := xml.NewDecoder(resp.Body).Decode(&ms); err != nil {
+		return nil, fmt.Errorf("caldav: failed to decode sync-collection response: %w", err)
+	}
+
+	result := &SyncCollectionResult{
+		NewSyncToken: ms.SyncToken,
+		Changes:      make([]SyncCollectionChange, 0, len(ms.Responses)),
+	}
+
+	for _, r := range ms.Responses {
+		filename := path.Base(r.Href)
+		if !strings.HasSuffix(filename, ".ics") {
+			continue
+		}
+		eventID := strings.TrimSuffix(filename, ".ics")
+
+		isDeleted := false
+		if strings.Contains(r.Status, "404") {
+			isDeleted = true
+		}
+
+		var etag string
+		for _, ps := range r.Propstat {
+			if strings.Contains(ps.Status, "200") && ps.Prop.GetETag != "" {
+				etag = ps.Prop.GetETag
+			}
+		}
+
+		result.Changes = append(result.Changes, SyncCollectionChange{
+			EventID: eventID,
+			Href:    r.Href,
+			ETag:    etag,
+			Deleted: isDeleted,
+		})
+	}
+
+	return result, nil
 }
 
 // CardDAV returns an authenticated carddav.Client from github.com/emersion/go-webdav/carddav.

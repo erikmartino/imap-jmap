@@ -224,6 +224,9 @@ func handleCalendarEventChanges(backend CalendarsBackend) jmaphandler.MethodHand
 		accountID, _ := args["accountId"].(string)
 		sinceState, _ := args["sinceState"].(string)
 		created, updated, destroyed, newState, hasMore := backend.CalendarEventChanges(ctx, sinceState)
+		if newState == "" {
+			return "error", MethodErrorArgs("cannotCalculateChanges", "cannot calculate changes from sinceState")
+		}
 		if created == nil {
 			created = []jmapcore.Id{}
 		}

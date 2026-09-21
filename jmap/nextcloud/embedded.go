@@ -40,17 +40,32 @@ func userFromCtx(ctx context.Context) string {
 	return "user@example.com"
 }
 
+type memCalendarSync struct {
+	syncToken int
+	changes   []memSyncRecord
+}
+
+type memSyncRecord struct {
+	Href    string
+	EventID string
+	ETag    string
+	Deleted bool
+	Token   int
+}
+
 // memCalDAVBackend implements caldav.Backend in memory per user.
 type memCalDAVBackend struct {
-	mu        sync.RWMutex
-	calendars map[string]map[string]*caldav.Calendar
-	objects   map[string]map[string]*caldav.CalendarObject
+	mu           sync.RWMutex
+	calendars    map[string]map[string]*caldav.Calendar
+	objects      map[string]map[string]*caldav.CalendarObject
+	calendarSync map[string]map[string]*memCalendarSync
 }
 
 func newMemCalDAVBackend() *memCalDAVBackend {
 	return &memCalDAVBackend{
-		calendars: make(map[string]map[string]*caldav.Calendar),
-		objects:   make(map[string]map[string]*caldav.CalendarObject),
+		calendars:    make(map[string]map[string]*caldav.Calendar),
+		objects:      make(map[string]map[string]*caldav.CalendarObject),
+		calendarSync: make(map[string]map[string]*memCalendarSync),
 	}
 }
 
@@ -66,6 +81,7 @@ func (b *memCalDAVBackend) ensureUserCalendarsLocked(u string) {
 	if b.calendars[u] == nil {
 		b.calendars[u] = make(map[string]*caldav.Calendar)
 		b.objects[u] = make(map[string]*caldav.CalendarObject)
+		b.calendarSync[u] = make(map[string]*memCalendarSync)
 		defaultPath := "/remote.php/dav/calendars/" + u + "/personal/"
 		b.calendars[u][defaultPath] = &caldav.Calendar{
 			Path:                  defaultPath,
@@ -73,6 +89,10 @@ func (b *memCalDAVBackend) ensureUserCalendarsLocked(u string) {
 			Description:           "Default personal calendar",
 			SupportedComponentSet: []string{"VEVENT", "VTODO", "VJOURNAL"},
 		}
+		b.calendarSync[u][defaultPath] = &memCalendarSync{syncToken: 1}
+	}
+	if b.calendarSync[u] == nil {
+		b.calendarSync[u] = make(map[string]*memCalendarSync)
 	}
 }
 
@@ -111,6 +131,7 @@ func (b *memCalDAVBackend) CreateCalendar(ctx context.Context, calendar *caldav.
 	cleanPath := strings.TrimRight(calendar.Path, "/") + "/"
 	calendar.Path = cleanPath
 	b.calendars[u][cleanPath] = calendar
+	b.calendarSync[u][cleanPath] = &memCalendarSync{syncToken: 1}
 	return nil
 }
 
@@ -122,6 +143,7 @@ func (b *memCalDAVBackend) DeleteCalendar(ctx context.Context, p string) error {
 
 	cleanPath := strings.TrimRight(p, "/") + "/"
 	delete(b.calendars[u], cleanPath)
+	delete(b.calendarSync[u], cleanPath)
 	for objPath := range b.objects[u] {
 		if strings.HasPrefix(objPath, cleanPath) {
 			delete(b.objects[u], objPath)
@@ -149,6 +171,17 @@ func (b *memCalDAVBackend) PutCalendarObject(ctx context.Context, p string, cale
 		Data:    calendar,
 	}
 	b.objects[u][p] = co
+	if sync, ok := b.calendarSync[u][parentPath]; ok {
+		sync.syncToken++
+		eventID := strings.TrimSuffix(path.Base(p), ".ics")
+		sync.changes = append(sync.changes, memSyncRecord{
+			Href:    p,
+			EventID: eventID,
+			ETag:    etag,
+			Deleted: false,
+			Token:   sync.syncToken,
+		})
+	}
 	return co, nil
 }
 
@@ -194,6 +227,19 @@ func (b *memCalDAVBackend) DeleteCalendarObject(ctx context.Context, p string) e
 	u := userFromCtx(ctx)
 	if objs, ok := b.objects[u]; ok {
 		delete(objs, p)
+	}
+	parentPath := path.Dir(p) + "/"
+	if b.calendarSync[u] != nil {
+		if sync, ok := b.calendarSync[u][parentPath]; ok {
+			sync.syncToken++
+			eventID := strings.TrimSuffix(path.Base(p), ".ics")
+			sync.changes = append(sync.changes, memSyncRecord{
+				Href:    p,
+				EventID: eventID,
+				Deleted: true,
+				Token:   sync.syncToken,
+			})
+		}
 	}
 	return nil
 }
@@ -706,10 +752,10 @@ func NewEmbeddedServer(usernames ...string) (*httptest.Server, *Client, func()) 
 	// 3. CalDAV & CardDAV & Principal Root Dispatcher
 	davDispatcher := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reqPath := path.Clean(r.URL.Path)
+		u := userFromCtx(r.Context())
 
 		// Principal Discovery & Home Sets
 		if reqPath == "/remote.php/dav" || reqPath == "/remote.php/dav/" || strings.HasPrefix(reqPath, "/remote.php/dav/principals") {
-			u := userFromCtx(r.Context())
 			if r.Method == "PROPFIND" {
 				bodyBytes, _ := io.ReadAll(r.Body)
 				r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
@@ -754,6 +800,163 @@ func NewEmbeddedServer(usernames ...string) (*httptest.Server, *Client, func()) 
 
 		// CalDAV Routing
 		if strings.HasPrefix(reqPath, "/remote.php/dav/calendars") {
+			if r.Method == "PROPFIND" && r.Header.Get("Depth") == "1" && strings.HasSuffix(strings.TrimRight(reqPath, "/"), "/calendars/"+u) {
+				calMem.mu.Lock()
+				calMem.ensureUserCalendarsLocked(u)
+
+				type embeddedProp struct {
+					ResourceType struct {
+						Collection *struct{} `xml:"DAV: collection"`
+						Calendar   *struct{} `xml:"urn:ietf:params:xml:ns:caldav calendar"`
+					} `xml:"DAV: resourcetype"`
+					DisplayName string `xml:"DAV: displayname,omitempty"`
+					GetCTag     string `xml:"http://calendarserver.org/ns/ getctag,omitempty"`
+					SyncToken   string `xml:"DAV: sync-token,omitempty"`
+				}
+				type embeddedPropstat struct {
+					Prop   embeddedProp `xml:"DAV: prop"`
+					Status string       `xml:"DAV: status"`
+				}
+				type embeddedResponse struct {
+					Href     string             `xml:"DAV: href"`
+					Propstat []embeddedPropstat `xml:"DAV: propstat"`
+				}
+				type embeddedMultiStatus struct {
+					XMLName   xml.Name           `xml:"DAV: multistatus"`
+					Responses []embeddedResponse `xml:"DAV: response"`
+				}
+
+				ms := embeddedMultiStatus{
+					Responses: []embeddedResponse{
+						{
+							Href: "/remote.php/dav/calendars/" + u + "/",
+							Propstat: []embeddedPropstat{
+								{
+									Prop: embeddedProp{
+										ResourceType: struct {
+											Collection *struct{} `xml:"DAV: collection"`
+											Calendar   *struct{} `xml:"urn:ietf:params:xml:ns:caldav calendar"`
+										}{Collection: &struct{}{}},
+									},
+									Status: "HTTP/1.1 200 OK",
+								},
+							},
+						},
+					},
+				}
+
+				for cPath, cal := range calMem.calendars[u] {
+					token := 1
+					if s, ok := calMem.calendarSync[u][cPath]; ok {
+						token = s.syncToken
+					}
+					syncTokStr := fmt.Sprintf("http://sabre.io/ns/sync/%d", token)
+					calProp := embeddedProp{
+						DisplayName: cal.Name,
+						GetCTag:     syncTokStr,
+						SyncToken:   syncTokStr,
+					}
+					calProp.ResourceType.Collection = &struct{}{}
+					calProp.ResourceType.Calendar = &struct{}{}
+
+					ms.Responses = append(ms.Responses, embeddedResponse{
+						Href: cPath,
+						Propstat: []embeddedPropstat{
+							{
+								Prop:   calProp,
+								Status: "HTTP/1.1 200 OK",
+							},
+						},
+					})
+				}
+				calMem.mu.Unlock()
+
+				w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+				w.WriteHeader(http.StatusMultiStatus)
+				_ = xml.NewEncoder(w).Encode(ms)
+				return
+			}
+
+			if r.Method == "REPORT" {
+				bodyBytes, err := io.ReadAll(r.Body)
+				if err == nil && bytes.Contains(bodyBytes, []byte("sync-collection")) {
+					type syncReq struct {
+						SyncToken string `xml:"sync-token"`
+					}
+					var req syncReq
+					_ = xml.Unmarshal(bodyBytes, &req)
+
+					var sinceToken int
+					if req.SyncToken != "" {
+						rawTok := strings.TrimPrefix(req.SyncToken, "http://sabre.io/ns/sync/")
+						_, _ = fmt.Sscanf(rawTok, "%d", &sinceToken)
+					}
+
+					cleanPath := strings.TrimRight(reqPath, "/") + "/"
+					calMem.mu.Lock()
+					calMem.ensureUserCalendarsLocked(u)
+					sync := calMem.calendarSync[u][cleanPath]
+					currentTok := 1
+					var matchedChanges []memSyncRecord
+					if sync != nil {
+						currentTok = sync.syncToken
+						for _, ch := range sync.changes {
+							if ch.Token > sinceToken {
+								matchedChanges = append(matchedChanges, ch)
+							}
+						}
+					}
+					calMem.mu.Unlock()
+
+					type respProp struct {
+						GetETag string `xml:"DAV: getetag"`
+					}
+					type respPropstat struct {
+						Prop   respProp `xml:"DAV: prop"`
+						Status string   `xml:"DAV: status"`
+					}
+					type respItem struct {
+						Href     string         `xml:"DAV: href"`
+						Status   string         `xml:"DAV: status,omitempty"`
+						Propstat []respPropstat `xml:"DAV: propstat,omitempty"`
+					}
+					type reportMultiStatus struct {
+						XMLName   xml.Name   `xml:"DAV: multistatus"`
+						SyncToken string     `xml:"DAV: sync-token"`
+						Responses []respItem `xml:"DAV: response,omitempty"`
+					}
+
+					resp := reportMultiStatus{
+						SyncToken: fmt.Sprintf("http://sabre.io/ns/sync/%d", currentTok),
+					}
+
+					for _, ch := range matchedChanges {
+						if ch.Deleted {
+							resp.Responses = append(resp.Responses, respItem{
+								Href:   ch.Href,
+								Status: "HTTP/1.1 404 Not Found",
+							})
+						} else {
+							resp.Responses = append(resp.Responses, respItem{
+								Href: ch.Href,
+								Propstat: []respPropstat{
+									{
+										Prop:   respProp{GetETag: ch.ETag},
+										Status: "HTTP/1.1 200 OK",
+									},
+								},
+							})
+						}
+					}
+
+					w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+					w.WriteHeader(http.StatusMultiStatus)
+					_ = xml.NewEncoder(w).Encode(resp)
+					return
+				}
+				r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			}
+
 			calH.ServeHTTP(w, r)
 			return
 		}

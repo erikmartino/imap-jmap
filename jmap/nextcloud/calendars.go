@@ -3,8 +3,10 @@ package nextcloud
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -736,13 +738,160 @@ func (b *CalendarsBackend) CalendarHasEvents(ctx context.Context, id jmapcore.Id
 	return false, nil
 }
 
-// CalendarEventState
-func (b *CalendarsBackend) CalendarEventState(ctx context.Context) string {
-	return b.getEventTracker(b.user(ctx)).State()
+func encodeSyncState(tokens map[string]string) string {
+	if len(tokens) == 0 {
+		return "sync-v1:empty"
+	}
+	data, err := json.Marshal(tokens)
+	if err != nil {
+		return "sync-v1:empty"
+	}
+	return "sync-v1:" + base64.RawURLEncoding.EncodeToString(data)
 }
 
+func decodeSyncState(state string) (map[string]string, error) {
+	if !strings.HasPrefix(state, "sync-v1:") {
+		return nil, errors.New("not a sync-v1 state")
+	}
+	raw := strings.TrimPrefix(state, "sync-v1:")
+	if raw == "empty" || raw == "" {
+		return make(map[string]string), nil
+	}
+	data, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return nil, err
+	}
+	var tokens map[string]string
+	if err := json.Unmarshal(data, &tokens); err != nil {
+		return nil, err
+	}
+	return tokens, nil
+}
+
+// CalendarEventState derives an opaque JMAP state token from CalDAV collection sync-tokens/CTags.
+func (b *CalendarsBackend) CalendarEventState(ctx context.Context) string {
+	u := b.user(ctx)
+	statuses, err := b.client.GetCalendarSyncStatuses(ctx)
+	if err != nil || len(statuses) == 0 {
+		return b.getEventTracker(u).State()
+	}
+
+	tokens := make(map[string]string, len(statuses))
+	for calID, st := range statuses {
+		tok := st.SyncToken
+		if tok == "" {
+			tok = st.CTag
+		}
+		if tok != "" {
+			tokens[calID] = tok
+		}
+	}
+	if len(tokens) == 0 {
+		return b.getEventTracker(u).State()
+	}
+	return encodeSyncState(tokens)
+}
+
+// CalendarEventChanges resolves changes since sinceState by leveraging CalDAV collection sync-tokens/CTags
+// and RFC 6578 sync-collection REPORT to retrieve only modified/deleted entities.
 func (b *CalendarsBackend) CalendarEventChanges(ctx context.Context, sinceState string) (created, updated, destroyed []jmapcore.Id, newState string, hasMoreChanges bool) {
-	return b.getEventTracker(b.user(ctx)).Changes(sinceState)
+	u := b.user(ctx)
+	if !strings.HasPrefix(sinceState, "sync-v1:") {
+		return b.getEventTracker(u).Changes(sinceState)
+	}
+
+	oldTokens, err := decodeSyncState(sinceState)
+	if err != nil {
+		return nil, nil, nil, "", false
+	}
+
+	statuses, err := b.client.GetCalendarSyncStatuses(ctx)
+	if err != nil {
+		return nil, nil, nil, "", false
+	}
+
+	newTokens := make(map[string]string, len(statuses))
+	for calID, st := range statuses {
+		tok := st.SyncToken
+		if tok == "" {
+			tok = st.CTag
+		}
+		if tok != "" {
+			newTokens[calID] = tok
+		}
+	}
+	newState = encodeSyncState(newTokens)
+
+	allMatch := true
+	if len(oldTokens) != len(newTokens) {
+		allMatch = false
+	} else {
+		for calID, oldTok := range oldTokens {
+			if newTokens[calID] != oldTok {
+				allMatch = false
+				break
+			}
+		}
+	}
+
+	if allMatch {
+		return []jmapcore.Id{}, []jmapcore.Id{}, []jmapcore.Id{}, newState, false
+	}
+
+	var updatedList, destroyedList []jmapcore.Id
+	seenUpdated := make(map[jmapcore.Id]bool)
+	seenDestroyed := make(map[jmapcore.Id]bool)
+
+	for calID, newTok := range newTokens {
+		oldTok, hadCal := oldTokens[calID]
+		if !hadCal {
+			objs, err := b.client.QueryCalendarObjects(ctx, calID)
+			if err == nil {
+				for _, obj := range objs {
+					id := jmapcore.Id(obj.ID)
+					if !seenUpdated[id] {
+						seenUpdated[id] = true
+						updatedList = append(updatedList, id)
+					}
+				}
+			}
+			continue
+		}
+
+		if oldTok == newTok {
+			continue
+		}
+
+		res, err := b.client.SyncCalendarCollection(ctx, calID, oldTok)
+		if err != nil {
+			return nil, nil, nil, "", false
+		}
+
+		for _, ch := range res.Changes {
+			id := jmapcore.Id(ch.EventID)
+			if ch.Deleted {
+				delete(seenUpdated, id)
+				if !seenDestroyed[id] {
+					seenDestroyed[id] = true
+					destroyedList = append(destroyedList, id)
+				}
+			} else {
+				if !seenDestroyed[id] && !seenUpdated[id] {
+					seenUpdated[id] = true
+					updatedList = append(updatedList, id)
+				}
+			}
+		}
+	}
+
+	if updatedList == nil {
+		updatedList = []jmapcore.Id{}
+	}
+	if destroyedList == nil {
+		destroyedList = []jmapcore.Id{}
+	}
+
+	return []jmapcore.Id{}, updatedList, destroyedList, newState, false
 }
 
 func (b *CalendarsBackend) GetAllCalendarEvents(ctx context.Context) ([]*jmapcalendar.CalendarEvent, error) {
