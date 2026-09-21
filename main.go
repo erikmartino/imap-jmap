@@ -213,6 +213,18 @@ func main() {
 
 	accountResolver := jmapauth.PrimaryDomainResolver{PrimaryDomain: *primaryDomain}
 
+	manageSieveHost := os.Getenv("MANAGESIEVE_HOST")
+	manageSievePort := os.Getenv("MANAGESIEVE_PORT")
+	if manageSievePort == "" {
+		manageSievePort = "4190"
+	}
+	var sieveBackend jmapsieve.SieveBackend
+	if manageSieveHost != "" {
+		sieveBackend = managesieve.NewBackend(net.JoinHostPort(manageSieveHost, manageSievePort))
+	} else {
+		_, sieveBackend, _ = managesieve.NewEmbeddedBackend()
+	}
+
 	authBackend = &seedingAuthBackend{
 		inner:  authBackend,
 		seeded: make(map[string]bool),
@@ -224,6 +236,10 @@ func main() {
 			if ncPb, ok := principalsBackend.(*nextcloud.PrincipalsBackend); ok {
 				_ = ncPb.EnsureUser(accountCtx, subject, subject)
 			}
+			// Install the default iTIP-tagging Sieve script on first login, so the
+			// calendar can process iMIP replies/requests delivered by the real mail
+			// server. No-op if the user already has Sieve scripts.
+			_ = jmap.EnsureDefaultSieveScript(accountCtx, sieveBackend)
 		},
 	}
 
@@ -233,18 +249,6 @@ func main() {
 	}
 	if sn := os.Getenv("SERVER_NAME"); sn != "" {
 		outboundSender.LocalName = sn
-	}
-
-	manageSieveHost := os.Getenv("MANAGESIEVE_HOST")
-	manageSievePort := os.Getenv("MANAGESIEVE_PORT")
-	if manageSievePort == "" {
-		manageSievePort = "4190"
-	}
-	var sieveBackend jmapsieve.SieveBackend
-	if manageSieveHost != "" {
-		sieveBackend = managesieve.NewBackend(net.JoinHostPort(manageSieveHost, manageSievePort))
-	} else {
-		_, sieveBackend, _ = managesieve.NewEmbeddedBackend()
 	}
 
 	serverOpts := []jmap.Option{
@@ -455,13 +459,13 @@ func loadTLSCertificate(certFile, keyFile string) (tls.Certificate, error) {
 }
 
 // getOrGenerateCertificate resolves a TLS certificate for the HTTPS listener:
-// 1. If explicit certFile and keyFile exist on disk, loads and returns them.
-// 2. If certFile and keyFile are specified but don't exist yet, generates a self-signed
-//    certificate and saves it to those paths (if writable) so subsequent starts reuse it.
-// 3. If certFile and keyFile are not specified, looks for an existing cached self-signed
-//    certificate in default search locations (./certs, user cache dir). If found, reuses it.
-// 4. Otherwise, generates a self-signed certificate, persists it to the first writable default
-//    location, and returns it.
+//  1. If explicit certFile and keyFile exist on disk, loads and returns them.
+//  2. If certFile and keyFile are specified but don't exist yet, generates a self-signed
+//     certificate and saves it to those paths (if writable) so subsequent starts reuse it.
+//  3. If certFile and keyFile are not specified, looks for an existing cached self-signed
+//     certificate in default search locations (./certs, user cache dir). If found, reuses it.
+//  4. Otherwise, generates a self-signed certificate, persists it to the first writable default
+//     location, and returns it.
 func getOrGenerateCertificate(certFile, keyFile string) (tls.Certificate, error) {
 	if certFile != "" && keyFile != "" {
 		cert, err := loadTLSCertificate(certFile, keyFile)
