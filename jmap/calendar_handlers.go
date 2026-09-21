@@ -31,9 +31,10 @@ var (
 	BuildITIPAdd              = jmapcalendar.BuildITIPAdd
 	BuildITIPRefresh          = jmapcalendar.BuildITIPRefresh
 	BuildITIPCounter          = jmapcalendar.BuildITIPCounter
-	ParseITIPMessage          = jmapcalendar.ParseITIPMessage
-	ParseICalendar            = jmapcalendar.ParseICalendar
-	CalendarEventToICalendar  = jmapcalendar.CalendarEventToICalendar
+	ParseITIPMessage            = jmapcalendar.ParseITIPMessage
+	ParseICalendar              = jmapcalendar.ParseICalendar
+	CalendarEventsFromICalendar = jmapcalendar.CalendarEventsFromICalendar
+	CalendarEventToICalendar    = jmapcalendar.CalendarEventToICalendar
 	EncodeCalDAVEvent         = jmapcalendar.EncodeCalDAVEvent
 	IcalDurationBetween       = jmapcalendar.IcalDurationBetween
 	ExpandGroupRecipients     = jmapcalendar.ExpandGroupRecipients

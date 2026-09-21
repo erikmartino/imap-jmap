@@ -7,11 +7,12 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/emersion/go-ical"
@@ -35,6 +36,8 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		bodyBytes, _ = io.ReadAll(req.Body)
 	}
 
+	user, _, _ := req.BasicAuth()
+
 	for attempt := 0; attempt < 8; attempt++ {
 		if attempt > 0 {
 			time.Sleep(time.Duration(100*attempt) * time.Millisecond)
@@ -50,7 +53,25 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			base = http.DefaultTransport
 		}
 
+		start := time.Now()
 		resp, err = base.RoundTrip(reqCopy)
+		duration := time.Since(start)
+
+		status := 0
+		if resp != nil {
+			status = resp.StatusCode
+		}
+
+		slog.Info("Nextcloud/DAV request",
+			"user", user,
+			"method", req.Method,
+			"path", req.URL.Path,
+			"status", status,
+			"duration_ms", duration.Milliseconds(),
+			"attempt", attempt+1,
+			"error", err,
+		)
+
 		if err == nil && resp != nil {
 			if resp.StatusCode != http.StatusInternalServerError && resp.StatusCode != http.StatusServiceUnavailable && resp.StatusCode != 423 && resp.StatusCode != 429 {
 				return resp, nil
@@ -69,23 +90,59 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 type Client struct {
 	BaseURL    string
 	HTTPClient *http.Client
-
-	mu       sync.RWMutex
-	homeSets map[string]string
-	calPaths map[string]map[string]string
+	discovery  discoveryCache
 }
 
-// NewClient creates a new Nextcloud client helper.
+func isCacheDisabledEnv() bool {
+	if isEnvTrue("ENABLE_CACHE") || isEnvTrue("ENABLE_CALENDAR_CACHE") {
+		return false
+	}
+	if isEnvFalse("DISABLE_CACHE") || isEnvFalse("DISABLE_CALENDAR_CACHE") {
+		return false
+	}
+	return true
+}
+
+func isEnvTrue(key string) bool {
+	v := os.Getenv(key)
+	return v == "1" || strings.EqualFold(v, "true")
+}
+
+func isEnvFalse(key string) bool {
+	v := os.Getenv(key)
+	return v == "0" || strings.EqualFold(v, "false")
+}
+
+// NewClient creates a new Nextcloud client helper with disabled dummy cache by default.
 func NewClient(baseURL string) *Client {
+	var disc discoveryCache = &dummyDiscoveryCache{}
+	if !isCacheDisabledEnv() {
+		disc = newMemDiscoveryCache()
+	}
+
 	return &Client{
 		BaseURL: strings.TrimRight(baseURL, "/"),
 		HTTPClient: &http.Client{
 			Transport: &retryTransport{base: http.DefaultTransport},
 			Timeout:   15 * time.Second,
 		},
-		homeSets: make(map[string]string),
-		calPaths: make(map[string]map[string]string),
+		discovery: disc,
 	}
+}
+
+// SetCacheDisabled enables or disables client-side caching of discovery paths and tokens.
+func (c *Client) SetCacheDisabled(disabled bool) {
+	if disabled {
+		c.discovery = &dummyDiscoveryCache{}
+	} else {
+		c.discovery = newMemDiscoveryCache()
+	}
+}
+
+// IsCacheDisabled reports whether caching is disabled.
+func (c *Client) IsCacheDisabled() bool {
+	_, ok := c.discovery.(*dummyDiscoveryCache)
+	return ok
 }
 
 func (c *Client) getUserAndPass(ctx context.Context) (string, string) {
@@ -232,46 +289,59 @@ type CalendarObjectInfo struct {
 	ETag    string
 }
 
-func (c *Client) getCalendarHomeSet(ctx context.Context, calClient *caldav.Client, u string) string {
-	c.mu.RLock()
-	if hs, ok := c.homeSets[u]; ok && hs != "" {
-		c.mu.RUnlock()
-		return hs
+func (c *Client) getPrincipal(ctx context.Context, calClient *caldav.Client, u string) string {
+	if p, ok := c.discovery.GetPrincipal(u); ok {
+		return p
 	}
-	c.mu.RUnlock()
-
 	principal, err := calClient.FindCurrentUserPrincipal(ctx)
 	if err == nil && principal != "" {
+		c.discovery.SetPrincipal(u, principal)
+		return principal
+	}
+	return ""
+}
+
+func (c *Client) getScheduleDefaultCalendar(ctx context.Context, principal, u string) string {
+	if calID, ok := c.discovery.GetScheduleDefaultCal(u); ok {
+		return calID
+	}
+	calID := c.FindScheduleDefaultCalendar(ctx, principal)
+	if calID != "" {
+		c.discovery.SetScheduleDefaultCal(u, calID)
+	}
+	return calID
+}
+
+func (c *Client) getCalendarHomeSet(ctx context.Context, calClient *caldav.Client, u string) string {
+	if hs, ok := c.discovery.GetHomeSet(u); ok {
+		return hs
+	}
+	principal := c.getPrincipal(ctx, calClient, u)
+	if principal != "" {
 		homeSet, err := calClient.FindCalendarHomeSet(ctx, principal)
 		if err == nil && homeSet != "" {
-			c.mu.Lock()
-			c.homeSets[u] = homeSet
-			c.mu.Unlock()
+			c.discovery.SetHomeSet(u, homeSet)
 			return homeSet
 		}
 	}
 	defaultHS := "calendars/" + u + "/"
-	c.mu.Lock()
-	c.homeSets[u] = defaultHS
-	c.mu.Unlock()
+	c.discovery.SetHomeSet(u, defaultHS)
 	return defaultHS
 }
 
 func (c *Client) getCalPath(ctx context.Context, calClient *caldav.Client, u, calID string) string {
-	c.mu.RLock()
-	if c.calPaths[u] != nil {
-		if p, ok := c.calPaths[u][calID]; ok && p != "" {
-			c.mu.RUnlock()
-			return p
-		}
+	if p, ok := c.discovery.GetCalPath(u, calID); ok {
+		return p
 	}
-	c.mu.RUnlock()
-
 	homeSet := c.getCalendarHomeSet(ctx, calClient, u)
+	var calPath string
 	if homeSet != "" {
-		return strings.TrimRight(homeSet, "/") + "/" + calID + "/"
+		calPath = strings.TrimRight(homeSet, "/") + "/" + calID + "/"
+	} else {
+		calPath = "calendars/" + u + "/" + calID + "/"
 	}
-	return "calendars/" + u + "/" + calID + "/"
+	c.discovery.SetCalPath(u, calID, calPath)
+	return calPath
 }
 
 // ListCalendars retrieves all calendars for the authenticated user from Nextcloud.
@@ -286,20 +356,16 @@ func (c *Client) ListCalendars(ctx context.Context) ([]*CalendarInfo, string, er
 		return nil, u, err
 	}
 
-	principal, _ := calClient.FindCurrentUserPrincipal(ctx)
-	scheduleDefaultCalID := c.FindScheduleDefaultCalendar(ctx, principal)
+	principal := c.getPrincipal(ctx, calClient, u)
+	scheduleDefaultCalID := c.getScheduleDefaultCalendar(ctx, principal, u)
 
 	var list []*CalendarInfo
-	c.mu.Lock()
-	if c.calPaths[u] == nil {
-		c.calPaths[u] = make(map[string]string)
-	}
 	for _, cal := range calList {
 		calID := path.Base(strings.TrimRight(cal.Path, "/"))
 		if calID == "inbox" || calID == "outbox" || calID == "trashbin" {
 			continue
 		}
-		c.calPaths[u][calID] = cal.Path
+		c.discovery.SetCalPath(u, calID, cal.Path)
 		name := cal.Name
 		if name == "" {
 			name = calID
@@ -317,7 +383,6 @@ func (c *Client) ListCalendars(ctx context.Context) ([]*CalendarInfo, string, er
 			IsDefault:   isDefault,
 		})
 	}
-	c.mu.Unlock()
 	return list, u, nil
 }
 
@@ -338,26 +403,30 @@ func (c *Client) DeleteCalendar(ctx context.Context, calID string) error {
 		return err
 	}
 	calPath := c.getCalPath(ctx, calClient, u, calID)
-	c.mu.Lock()
-	if c.calPaths[u] != nil {
-		delete(c.calPaths[u], calID)
-	}
-	c.mu.Unlock()
+	c.discovery.DeleteCal(u, calID)
 	return calClient.RemoveAll(ctx, calPath)
 }
 
 // QueryCalendarObjects queries all calendar objects in a Nextcloud calendar collection.
 func (c *Client) QueryCalendarObjects(ctx context.Context, calID string) ([]*CalendarObjectInfo, error) {
+	return c.QueryCalendarObjectsWithFilter(ctx, calID, nil)
+}
+
+// QueryCalendarObjectsWithFilter queries calendar objects in a Nextcloud calendar collection using a CalDAV query.
+func (c *Client) QueryCalendarObjectsWithFilter(ctx context.Context, calID string, query *caldav.CalendarQuery) ([]*CalendarObjectInfo, error) {
 	calClient, u, err := c.CalDAV(ctx)
 	if err != nil {
 		return nil, err
 	}
 	calPath := c.getCalPath(ctx, calClient, u, calID)
-	objs, err := calClient.QueryCalendar(ctx, calPath, &caldav.CalendarQuery{
-		CompFilter: caldav.CompFilter{
-			Name: "VCALENDAR",
-		},
-	})
+	if query == nil {
+		query = &caldav.CalendarQuery{
+			CompFilter: caldav.CompFilter{
+				Name: "VCALENDAR",
+			},
+		}
+	}
+	objs, err := calClient.QueryCalendar(ctx, calPath, query)
 	if err != nil {
 		return nil, err
 	}
@@ -373,6 +442,29 @@ func (c *Client) QueryCalendarObjects(ctx context.Context, calID string) ([]*Cal
 		}
 	}
 	return res, nil
+}
+
+// GetCalendarObject retrieves a single calendar object from a Nextcloud calendar collection.
+func (c *Client) GetCalendarObject(ctx context.Context, calID, eventID string) (*CalendarObjectInfo, error) {
+	calClient, u, err := c.CalDAV(ctx)
+	if err != nil {
+		return nil, err
+	}
+	eventFilename := eventID
+	if !strings.HasSuffix(eventID, ".ics") {
+		eventFilename = eventID + ".ics"
+	}
+	eventPath := c.getCalPath(ctx, calClient, u, calID) + eventFilename
+	obj, err := calClient.GetCalendarObject(ctx, eventPath)
+	if err != nil {
+		return nil, err
+	}
+	return &CalendarObjectInfo{
+		ID:      strings.TrimSuffix(path.Base(obj.Path), ".ics"),
+		Data:    obj.Data,
+		ModTime: obj.ModTime,
+		ETag:    obj.ETag,
+	}, nil
 }
 
 // PutCalendarObject creates or replaces a calendar object in a Nextcloud calendar collection.

@@ -110,7 +110,22 @@ func main() {
 	tlsKeyFile := flag.String("tls-key", os.Getenv("TLS_KEY_FILE"), "Path to the PEM TLS private key for the HTTPS server (default: self-signed)")
 	oidcIssuer := flag.String("oidc-issuer", os.Getenv("OIDC_ISSUER"), "OIDC Issuer URL (e.g. https://auth.profundo.dk/realms/master)")
 	oidcJWKSURL := flag.String("oidc-jwks-url", os.Getenv("OIDC_JWKS_URL"), "OIDC JWKS URL (optional, auto-discovered if empty)")
+	enableCache := flag.Bool("enable-cache", false, "Enable in-memory caching across proxy layers (default: false, caching is disabled by default)")
+	disableCache := flag.Bool("disable-cache", true, "Disable caching across proxy layers (default: true)")
 	flag.Parse()
+
+	cacheDisabled := true
+	isEnvTrue := func(k string) bool {
+		v := os.Getenv(k)
+		return v == "1" || strings.EqualFold(v, "true")
+	}
+	isEnvFalse := func(k string) bool {
+		v := os.Getenv(k)
+		return v == "0" || strings.EqualFold(v, "false")
+	}
+	if *enableCache || !*disableCache || isEnvTrue("ENABLE_CACHE") || isEnvTrue("ENABLE_CALENDAR_CACHE") || isEnvFalse("DISABLE_CACHE") || isEnvFalse("DISABLE_CALENDAR_CACHE") {
+		cacheDisabled = false
+	}
 
 	var allowedSlice []string
 	if *allowedRecipientsStr != "" {
@@ -161,7 +176,11 @@ func main() {
 	if nextcloudURL != "" {
 		log.Printf("Initializing Nextcloud Backend at %s (CalDAV, CardDAV, WebDAV, OCS)", nextcloudURL)
 		ncClient := nextcloud.NewClient(nextcloudURL)
+		ncClient.SetCacheDisabled(cacheDisabled)
 		calBackend = nextcloud.NewCalendarsBackend(ncClient)
+		if cb, ok := calBackend.(interface{ SetCacheDisabled(bool) }); ok {
+			cb.SetCacheDisabled(cacheDisabled)
+		}
 		contactsBackend = nextcloud.NewContactsBackend(ncClient)
 		ncFileNodeBackend := nextcloud.NewFileNodeBackend(ncClient)
 		fileNodeBackend = ncFileNodeBackend
@@ -250,6 +269,7 @@ func main() {
 	if principalsBackend != nil {
 		serverOpts = append(serverOpts, jmap.WithPrincipalsBackend(principalsBackend))
 	}
+	serverOpts = append(serverOpts, jmap.WithCacheDisabled(cacheDisabled))
 
 	server := jmap.NewServer(session, serverOpts...)
 	if mb, ok := mailBackend.(interface{ SetBroadcaster(*jmappush.Broadcaster) }); ok {

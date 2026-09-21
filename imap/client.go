@@ -3,6 +3,7 @@ package imap
 import (
 	"crypto/tls"
 	"fmt"
+	"log/slog"
 	"net"
 	"time"
 
@@ -12,7 +13,25 @@ import (
 
 // Client wraps an IMAP client connection without leaking go-imap types.
 type Client struct {
-	cli *imapclient.Client
+	cli      *imapclient.Client
+	username string
+}
+
+func (c *Client) logCmd(cmd string, attrs ...any) func(*error) {
+	start := time.Now()
+	return func(errPtr *error) {
+		dur := time.Since(start)
+		fields := []any{
+			"user", c.username,
+			"command", cmd,
+			"duration_ms", dur.Milliseconds(),
+		}
+		fields = append(fields, attrs...)
+		if errPtr != nil && *errPtr != nil {
+			fields = append(fields, "error", *errPtr)
+		}
+		slog.Info("IMAP request", fields...)
+	}
 }
 
 // Dial connects and authenticates to an IMAP server at the specified address using the given credentials.
@@ -45,12 +64,21 @@ func Dial(addr string, username, password string) (*Client, error) {
 		c = client
 	}
 
-	if err := c.Login(username, password).Wait(); err != nil {
+	start := time.Now()
+	err = c.Login(username, password).Wait()
+	dur := time.Since(start)
+	slog.Info("IMAP request",
+		"user", username,
+		"command", "LOGIN",
+		"duration_ms", dur.Milliseconds(),
+		"error", err,
+	)
+	if err != nil {
 		_ = c.Close()
 		return nil, fmt.Errorf("IMAP login failed for user %s: %w", username, err)
 	}
 
-	return &Client{cli: c}, nil
+	return &Client{cli: c, username: username}, nil
 }
 
 // RawClient returns the underlying imapclient.Client for internal operations within the imap package.
@@ -59,7 +87,8 @@ func (c *Client) RawClient() *imapclient.Client {
 }
 
 // Noop issues a NOOP command to keep the connection alive.
-func (c *Client) Noop() error {
+func (c *Client) Noop() (err error) {
+	defer c.logCmd("NOOP")(&err)
 	return c.cli.Noop().Wait()
 }
 
@@ -128,12 +157,22 @@ func DialIdle(addr, username, password string, handlers UnilateralHandlers) (*Cl
 		c = client
 	}
 
-	if err := c.Login(username, password).Wait(); err != nil {
+	start := time.Now()
+	err = c.Login(username, password).Wait()
+	dur := time.Since(start)
+	slog.Info("IMAP request",
+		"user", username,
+		"command", "LOGIN",
+		"idle", true,
+		"duration_ms", dur.Milliseconds(),
+		"error", err,
+	)
+	if err != nil {
 		_ = c.Close()
 		return nil, err
 	}
 
-	return &Client{cli: c}, nil
+	return &Client{cli: c, username: username}, nil
 }
 
 // IdleCmd encapsulates an active IDLE command.
@@ -142,13 +181,15 @@ type IdleCmd struct {
 }
 
 // Idle enters the IMAP IDLE state.
-func (c *Client) Idle() (*IdleCmd, error) {
+func (c *Client) Idle() (res *IdleCmd, err error) {
+	defer c.logCmd("IDLE")(&err)
 	cmd, err := c.cli.Idle()
 	if err != nil {
 		return nil, err
 	}
 	return &IdleCmd{cmd: cmd}, nil
 }
+
 // MailboxInfo represents an IMAP mailbox / folder listing.
 type MailboxInfo struct {
 	Name        string
@@ -161,13 +202,13 @@ type MailboxInfo struct {
 }
 
 // ListFolders lists IMAP folders matching the given reference and pattern.
-func (c *Client) ListFolders(ref, pattern string) ([]MailboxInfo, error) {
+func (c *Client) ListFolders(ref, pattern string) (res []MailboxInfo, err error) {
+	defer c.logCmd("LIST", "ref", ref, "pattern", pattern)(&err)
 	listCmd := c.cli.List(ref, pattern, nil)
 	mbs, err := listCmd.Collect()
 	if err != nil {
 		return nil, err
 	}
-	var res []MailboxInfo
 	for _, m := range mbs {
 		var attrs []string
 		for _, a := range m.Attrs {
@@ -204,8 +245,9 @@ func (c *Client) ListFolders(ref, pattern string) ([]MailboxInfo, error) {
 }
 
 // Select selects an IMAP folder.
-func (c *Client) Select(folder string) error {
-	_, err := c.cli.Select(folder, nil).Wait()
+func (c *Client) Select(folder string) (err error) {
+	defer c.logCmd("SELECT", "folder", folder)(&err)
+	_, err = c.cli.Select(folder, nil).Wait()
 	return err
 }
 
@@ -220,32 +262,38 @@ func (ic *IdleCmd) Wait() error {
 }
 
 // Create creates a new IMAP folder.
-func (c *Client) Create(folder string) error {
+func (c *Client) Create(folder string) (err error) {
+	defer c.logCmd("CREATE", "folder", folder)(&err)
 	return c.cli.Create(folder, nil).Wait()
 }
 
 // Delete deletes an IMAP folder.
-func (c *Client) Delete(folder string) error {
+func (c *Client) Delete(folder string) (err error) {
+	defer c.logCmd("DELETE", "folder", folder)(&err)
 	return c.cli.Delete(folder).Wait()
 }
 
 // Rename renames an IMAP folder.
-func (c *Client) Rename(oldFolder, newFolder string) error {
+func (c *Client) Rename(oldFolder, newFolder string) (err error) {
+	defer c.logCmd("RENAME", "from", oldFolder, "to", newFolder)(&err)
 	return c.cli.Rename(oldFolder, newFolder, nil).Wait()
 }
 
 // Subscribe subscribes to an IMAP folder.
-func (c *Client) Subscribe(folder string) error {
+func (c *Client) Subscribe(folder string) (err error) {
+	defer c.logCmd("SUBSCRIBE", "folder", folder)(&err)
 	return c.cli.Subscribe(folder).Wait()
 }
 
 // Unsubscribe unsubscribes from an IMAP folder.
-func (c *Client) Unsubscribe(folder string) error {
+func (c *Client) Unsubscribe(folder string) (err error) {
+	defer c.logCmd("UNSUBSCRIBE", "folder", folder)(&err)
 	return c.cli.Unsubscribe(folder).Wait()
 }
 
 // Append appends a raw RFC 822 message to a folder with given flags.
-func (c *Client) Append(folder string, rawMsg []byte, flags []string, t time.Time) error {
+func (c *Client) Append(folder string, rawMsg []byte, flags []string, t time.Time) (err error) {
+	defer c.logCmd("APPEND", "folder", folder, "size", len(rawMsg))(&err)
 	var imapFlags []imap.Flag
 	for _, f := range flags {
 		imapFlags = append(imapFlags, imap.Flag(f))
@@ -262,12 +310,13 @@ func (c *Client) Append(folder string, rawMsg []byte, flags []string, t time.Tim
 	if err := appendCmd.Close(); err != nil {
 		return err
 	}
-	_, err := appendCmd.Wait()
+	_, err = appendCmd.Wait()
 	return err
 }
 
 // SearchSubject searches a folder for UIDs of messages whose Subject header contains the query string.
-func (c *Client) SearchSubject(folder string, query string) ([]uint32, error) {
+func (c *Client) SearchSubject(folder string, query string) (res []uint32, err error) {
+	defer c.logCmd("SEARCH", "folder", folder, "query", query)(&err)
 	if _, err := c.cli.Select(folder, nil).Wait(); err != nil {
 		return nil, err
 	}
@@ -279,7 +328,7 @@ func (c *Client) SearchSubject(folder string, query string) ([]uint32, error) {
 		return nil, err
 	}
 	uids := data.AllUIDs()
-	res := make([]uint32, 0, len(uids))
+	res = make([]uint32, 0, len(uids))
 	for _, u := range uids {
 		res = append(res, uint32(u))
 	}
@@ -294,7 +343,8 @@ type StagingMessage struct {
 }
 
 // FetchStagingMessages fetches raw body and internal date for a set of UIDs.
-func (c *Client) FetchStagingMessages(folder string, uids []uint32) ([]StagingMessage, error) {
+func (c *Client) FetchStagingMessages(folder string, uids []uint32) (res []StagingMessage, err error) {
+	defer c.logCmd("FETCH_STAGING", "folder", folder, "uids_count", len(uids))(&err)
 	if _, err := c.cli.Select(folder, nil).Wait(); err != nil {
 		return nil, err
 	}
@@ -314,7 +364,6 @@ func (c *Client) FetchStagingMessages(folder string, uids []uint32) ([]StagingMe
 		return nil, err
 	}
 
-	var res []StagingMessage
 	for _, msg := range msgs {
 		raw := msg.FindBodySection(bodySection)
 		res = append(res, StagingMessage{
@@ -327,7 +376,8 @@ func (c *Client) FetchStagingMessages(folder string, uids []uint32) ([]StagingMe
 }
 
 // MarkDeletedAndExpunge flags specified UIDs as \Deleted and expunges them from the folder.
-func (c *Client) MarkDeletedAndExpunge(folder string, uids []uint32) error {
+func (c *Client) MarkDeletedAndExpunge(folder string, uids []uint32) (err error) {
+	defer c.logCmd("EXPUNGE_DELETED", "folder", folder, "uids_count", len(uids))(&err)
 	if len(uids) == 0 {
 		return nil
 	}
@@ -347,12 +397,13 @@ func (c *Client) MarkDeletedAndExpunge(folder string, uids []uint32) error {
 	if _, err := storeCmd.Collect(); err != nil {
 		return err
 	}
-	_, err := c.cli.Expunge().Collect()
+	_, err = c.cli.Expunge().Collect()
 	return err
 }
 
 // FetchRawMessageByUID fetches the raw RFC 822 body of a message by UID.
-func (c *Client) FetchRawMessageByUID(folder string, uid uint32) ([]byte, error) {
+func (c *Client) FetchRawMessageByUID(folder string, uid uint32) (res []byte, err error) {
+	defer c.logCmd("FETCH_RAW", "folder", folder, "uid", uid)(&err)
 	if _, err := c.cli.Select(folder, nil).Wait(); err != nil {
 		return nil, err
 	}
@@ -374,7 +425,8 @@ func (c *Client) FetchRawMessageByUID(folder string, uid uint32) ([]byte, error)
 }
 
 // AppendAndGetUID appends a raw RFC 822 message to a folder and returns the assigned UID.
-func (c *Client) AppendAndGetUID(folder string, rawMsg []byte, flags []string, t time.Time) (uint32, error) {
+func (c *Client) AppendAndGetUID(folder string, rawMsg []byte, flags []string, t time.Time) (uid uint32, err error) {
+	defer c.logCmd("APPEND_GET_UID", "folder", folder, "size", len(rawMsg))(&err)
 	var imapFlags []imap.Flag
 	for _, f := range flags {
 		imapFlags = append(imapFlags, imap.Flag(f))
@@ -406,7 +458,8 @@ func (c *Client) AppendAndGetUID(folder string, rawMsg []byte, flags []string, t
 }
 
 // SetFlagsByUID sets the flags for a specific UID in a folder.
-func (c *Client) SetFlagsByUID(folder string, uid uint32, flags []string) error {
+func (c *Client) SetFlagsByUID(folder string, uid uint32, flags []string) (err error) {
+	defer c.logCmd("STORE_FLAGS_SET", "folder", folder, "uid", uid, "flags", flags)(&err)
 	if _, err := c.cli.Select(folder, nil).Wait(); err != nil {
 		return err
 	}
@@ -421,12 +474,13 @@ func (c *Client) SetFlagsByUID(folder string, uid uint32, flags []string) error 
 		Flags:  imapFlags,
 		Silent: true,
 	}, nil)
-	_, err := storeCmd.Collect()
+	_, err = storeCmd.Collect()
 	return err
 }
 
 // AddFlagsByUID adds flags to a message by UID.
-func (c *Client) AddFlagsByUID(folder string, uid uint32, flags []string) error {
+func (c *Client) AddFlagsByUID(folder string, uid uint32, flags []string) (err error) {
+	defer c.logCmd("STORE_FLAGS_ADD", "folder", folder, "uid", uid, "flags", flags)(&err)
 	if _, err := c.cli.Select(folder, nil).Wait(); err != nil {
 		return err
 	}
@@ -441,12 +495,13 @@ func (c *Client) AddFlagsByUID(folder string, uid uint32, flags []string) error 
 		Flags:  imapFlags,
 		Silent: true,
 	}, nil)
-	_, err := storeCmd.Collect()
+	_, err = storeCmd.Collect()
 	return err
 }
 
 // RemoveFlagsByUID removes flags from a message by UID.
-func (c *Client) RemoveFlagsByUID(folder string, uid uint32, flags []string) error {
+func (c *Client) RemoveFlagsByUID(folder string, uid uint32, flags []string) (err error) {
+	defer c.logCmd("STORE_FLAGS_DEL", "folder", folder, "uid", uid, "flags", flags)(&err)
 	if _, err := c.cli.Select(folder, nil).Wait(); err != nil {
 		return err
 	}
@@ -461,12 +516,13 @@ func (c *Client) RemoveFlagsByUID(folder string, uid uint32, flags []string) err
 		Flags:  imapFlags,
 		Silent: true,
 	}, nil)
-	_, err := storeCmd.Collect()
+	_, err = storeCmd.Collect()
 	return err
 }
 
 // MoveByUID moves a message by UID to a destination folder and returns the new UID if known.
-func (c *Client) MoveByUID(folder string, uid uint32, destFolder string) (uint32, error) {
+func (c *Client) MoveByUID(folder string, uid uint32, destFolder string) (newUID uint32, err error) {
+	defer c.logCmd("MOVE", "folder", folder, "uid", uid, "dest", destFolder)(&err)
 	if _, err := c.cli.Select(folder, nil).Wait(); err != nil {
 		return 0, err
 	}
@@ -477,7 +533,6 @@ func (c *Client) MoveByUID(folder string, uid uint32, destFolder string) (uint32
 	if err != nil {
 		return 0, err
 	}
-	var newUID uint32
 	if moveData != nil && moveData.DestUIDs != nil {
 		if destSet, ok := moveData.DestUIDs.(imap.UIDSet); ok {
 			if nums, ok := destSet.Nums(); ok && len(nums) > 0 {
@@ -506,7 +561,8 @@ type MessageData struct {
 }
 
 // FetchMessagesByUIDs fetches raw body, flags, internal date, and subject for specified UIDs in a folder.
-func (c *Client) FetchMessagesByUIDs(folder string, uids []uint32) ([]MessageData, error) {
+func (c *Client) FetchMessagesByUIDs(folder string, uids []uint32) (res []MessageData, err error) {
+	defer c.logCmd("FETCH_UIDS", "folder", folder, "uids_count", len(uids))(&err)
 	if len(uids) == 0 {
 		return nil, nil
 	}
@@ -529,7 +585,6 @@ func (c *Client) FetchMessagesByUIDs(folder string, uids []uint32) ([]MessageDat
 	if err != nil {
 		return nil, err
 	}
-	var res []MessageData
 	for _, msg := range msgs {
 		raw := msg.FindBodySection(bodySection)
 		var flags []string
@@ -552,7 +607,8 @@ func (c *Client) FetchMessagesByUIDs(folder string, uids []uint32) ([]MessageDat
 }
 
 // FetchAllMessages fetches all messages in a folder.
-func (c *Client) FetchAllMessages(folder string) ([]MessageData, error) {
+func (c *Client) FetchAllMessages(folder string) (res []MessageData, err error) {
+	defer c.logCmd("FETCH_ALL", "folder", folder)(&err)
 	selData, err := c.cli.Select(folder, nil).Wait()
 	if err != nil || selData.NumMessages == 0 {
 		return nil, err
@@ -571,7 +627,6 @@ func (c *Client) FetchAllMessages(folder string) ([]MessageData, error) {
 	if err != nil {
 		return nil, err
 	}
-	var res []MessageData
 	for _, msg := range msgs {
 		raw := msg.FindBodySection(bodySection)
 		var flags []string

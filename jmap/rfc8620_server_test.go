@@ -161,3 +161,16 @@ func TestRFC8620_OtherRoutes_NotFound(t *testing.T) {
 		}
 	}
 }
+
+func TestServerCacheDisabledByDefault(t *testing.T) {
+	s := jmap.NewServer(nil)
+	if !s.CacheDisabled {
+		t.Errorf("Expected Server.CacheDisabled to be true by default")
+	}
+
+	sEnabled := jmap.NewServer(nil, jmap.WithCacheEnabled(true))
+	if sEnabled.CacheDisabled {
+		t.Errorf("Expected Server.CacheDisabled to be false when WithCacheEnabled(true) is used")
+	}
+}
+

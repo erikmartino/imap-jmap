@@ -29,5 +29,10 @@ var (
 	newSetCreationRefs       = jmaphandler.NewSetCreationRefs
 	NewSetCreationRefs       = jmaphandler.NewSetCreationRefs
 	recordCreationRefs       = jmaphandler.RecordCreationRefs
-	RecordCreationRefs       = jmaphandler.RecordCreationRefs
+	NewRequestCache          = jmaphandler.NewRequestCache
+	NewDummyRequestCache     = jmaphandler.NewDummyRequestCache
+	WithRequestCache         = jmaphandler.WithRequestCache
+	RequestCacheFrom         = jmaphandler.RequestCacheFrom
 )
+
+type RequestCache = jmapcore.RequestCache

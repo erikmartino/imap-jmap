@@ -68,6 +68,19 @@ func handleCalendarEventGet(backend CalendarsBackend) jmaphandler.MethodHandler 
 			accountUser = subj
 		}
 
+		calCache := make(map[jmapcore.Id]*Calendar)
+		getCal := func(cid jmapcore.Id) *Calendar {
+			if c, ok := calCache[cid]; ok {
+				return c
+			}
+			if cals, _, err := backend.GetCalendars(ctx, []jmapcore.Id{cid}); err == nil && len(cals) > 0 {
+				calCache[cid] = cals[0]
+				return cals[0]
+			}
+			calCache[cid] = nil
+			return nil
+		}
+
 		filteredList := make([]*CalendarEvent, 0, len(list))
 		for _, ev := range list {
 			if ev == nil {
@@ -115,8 +128,7 @@ func handleCalendarEventGet(backend CalendarsBackend) jmaphandler.MethodHandler 
 			if clone.UseDefaultAlerts {
 				if len(clone.Alerts) == 0 {
 					for cid := range clone.CalendarIDs {
-						if cals, _, err := backend.GetCalendars(ctx, []jmapcore.Id{cid}); err == nil && len(cals) > 0 {
-							cal := cals[0]
+						if cal := getCal(cid); cal != nil {
 							var defAlerts map[string]*JSCalendarAlert
 							if clone.ShowWithoutTime {
 								defAlerts = cal.DefaultAlertsWithoutTime

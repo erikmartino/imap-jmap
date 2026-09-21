@@ -302,13 +302,11 @@ func parseGoICalAttendee(prop ical.Prop, role string) *JSCalendarParticipant {
 }
 
 // ParseICalendar parses an iCalendar (RFC 5545) data stream into JSCalendar
-// CalendarEvent objects using github.com/emersion/go-ical, following the conversion
-// described by draft-ietf-calext-jscalendar-icalendar for the properties a calendar client needs.
-func ParseICalendar(data []byte) ([]*CalendarEvent, error) {
-	dec := ical.NewDecoder(bytes.NewReader(data))
-	cal, err := dec.Decode()
-	if err != nil {
-		return nil, fmt.Errorf("not a valid iCalendar stream: %w", err)
+// CalendarEventsFromICalendar converts an *ical.Calendar AST into a list of JSCalendar (RFC 8984)
+// CalendarEvent objects without intermediate serialization.
+func CalendarEventsFromICalendar(cal *ical.Calendar) ([]*CalendarEvent, error) {
+	if cal == nil || cal.Component == nil {
+		return nil, fmt.Errorf("nil iCalendar component")
 	}
 
 	var method, prodID string
@@ -337,6 +335,18 @@ func ParseICalendar(data []byte) ([]*CalendarEvent, error) {
 		return nil, fmt.Errorf("iCalendar stream contains no calendar components")
 	}
 	return events, nil
+}
+
+// ParseICalendar parses an RFC 5545 iCalendar stream into a list of JSCalendar (RFC 8984)
+// CalendarEvent objects using github.com/emersion/go-ical, following the conversion
+// described by draft-ietf-calext-jscalendar-icalendar for the properties a calendar client needs.
+func ParseICalendar(data []byte) ([]*CalendarEvent, error) {
+	dec := ical.NewDecoder(bytes.NewReader(data))
+	cal, err := dec.Decode()
+	if err != nil {
+		return nil, fmt.Errorf("not a valid iCalendar stream: %w", err)
+	}
+	return CalendarEventsFromICalendar(cal)
 }
 
 // icalComponentToCalendarEvent converts a parsed VEVENT component into a CalendarEvent.

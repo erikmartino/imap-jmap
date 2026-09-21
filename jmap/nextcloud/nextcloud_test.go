@@ -701,6 +701,63 @@ func TestNextcloudFilesAreFilesNotFolders(t *testing.T) {
 	}
 }
 
+func TestNextcloudCalendarsBatchRequestCache(t *testing.T) {
+	url := getNextcloudURL()
+	if url == "" || !isReachable(url) {
+		t.Skip("Nextcloud not configured via NEXTCLOUD_URL or not reachable at " + url)
+	}
 
+	client := nextcloud.NewClient(url)
+	backend := nextcloud.NewCalendarsBackend(client)
+	ctx := testContext()
 
+	// 1. Setup an event
+	cals, err := backend.GetAllCalendars(ctx)
+	if err != nil || len(cals) == 0 {
+		t.Fatalf("GetAllCalendars failed: %v", err)
+	}
+	ev := &jmapcalendar.CalendarEvent{
+		Title:       "Batch Optimization Test Meeting",
+		Start:       "2026-11-20T14:00:00Z",
+		Duration:    "PT30M",
+		CalendarIDs: map[jmapcore.Id]bool{cals[0].ID: true},
+	}
+	created, err := backend.CreateCalendarEvent(ctx, ev)
+	if err != nil {
+		t.Fatalf("CreateCalendarEvent failed: %v", err)
+	}
+	defer backend.DeleteCalendarEvent(ctx, created.ID)
+
+	// 2. Simulate a single JMAP batch request carrying RequestCache
+	batchCtx := jmapcore.WithRequestCache(ctx, jmapcore.NewRequestCache())
+
+	start := time.Now()
+	// Method 1: Calendar/get
+	batchCals, err := backend.GetAllCalendars(batchCtx)
+	if err != nil || len(batchCals) == 0 {
+		t.Fatalf("Batch GetAllCalendars failed: %v", err)
+	}
+
+	// Method 2: CalendarEvent/query
+	matchedIDs, _, err := backend.QueryCalendarEvents(batchCtx, map[string]any{
+		"text": "Batch Optimization",
+	}, nil, 0, nil, false)
+	if err != nil {
+		t.Fatalf("Batch QueryCalendarEvents failed: %v", err)
+	}
+	if len(matchedIDs) == 0 {
+		t.Fatalf("Expected matched event ID")
+	}
+
+	// Method 3: CalendarEvent/get
+	fetched, notFound, err := backend.GetCalendarEvents(batchCtx, matchedIDs)
+	if err != nil {
+		t.Fatalf("Batch GetCalendarEvents failed: %v", err)
+	}
+	if len(notFound) > 0 || len(fetched) == 0 {
+		t.Fatalf("Batch GetCalendarEvents could not find event")
+	}
+	elapsed := time.Since(start)
+	t.Logf("Total batch execution time for [Calendar/get, CalendarEvent/query, CalendarEvent/get]: %v", elapsed)
+}
 

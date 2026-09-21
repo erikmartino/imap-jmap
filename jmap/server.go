@@ -36,10 +36,37 @@ type Server struct {
 	// proxy that does not forward X-Forwarded-Proto cannot cause a cleartext http:// apiUrl
 	// (which Android clients such as Ltt.rs refuse to use).
 	PublicBaseURL string
+	CacheDisabled bool
 }
 
 // Option defines a functional configuration option for Server.
 type Option func(*Server)
+
+// WithCacheDisabled configures whether caching layers use dummy empty caches.
+func WithCacheDisabled(disabled bool) Option {
+	return func(s *Server) {
+		s.CacheDisabled = disabled
+	}
+}
+
+// WithCacheEnabled configures whether caching layers use real in-memory caches.
+func WithCacheEnabled(enabled bool) Option {
+	return func(s *Server) {
+		s.CacheDisabled = !enabled
+	}
+}
+
+// SetCacheDisabled sets whether caching layers use dummy empty caches.
+func (s *Server) SetCacheDisabled(disabled bool) {
+	s.CacheDisabled = disabled
+}
+
+func (s *Server) newRequestCache() *RequestCache {
+	if s.CacheDisabled {
+		return NewDummyRequestCache()
+	}
+	return NewRequestCache()
+}
 
 // WithBroadcaster sets a custom Broadcaster instance.
 func WithBroadcaster(b *Broadcaster) Option {
@@ -178,6 +205,7 @@ func NewServer(session *Session, opts ...Option) *Server {
 		Session:        session,
 		MethodRegistry: NewMethodRegistry(),
 		Broadcaster:    NewBroadcaster(),
+		CacheDisabled:  true,
 	}
 
 	for _, opt := range opts {
@@ -609,6 +637,7 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	reqCtx = WithCalendarsCapability(reqCtx, calCap)
+	reqCtx = WithRequestCache(reqCtx, s.newRequestCache())
 	reqCtx = withResponseSpill(reqCtx)
 
 	for _, call := range req.MethodCalls {
