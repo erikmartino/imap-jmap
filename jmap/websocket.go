@@ -245,6 +245,7 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			}
 			reqCtx = WithCalendarsCapability(reqCtx, calCap)
 			reqCtx = WithRequestCache(reqCtx, s.newRequestCache())
+			reqCtx = WithRequestScope(reqCtx)
 
 			for _, call := range req.MethodCalls {
 				resolvedArgs, refErrType, refErr := s.resolveResultReferences(call.Args, executedMap)

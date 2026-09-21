@@ -33,6 +33,9 @@ var (
 	NewDummyRequestCache     = jmaphandler.NewDummyRequestCache
 	WithRequestCache         = jmaphandler.WithRequestCache
 	RequestCacheFrom         = jmaphandler.RequestCacheFrom
+	WithRequestScope         = jmapcore.WithRequestScope
+	RequestScopeFrom         = jmapcore.RequestScopeFrom
 )
 
 type RequestCache = jmapcore.RequestCache
+type RequestScope = jmapcore.RequestScope

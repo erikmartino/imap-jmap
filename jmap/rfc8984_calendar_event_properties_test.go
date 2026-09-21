@@ -106,8 +106,11 @@ func TestRFC8984_CalendarEventCommonPropertiesRoundTrip(t *testing.T) {
 	if seq, ok := ev["sequence"].(float64); !ok || uint32(seq) != 5 {
 		t.Errorf("expected sequence 5, got %v", ev["sequence"])
 	}
-	if ev["method"] != "REQUEST" {
-		t.Errorf("expected method 'REQUEST', got %v", ev["method"])
+	// METHOD is an iTIP transport property, not a stored JSCalendar property: a
+	// calendar object resource MUST NOT carry it (RFC 4791 Section 4.1), so the
+	// server accepts it on input but must not persist or return it.
+	if ev["method"] != nil {
+		t.Errorf("expected method to be dropped, got %v", ev["method"])
 	}
 
 	// 3. Patch event via CalendarEvent/set update
@@ -119,7 +122,6 @@ func TestRFC8984_CalendarEventCommonPropertiesRoundTrip(t *testing.T) {
 					"descriptionContentType": "text/html",
 					"color":                  "#009688",
 					"sequence":               6,
-					"method":                 "REPLY",
 					"useDefaultAlerts":       false,
 				},
 			},
@@ -149,8 +151,8 @@ func TestRFC8984_CalendarEventCommonPropertiesRoundTrip(t *testing.T) {
 	if seq, ok := ev2["sequence"].(float64); !ok || uint32(seq) != 6 {
 		t.Errorf("expected updated sequence 6, got %v", ev2["sequence"])
 	}
-	if ev2["method"] != "REPLY" {
-		t.Errorf("expected updated method 'REPLY', got %v", ev2["method"])
+	if ev2["method"] != nil {
+		t.Errorf("expected method to remain dropped after update, got %v", ev2["method"])
 	}
 	if ev2["useDefaultAlerts"] != false {
 		t.Errorf("expected updated useDefaultAlerts false, got %v", ev2["useDefaultAlerts"])

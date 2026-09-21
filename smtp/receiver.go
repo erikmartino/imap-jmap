@@ -131,6 +131,10 @@ type Session struct {
 	authenticated   bool
 	authenticatedAs string
 	tlsActive       bool
+
+	// senderAuth caches the sender-authentication outcome for the message so the
+	// Authentication-Results header and the iTIP gate share one evaluation.
+	senderAuth *SenderAuthResult
 }
 
 // AuthMechanisms advertises the supported SASL mechanism (RFC 4954 Section 3):
@@ -238,6 +242,9 @@ func (s *Session) Mail(from string, opts *smtp.MailOptions) error {
 		}
 	}
 	s.from = from
+	// A new transaction starts here: the previous message's cached sender
+	// authentication result must not leak into this one.
+	s.senderAuth = nil
 	log.Printf("SMTP receiver: MAIL FROM <%s> from %s (helo=%q, authenticated=%v)", from, s.remoteAddr, s.helo, s.authenticated)
 	return nil
 }
@@ -318,21 +325,18 @@ func (s *Session) Data(r io.Reader) error {
 	// the message headers, recording where it came from, the receiving host, and when.
 	data = append([]byte(s.buildReceivedHeader()), data...)
 
-	// Prepend an RFC 8601 Section 3 trace ("Authentication-Results:") header if a verifier is configured.
-	if s.backend.SenderVerifier != nil {
-		if res, err := s.backend.SenderVerifier.Verify(context.Background(), &MessageToVerify{
-			RawMessage:   rawData,
-			EnvelopeFrom: s.from,
-			ClientIP:     remoteIP(s.remoteAddr),
-			HeloName:     s.helo,
-		}); err == nil && res != nil {
-			fromDom, _ := extractFromDomain(rawData)
-			authServ := s.backend.ServerName
-			if authServ == "" {
-				authServ = "localhost"
-			}
-			data = append([]byte(res.AuthenticationResultsHeader(authServ, fromDom)), data...)
+	// Prepend an RFC 8601 Section 3 trace ("Authentication-Results:") header for
+	// senders that actually underwent SPF/DKIM/DMARC evaluation. Locally trusted
+	// senders (and the no-verifier development mode) bypass DNS and get no header.
+	// The evaluation is shared with the iTIP gate below, so a message is never
+	// verified more than once.
+	if res := s.senderAuthResult(rawData); res != nil && (res.SPF != "" || res.DKIM != "" || res.DMARC != "") {
+		fromDom, _ := extractFromDomain(rawData)
+		authServ := s.backend.ServerName
+		if authServ == "" {
+			authServ = "localhost"
 		}
+		data = append([]byte(res.AuthenticationResultsHeader(authServ, fromDom)), data...)
 	}
 
 	// 1. Determine target accountIDs per recipient
@@ -720,13 +724,19 @@ func (s *Session) Data(r io.Reader) error {
 //
 // When no SenderVerifier is configured (development mode) the gate is skipped.
 func (s *Session) checkSenderAuth(raw []byte) (bool, string) {
-	if s.backend.SenderVerifier == nil {
-		return true, "no sender verifier configured (development mode)"
+	res := s.senderAuthResult(raw)
+	if res == nil {
+		return false, "sender verification produced no result"
 	}
-	// Transport-boundary trust (SEC-4): on the authenticated submission channel
-	// the authenticated user IS the sender, established by RFC 4954 AUTH at the
-	// transport layer (RFC 6409 Section 4.3). No SPF/DKIM/DMARC lookup is needed
-	// on this boundary because the server authenticated the client directly.
+	return res.AuthAuthenticated, res.Reason
+}
+
+// senderTrustedLocally reports whether the sender is trusted at the transport
+// boundary, in which case no SPF/DKIM/DMARC lookup is needed:
+//   - an authenticated submission client (RFC 6409 Section 4.3), or
+//   - a client on the loopback or a private network (MTA "mynetworks" trust), or
+//   - an envelope sender that belongs to a local account of this server.
+func (s *Session) senderTrustedLocally() (bool, string) {
 	if s.mode == TransportModeSubmission && s.authenticated {
 		return true, fmt.Sprintf("authenticated submission user %q (transport-boundary trust)", s.authenticatedAs)
 	}
@@ -738,19 +748,41 @@ func (s *Session) checkSenderAuth(raw []byte) (bool, string) {
 			return true, fmt.Sprintf("locally trusted sender %q (local account)", s.from)
 		}
 	}
+	return false, ""
+}
+
+// senderAuthResult evaluates sender authentication once per message, caching the
+// outcome for the Authentication-Results header and the iTIP gate. Locally
+// trusted senders bypass DNS; when no verifier is configured the gate is skipped
+// (development mode). The evaluation itself fails closed and is time-bounded.
+func (s *Session) senderAuthResult(raw []byte) *SenderAuthResult {
+	if s.senderAuth != nil {
+		return s.senderAuth
+	}
+	if trusted, reason := s.senderTrustedLocally(); trusted {
+		s.senderAuth = &SenderAuthResult{AuthAuthenticated: true, Reason: reason}
+		return s.senderAuth
+	}
+	if s.backend.SenderVerifier == nil {
+		s.senderAuth = &SenderAuthResult{AuthAuthenticated: true, Reason: "no sender verifier configured (development mode)"}
+		return s.senderAuth
+	}
 	res, err := s.backend.SenderVerifier.Verify(context.Background(), &MessageToVerify{
 		RawMessage:   raw,
 		EnvelopeFrom: s.from,
 		ClientIP:     remoteIP(s.remoteAddr),
 		HeloName:     s.helo,
 	})
-	if err != nil {
-		return false, "sender verification error: " + err.Error()
+	if err != nil || res == nil {
+		reason := "sender verification error"
+		if err != nil {
+			reason += ": " + err.Error()
+		}
+		s.senderAuth = &SenderAuthResult{AuthAuthenticated: false, Reason: reason}
+		return s.senderAuth
 	}
-	if !res.AuthAuthenticated {
-		return false, res.Reason
-	}
-	return true, res.Reason
+	s.senderAuth = res
+	return s.senderAuth
 }
 
 // remoteIP parses the "ip:port" remote address of a session into the client's
@@ -983,6 +1015,7 @@ func emailAddressMatches(from, authenticatedAs string) bool {
 func (s *Session) Reset() {
 	s.from = ""
 	s.to = nil
+	s.senderAuth = nil
 }
 
 // Logout closes session (QUIT command).

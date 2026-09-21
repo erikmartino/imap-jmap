@@ -13,7 +13,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
 | [jmap-calendars](#jmap-calendars) | RFC5545, RFC5546, RFC6047, RFC8620, RFC8984, draft-ietf-jmap-calendars-27 | 60 | 0 | 0 | 60 | 100.0% |
 | [jmap-mail](#jmap-mail) | RFC2045, RFC5228, RFC5322, RFC8620, RFC8621, RFC9007, RFC9219, RFC9661 | 39 | 0 | 0 | 39 | 100.0% |
-| [jmap-sharing](#jmap-sharing) | RFC9670 | 6 | 0 | 0 | 6 | 100.0% |
+| [jmap-sharing](#jmap-sharing) | RFC9670 | 9 | 0 | 0 | 9 | 100.0% |
 | [jmap-websockets](#jmap-websockets) | RFC8887 | 7 | 0 | 0 | 7 | 100.0% |
 | [jscontact](#jscontact) | RFC9553, RFC9554, RFC9555 | 6 | 0 | 0 | 6 | 100.0% |
 | [smtp](#smtp) | RFC4954, RFC5228, RFC5232, RFC5321, RFC5429, RFC5546, RFC6047, RFC6376, RFC6409, RFC7208, RFC7489, RFC8601 | 46 | 0 | 0 | 46 | 100.0% |
@@ -29,7 +29,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [rfc9670-sharing](#rfc9670-sharing) | RFC9670 | 0 | 76 | 0 | 76 | 0.0% |
 | [rfc9698-jmapaccess](#rfc9698-jmapaccess) | RFC9698 | 0 | 14 | 0 | 14 | 0.0% |
 | [rfc9749-vapid](#rfc9749-vapid) | RFC9749 | 0 | 24 | 0 | 24 | 0.0% |
-| **Total** | | **164** | **1225** | **0** | **1389** | **11.8%** |
+| **Total** | | **167** | **1225** | **0** | **1392** | **12.0%** |
 
 ---
 
@@ -155,15 +155,18 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 ## jmap-sharing
 
 * **Test Suite Directory**: [`jmap/`](../jmap/)
-* **Conformance**: 6 / 6 (100.0%)
+* **Conformance**: 9 / 9 (100.0%)
 
 | Spec | Section | Level | Requirement | Status | Tests |
 | :--- | :---: | :---: | :--- | :---: | :--- |
 | RFC9670 | [1.4.1](https://www.rfc-editor.org/rfc/rfc9670.html#section-1.4.1) | `MUST` | The urn:ietf:params:jmap:sharing capability URI MUST be advertised in the accountCapabilities for accounts that support sharing. | ✅ Covered | `TestRFC9670_CapabilityAdvertisement` |
 | RFC9670 | [2](https://www.rfc-editor.org/rfc/rfc9670.html#section-2) | `MUST` | A ShareNotification object represents a change to the sharing status of an object. | ✅ Covered | `TestRFC9670_ShareNotificationGet`<br/>`TestStalwart_CalendarACL` |
-| RFC9670 | [3](https://www.rfc-editor.org/rfc/rfc9670.html#section-3) | `MUST` | ShareNotification/get returns requested properties for share notifications. | ✅ Covered | `TestRFC9670_ShareNotificationGet`<br/>`TestStalwart_CalendarACL` |
-| RFC9670 | [4](https://www.rfc-editor.org/rfc/rfc9670.html#section-4) | `MUST` | ShareNotification/changes returns changes to share notifications since a specified state. | ✅ Covered | `TestRFC9670_ShareNotificationChanges`<br/>`TestStalwart_CalendarACL` |
-| RFC9670 | [4.2](https://www.rfc-editor.org/rfc/rfc9670.html#section-4.2) | `MUST` | ShareNotification/set only supports destroying share notifications; creating or updating is rejected. | ✅ Covered | `TestRFC9670_ShareNotificationSetDestroyOnly` |
+| RFC9670 | [2](https://www.rfc-editor.org/rfc/rfc9670.html#section-2) | `MUST` | A ShareNotification has a server-set created UTCDate property. | ✅ Covered | `TestRFC9670_ShareNotificationCreatedAndQuery` |
+| RFC9670 | [3.1](https://www.rfc-editor.org/rfc/rfc9670.html#section-3.1) | `MUST` | ShareNotification/get returns requested properties for share notifications. | ✅ Covered | `TestRFC9670_ShareNotificationGet`<br/>`TestStalwart_CalendarACL` |
+| RFC9670 | [3.2](https://www.rfc-editor.org/rfc/rfc9670.html#section-3.2) | `MUST` | ShareNotification/changes returns changes to share notifications since a specified state. | ✅ Covered | `TestRFC9670_ShareNotificationChanges`<br/>`TestStalwart_CalendarACL` |
+| RFC9670 | [3.3](https://www.rfc-editor.org/rfc/rfc9670.html#section-3.3) | `MUST` | ShareNotification/set only supports destroying share notifications; creating or updating is rejected. | ✅ Covered | `TestRFC9670_ShareNotificationSetDestroyOnly` |
+| RFC9670 | [3.4](https://www.rfc-editor.org/rfc/rfc9670.html#section-3.4) | `MUST` | ShareNotification/query is a standard /query supporting after/before/objectType/objectAccountId and created sort. | ✅ Covered | `TestRFC9670_ShareNotificationCreatedAndQuery` |
+| RFC9670 | [3.5](https://www.rfc-editor.org/rfc/rfc9670.html#section-3.5) | `MUST` | ShareNotification/queryChanges is a standard /queryChanges. | ✅ Covered | `TestRFC9670_ShareNotificationQueryChanges` |
 | RFC9670 | [5](https://www.rfc-editor.org/rfc/rfc9670.html#section-5) | `MUST` | Cross-account access without appropriate sharing rights MUST be rejected with a forbidden error. | ✅ Covered | `TestRFC9670_CrossAccountForbidden` |
 
 ---

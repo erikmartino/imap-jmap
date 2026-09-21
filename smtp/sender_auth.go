@@ -9,11 +9,17 @@ import (
 	"net/mail"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/emersion/go-msgauth/dkim"
 	"github.com/emersion/go-msgauth/dmarc"
 	"github.com/redsift/spf/v2"
 )
+
+// SenderAuthTimeout bounds the total time spent on SPF/DKIM/DMARC DNS
+// lookups for a single message so a slow or unreachable resolver cannot stall
+// an SMTP transaction. The outcome on timeout is fail-closed.
+const SenderAuthTimeout = 3 * time.Second
 
 // DNSResolver abstracts the DNS lookups used by sender authentication so that
 // SPF (RFC 7208), DKIM (RFC 6376), and DMARC (RFC 7489) verification can be
@@ -153,6 +159,16 @@ func (v *SPFDKIMDMARCVerifier) Verify(ctx context.Context, msg *MessageToVerify)
 	if msg == nil || len(msg.RawMessage) == 0 {
 		return nil, errors.New("sender verification requires a raw message")
 	}
+	// Sender authentication performs several DNS lookups (SPF include chains,
+	// DKIM key fetches, DMARC policy). Unbounded lookups can stall an SMTP
+	// transaction for tens of seconds when a resolver is slow or a domain's
+	// records are unreachable, so cap the whole evaluation. A timeout fails
+	// closed (AuthAuthenticated=false), never open.
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, SenderAuthTimeout)
+		defer cancel()
+	}
 	res := &SenderAuthResult{}
 
 	// RFC 7489 Section 6.6.1: the Author Domain is extracted from the
@@ -207,7 +223,7 @@ func (v *SPFDKIMDMARCVerifier) evaluateSPF(ctx context.Context, msg *MessageToVe
 	if domain == "" || msg.ClientIP == nil {
 		return domain, "none"
 	}
-	opts := []spf.Option{spf.WithResolver(&spfDNSAdapter{resolver: v.resolver})}
+	opts := []spf.Option{spf.WithResolver(&spfDNSAdapter{ctx: ctx, resolver: v.resolver})}
 	if msg.HeloName != "" {
 		opts = append(opts, spf.HeloDomain(addressDomain(msg.HeloName)))
 	}
@@ -374,6 +390,7 @@ func summarizeDMARC(found, pass bool, policy string) string {
 // behaves as an empty answer (evaluation continues), any other DNS failure is
 // a temporary error.
 type spfDNSAdapter struct {
+	ctx      context.Context
 	resolver DNSResolver
 }
 
@@ -385,7 +402,7 @@ func trimFQDN(name string) string {
 }
 
 func (a *spfDNSAdapter) LookupTXT(name string) ([]string, *spf.ResponseExtras, error) {
-	txts, err := a.resolver.LookupTXT(context.Background(), trimFQDN(name))
+	txts, err := a.resolver.LookupTXT(a.ctx, trimFQDN(name))
 	if isDNSNotFound(err) {
 		return nil, nil, nil
 	}
@@ -393,7 +410,7 @@ func (a *spfDNSAdapter) LookupTXT(name string) ([]string, *spf.ResponseExtras, e
 }
 
 func (a *spfDNSAdapter) LookupTXTStrict(name string) ([]string, *spf.ResponseExtras, error) {
-	txts, err := a.resolver.LookupTXT(context.Background(), trimFQDN(name))
+	txts, err := a.resolver.LookupTXT(a.ctx, trimFQDN(name))
 	if isDNSNotFound(err) {
 		return nil, nil, spf.ErrDNSPermerror
 	}
@@ -401,7 +418,7 @@ func (a *spfDNSAdapter) LookupTXTStrict(name string) ([]string, *spf.ResponseExt
 }
 
 func (a *spfDNSAdapter) Exists(name string) (bool, *spf.ResponseExtras, error) {
-	ips, err := a.resolver.LookupHost(context.Background(), trimFQDN(name))
+	ips, err := a.resolver.LookupHost(a.ctx, trimFQDN(name))
 	if isDNSNotFound(err) {
 		return false, nil, nil
 	}
@@ -412,7 +429,7 @@ func (a *spfDNSAdapter) Exists(name string) (bool, *spf.ResponseExtras, error) {
 }
 
 func (a *spfDNSAdapter) MatchIP(name string, fn spf.IPMatcherFunc) (bool, *spf.ResponseExtras, error) {
-	ips, err := a.resolver.LookupHost(context.Background(), trimFQDN(name))
+	ips, err := a.resolver.LookupHost(a.ctx, trimFQDN(name))
 	if isDNSNotFound(err) {
 		return false, nil, nil
 	}
@@ -430,7 +447,7 @@ func (a *spfDNSAdapter) MatchIP(name string, fn spf.IPMatcherFunc) (bool, *spf.R
 }
 
 func (a *spfDNSAdapter) MatchMX(name string, fn spf.IPMatcherFunc) (bool, *spf.ResponseExtras, error) {
-	mxs, err := a.resolver.LookupMX(context.Background(), trimFQDN(name))
+	mxs, err := a.resolver.LookupMX(a.ctx, trimFQDN(name))
 	if isDNSNotFound(err) {
 		return false, nil, nil
 	}
@@ -438,7 +455,7 @@ func (a *spfDNSAdapter) MatchMX(name string, fn spf.IPMatcherFunc) (bool, *spf.R
 		return false, nil, spfDNSError(err)
 	}
 	for _, mx := range mxs {
-		ips, err := a.resolver.LookupHost(context.Background(), trimFQDN(mx.Host))
+		ips, err := a.resolver.LookupHost(a.ctx, trimFQDN(mx.Host))
 		if isDNSNotFound(err) {
 			continue
 		}
@@ -457,7 +474,7 @@ func (a *spfDNSAdapter) MatchMX(name string, fn spf.IPMatcherFunc) (bool, *spf.R
 }
 
 func (a *spfDNSAdapter) LookupPTR(addr string) ([]string, *spf.ResponseExtras, error) {
-	names, err := a.resolver.LookupAddr(context.Background(), addr)
+	names, err := a.resolver.LookupAddr(a.ctx, addr)
 	if isDNSNotFound(err) {
 		return nil, nil, nil
 	}

@@ -2,6 +2,7 @@ package jmapcalendar
 
 import (
 	"context"
+	"strings"
 
 	"imap-jmap/jmap/jmapcore"
 	"imap-jmap/jmap/jmaphandler"
@@ -134,4 +135,140 @@ func handleShareNotificationSet(backend CalendarsBackend) jmaphandler.MethodHand
 			"notDestroyed": nilIfEmpty(notDestroyed),
 		}
 	}
+}
+
+// shareNotificationSortableProperties are the ShareNotification/query sort properties
+// per RFC 9670 Section 3.4.2: only "created" is required to be supported.
+var shareNotificationSortableProperties = map[string]bool{"created": true}
+
+// shareNotificationFilterConditions are the RFC 9670 Section 3.4.1 FilterCondition
+// properties. Any other condition property is rejected rather than silently matching.
+var shareNotificationFilterConditions = map[string]bool{
+	"after": true, "before": true, "objectType": true, "objectAccountId": true,
+}
+
+func handleShareNotificationQuery(backend CalendarsBackend) jmaphandler.MethodHandler {
+	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
+		accountID, _ := args["accountId"].(string)
+		filter, _ := args["filter"].(map[string]any)
+		if errType, errMsg := validateShareNotificationFilter(filter); errType != "" {
+			return "error", MethodErrorArgs(errType, errMsg)
+		}
+
+		position, posErr := parseQueryPosition(args)
+		if posErr != "" {
+			return "error", MethodErrorArgs(MethodErrorInvalidArguments, posErr)
+		}
+		anchor, anchorOffset, anchorErr := parseQueryAnchor(args)
+		if anchorErr != "" {
+			return "error", MethodErrorArgs(MethodErrorInvalidArguments, anchorErr)
+		}
+		comparators := parseComparators(args)
+		if errType, errMsg := validateComparators(comparators, shareNotificationSortableProperties); errType != "" {
+			return "error", MethodErrorArgs(errType, errMsg)
+		}
+
+		var limit *uint64
+		if lim, ok := args["limit"].(float64); ok {
+			l := uint64(lim)
+			limit = &l
+		}
+
+		var ids []jmapcore.Id
+		var total int
+		if anchor != "" {
+			allIDs, allTotal, _ := backend.QueryShareNotifications(ctx, filter, comparators, 0, nil)
+			total = allTotal
+			var found bool
+			position, ids, found = applyQueryAnchor(anchor, anchorOffset, allIDs, limit)
+			if !found {
+				return "error", MethodErrorArgs(MethodErrorAnchorNotFound, "anchor not found in results: "+anchor)
+			}
+		} else {
+			ids, total, _ = backend.QueryShareNotifications(ctx, filter, comparators, position, limit)
+		}
+		if ids == nil {
+			ids = []jmapcore.Id{}
+		}
+
+		return "ShareNotification/query", map[string]any{
+			"accountId":           accountID,
+			"queryState":          backend.ShareNotificationState(ctx),
+			"canCalculateChanges": true,
+			"position":            position,
+			"total":               total,
+			"ids":                 ids,
+		}
+	}
+}
+
+func handleShareNotificationQueryChanges(backend CalendarsBackend) jmaphandler.MethodHandler {
+	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
+		accountID, _ := args["accountId"].(string)
+		upToID, _ := args["upToId"].(string)
+		sinceState, _ := args["sinceQueryState"].(string)
+		if sinceState == "" {
+			return "error", MethodErrorArgs("cannotCalculateChanges", "sinceQueryState is required")
+		}
+
+		createdIDs, updatedIDs, destroyedIDs, newState, hasMore := backend.ShareNotificationChanges(ctx, sinceState)
+		if hasMore {
+			return "error", MethodErrorArgs("cannotCalculateChanges", "sinceQueryState is too old")
+		}
+
+		filter, _ := args["filter"].(map[string]any)
+		if errType, errMsg := validateShareNotificationFilter(filter); errType != "" {
+			return "error", MethodErrorArgs(errType, errMsg)
+		}
+		comparators := parseComparators(args)
+		currentIDs, _, _ := backend.QueryShareNotifications(ctx, filter, comparators, 0, nil)
+		added, removed := computeQueryChanges(createdIDs, updatedIDs, destroyedIDs, currentIDs, upToID)
+
+		res := map[string]any{
+			"accountId":     accountID,
+			"oldQueryState": sinceState,
+			"newQueryState": newState,
+			"added":         added,
+			"removed":       removed,
+		}
+		if upToID != "" {
+			res["upToId"] = upToID
+		}
+		return "ShareNotification/queryChanges", res
+	}
+}
+
+// validateShareNotificationFilter rejects unknown FilterCondition properties and
+// unknown FilterOperator operators (RFC 8620 Section 5.5), returning ("","") when the
+// filter is valid.
+func validateShareNotificationFilter(filter map[string]any) (errType, errMsg string) {
+	if filter == nil {
+		return "", ""
+	}
+	if opVal, ok := filter["operator"]; ok {
+		op, _ := opVal.(string)
+		if !validCalendarFilterOperators[strings.ToUpper(op)] {
+			return "unsupportedFilter", "unknown filter operator: " + op
+		}
+		conds, ok := filter["conditions"].([]any)
+		if !ok || len(conds) == 0 {
+			return "unsupportedFilter", "filter operator requires a non-empty conditions array"
+		}
+		for _, c := range conds {
+			cm, ok := c.(map[string]any)
+			if !ok {
+				return "unsupportedFilter", "filter conditions must be objects"
+			}
+			if et, em := validateShareNotificationFilter(cm); et != "" {
+				return et, em
+			}
+		}
+		return "", ""
+	}
+	for k := range filter {
+		if !shareNotificationFilterConditions[k] {
+			return "unsupportedFilter", "unknown filter condition: " + k
+		}
+	}
+	return "", ""
 }

@@ -34,8 +34,8 @@ type CalendarsBackend struct {
 	identityTrackers     map[string]*jmappush.ChangeTracker
 	notificationTrackers map[string]*jmappush.ChangeTracker
 
-	calsFingerprint    map[string]string
-	eventsFingerprint  map[string]string
+	calsFingerprint   map[string]string
+	eventsFingerprint map[string]string
 
 	cache                     backendCache
 	identitiesCache           map[string]map[jmapcore.Id]*jmapcalendar.ParticipantIdentity
@@ -311,6 +311,153 @@ type reqCacheCalsKey struct {
 
 type reqCacheEventsKey struct {
 	user string
+}
+
+// eventWindowKey identifies a CalendarEvent retrieval window within a single JMAP
+// request. start/end are Unix nanoseconds and are 0 when that side is open-ended.
+type eventWindowKey struct {
+	start, end int64
+}
+
+func eventWindowKeyFor(start, end time.Time) eventWindowKey {
+	k := eventWindowKey{}
+	if !start.IsZero() {
+		k.start = start.UnixNano()
+	}
+	if !end.IsZero() {
+		k.end = end.UnixNano()
+	}
+	return k
+}
+
+// eventWindowMaps holds the per-request CalendarEvent maps keyed by retrieval window.
+// A single key (the user) is stored in the RequestCache so that mutations can
+// invalidate every window at once.
+type eventWindowMaps struct {
+	mu      sync.Mutex
+	windows map[eventWindowKey]map[jmapcore.Id]*jmapcalendar.CalendarEvent
+}
+
+func loadRequestEvents(rc *jmapcore.RequestCache, u string, key eventWindowKey) (map[jmapcore.Id]*jmapcalendar.CalendarEvent, bool) {
+	if rc == nil {
+		return nil, false
+	}
+	raw, ok := rc.Load(reqCacheEventsKey{user: u})
+	if !ok {
+		return nil, false
+	}
+	maps, ok := raw.(*eventWindowMaps)
+	if !ok || maps == nil {
+		return nil, false
+	}
+	maps.mu.Lock()
+	defer maps.mu.Unlock()
+	evs, ok := maps.windows[key]
+	return evs, ok
+}
+
+func storeRequestEvents(rc *jmapcore.RequestCache, u string, key eventWindowKey, evs map[jmapcore.Id]*jmapcalendar.CalendarEvent) {
+	if rc == nil {
+		return
+	}
+	raw, _ := rc.Load(reqCacheEventsKey{user: u})
+	maps, _ := raw.(*eventWindowMaps)
+	if maps == nil {
+		maps = &eventWindowMaps{windows: make(map[eventWindowKey]map[jmapcore.Id]*jmapcalendar.CalendarEvent)}
+		rc.Store(reqCacheEventsKey{user: u}, maps)
+	}
+	maps.mu.Lock()
+	maps.windows[key] = evs
+	maps.mu.Unlock()
+}
+
+// lookupRequestEvents searches every window already fetched during this JMAP request
+// for the master events backing ids. It lets a CalendarEvent/query followed by a
+// CalendarEvent/get in the same request reuse the query's bounded fetch instead of
+// falling back to a full collection scan. It reports ok only when every requested
+// master id was found in some window.
+func lookupRequestEvents(rc *jmapcore.RequestCache, u string, ids []jmapcore.Id) (map[jmapcore.Id]*jmapcalendar.CalendarEvent, bool) {
+	if rc == nil || len(ids) == 0 {
+		return nil, false
+	}
+	raw, ok := rc.Load(reqCacheEventsKey{user: u})
+	if !ok {
+		return nil, false
+	}
+	maps, ok := raw.(*eventWindowMaps)
+	if !ok || maps == nil {
+		return nil, false
+	}
+
+	want := make(map[jmapcore.Id]bool, len(ids))
+	for _, id := range ids {
+		baseID := id
+		if strings.Contains(string(id), "#") {
+			baseID = jmapcore.Id(strings.SplitN(string(id), "#", 2)[0])
+		}
+		want[baseID] = true
+	}
+
+	maps.mu.Lock()
+	defer maps.mu.Unlock()
+	found := make(map[jmapcore.Id]*jmapcalendar.CalendarEvent, len(want))
+	for _, window := range maps.windows {
+		for id := range want {
+			if found[id] == nil {
+				if ev := window[id]; ev != nil {
+					found[id] = ev
+				}
+			}
+		}
+	}
+	if len(found) != len(want) {
+		return nil, false
+	}
+	return found, true
+}
+
+// eventTimeWindow derives the half-open UTC range [start, end) that a
+// CalendarEvent/query filter constrains. Per draft-ietf-jmap-calendars-27
+// Section 5.11.1, "after" bounds the event's end (range start) and "before"
+// bounds the event's start (range end). Only a top-level FilterCondition or an
+// AND FilterOperator can be represented by a single range; OR/NOT trees return
+// an open range because their union cannot be pushed down as one time-range.
+func eventTimeWindow(filter map[string]any, loc *time.Location) (start, end time.Time) {
+	if filter == nil {
+		return time.Time{}, time.Time{}
+	}
+	if opRaw, ok := filter["operator"]; ok {
+		op, _ := opRaw.(string)
+		if !strings.EqualFold(op, "AND") {
+			return time.Time{}, time.Time{}
+		}
+		conds, _ := filter["conditions"].([]any)
+		for _, c := range conds {
+			cm, ok := c.(map[string]any)
+			if !ok {
+				continue
+			}
+			s, e := eventTimeWindow(cm, loc)
+			if !s.IsZero() && (start.IsZero() || s.After(start)) {
+				start = s
+			}
+			if !e.IsZero() && (end.IsZero() || e.Before(end)) {
+				end = e
+			}
+		}
+		return start, end
+	}
+	if afterStr, ok := filter["after"].(string); ok && afterStr != "" {
+		if t, ok := jmapcalendar.ParseLocalDateTimeBound(afterStr, loc); ok {
+			start = t
+		}
+	}
+	if beforeStr, ok := filter["before"].(string); ok && beforeStr != "" {
+		if t, ok := jmapcalendar.ParseLocalDateTimeBound(beforeStr, loc); ok {
+			end = t
+		}
+	}
+	return start, end
 }
 
 func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmapcore.Id) ([]*jmapcalendar.Calendar, []jmapcore.Id, error) {
@@ -647,7 +794,8 @@ func (b *CalendarsBackend) UpdateCalendar(ctx context.Context, id jmapcore.Id, p
 		ownerSubj := u
 		ownerName := b.lookupUserNameLocked(ownerSubj)
 		notif := &jmapcalendar.ShareNotification{
-			ID: notifID,
+			ID:      notifID,
+			Created: time.Now().UTC().Format(time.RFC3339),
 			ChangedBy: jmapcalendar.ShareNotificationPerson{
 				PrincipalID: targetAccountID,
 				Name:        ownerName,
@@ -846,10 +994,12 @@ func (b *CalendarsBackend) CalendarEventChanges(ctx context.Context, sinceState 
 	for calID, newTok := range newTokens {
 		oldTok, hadCal := oldTokens[calID]
 		if !hadCal {
-			objs, err := b.client.QueryCalendarObjects(ctx, calID)
+			// The calendar is new to this state. Discover its resources from CalDAV
+			// ETags (a body-less PROPFIND) rather than downloading every event.
+			etags, err := b.client.ListCalendarObjectETags(ctx, calID)
 			if err == nil {
-				for _, obj := range objs {
-					id := jmapcore.Id(obj.ID)
+				for eventID := range etags {
+					id := jmapcore.Id(eventID)
 					if !seenCreated[id] {
 						seenCreated[id] = true
 						createdList = append(createdList, id)
@@ -974,8 +1124,9 @@ func (b *CalendarsBackend) buildEventResponse(eventsMap map[jmapcore.Id]*jmapcal
 	return list, notFound
 }
 
-func (b *CalendarsBackend) fetchEventsForCalendars(ctx context.Context, cals []*jmapcalendar.Calendar) (map[jmapcore.Id]*jmapcalendar.CalendarEvent, error) {
+func (b *CalendarsBackend) fetchEventsForCalendars(ctx context.Context, cals []*jmapcalendar.Calendar, start, end time.Time) (map[jmapcore.Id]*jmapcalendar.CalendarEvent, error) {
 	u := b.user(ctx)
+	windowed := !start.IsZero() || !end.IsZero()
 	type calResult struct {
 		calID jmapcore.Id
 		objs  []*CalendarObjectInfo
@@ -987,7 +1138,13 @@ func (b *CalendarsBackend) fetchEventsForCalendars(ctx context.Context, cals []*
 		wg.Add(1)
 		go func(cal *jmapcalendar.Calendar) {
 			defer wg.Done()
-			objs, qErr := b.client.QueryCalendarObjects(ctx, string(cal.ID))
+			var objs []*CalendarObjectInfo
+			var qErr error
+			if windowed {
+				objs, qErr = b.client.QueryCalendarObjectsInRange(ctx, string(cal.ID), start, end)
+			} else {
+				objs, qErr = b.client.QueryCalendarObjects(ctx, string(cal.ID))
+			}
 			if qErr == nil {
 				resChan <- calResult{calID: cal.ID, objs: objs}
 			}
@@ -1056,19 +1213,40 @@ func (b *CalendarsBackend) fetchEventsForCalendars(ctx context.Context, cals []*
 }
 
 func (b *CalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmapcore.Id) ([]*jmapcalendar.CalendarEvent, []jmapcore.Id, error) {
+	return b.getCalendarEventsWindowed(ctx, ids, time.Time{}, time.Time{}, nil)
+}
+
+// getCalendarEventsWindowed retrieves CalendarEvents, optionally constrained to the
+// half-open time window [start, end). A bounded window is pushed down to CalDAV as a
+// time-range filter so the upstream server returns only resources overlapping the
+// window instead of the entire calendar collection. When cals is nil the calendar
+// collection list is discovered; callers that already have it pass it in to avoid a
+// redundant CalDAV discovery round-trip.
+func (b *CalendarsBackend) getCalendarEventsWindowed(ctx context.Context, ids []jmapcore.Id, start, end time.Time, cals []*jmapcalendar.Calendar) ([]*jmapcalendar.CalendarEvent, []jmapcore.Id, error) {
 	u := b.user(ctx)
+	windowed := !start.IsZero() || !end.IsZero()
+	windowKey := eventWindowKeyFor(start, end)
 
 	rc := jmapcore.RequestCacheFrom(ctx)
-	if rc != nil {
-		if cached, ok := rc.Load(reqCacheEventsKey{user: u}); ok && cached != nil {
-			if evMap, okMap := cached.(map[jmapcore.Id]*jmapcalendar.CalendarEvent); okMap {
-				list, notFound := b.buildEventResponse(evMap, ids)
-				return list, notFound, nil
-			}
+	if evMap, ok := loadRequestEvents(rc, u, windowKey); ok && evMap != nil {
+		list, notFound := b.buildEventResponse(evMap, ids)
+		return list, notFound, nil
+	}
+
+	// A CalendarEvent/get with explicit ids often follows a bounded
+	// CalendarEvent/query in the same request. Reuse any events already fetched
+	// into other windows rather than re-scanning the whole collection.
+	if ids != nil && len(ids) > 0 {
+		if evMap, ok := lookupRequestEvents(rc, u, ids); ok {
+			storeRequestEvents(rc, u, windowKey, evMap)
+			list, notFound := b.buildEventResponse(evMap, ids)
+			return list, notFound, nil
 		}
 	}
 
-	cals, _, _ := b.GetCalendars(ctx, nil)
+	if cals == nil {
+		cals, _, _ = b.GetCalendars(ctx, nil)
+	}
 
 	// Targeted retrieval: when specific IDs are requested, attempt targeted GetCalendarObject first
 	if ids != nil && len(ids) > 0 && len(ids) <= 20 {
@@ -1170,39 +1348,42 @@ func (b *CalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmapcore
 
 		if allFound && len(targetedEvents) == len(masterMap) {
 			b.cache.StoreEvents(u, targetedEvents)
-			if rc != nil {
-				rc.Store(reqCacheEventsKey{user: u}, targetedEvents)
-			}
+			storeRequestEvents(rc, u, windowKey, targetedEvents)
 			list, notFound := b.buildEventResponse(targetedEvents, ids)
 			return list, notFound, nil
 		}
 	}
 
-	freshMap, err := b.fetchEventsForCalendars(ctx, cals)
+	freshMap, err := b.fetchEventsForCalendars(ctx, cals, start, end)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	b.mu.Lock()
-	newFp := eventsMapFingerprint(freshMap)
-	oldFp := b.eventsFingerprint[u]
-	b.eventsFingerprint[u] = newFp
-	b.cache.SetEvents(u, freshMap)
-	needEmit := false
-	var st string
-	if oldFp != "" && oldFp != newFp {
-		st = b.getEventTracker(u).Record("external-sync", "update")
-		needEmit = true
-	}
-	b.mu.Unlock()
+	if windowed {
+		// A bounded window is a partial view: merge it into the backend cache for
+		// targeted lookups, but never treat it as the full event set and never derive
+		// external-change fingerprints or state changes from it.
+		b.cache.StoreEvents(u, freshMap)
+	} else {
+		b.mu.Lock()
+		newFp := eventsMapFingerprint(freshMap)
+		oldFp := b.eventsFingerprint[u]
+		b.eventsFingerprint[u] = newFp
+		b.cache.SetEvents(u, freshMap)
+		needEmit := false
+		var st string
+		if oldFp != "" && oldFp != newFp {
+			st = b.getEventTracker(u).Record("external-sync", "update")
+			needEmit = true
+		}
+		b.mu.Unlock()
 
-	if needEmit {
-		b.emitStateChange(u, "CalendarEvent", st)
+		if needEmit {
+			b.emitStateChange(u, "CalendarEvent", st)
+		}
 	}
 
-	if rc != nil {
-		rc.Store(reqCacheEventsKey{user: u}, freshMap)
-	}
+	storeRequestEvents(rc, u, windowKey, freshMap)
 
 	list, notFound := b.buildEventResponse(freshMap, ids)
 	return list, notFound, nil
@@ -1221,10 +1402,12 @@ func (b *CalendarsBackend) putCalendarEvent(ctx context.Context, event *jmapcale
 		rc.Delete(reqCacheEventsKey{user: u})
 	}
 	if event.ID == "" {
-		event.ID = jmapcore.Id(fmt.Sprintf("event-%d", time.Now().UnixNano()))
+		// The JMAP id is the CalDAV resource name; use a ".ics" resource for events we
+		// create ourselves (RFC 4791 Section 5.3.1 permits, but does not require, it).
+		event.ID = jmapcore.Id(fmt.Sprintf("event-%d.ics", time.Now().UnixNano()))
 	}
 	if event.UID == "" {
-		event.UID = string(event.ID)
+		event.UID = strings.TrimSuffix(string(event.ID), ".ics")
 	}
 	if event.TimeZone == "" {
 		event.TimeZone = "Etc/UTC"
@@ -1262,6 +1445,9 @@ func (b *CalendarsBackend) putCalendarEvent(ctx context.Context, event *jmapcale
 		}
 	}
 
+	// METHOD is an iTIP transport property, not part of the stored JSCalendar
+	// object; RFC 4791 Section 4.1 forbids it in a calendar object resource.
+	event.Method = ""
 	calObj := jmapcalendar.CalendarEventToICalendar(event, "", "", "", "")
 	written := false
 	for cid, isSet := range event.CalendarIDs {
@@ -1886,23 +2072,27 @@ func (b *CalendarsBackend) QueryCalendarEvents(ctx context.Context, filter map[s
 		return []jmapcore.Id{}, 0, nil
 	}
 
+	loc := time.UTC
+	if tz, ok := filter["__timeZone"].(string); ok && tz != "" {
+		loc = jmapcalendar.LoadLocation(tz)
+	}
+
+	// Push the filter's after/before window down to CalDAV as a time-range so the
+	// backend only transfers events overlapping the requested range.
+	windowStart, windowEnd := eventTimeWindow(filter, loc)
+
 	var events []*jmapcalendar.CalendarEvent
 	if len(targetCals) == len(cals) {
-		events, _, err = b.GetCalendarEvents(ctx, nil)
+		events, _, err = b.getCalendarEventsWindowed(ctx, nil, windowStart, windowEnd, cals)
 		if err != nil {
 			return nil, 0, err
 		}
 	} else {
-		freshMap, fErr := b.fetchEventsForCalendars(ctx, targetCals)
+		freshMap, fErr := b.fetchEventsForCalendars(ctx, targetCals, windowStart, windowEnd)
 		if fErr != nil {
 			return nil, 0, fErr
 		}
 		events, _ = b.buildEventResponse(freshMap, nil)
-	}
-
-	loc := time.UTC
-	if tz, ok := filter["__timeZone"].(string); ok && tz != "" {
-		loc = jmapcalendar.LoadLocation(tz)
 	}
 
 	var resultIDs []jmapcore.Id
@@ -2424,6 +2614,91 @@ func (b *CalendarsBackend) GetAllShareNotifications(ctx context.Context) ([]*jma
 		return list[i].ID < list[j].ID
 	})
 	return list, nil
+}
+
+// QueryShareNotifications implements ShareNotification/query (RFC 9670 Section 3.4).
+func (b *CalendarsBackend) QueryShareNotifications(ctx context.Context, filter map[string]any, sortCriteria []jmapcore.Comparator, position int, limit *uint64) ([]jmapcore.Id, int, error) {
+	notifs, err := b.GetAllShareNotifications(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	var matched []*jmapcalendar.ShareNotification
+	for _, n := range notifs {
+		if matchShareNotification(n, filter) {
+			matched = append(matched, n)
+		}
+	}
+	sort.SliceStable(matched, func(i, j int) bool {
+		for _, comp := range sortCriteria {
+			if comp.Property != "created" {
+				continue
+			}
+			cmp := strings.Compare(matched[i].Created, matched[j].Created)
+			if cmp != 0 {
+				if comp.IsAscending {
+					return cmp < 0
+				}
+				return cmp > 0
+			}
+		}
+		if matched[i].Created != matched[j].Created {
+			return matched[i].Created > matched[j].Created
+		}
+		return matched[i].ID > matched[j].ID
+	})
+
+	resultIDs := make([]jmapcore.Id, 0, len(matched))
+	for _, n := range matched {
+		resultIDs = append(resultIDs, n.ID)
+	}
+	total := len(resultIDs)
+	position = jmapcore.NormalizePosition(position, total)
+	if position >= total {
+		return []jmapcore.Id{}, total, nil
+	}
+	end := total
+	if limit != nil && position+int(*limit) < end {
+		end = position + int(*limit)
+	}
+	return resultIDs[position:end], total, nil
+}
+
+// matchShareNotification evaluates the RFC 9670 Section 3.4.1 filter conditions
+// ("after", "before", "objectType", "objectAccountId") and FilterOperator trees.
+func matchShareNotification(n *jmapcalendar.ShareNotification, filter map[string]any) bool {
+	if n == nil {
+		return false
+	}
+	if match, isOp := jmapcalendar.EvalFilterOperator(filter, func(cond map[string]any) bool {
+		return matchShareNotification(n, cond)
+	}); isOp {
+		return match
+	}
+	for k, v := range filter {
+		switch k {
+		case "after":
+			s, _ := v.(string)
+			if s != "" && n.Created < s {
+				return false
+			}
+		case "before":
+			s, _ := v.(string)
+			if s != "" && n.Created >= s {
+				return false
+			}
+		case "objectType":
+			s, _ := v.(string)
+			if n.ObjectType != s {
+				return false
+			}
+		case "objectAccountId":
+			s, _ := v.(string)
+			if n.ObjectAccountID != s {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // CreateShareNotification creates a new ShareNotification.

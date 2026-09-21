@@ -26,7 +26,23 @@ type PrincipalsBackend struct {
 	principalsCache map[jmapcore.Id]*jmapprincipals.Principal
 	tracker         *jmappush.ChangeTracker
 	broadcaster     *jmappush.Broadcaster
+	// directoryCache holds per-user, on-demand principal discovery results (from the
+	// Nextcloud sharee search API, using that user's own credentials). It is keyed by
+	// subject because visibility is per-user; it is never populated from a background
+	// job and never from another user's session.
+	directoryCache map[string]*principalDirectory
 }
+
+// principalDirectory is a short-lived, per-user view of the principals a user may
+// share with, discovered on demand from the upstream sharee search API.
+type principalDirectory struct {
+	syncedAt   time.Time
+	principals map[jmapcore.Id]*jmapprincipals.Principal
+}
+
+// principalsDirectoryTTL bounds how long a per-user directory is reused before it is
+// refreshed with the user's own credentials.
+const principalsDirectoryTTL = 5 * time.Minute
 
 var _ jmapprincipals.PrincipalsBackend = (*PrincipalsBackend)(nil)
 
@@ -37,6 +53,7 @@ func NewPrincipalsBackend(client *Client, calBackend jmapcalendar.CalendarsBacke
 		calBackend:      calBackend,
 		principalsCache: make(map[jmapcore.Id]*jmapprincipals.Principal),
 		tracker:         jmappush.NewChangeTracker(1000),
+		directoryCache:  make(map[string]*principalDirectory),
 	}
 }
 
@@ -251,17 +268,17 @@ func sanitizeDisplayName(name string) string {
 }
 
 // collectGroupMembership queries Nextcloud for groups and their members using the user's credentials.
-// It is invoked on demand only when group membership information is required by the JMAP API.
-func (b *PrincipalsBackend) collectGroupMembership(ctx context.Context) {
+// It is a fallback used only when the sharee search API is unavailable (e.g. the embedded
+// reference server); callers already hold refreshMu.
+// It reports whether the group listing was successfully retrieved.
+func (b *PrincipalsBackend) collectGroupMembership(ctx context.Context) bool {
 	if b.client == nil {
-		return
+		return false
 	}
-	b.refreshMu.Lock()
-	defer b.refreshMu.Unlock()
 
 	groups, err := b.client.GetGroups(ctx)
 	if err != nil {
-		return
+		return false
 	}
 
 	for _, gid := range groups {
@@ -317,60 +334,112 @@ func (b *PrincipalsBackend) collectGroupMembership(ctx context.Context) {
 		}
 		b.mu.Unlock()
 	}
+	return true
 }
 
-func (b *PrincipalsBackend) collectSingleGroupMembership(ctx context.Context, gid string) {
-	if b.client == nil || gid == "" || gid == "admin" || !IsValidGroupID(gid) {
-		return
-	}
-	members, err := b.client.GetGroupMembers(ctx, gid)
-	if err != nil {
-		return
-	}
-	membersMap := make(map[string]bool, len(members))
-	for _, m := range members {
-		if IsValidUserID(m) {
-			membersMap["p-"+m] = true
-		}
+// ensureUserDirectory returns the on-demand principal directory for the user in the
+// request context, refreshing it from the upstream sharee search API at most once per
+// TTL. There is deliberately no background/global directory: without admin credentials
+// the only way to enumerate share targets is with the caller's own session, exactly as
+// the Nextcloud web UI does.
+func (b *PrincipalsBackend) ensureUserDirectory(ctx context.Context) map[jmapcore.Id]*jmapprincipals.Principal {
+	subj, ok := jmapauth.SubjectFromContext(ctx)
+	if !ok || subj == "" || b.client == nil {
+		return nil
 	}
 
-	pid := jmapcore.Id("p-" + gid)
-	groupName := gid
-	switch strings.ToLower(gid) {
-	case "team":
-		groupName = "Engineering Team"
-	case "all":
-		groupName = "All Staff"
-	case "marketing":
-		groupName = "Marketing Group"
-	default:
-		groupName = strings.Title(strings.ReplaceAll(gid, "-", " "))
+	b.mu.RLock()
+	dir := b.directoryCache[subj]
+	b.mu.RUnlock()
+	if dir != nil && time.Since(dir.syncedAt) < principalsDirectoryTTL {
+		return dir.principals
 	}
-	groupName = sanitizeDisplayName(groupName)
-	email, calAddr := safeGroupEmailAndCalendarAddress(ctx, b.client, gid)
 
+	b.refreshMu.Lock()
+	defer b.refreshMu.Unlock()
+	b.mu.RLock()
+	dir = b.directoryCache[subj]
+	b.mu.RUnlock()
+	if dir != nil && time.Since(dir.syncedAt) < principalsDirectoryTTL {
+		return dir.principals
+	}
+
+	principals := b.buildUserDirectory(ctx, subj)
 	b.mu.Lock()
-	defer b.mu.Unlock()
-	if existing, ok := b.principalsCache[pid]; ok {
-		if existing.Members == nil {
-			existing.Members = make(map[string]bool)
+	b.directoryCache[subj] = &principalDirectory{syncedAt: time.Now(), principals: principals}
+	b.mu.Unlock()
+	return principals
+}
+
+// buildUserDirectory maps the caller's visible Nextcloud share targets to JMAP
+// principals. If the sharee search API is unavailable (e.g. the embedded test server),
+// it falls back to the legacy OCS group collection, which populates the global cache.
+func (b *PrincipalsBackend) buildUserDirectory(ctx context.Context, subj string) map[jmapcore.Id]*jmapprincipals.Principal {
+	sharees, err := b.client.GetSharees(ctx, "")
+	if err != nil {
+		b.collectGroupMembership(ctx)
+		return nil
+	}
+	domain := domainFromContext(ctx, b.client)
+	out := make(map[jmapcore.Id]*jmapprincipals.Principal, len(sharees))
+	for _, s := range sharees {
+		if s.ShareType == 1 {
+			if strings.EqualFold(s.ID, "admin") || !IsValidGroupID(s.ID) {
+				continue
+			}
+			pid := jmapcore.Id("p-" + s.ID)
+			name := groupDisplayName(s.ID, s.Label)
+			email, calAddr := safeGroupEmailAndCalendarAddress(ctx, b.client, s.ID)
+			out[pid] = &jmapprincipals.Principal{
+				ID:                 pid,
+				Type:               "group",
+				Name:               name,
+				Email:              email,
+				Description:        name + " in Nextcloud",
+				CalendarAddress:    calAddr,
+				MayGetAvailability: true,
+				MayShareWith:       true,
+			}
+			continue
 		}
-		for m := range membersMap {
-			existing.Members[m] = true
+		pid := jmapcore.Id("p-" + s.ID)
+		email := s.ID
+		if !strings.Contains(email, "@") && domain != "" {
+			email = s.ID + "@" + domain
 		}
-	} else {
-		b.principalsCache[pid] = &jmapprincipals.Principal{
+		name := sanitizeDisplayName(s.Label)
+		if name == "" {
+			name = s.ID
+		}
+		out[pid] = &jmapprincipals.Principal{
 			ID:                 pid,
-			Type:               "group",
-			Name:               groupName,
+			Type:               "individual",
+			Name:               name,
 			Email:              email,
-			Description:        groupName + " in Nextcloud",
-			CalendarAddress:    calAddr,
-			Members:            membersMap,
+			CalendarAddress:    "mailto:" + email,
 			MayGetAvailability: true,
 			MayShareWith:       true,
+			AccountIDs:         map[string]bool{jmapauth.AccountIDForSubject(email): true},
 		}
 	}
+	return out
+}
+
+// groupDisplayName maps a Nextcloud group id to its user-facing name, preferring the
+// sharee label when present.
+func groupDisplayName(gid, label string) string {
+	switch strings.ToLower(gid) {
+	case "team":
+		return "Engineering Team"
+	case "all":
+		return "All Staff"
+	case "marketing":
+		return "Marketing Group"
+	}
+	if label != "" {
+		return sanitizeDisplayName(label)
+	}
+	return sanitizeDisplayName(strings.Title(strings.ReplaceAll(gid, "-", " ")))
 }
 
 func (b *PrincipalsBackend) PrincipalState(ctx context.Context) string {
@@ -388,30 +457,15 @@ func (b *PrincipalsBackend) GetPrincipals(ctx context.Context, ids []jmapcore.Id
 	}
 
 	b.ensureCurrentPrincipal(ctx)
-
-	// Collect group membership on demand only when a group principal is requested
-	for _, id := range ids {
-		b.mu.RLock()
-		p, ok := b.principalsCache[id]
-		b.mu.RUnlock()
-		if (ok && p.Type == "group") || strings.HasPrefix(string(id), "p-") {
-			gid := strings.TrimPrefix(string(id), "p-")
-			if IsValidGroupID(gid) {
-				b.collectSingleGroupMembership(ctx, gid)
-			}
-		}
-	}
-
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	merged := b.mergedPrincipals(ctx)
 
 	var list []*jmapprincipals.Principal
 	var notFound []jmapcore.Id
 	for _, id := range ids {
-		p, ok := b.principalsCache[id]
+		p, ok := merged[id]
 		if !ok {
 			// Try matching without p- prefix or by email
-			for _, item := range b.principalsCache {
+			for _, item := range merged {
 				if item.Email == string(id) || item.ID == "p-"+id {
 					p = item
 					ok = true
@@ -428,15 +482,30 @@ func (b *PrincipalsBackend) GetPrincipals(ctx context.Context, ids []jmapcore.Id
 	return list, notFound, nil
 }
 
-func (b *PrincipalsBackend) GetAllPrincipals(ctx context.Context) ([]*jmapprincipals.Principal, error) {
-	b.ensureCurrentPrincipal(ctx)
-	b.collectGroupMembership(ctx)
-
+// mergedPrincipals returns the principals visible to the requesting user: the global
+// known-principals cache (self and users who have authenticated) plus that user's
+// on-demand directory discovered with their own credentials.
+func (b *PrincipalsBackend) mergedPrincipals(ctx context.Context) map[jmapcore.Id]*jmapprincipals.Principal {
+	directory := b.ensureUserDirectory(ctx)
 	b.mu.RLock()
 	defer b.mu.RUnlock()
+	merged := make(map[jmapcore.Id]*jmapprincipals.Principal, len(b.principalsCache)+len(directory))
+	for id, p := range b.principalsCache {
+		merged[id] = p
+	}
+	for id, p := range directory {
+		if _, ok := merged[id]; !ok {
+			merged[id] = p
+		}
+	}
+	return merged
+}
 
-	list := make([]*jmapprincipals.Principal, 0, len(b.principalsCache))
-	for _, p := range b.principalsCache {
+func (b *PrincipalsBackend) GetAllPrincipals(ctx context.Context) ([]*jmapprincipals.Principal, error) {
+	b.ensureCurrentPrincipal(ctx)
+	merged := b.mergedPrincipals(ctx)
+	list := make([]*jmapprincipals.Principal, 0, len(merged))
+	for _, p := range merged {
 		list = append(list, p)
 	}
 	return list, nil
@@ -444,19 +513,10 @@ func (b *PrincipalsBackend) GetAllPrincipals(ctx context.Context) ([]*jmapprinci
 
 func (b *PrincipalsBackend) QueryPrincipals(ctx context.Context, filter map[string]any, position int, limit *uint64) ([]jmapcore.Id, int, error) {
 	b.ensureCurrentPrincipal(ctx)
-
-	b.mu.RLock()
-	empty := len(b.principalsCache) == 0
-	b.mu.RUnlock()
-	if empty {
-		b.collectGroupMembership(ctx)
-	}
-
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	merged := b.mergedPrincipals(ctx)
 
 	var matched []jmapcore.Id
-	for id, p := range b.principalsCache {
+	for id, p := range merged {
 		if !jmapprincipals.MatchPrincipal(p, filter) {
 			continue
 		}

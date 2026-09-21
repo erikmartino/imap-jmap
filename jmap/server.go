@@ -638,6 +638,9 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	reqCtx = WithCalendarsCapability(reqCtx, calCap)
 	reqCtx = WithRequestCache(reqCtx, s.newRequestCache())
+	// Always-on, request-scoped memoization (e.g. CalDAV discovery) that is
+	// independent of the persistent cache flag and discarded at request end.
+	reqCtx = WithRequestScope(reqCtx)
 	reqCtx = withResponseSpill(reqCtx)
 
 	for _, call := range req.MethodCalls {

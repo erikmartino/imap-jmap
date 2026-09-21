@@ -7,7 +7,6 @@ import (
 	"imap-jmap/jmap/jmapcore"
 )
 
-
 // CalendarRights defines access rights for a Calendar per JMAP for Calendars.
 type CalendarRights struct {
 	MayReadFreeBusy  bool `json:"mayReadFreeBusy"`
@@ -299,66 +298,66 @@ type CalendarEventNotification struct {
 
 // CalendarEvent represents a JSCalendar Event object per RFC 8984 & JMAP for Calendars.
 type CalendarEvent struct {
-	ID                      jmapcore.Id                           `json:"id"`
-	BaseEventID             *jmapcore.Id                          `json:"baseEventId"`
-	CalendarIDs             map[jmapcore.Id]bool                  `json:"calendarIds"`
-	Type                    string                                `json:"@type"` // Always "Event"
-	Title                   string                                `json:"title"`
-	Description             string                                `json:"description,omitempty"`
-	DescriptionContentType  string                                `json:"descriptionContentType,omitempty"`
-	ShowWithoutTime         bool                                  `json:"showWithoutTime"`
-	Start                   string                                `json:"start"`
-	UTCStart                string                                `json:"utcStart,omitempty"`
-	UTCEnd                  string                                `json:"utcEnd,omitempty"`
-	Duration                string                                `json:"duration,omitempty"`
-	TimeZone                string                                `json:"timeZone,omitempty"`
-	Locations               map[string]*JSCalendarLocation        `json:"locations,omitempty"`
-	VirtualLocations        map[string]*JSCalendarVirtualLocation `json:"virtualLocations,omitempty"`
-	Links                   map[string]*JSCalendarLink            `json:"links,omitempty"`
-	Locale                  string                                `json:"locale,omitempty"`
-	Categories              map[string]bool                       `json:"categories,omitempty"`
-	Color                   string                                `json:"color,omitempty"`
-	Status                  string                                `json:"status,omitempty"`         // "confirmed", "tentative", "cancelled"
-	FreeBusyStatus          string                                `json:"freeBusyStatus,omitempty"` // "free", "busy", "tentative"
-	Privacy                 string                                `json:"privacy,omitempty"`        // "public", "private", "secret"
-	HideAttendees           bool                                  `json:"hideAttendees"`  // owner-only participant visibility (draft-ietf-jmap-calendars-27 Section 4.4.5)
-	Priority                uint32                                `json:"priority,omitempty"`
-	ReplyTo                 map[string]string                     `json:"replyTo,omitempty"`
-	SentBy                  string                                `json:"sentBy,omitempty"`
-	RequestStatus           string                                `json:"requestStatus,omitempty"`
-	UseDefaultAlerts        bool                                  `json:"useDefaultAlerts"`
-	Localizations           map[string]map[string]any             `json:"localizations,omitempty"`
-	TimeZones               map[string]*JSCalendarTimeZone        `json:"timeZones,omitempty"`
-	Participants              map[string]*JSCalendarParticipant     `json:"participants,omitempty"`
-	OrganizerCalendarAddress  string                                `json:"organizerCalendarAddress,omitempty"`
-	MayInviteSelf             bool                                  `json:"mayInviteSelf"`
-	MayInviteOthers           bool                                  `json:"mayInviteOthers"`
-	RecurrenceRule            *JSCalendarRecurrenceRule             `json:"recurrenceRule,omitempty"`
-	RecurrenceRules           []*JSCalendarRecurrenceRule           `json:"recurrenceRules,omitempty"`
-	RecurrenceID              string                                `json:"recurrenceId,omitempty"`
-	RecurrenceIDTimeZone      string                                `json:"recurrenceIdTimeZone,omitempty"`
-	ExcludedRecurrenceRule    *JSCalendarRecurrenceRule             `json:"excludedRecurrenceRule,omitempty"`
-	ExcludedRecurrenceRules   []*JSCalendarRecurrenceRule           `json:"excludedRecurrenceRules,omitempty"`
-	RecurrenceOverrides       map[string]map[string]any             `json:"recurrenceOverrides,omitempty"`
-	Excluded                  map[string]bool                       `json:"excluded,omitempty"`
-	Alerts                    map[string]*JSCalendarAlert           `json:"alerts,omitempty"`
-	RelatedTo                 map[string]*JSCalendarRelation        `json:"relatedTo,omitempty"`
-	ProdID                    string                                `json:"prodId,omitempty"`
-	Sequence                  uint32                                `json:"sequence,omitempty"`
-	Method                    string                                `json:"method,omitempty"`
-	Due                       string                                `json:"due,omitempty"`
-	EstimatedDuration         string                                `json:"estimatedDuration,omitempty"`
-	PercentComplete           uint32                                `json:"percentComplete,omitempty"`
-	Progress                  string                                `json:"progress,omitempty"`
-	ProgressUpdated           string                                `json:"progressUpdated,omitempty"`
-	Entries                   map[string]map[string]any             `json:"entries,omitempty"`
-	Source                    string                                `json:"source,omitempty"`
-	Created                   string                                `json:"created,omitempty"`
-	Updated                   string                                `json:"updated,omitempty"`
-	UID                       string                                `json:"uid,omitempty"`
-	Keywords                  map[string]bool                       `json:"keywords,omitempty"`
-	IsDraft                   bool                                  `json:"isDraft"`
-	IsOrigin                  bool                                  `json:"isOrigin"`
+	ID                       jmapcore.Id                           `json:"id"`
+	BaseEventID              *jmapcore.Id                          `json:"baseEventId"`
+	CalendarIDs              map[jmapcore.Id]bool                  `json:"calendarIds"`
+	Type                     string                                `json:"@type"` // Always "Event"
+	Title                    string                                `json:"title"`
+	Description              string                                `json:"description,omitempty"`
+	DescriptionContentType   string                                `json:"descriptionContentType,omitempty"`
+	ShowWithoutTime          bool                                  `json:"showWithoutTime"`
+	Start                    string                                `json:"start"`
+	UTCStart                 string                                `json:"utcStart,omitempty"`
+	UTCEnd                   string                                `json:"utcEnd,omitempty"`
+	Duration                 string                                `json:"duration,omitempty"`
+	TimeZone                 string                                `json:"timeZone,omitempty"`
+	Locations                map[string]*JSCalendarLocation        `json:"locations,omitempty"`
+	VirtualLocations         map[string]*JSCalendarVirtualLocation `json:"virtualLocations,omitempty"`
+	Links                    map[string]*JSCalendarLink            `json:"links,omitempty"`
+	Locale                   string                                `json:"locale,omitempty"`
+	Categories               map[string]bool                       `json:"categories,omitempty"`
+	Color                    string                                `json:"color,omitempty"`
+	Status                   string                                `json:"status,omitempty"`         // "confirmed", "tentative", "cancelled"
+	FreeBusyStatus           string                                `json:"freeBusyStatus,omitempty"` // "free", "busy", "tentative"
+	Privacy                  string                                `json:"privacy,omitempty"`        // "public", "private", "secret"
+	HideAttendees            bool                                  `json:"hideAttendees"`            // owner-only participant visibility (draft-ietf-jmap-calendars-27 Section 4.4.5)
+	Priority                 uint32                                `json:"priority,omitempty"`
+	ReplyTo                  map[string]string                     `json:"replyTo,omitempty"`
+	SentBy                   string                                `json:"sentBy,omitempty"`
+	RequestStatus            string                                `json:"requestStatus,omitempty"`
+	UseDefaultAlerts         bool                                  `json:"useDefaultAlerts"`
+	Localizations            map[string]map[string]any             `json:"localizations,omitempty"`
+	TimeZones                map[string]*JSCalendarTimeZone        `json:"timeZones,omitempty"`
+	Participants             map[string]*JSCalendarParticipant     `json:"participants,omitempty"`
+	OrganizerCalendarAddress string                                `json:"organizerCalendarAddress,omitempty"`
+	MayInviteSelf            bool                                  `json:"mayInviteSelf"`
+	MayInviteOthers          bool                                  `json:"mayInviteOthers"`
+	RecurrenceRule           *JSCalendarRecurrenceRule             `json:"recurrenceRule,omitempty"`
+	RecurrenceRules          []*JSCalendarRecurrenceRule           `json:"recurrenceRules,omitempty"`
+	RecurrenceID             string                                `json:"recurrenceId,omitempty"`
+	RecurrenceIDTimeZone     string                                `json:"recurrenceIdTimeZone,omitempty"`
+	ExcludedRecurrenceRule   *JSCalendarRecurrenceRule             `json:"excludedRecurrenceRule,omitempty"`
+	ExcludedRecurrenceRules  []*JSCalendarRecurrenceRule           `json:"excludedRecurrenceRules,omitempty"`
+	RecurrenceOverrides      map[string]map[string]any             `json:"recurrenceOverrides,omitempty"`
+	Excluded                 map[string]bool                       `json:"excluded,omitempty"`
+	Alerts                   map[string]*JSCalendarAlert           `json:"alerts,omitempty"`
+	RelatedTo                map[string]*JSCalendarRelation        `json:"relatedTo,omitempty"`
+	ProdID                   string                                `json:"prodId,omitempty"`
+	Sequence                 uint32                                `json:"sequence,omitempty"`
+	Method                   string                                `json:"method,omitempty"`
+	Due                      string                                `json:"due,omitempty"`
+	EstimatedDuration        string                                `json:"estimatedDuration,omitempty"`
+	PercentComplete          uint32                                `json:"percentComplete,omitempty"`
+	Progress                 string                                `json:"progress,omitempty"`
+	ProgressUpdated          string                                `json:"progressUpdated,omitempty"`
+	Entries                  map[string]map[string]any             `json:"entries,omitempty"`
+	Source                   string                                `json:"source,omitempty"`
+	Created                  string                                `json:"created,omitempty"`
+	Updated                  string                                `json:"updated,omitempty"`
+	UID                      string                                `json:"uid,omitempty"`
+	Keywords                 map[string]bool                       `json:"keywords,omitempty"`
+	IsDraft                  bool                                  `json:"isDraft"`
+	IsOrigin                 bool                                  `json:"isOrigin"`
 }
 
 // ShareNotificationPerson represents the changedBy entity in a ShareNotification per RFC 9670 Section 2.
@@ -371,6 +370,7 @@ type ShareNotificationPerson struct {
 // ShareNotification represents a notification of a sharing change per RFC 9670 Section 2.
 type ShareNotification struct {
 	ID              jmapcore.Id             `json:"id"`
+	Created         string                  `json:"created"`
 	Type            string                  `json:"@type,omitempty"` // "ShareNotification"
 	ChangedBy       ShareNotificationPerson `json:"changedBy"`
 	ObjectType      string                  `json:"objectType"`

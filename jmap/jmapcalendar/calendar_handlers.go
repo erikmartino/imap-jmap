@@ -48,6 +48,8 @@ func RegisterCalendarHandlers(r *jmaphandler.MethodRegistry, backend CalendarsBa
 	r.Register("ShareNotification/get", handleShareNotificationGet(backend))
 	r.Register("ShareNotification/changes", handleShareNotificationChanges(backend))
 	r.Register("ShareNotification/set", handleShareNotificationSet(backend))
+	r.Register("ShareNotification/query", handleShareNotificationQuery(backend))
+	r.Register("ShareNotification/queryChanges", handleShareNotificationQueryChanges(backend))
 }
 
 func handleCalendarGet(backend CalendarsBackend) jmaphandler.MethodHandler {

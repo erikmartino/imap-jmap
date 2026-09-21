@@ -55,4 +55,5 @@ type CalendarsBackend interface {
 	GetAllShareNotifications(ctx context.Context) ([]*ShareNotification, error)
 	CreateShareNotification(ctx context.Context, notification *ShareNotification) (*ShareNotification, error)
 	DeleteShareNotification(ctx context.Context, id jmapcore.Id) (bool, error)
+	QueryShareNotifications(ctx context.Context, filter map[string]any, sort []jmapcore.Comparator, position int, limit *uint64) (ids []jmapcore.Id, total int, err error)
 }

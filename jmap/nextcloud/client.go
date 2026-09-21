@@ -22,6 +22,7 @@ import (
 	"github.com/emersion/go-webdav/carddav"
 
 	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapcore"
 )
 
 type retryTransport struct {
@@ -92,6 +93,11 @@ type Client struct {
 	BaseURL    string
 	HTTPClient *http.Client
 	discovery  discoveryCache
+	// cacheDisabled controls the data caches (calendar/event bodies). Discovery
+	// metadata (principal URL, home set, calendar paths, schedule-default calendar)
+	// is always cached in memory: it is stable, bounded, not user content, and never
+	// persisted to disk, so it does not make the proxy stateful.
+	cacheDisabled bool
 }
 
 func isCacheDisabledEnv() bool {
@@ -114,36 +120,53 @@ func isEnvFalse(key string) bool {
 	return v == "0" || strings.EqualFold(v, "false")
 }
 
-// NewClient creates a new Nextcloud client helper with disabled dummy cache by default.
+// NewClient creates a new Nextcloud client helper. Discovery metadata is cached in
+// memory; calendar/event data caches are disabled unless explicitly enabled.
 func NewClient(baseURL string) *Client {
-	var disc discoveryCache = &dummyDiscoveryCache{}
-	if !isCacheDisabledEnv() {
-		disc = newMemDiscoveryCache()
-	}
-
 	return &Client{
 		BaseURL: strings.TrimRight(baseURL, "/"),
 		HTTPClient: &http.Client{
 			Transport: &retryTransport{base: http.DefaultTransport},
 			Timeout:   15 * time.Second,
 		},
-		discovery: disc,
+		discovery:     newMemDiscoveryCache(),
+		cacheDisabled: isCacheDisabledEnv(),
 	}
 }
 
-// SetCacheDisabled enables or disables client-side caching of discovery paths and tokens.
+// SetCacheDisabled enables or disables the calendar/event data caches. Discovery
+// metadata stays cached in memory regardless.
 func (c *Client) SetCacheDisabled(disabled bool) {
-	if disabled {
-		c.discovery = &dummyDiscoveryCache{}
-	} else {
-		c.discovery = newMemDiscoveryCache()
-	}
+	c.cacheDisabled = disabled
 }
 
-// IsCacheDisabled reports whether caching is disabled.
+// IsCacheDisabled reports whether the calendar/event data caches are disabled.
 func (c *Client) IsCacheDisabled() bool {
-	_, ok := c.discovery.(*dummyDiscoveryCache)
-	return ok
+	return c.cacheDisabled
+}
+
+// calendarSyncStatusesKey is the request-scope key for the memoized home-set
+// PROPFIND result shared by the calendar listing and CalendarEvent state. It is scoped
+// by user so a request that touches multiple accounts (e.g. CalendarEvent/copy) cannot
+// reuse another account's collections.
+type calendarSyncStatusesKey struct {
+	user string
+}
+
+// discoveryFor returns the in-memory discovery cache (principal URL, home set, calendar
+// paths, schedule-default calendar). It is stable, bounded metadata, not user content,
+// and never persisted to disk.
+func (c *Client) discoveryFor(ctx context.Context) discoveryCache {
+	return c.discovery
+}
+
+// invalidateRequestCalendarCollections drops the request-scoped home-set PROPFIND memo
+// after a calendar or event mutation, so later calls in the same JMAP request observe
+// the new CTag/sync-token rather than the pre-mutation snapshot.
+func invalidateRequestCalendarCollections(ctx context.Context, u string) {
+	if rs := jmapcore.RequestScopeFrom(ctx); rs != nil {
+		rs.Delete(calendarSyncStatusesKey{user: u})
+	}
 }
 
 func (c *Client) getUserAndPass(ctx context.Context) (string, string) {
@@ -291,47 +314,61 @@ type CalendarObjectInfo struct {
 }
 
 func (c *Client) getPrincipal(ctx context.Context, calClient *caldav.Client, u string) string {
-	if p, ok := c.discovery.GetPrincipal(u); ok {
+	disc := c.discoveryFor(ctx)
+	if p, ok := disc.GetPrincipal(u); ok {
 		return p
 	}
 	principal, err := calClient.FindCurrentUserPrincipal(ctx)
 	if err == nil && principal != "" {
-		c.discovery.SetPrincipal(u, principal)
+		disc.SetPrincipal(u, principal)
 		return principal
 	}
 	return ""
 }
 
 func (c *Client) getScheduleDefaultCalendar(ctx context.Context, principal, u string) string {
-	if calID, ok := c.discovery.GetScheduleDefaultCal(u); ok {
+	disc := c.discoveryFor(ctx)
+	if calID, ok := disc.GetScheduleDefaultCal(u); ok {
 		return calID
 	}
 	calID := c.FindScheduleDefaultCalendar(ctx, principal)
 	if calID != "" {
-		c.discovery.SetScheduleDefaultCal(u, calID)
+		disc.SetScheduleDefaultCal(u, calID)
 	}
 	return calID
 }
 
 func (c *Client) getCalendarHomeSet(ctx context.Context, calClient *caldav.Client, u string) string {
-	if hs, ok := c.discovery.GetHomeSet(u); ok {
+	if hs, ok := c.discoveryFor(ctx).GetHomeSet(u); ok {
 		return hs
 	}
 	principal := c.getPrincipal(ctx, calClient, u)
+	return c.getCalendarHomeSetForPrincipal(ctx, calClient, u, principal)
+}
+
+// getCalendarHomeSetForPrincipal resolves the calendar home set using an already
+// discovered principal, so callers that also need the principal do not trigger a
+// second PROPFIND.
+func (c *Client) getCalendarHomeSetForPrincipal(ctx context.Context, calClient *caldav.Client, u, principal string) string {
+	disc := c.discoveryFor(ctx)
+	if hs, ok := disc.GetHomeSet(u); ok {
+		return hs
+	}
 	if principal != "" {
 		homeSet, err := calClient.FindCalendarHomeSet(ctx, principal)
 		if err == nil && homeSet != "" {
-			c.discovery.SetHomeSet(u, homeSet)
+			disc.SetHomeSet(u, homeSet)
 			return homeSet
 		}
 	}
 	defaultHS := "calendars/" + u + "/"
-	c.discovery.SetHomeSet(u, defaultHS)
+	disc.SetHomeSet(u, defaultHS)
 	return defaultHS
 }
 
 func (c *Client) getCalPath(ctx context.Context, calClient *caldav.Client, u, calID string) string {
-	if p, ok := c.discovery.GetCalPath(u, calID); ok {
+	disc := c.discoveryFor(ctx)
+	if p, ok := disc.GetCalPath(u, calID); ok {
 		return p
 	}
 	homeSet := c.getCalendarHomeSet(ctx, calClient, u)
@@ -341,44 +378,43 @@ func (c *Client) getCalPath(ctx context.Context, calClient *caldav.Client, u, ca
 	} else {
 		calPath = "calendars/" + u + "/" + calID + "/"
 	}
-	c.discovery.SetCalPath(u, calID, calPath)
+	disc.SetCalPath(u, calID, calPath)
 	return calPath
 }
 
 // ListCalendars retrieves all calendars for the authenticated user from Nextcloud.
+// It derives the listing from the same home-set PROPFIND that supplies the CalDAV
+// CTag/sync-token, so a query performs only one calendar-collection round-trip.
 func (c *Client) ListCalendars(ctx context.Context) ([]*CalendarInfo, string, error) {
 	calClient, u, err := c.CalDAV(ctx)
 	if err != nil {
 		return nil, "", err
 	}
-	homeSet := c.getCalendarHomeSet(ctx, calClient, u)
-	calList, err := calClient.FindCalendars(ctx, homeSet)
+	// Resolve the principal once and reuse it for both the home-set and the
+	// schedule-default discovery PROPFINDs.
+	principal := c.getPrincipal(ctx, calClient, u)
+	_ = c.getCalendarHomeSetForPrincipal(ctx, calClient, u, principal)
+	collections, err := c.getCalendarCollections(ctx)
 	if err != nil {
 		return nil, u, err
 	}
 
-	principal := c.getPrincipal(ctx, calClient, u)
 	scheduleDefaultCalID := c.getScheduleDefaultCalendar(ctx, principal, u)
 
-	var list []*CalendarInfo
-	for _, cal := range calList {
-		calID := path.Base(strings.TrimRight(cal.Path, "/"))
-		if calID == "inbox" || calID == "outbox" || calID == "trashbin" {
-			continue
-		}
-		c.discovery.SetCalPath(u, calID, cal.Path)
+	list := make([]*CalendarInfo, 0, len(collections.ordered))
+	for _, cal := range collections.ordered {
 		name := cal.Name
 		if name == "" {
-			name = calID
+			name = cal.ID
 		}
 		isDefault := false
 		if scheduleDefaultCalID != "" {
-			isDefault = (calID == scheduleDefaultCalID)
+			isDefault = (cal.ID == scheduleDefaultCalID)
 		} else if len(list) == 0 {
 			isDefault = true
 		}
 		list = append(list, &CalendarInfo{
-			ID:          calID,
+			ID:          cal.ID,
 			Name:        name,
 			Description: cal.Description,
 			IsDefault:   isDefault,
@@ -394,7 +430,9 @@ func (c *Client) CreateCalendar(ctx context.Context, calID string) error {
 		return err
 	}
 	calPath := c.getCalPath(ctx, calClient, u, calID)
-	return calClient.Mkdir(ctx, calPath)
+	err = calClient.Mkdir(ctx, calPath)
+	invalidateRequestCalendarCollections(ctx, u)
+	return err
 }
 
 // DeleteCalendar removes a calendar collection in Nextcloud.
@@ -404,13 +442,37 @@ func (c *Client) DeleteCalendar(ctx context.Context, calID string) error {
 		return err
 	}
 	calPath := c.getCalPath(ctx, calClient, u, calID)
-	c.discovery.DeleteCal(u, calID)
-	return calClient.RemoveAll(ctx, calPath)
+	c.discoveryFor(ctx).DeleteCal(u, calID)
+	err = calClient.RemoveAll(ctx, calPath)
+	invalidateRequestCalendarCollections(ctx, u)
+	return err
 }
 
 // QueryCalendarObjects queries all calendar objects in a Nextcloud calendar collection.
 func (c *Client) QueryCalendarObjects(ctx context.Context, calID string) ([]*CalendarObjectInfo, error) {
 	return c.QueryCalendarObjectsWithFilter(ctx, calID, nil)
+}
+
+// QueryCalendarObjectsInRange queries the VEVENT resources in a Nextcloud calendar
+// collection that overlap the half-open time range [start, end). A zero start or end
+// leaves that side of the range open. The range is translated into a CalDAV
+// time-range component filter (RFC 4791 Section 9.9), so the server evaluates
+// recurrences and transfers only the resources that fall inside the range instead of
+// the whole collection.
+func (c *Client) QueryCalendarObjectsInRange(ctx context.Context, calID string, start, end time.Time) ([]*CalendarObjectInfo, error) {
+	compFilter := caldav.CompFilter{Name: "VCALENDAR"}
+	if !start.IsZero() || !end.IsZero() {
+		// The CalDAV time-range attributes MUST be "date with UTC time" (RFC 4791
+		// Section 9.9). Normalise to UTC explicitly: the XML formatter renders the
+		// wall-clock fields verbatim with a trailing "Z", so a zoned time would
+		// otherwise be serialised with its local wall clock and misread as UTC.
+		compFilter.Comps = []caldav.CompFilter{{
+			Name:  "VEVENT",
+			Start: start.UTC(),
+			End:   end.UTC(),
+		}}
+	}
+	return c.QueryCalendarObjectsWithFilter(ctx, calID, &caldav.CalendarQuery{CompFilter: compFilter})
 }
 
 // QueryCalendarObjectsWithFilter queries calendar objects in a Nextcloud calendar collection using a CalDAV query.
@@ -433,10 +495,8 @@ func (c *Client) QueryCalendarObjectsWithFilter(ctx context.Context, calID strin
 	}
 	res := make([]*CalendarObjectInfo, len(objs))
 	for i, obj := range objs {
-		name := path.Base(obj.Path)
-		eventID := strings.TrimSuffix(name, ".ics")
 		res[i] = &CalendarObjectInfo{
-			ID:      eventID,
+			ID:      path.Base(obj.Path),
 			Data:    obj.Data,
 			ModTime: obj.ModTime,
 			ETag:    obj.ETag,
@@ -446,22 +506,21 @@ func (c *Client) QueryCalendarObjectsWithFilter(ctx context.Context, calID strin
 }
 
 // GetCalendarObject retrieves a single calendar object from a Nextcloud calendar collection.
+// The JMAP CalendarEvent id is the CalDAV resource name verbatim, so the id-to-path
+// mapping is a plain concatenation and is invertible regardless of the resource's file
+// extension (RFC 4791 Section 5.3.1 only says URLs "may" end in ".ics").
 func (c *Client) GetCalendarObject(ctx context.Context, calID, eventID string) (*CalendarObjectInfo, error) {
 	calClient, u, err := c.CalDAV(ctx)
 	if err != nil {
 		return nil, err
 	}
-	eventFilename := eventID
-	if !strings.HasSuffix(eventID, ".ics") {
-		eventFilename = eventID + ".ics"
-	}
-	eventPath := c.getCalPath(ctx, calClient, u, calID) + eventFilename
+	eventPath := c.getCalPath(ctx, calClient, u, calID) + eventID
 	obj, err := calClient.GetCalendarObject(ctx, eventPath)
 	if err != nil {
 		return nil, err
 	}
 	return &CalendarObjectInfo{
-		ID:      strings.TrimSuffix(path.Base(obj.Path), ".ics"),
+		ID:      path.Base(obj.Path),
 		Data:    obj.Data,
 		ModTime: obj.ModTime,
 		ETag:    obj.ETag,
@@ -474,12 +533,9 @@ func (c *Client) PutCalendarObject(ctx context.Context, calID, eventID string, c
 	if err != nil {
 		return err
 	}
-	eventFilename := eventID
-	if !strings.HasSuffix(eventID, ".ics") {
-		eventFilename = eventID + ".ics"
-	}
-	eventPath := c.getCalPath(ctx, calClient, u, calID) + eventFilename
+	eventPath := c.getCalPath(ctx, calClient, u, calID) + eventID
 	_, err = calClient.PutCalendarObject(ctx, eventPath, calObj)
+	invalidateRequestCalendarCollections(ctx, u)
 	return err
 }
 
@@ -489,12 +545,10 @@ func (c *Client) DeleteCalendarObject(ctx context.Context, calID, eventID string
 	if err != nil {
 		return err
 	}
-	eventFilename := eventID
-	if !strings.HasSuffix(eventID, ".ics") {
-		eventFilename = eventID + ".ics"
-	}
-	eventPath := c.getCalPath(ctx, calClient, u, calID) + eventFilename
-	return calClient.RemoveAll(ctx, eventPath)
+	eventPath := c.getCalPath(ctx, calClient, u, calID) + eventID
+	err = calClient.RemoveAll(ctx, eventPath)
+	invalidateRequestCalendarCollections(ctx, u)
+	return err
 }
 
 func (c *Client) buildURL(endpoint string) string {
@@ -509,11 +563,19 @@ func (c *Client) buildURL(endpoint string) string {
 
 // CalendarSyncStatus contains synchronization tokens and metadata for a CalDAV calendar collection.
 type CalendarSyncStatus struct {
-	ID        string
-	Path      string
-	Name      string
-	CTag      string
-	SyncToken string
+	ID          string
+	Path        string
+	Name        string
+	Description string
+	CTag        string
+	SyncToken   string
+}
+
+// calendarCollections is the result of the home-set PROPFIND: the calendar collections
+// in document order plus an id-indexed view.
+type calendarCollections struct {
+	ordered []*CalendarSyncStatus
+	byID    map[string]*CalendarSyncStatus
 }
 
 // SyncCollectionChange represents an added/modified or deleted event in a CalDAV calendar.
@@ -534,12 +596,22 @@ type SyncCollectionResult struct {
 // ErrInvalidSyncToken is returned when CalDAV rejects a sync token as expired or invalid.
 var ErrInvalidSyncToken = errors.New("caldav: invalid or expired sync-token")
 
-// GetCalendarSyncStatuses queries the calendar home set with PROPFIND Depth: 1 to retrieve
-// the collection tag (CS:getctag) and sync-token (D:sync-token) for all user calendars in a single request.
-func (c *Client) GetCalendarSyncStatuses(ctx context.Context) (map[string]*CalendarSyncStatus, error) {
+// getCalendarCollections queries the calendar home set with PROPFIND Depth: 1 and
+// returns the calendar collections in document order together with their CTag and
+// sync-token. The result is memoized for the lifetime of a single JMAP request so the
+// calendar listing and the CalendarEvent state derive from one CalDAV round-trip.
+func (c *Client) getCalendarCollections(ctx context.Context) (*calendarCollections, error) {
 	calClient, u, err := c.CalDAV(ctx)
 	if err != nil {
 		return nil, err
+	}
+	key := calendarSyncStatusesKey{user: u}
+	if rs := jmapcore.RequestScopeFrom(ctx); rs != nil {
+		if v, ok := rs.Load(key); ok {
+			if cc, ok := v.(*calendarCollections); ok {
+				return cc, nil
+			}
+		}
 	}
 	homeSet := c.getCalendarHomeSet(ctx, calClient, u)
 	if homeSet == "" {
@@ -549,10 +621,11 @@ func (c *Client) GetCalendarSyncStatuses(ctx context.Context) (map[string]*Calen
 	urlStr := c.buildURL(homeSet)
 
 	reqXML := `<?xml version="1.0" encoding="utf-8" ?>
-<D:propfind xmlns:D="DAV:" xmlns:CS="http://calendarserver.org/ns/">
+<D:propfind xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav" xmlns:CS="http://calendarserver.org/ns/">
   <D:prop>
     <D:resourcetype/>
     <D:displayname/>
+    <C:calendar-description/>
     <CS:getctag/>
     <D:sync-token/>
   </D:prop>
@@ -602,6 +675,7 @@ func (c *Client) GetCalendarSyncStatuses(ctx context.Context) (map[string]*Calen
 						InnerXML []byte `xml:",innerxml"`
 					} `xml:"resourcetype"`
 					DisplayName string `xml:"displayname"`
+					Description string `xml:"urn:ietf:params:xml:ns:caldav calendar-description"`
 					GetCTag     string `xml:"getctag"`
 					SyncToken   string `xml:"sync-token"`
 				} `xml:"prop"`
@@ -617,6 +691,7 @@ func (c *Client) GetCalendarSyncStatuses(ctx context.Context) (map[string]*Calen
 
 	cleanHome := strings.TrimRight(homeSet, "/") + "/"
 	res := make(map[string]*CalendarSyncStatus)
+	var ordered []*CalendarSyncStatus
 
 	for _, r := range ms.Responses {
 		cleanHref := strings.TrimRight(r.Href, "/") + "/"
@@ -629,7 +704,7 @@ func (c *Client) GetCalendarSyncStatuses(ctx context.Context) (map[string]*Calen
 			continue
 		}
 
-		var dispName, ctag, syncToken string
+		var dispName, description, ctag, syncToken string
 		isCalendar := false
 
 		for _, ps := range r.Propstat {
@@ -639,6 +714,9 @@ func (c *Client) GetCalendarSyncStatuses(ctx context.Context) (map[string]*Calen
 				}
 				if ps.Prop.DisplayName != "" {
 					dispName = ps.Prop.DisplayName
+				}
+				if ps.Prop.Description != "" {
+					description = ps.Prop.Description
 				}
 				if ps.Prop.GetCTag != "" {
 					ctag = ps.Prop.GetCTag
@@ -653,17 +731,60 @@ func (c *Client) GetCalendarSyncStatuses(ctx context.Context) (map[string]*Calen
 			continue
 		}
 
-		c.discovery.SetCalPath(u, calID, r.Href)
+		c.discoveryFor(ctx).SetCalPath(u, calID, r.Href)
 
-		res[calID] = &CalendarSyncStatus{
-			ID:        calID,
-			Path:      r.Href,
-			Name:      dispName,
-			CTag:      ctag,
-			SyncToken: syncToken,
+		st := &CalendarSyncStatus{
+			ID:          calID,
+			Path:        r.Href,
+			Name:        dispName,
+			Description: description,
+			CTag:        ctag,
+			SyncToken:   syncToken,
 		}
+		res[calID] = st
+		ordered = append(ordered, st)
 	}
 
+	cc := &calendarCollections{ordered: ordered, byID: res}
+	if rs := jmapcore.RequestScopeFrom(ctx); rs != nil {
+		rs.Store(key, cc)
+	}
+
+	return cc, nil
+}
+
+// GetCalendarSyncStatuses returns the CTag/sync-token for every calendar, memoized for
+// the duration of the JMAP request.
+func (c *Client) GetCalendarSyncStatuses(ctx context.Context) (map[string]*CalendarSyncStatus, error) {
+	cc, err := c.getCalendarCollections(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return cc.byID, nil
+}
+
+// ListCalendarObjectETags lists the calendar object resources in a collection together
+// with their ETags. It uses go-webdav's WebDAV ReadDir (a body-less PROPFIND Depth:1),
+// so change detection can discover added resources from CalDAV ETags alone instead of
+// downloading and parsing every event body. The returned map is keyed by event id.
+func (c *Client) ListCalendarObjectETags(ctx context.Context, calID string) (map[string]string, error) {
+	calClient, u, err := c.CalDAV(ctx)
+	if err != nil {
+		return nil, err
+	}
+	calPath := c.getCalPath(ctx, calClient, u, calID)
+	entries, err := calClient.ReadDir(ctx, calPath, false)
+	if err != nil {
+		return nil, err
+	}
+
+	res := make(map[string]string, len(entries))
+	for _, fi := range entries {
+		if fi.IsDir {
+			continue
+		}
+		res[path.Base(fi.Path)] = fi.ETag
+	}
 	return res, nil
 }
 
@@ -760,10 +881,10 @@ func (c *Client) SyncCalendarCollection(ctx context.Context, calID, syncToken st
 
 	for _, r := range ms.Responses {
 		filename := path.Base(r.Href)
-		if !strings.HasSuffix(filename, ".ics") {
+		if filename == "" || filename == "/" || filename == "." {
 			continue
 		}
-		eventID := strings.TrimSuffix(filename, ".ics")
+		eventID := filename
 
 		isCreated := strings.Contains(r.Status, "201")
 		isDeleted := false
@@ -833,6 +954,37 @@ type ocsDataGroups struct {
 
 type ocsDataGroupMembers struct {
 	Users []string `json:"users"`
+}
+
+// Sharee is a share target discovered through the Nextcloud sharee search API
+// (/ocs/v2.php/apps/files_sharing/api/v1/sharees), which is available to regular
+// users with their own credentials and returns only what they are permitted to see.
+type Sharee struct {
+	// ShareType follows Nextcloud OCS: 0 = user, 1 = group (others ignored).
+	ShareType int
+	// ID is the Nextcloud user or group id ("shareWith").
+	ID string
+	// Label is the human-readable display label.
+	Label string
+}
+
+type ocsShareeValue struct {
+	ShareType int    `json:"shareType"`
+	ShareWith string `json:"shareWith"`
+}
+
+type ocsSharee struct {
+	Label string         `json:"label"`
+	Value ocsShareeValue `json:"value"`
+}
+
+type ocsDataSharees struct {
+	Exact struct {
+		Users  []ocsSharee `json:"users"`
+		Groups []ocsSharee `json:"groups"`
+	} `json:"exact"`
+	Users  []ocsSharee `json:"users"`
+	Groups []ocsSharee `json:"groups"`
 }
 
 type ocsEnvelope[T any] struct {
@@ -1072,6 +1224,51 @@ func (c *Client) GetGroupMembers(ctx context.Context, groupid string) ([]string,
 		return nil, fmt.Errorf("get group members failed: %s (code %d)", env.OCS.Meta.Message, env.OCS.Meta.StatusCode)
 	}
 	return env.OCS.Data.Users, nil
+}
+
+// GetSharees searches the Nextcloud share targets (users and groups) visible to the
+// authenticated user, using the same endpoint the Nextcloud web UI uses. It requires no
+// admin rights and returns only principals the caller is permitted to share with. An
+// empty search returns the caller's visible directory (paginated upstream).
+func (c *Client) GetSharees(ctx context.Context, search string) ([]Sharee, error) {
+	q := url.Values{}
+	q.Set("search", search)
+	q.Set("itemType", "file")
+	q.Set("perPage", "200")
+	q.Set("format", "json")
+	respBytes, err := c.userRequest(ctx, http.MethodGet, "/ocs/v2.php/apps/files_sharing/api/v1/sharees?"+q.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+	var env ocsEnvelope[ocsDataSharees]
+	if err := json.Unmarshal(respBytes, &env); err != nil {
+		return nil, err
+	}
+	// OCS v2 uses 200 for success; v1 uses 100. Accept both.
+	if env.OCS.Meta.StatusCode != 100 && env.OCS.Meta.StatusCode != 200 {
+		return nil, fmt.Errorf("sharee search failed: %s (code %d)", env.OCS.Meta.Message, env.OCS.Meta.StatusCode)
+	}
+
+	var out []Sharee
+	seen := make(map[string]bool)
+	appendAll := func(list []ocsSharee) {
+		for _, s := range list {
+			if s.Value.ShareWith == "" || s.Value.ShareType > 1 {
+				continue
+			}
+			key := fmt.Sprintf("%d:%s", s.Value.ShareType, s.Value.ShareWith)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, Sharee{ShareType: s.Value.ShareType, ID: s.Value.ShareWith, Label: s.Label})
+		}
+	}
+	appendAll(env.OCS.Data.Exact.Users)
+	appendAll(env.OCS.Data.Exact.Groups)
+	appendAll(env.OCS.Data.Users)
+	appendAll(env.OCS.Data.Groups)
+	return out, nil
 }
 
 // AddUserToGroup adds a user to a group in Nextcloud.

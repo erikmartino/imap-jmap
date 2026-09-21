@@ -452,7 +452,13 @@ func buildEventComponent(ev *CalendarEvent, organizerEmail, onlyAttendee, status
 	}
 
 	if exdates := excludedRecurrenceDates(ev); len(exdates) > 0 {
-		comp.Props.Set(newRawProp(ical.PropExceptionDates, strings.Join(exdates, ",")))
+		// RFC 5545 Section 3.8.5.1 permits either comma-separated values in one
+		// EXDATE property or repeated EXDATE properties. Emit one property per
+		// value: comma-separated lists defeat strict single-value parsers (including
+		// go-ical's RecurrenceSet), which would otherwise reject the whole object.
+		for _, d := range exdates {
+			comp.Props.Add(newRawProp(ical.PropExceptionDates, d))
+		}
 	}
 
 	status := statusOverride
@@ -665,9 +671,10 @@ func CalendarEventToICalendar(ev *CalendarEvent, method, organizerEmail, onlyAtt
 	cal.Props.SetText(ical.PropProductID, prodID)
 	cal.Props.SetText(ical.PropVersion, "2.0")
 	cal.Props.SetText(ical.PropCalendarScale, "GREGORIAN")
-	if method == "" && ev.Method != "" {
-		method = ev.Method
-	}
+	// METHOD is an iTIP transport property, not a stored calendar-object property:
+	// RFC 4791 Section 4.1 forbids a METHOD in a calendar object resource. It is
+	// therefore written only when the caller explicitly requests it (outbound iTIP),
+	// never inferred from the event's iTIP bookkeeping field.
 	if method != "" {
 		cal.Props.SetText(ical.PropMethod, method)
 	}

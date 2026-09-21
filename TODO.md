@@ -16,32 +16,32 @@ agy --conversation=a57c9712-9454-4ec8-848b-1dbeddc72cc1
 
 ## Active Roadmap
 
-### Phase 1: JMAP for Tasks (`draft-ietf-jmap-tasks` / RFC 8984 JSCalendar §5)
-Bridge Nextcloud CalDAV `VTODO` collections and tasks to JMAP Tasks:
+### Phase 1: JMAP Mail Sharing (`draft-ietf-jmap-mail-sharing`)
+Extend the RFC 9670 sharing framework to Mailboxes, completing the mail side of Phase 4.
+Capability: `urn:ietf:params:jmap:mail:share`.
 
-- [ ] **1.1 Session Capability & Data Models**
-  - Advertise `urn:ietf:params:jmap:tasks` capability in JMAP session resource.
-  - Define `TaskList` model (`id`, `name`, `color`, `sortOrder`, `isDefault`, `shareWith`).
-  - Define `Task` model ([RFC 8984 §5](https://www.rfc-editor.org/rfc/rfc8984.html#section-5)) (`id`, `taskListId`, `title`, `description`, `due`, `start`, `estimatedDuration`, `status`, `progress`, `percentComplete`, `priority`, `subtasks`, `recurrenceRules`).
-
-- [ ] **1.2 Nextcloud CalDAV `VTODO` Backend Encapsulation**
-  - Encapsulate CalDAV `VTODO` operations strictly inside `jmap/nextcloud/client.go` using standard libraries (`github.com/emersion/go-webdav/caldav` and `go-ical`).
-  - Provide domain-level methods on `*Client` (`ListTaskLists`, `QueryTaskObjects`, `PutTaskObject`, `DeleteTaskObject`).
-  - Implement `TasksBackend` adapter in `jmap/nextcloud/` without exposing wire paths or `.ics` extensions to outer handlers.
-
-- [ ] **1.3 Method Handlers & Conformance Tests**
-  - Register `Task/*` and `TaskList/*` handlers in JMAP method registry (`jmap/jmaptasks/`).
-  - Add requirement traceability matrix in `spec/jmap_tasks.go` gated by `TestSpecCoverage`.
-  - Implement hermetic unit tests with `spectest.Require` citations against embedded reference backend.
+- [ ] **1.1 Mailbox Sharing Data Model & Capability**
+  - Advertise `urn:ietf:params:jmap:mail:share` and add `shareWith` (Principal id → `MailboxRights`) and the `mayShare` right to the Mailbox model.
+  - Read `isSubscribed` / `myRights` from the upstream store (IMAP subscription + ACL state).
+- [ ] **1.2 IMAP ACL Translation**
+  - Map `Mailbox.shareWith` mutations to `SETACL`/`DELETEACL` and read rights back with `GETACL`/`MYRIGHTS` ([RFC 4314](https://www.rfc-editor.org/rfc/rfc4314.html)), keeping the `MailboxRights` ↔ IMAP ACL right mapping consistent (draft §3.2).
+  - Emit `ShareNotification` (RFC 9670) on Mailbox sharing changes; the owner MUST NOT appear in `shareWith`.
+- [ ] **1.3 Handlers, Traceability & Hermetic Tests**
+  - Reuse the `ShareNotification` methods already implemented for calendars.
+  - Add `spec/jmap_mail_sharing.go` gated by `TestSpecCoverage` and hermetic tests via the embedded IMAP/SMTP backend.
 
 ---
 
-### Phase 2: JMAP for Notes (`draft-ietf-jmap-notes`)
-- [ ] **2.1 Session Capability & Data Models**
-  - Advertise `urn:ietf:params:jmap:notes` capability.
-  - Define `Note` model (`id`, `title`, `content`, `format`, `categories`, `isFavorite`, `updated`).
-- [ ] **2.2 Nextcloud Notes Integration**
-  - Map `Note/*` methods (`get`, `set`, `query`, `changes`) to Nextcloud WebDAV (`/Notes/`) or Notes REST API.
+### Phase 2: JMAP Conditional Set (`draft-ietf-jmap-conditional`)
+Add a finer, per-object conditional mechanism to `*/set` (an HTTP `If-Match` equivalent) on top of the whole-request `ifInState`. Capability: `urn:ietf:params:jmap:conditional`.
+
+- [ ] **2.1 Capability & Request Semantics**
+  - Advertise `urn:ietf:params:jmap:conditional` and accept its per-object condition argument on `*/set`.
+  - Return the standard `stateMismatch` error (and per-object `notCreated`/`notUpdated`/`notDestroyed`) when a condition fails.
+- [ ] **2.2 Cross-Domain Coverage**
+  - Apply to Mail, Calendar, Contacts, FileNode, and Sieve `*/set` handlers so no advertised data type is left behind.
+- [ ] **2.3 Traceability & Hermetic Tests**
+  - Add `spec/jmap_conditional.go` gated by `TestSpecCoverage` and cover matched/failed/atomic cases.
 
 ---
 
@@ -52,24 +52,24 @@ Bridge Nextcloud CalDAV `VTODO` collections and tasks to JMAP Tasks:
 ---
 
 ### Phase 4: JMAP Sharing ([RFC 9670](https://www.rfc-editor.org/rfc/rfc9670.html))
-Support cross-account access and collaborative sharing for mailboxes, calendars, address books, and task lists:
+Support cross-account access and collaborative sharing for mailboxes, calendars, and address books:
 
 - [ ] **4.1 Data Models & Session Capabilities**
   - Advertise `urn:ietf:params:jmap:principals:owner` in `accountCapabilities` for accounts supporting sharing (RFC 9670 §1.5.2).
-  - Define `ShareNotification` data model ([RFC 9670 §2](https://www.rfc-editor.org/rfc/rfc9670.html#section-2)) (`id`, `created`, `changedBy`, `objectType`, `objectAccountId`, `objectId`, `oldRights`, `myRights`, `name`).
-  - Extend shared entity models (`Mailbox`, `Calendar`, `AddressBook`, `TaskList`) with `shareWith` and `myRights` properties (RFC 9670 §5).
+  - Define `ShareNotification` data model ([RFC 9670 §2](https://www.rfc-editor.org/rfc/rfc9670.html#section-2)) (`id`, `created`, `changedBy`, `objectType`, `objectAccountId`, `objectId`, `oldRights`, `newRights`, `name`).
+  - Extend shared entity models (`Mailbox`, `Calendar`, `AddressBook`) with `shareWith` and `myRights` properties (RFC 9670 §5).
 
-- [ ] **4.2 ShareNotification Method Handlers & Push Notifications**
-  - Implement `ShareNotification/get`, `changes`, `query`, `queryChanges` ([RFC 9670 §4.1](https://www.rfc-editor.org/rfc/rfc9670.html#section-4.1)).
-  - Implement `ShareNotification/set` with destroy-only support per [RFC 9670 §4.2](https://www.rfc-editor.org/rfc/rfc9670.html#section-4.2).
+- [x] **4.2 ShareNotification Method Handlers & Push Notifications**
+  - Implement `ShareNotification/get`, `changes`, `query`, `queryChanges` ([RFC 9670 §3.1–§3.5](https://www.rfc-editor.org/rfc/rfc9670.html#section-3.1)).
+  - Implement `ShareNotification/set` with destroy-only support per [RFC 9670 §3.3](https://www.rfc-editor.org/rfc/rfc9670.html#section-3.3).
   - Emit push `StateChange` events (`ShareNotification` type) on sharing mutations (RFC 9670 §3).
 
-- [ ] **4.3 IMAP ACL & Nextcloud Sharing Translation**
-  - Map `Mailbox.shareWith` and `Mailbox.myRights` mutations to IMAP ACL commands (`SETACL`, `DELETEACL`, `GETACL`, `MYRIGHTS` per [RFC 4314](https://www.rfc-editor.org/rfc/rfc4314.html)).
-  - Map `Calendar.shareWith`, `AddressBook.shareWith`, and `TaskList.shareWith` mutations to Nextcloud OCS Share API (`/ocs/v2.php/apps/files_sharing/api/v1/shares`) and WebDAV ACLs ([RFC 3744](https://www.rfc-editor.org/rfc/rfc3744.html)).
+- [ ] **4.3 Nextcloud Sharing Translation**
+  - Mailbox sharing via IMAP ACL (`SETACL`/`DELETEACL`/`GETACL`/`MYRIGHTS`, [RFC 4314](https://www.rfc-editor.org/rfc/rfc4314.html)) is covered by Phase 1 (`draft-ietf-jmap-mail-sharing`).
+  - Map `Calendar.shareWith` and `AddressBook.shareWith` mutations to the Nextcloud OCS Share API (`/ocs/v2.php/apps/files_sharing/api/v1/shares`) and WebDAV ACLs ([RFC 3744](https://www.rfc-editor.org/rfc/rfc3744.html)).
   - Enforce cross-account authorization and permission checks (`mayRead`, `mayWrite`, `mayAdmin`).
 
-- [ ] **4.4 Requirement Conformance Matrix & Test Verification**
+- [x] **4.4 Requirement Conformance Matrix & Test Verification**
   - Add requirement traceability matrix in `spec/jmap_sharing.go` gated by `TestSpecCoverage`.
   - Implement dedicated hermetic unit test suite (`jmap/rfc9670_sharing_test.go`) covering all RFC 2119 normative clauses using `spectest.Require` or `spectest.Cover`.
 
@@ -87,3 +87,10 @@ Tie all production code to specification clauses and ensure 100% test coverage a
   - Enforce **Test -> Spec**: Every `spectest.RequireID` call in test code must exist in the canonical matrix.
   - Report complete coverage audit: tally and report all outstanding `MUST`, `SHOULD`, and `MAY` gaps on every test run.
 
+
+---
+
+## Deferred / Out of Scope
+
+- **JMAP for Tasks (`draft-ietf-jmap-tasks`)**: deferred. The IETF draft is **expired** (last revision `-06`, March 2023) and no JMAP client implements it. Revisit only if the WG republishes a live document and a real client (e.g. Bulwark) adopts it. If revived, the plan is to bridge Nextcloud CalDAV `VTODO` collections to `TaskList`/`Task` under the same layering rules as calendars (CalDAV fully encapsulated in `jmap/nextcloud/client.go`).
+- **JMAP for Notes**: out of scope. There is **no IETF JMAP Notes draft** (`draft-ietf-jmap-notes` does not exist in the IETF datatracker); Nextcloud Notes is WebDAV-based, not JMAP.
