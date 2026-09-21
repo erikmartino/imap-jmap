@@ -77,24 +77,6 @@ var RFC9219Requirements = []Requirement{
 	{
 		Spec:    "RFC9219",
 		Section: "4.1",
-		Level:   Level("MUST"),
-		Text:    "it MUST be interpreted by the server as a request to return the",
-		Tests:   []string{},
-		Status:  Gap,
-		Note:    "Extracted by specextract from RFC9219 §4.1 [p3]",
-	},
-	{
-		Spec:    "RFC9219",
-		Section: "4.1",
-		Level:   Level("MUST"),
-		Text:    "properties, it MUST be interpreted by the server as a request to",
-		Tests:   []string{},
-		Status:  Gap,
-		Note:    "Extracted by specextract from RFC9219 §4.1 [p4]",
-	},
-	{
-		Spec:    "RFC9219",
-		Section: "4.1",
 		Level:   Level("MAY"),
 		Text:    "MAY return other values not defined below, as defined in",
 		Tests:   []string{},
@@ -237,4 +219,3 @@ var RFC9219Requirements = []Requirement{
 		Note:    "Extracted by specextract from RFC9219 §2119 [p1]",
 	},
 }
-

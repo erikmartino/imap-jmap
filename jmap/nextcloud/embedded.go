@@ -49,6 +49,7 @@ type memSyncRecord struct {
 	Href    string
 	EventID string
 	ETag    string
+	Created bool
 	Deleted bool
 	Token   int
 }
@@ -170,6 +171,7 @@ func (b *memCalDAVBackend) PutCalendarObject(ctx context.Context, p string, cale
 		ETag:    etag,
 		Data:    calendar,
 	}
+	isCreate := (b.objects[u][p] == nil)
 	b.objects[u][p] = co
 	if sync, ok := b.calendarSync[u][parentPath]; ok {
 		sync.syncToken++
@@ -178,6 +180,7 @@ func (b *memCalDAVBackend) PutCalendarObject(ctx context.Context, p string, cale
 			Href:    p,
 			EventID: eventID,
 			ETag:    etag,
+			Created: isCreate,
 			Deleted: false,
 			Token:   sync.syncToken,
 		})
@@ -930,18 +933,57 @@ func NewEmbeddedServer(usernames ...string) (*httptest.Server, *Client, func()) 
 						SyncToken: fmt.Sprintf("http://sabre.io/ns/sync/%d", currentTok),
 					}
 
+					type hrefSummary struct {
+						href        string
+						firstCreate bool
+						deleted     bool
+						etag        string
+					}
+					summaryMap := make(map[string]*hrefSummary)
+					var order []string
+
 					for _, ch := range matchedChanges {
-						if ch.Deleted {
+						s, exists := summaryMap[ch.Href]
+						if !exists {
+							s = &hrefSummary{
+								href:        ch.Href,
+								firstCreate: ch.Created,
+							}
+							summaryMap[ch.Href] = s
+							order = append(order, ch.Href)
+						}
+						s.deleted = ch.Deleted
+						s.etag = ch.ETag
+					}
+
+					for _, href := range order {
+						s := summaryMap[href]
+						if s.firstCreate && s.deleted {
+							// Created and destroyed in the same period: omit per RFC 6578 §3.2 & RFC 8620 §5.2
+							continue
+						}
+						if s.deleted {
 							resp.Responses = append(resp.Responses, respItem{
-								Href:   ch.Href,
+								Href:   s.href,
 								Status: "HTTP/1.1 404 Not Found",
+							})
+						} else if s.firstCreate {
+							resp.Responses = append(resp.Responses, respItem{
+								Href:   s.href,
+								Status: "HTTP/1.1 201 Created",
+								Propstat: []respPropstat{
+									{
+										Prop:   respProp{GetETag: s.etag},
+										Status: "HTTP/1.1 200 OK",
+									},
+								},
 							})
 						} else {
 							resp.Responses = append(resp.Responses, respItem{
-								Href: ch.Href,
+								Href: s.href,
 								Propstat: []respPropstat{
 									{
-										Prop:   respProp{GetETag: ch.ETag},
+										Prop:   respProp{GetETag: s.etag},
 										Status: "HTTP/1.1 200 OK",
 									},
 								},

@@ -395,6 +395,24 @@ func buildEventComponent(ev *CalendarEvent, organizerEmail, onlyAttendee, status
 			comp.Props.SetText("X-JSCALENDAR-ENTRIES", string(data))
 		}
 	}
+	if ev.IsDraft {
+		comp.Props.SetText("X-JMAP-IS-DRAFT", "TRUE")
+	}
+	if ev.IsOrigin {
+		comp.Props.SetText("X-JMAP-IS-ORIGIN", "TRUE")
+	}
+	if ev.MayInviteSelf {
+		comp.Props.SetText("X-JMAP-MAY-INVITE-SELF", "TRUE")
+	}
+	if ev.MayInviteOthers {
+		comp.Props.SetText("X-JMAP-MAY-INVITE-OTHERS", "TRUE")
+	}
+	if ev.HideAttendees {
+		comp.Props.SetText("X-JMAP-HIDE-ATTENDEES", "TRUE")
+	}
+	if ev.UseDefaultAlerts {
+		comp.Props.SetText("X-JMAP-USE-DEFAULT-ALERTS", "TRUE")
+	}
 
 	if ev.Type != "Task" || ev.Due == "" {
 		if ev.ShowWithoutTime {

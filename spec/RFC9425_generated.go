@@ -273,4 +273,3 @@ var RFC9425Requirements = []Requirement{
 		Note:    "Extracted by specextract from RFC9425 §2119 [p1]",
 	},
 }
-

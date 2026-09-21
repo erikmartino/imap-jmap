@@ -219,4 +219,3 @@ var RFC9749Requirements = []Requirement{
 		Note:    "Extracted by specextract from RFC9749 §2119 [p2]",
 	},
 }
-

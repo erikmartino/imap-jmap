@@ -368,6 +368,7 @@ func icalComponentToCalendarEvent(comp *ical.Component, method, prodID string) *
 	}
 
 	var start, end string
+	var orgProp *ical.Prop
 
 	for name, propList := range comp.Props {
 		for _, p := range propList {
@@ -394,6 +395,18 @@ func icalComponentToCalendarEvent(comp *ical.Component, method, prodID string) *
 				}
 			case ical.PropSource:
 				ev.Source = strings.TrimSpace(p.Value)
+			case "X-JMAP-IS-DRAFT":
+				ev.IsDraft = strings.EqualFold(strings.TrimSpace(p.Value), "TRUE")
+			case "X-JMAP-IS-ORIGIN":
+				ev.IsOrigin = strings.EqualFold(strings.TrimSpace(p.Value), "TRUE")
+			case "X-JMAP-MAY-INVITE-SELF":
+				ev.MayInviteSelf = strings.EqualFold(strings.TrimSpace(p.Value), "TRUE")
+			case "X-JMAP-MAY-INVITE-OTHERS":
+				ev.MayInviteOthers = strings.EqualFold(strings.TrimSpace(p.Value), "TRUE")
+			case "X-JMAP-HIDE-ATTENDEES":
+				ev.HideAttendees = strings.EqualFold(strings.TrimSpace(p.Value), "TRUE")
+			case "X-JMAP-USE-DEFAULT-ALERTS":
+				ev.UseDefaultAlerts = strings.EqualFold(strings.TrimSpace(p.Value), "TRUE")
 			case ical.PropSummary:
 				if text, err := p.Text(); err == nil {
 					ev.Title = text
@@ -505,45 +518,8 @@ func icalComponentToCalendarEvent(comp *ical.Component, method, prodID string) *
 					}
 				}
 			case ical.PropOrganizer:
-				if strings.HasPrefix(p.Value, "mailto:") {
-					ev.OrganizerCalendarAddress = p.Value
-				} else if p.Value != "" {
-					ev.OrganizerCalendarAddress = "mailto:" + p.Value
-				}
-				email := icalParticipantKey(p.Value)
-				if email != "" {
-					found := false
-					for _, existing := range ev.Participants {
-						if strings.EqualFold(existing.Email, email) || strings.EqualFold(existing.CalendarAddress, "mailto:"+email) {
-							if existing.Roles == nil {
-								existing.Roles = make(map[string]bool)
-							}
-							existing.Roles["owner"] = true
-							existing.Role = "owner"
-							found = true
-							break
-						}
-					}
-					if !found {
-						if ev.Participants == nil {
-							ev.Participants = make(map[string]*JSCalendarParticipant)
-						}
-						participant := &JSCalendarParticipant{
-							Type:            "Participant",
-							Email:           email,
-							CalendarAddress: "mailto:" + email,
-							Roles:           map[string]bool{"owner": true},
-							Role:            "owner",
-						}
-						if cn := p.Params.Get("CN"); cn != "" {
-							participant.Name = cn
-						}
-						ev.Participants[email] = participant
-					}
-				}
-				if sentBy := p.Params.Get("SENT-BY"); sentBy != "" {
-					ev.SentBy = sentBy
-				}
+				pCopy := p
+				orgProp = &pCopy
 			case ical.PropAttendee:
 				key := p.Params.Get("X-KEY")
 				if key == "" {
@@ -730,6 +706,48 @@ func icalComponentToCalendarEvent(comp *ical.Component, method, prodID string) *
 					ev.ShowWithoutTime = true
 				}
 			}
+		}
+	}
+
+	if orgProp != nil {
+		if strings.HasPrefix(orgProp.Value, "mailto:") {
+			ev.OrganizerCalendarAddress = orgProp.Value
+		} else if orgProp.Value != "" {
+			ev.OrganizerCalendarAddress = "mailto:" + orgProp.Value
+		}
+		email := icalParticipantKey(orgProp.Value)
+		if email != "" {
+			found := false
+			for _, existing := range ev.Participants {
+				if strings.EqualFold(existing.Email, email) || strings.EqualFold(existing.CalendarAddress, "mailto:"+email) {
+					if existing.Roles == nil {
+						existing.Roles = make(map[string]bool)
+					}
+					existing.Roles["owner"] = true
+					existing.Role = "owner"
+					found = true
+					break
+				}
+			}
+			if !found {
+				if ev.Participants == nil {
+					ev.Participants = make(map[string]*JSCalendarParticipant)
+				}
+				participant := &JSCalendarParticipant{
+					Type:            "Participant",
+					Email:           email,
+					CalendarAddress: "mailto:" + email,
+					Roles:           map[string]bool{"owner": true},
+					Role:            "owner",
+				}
+				if cn := orgProp.Params.Get("CN"); cn != "" {
+					participant.Name = cn
+				}
+				ev.Participants[email] = participant
+			}
+		}
+		if sentBy := orgProp.Params.Get("SENT-BY"); sentBy != "" {
+			ev.SentBy = sentBy
 		}
 	}
 

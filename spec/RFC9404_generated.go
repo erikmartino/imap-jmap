@@ -454,15 +454,6 @@ var RFC9404Requirements = []Requirement{
 	},
 	{
 		Spec:    "RFC9404",
-		Section: "2119",
-		Level:   Level("MAY"),
-		Text:    "May 2017, <https://www",
-		Tests:   []string{},
-		Status:  Gap,
-		Note:    "Extracted by specextract from RFC9404 §2119 [p1]",
-	},
-	{
-		Spec:    "RFC9404",
 		Section: "7.2",
 		Level:   Level("MAY"),
 		Text:    "17487/RFC7888, May 2016,",
@@ -470,5 +461,13 @@ var RFC9404Requirements = []Requirement{
 		Status:  Gap,
 		Note:    "Extracted by specextract from RFC9404 §7.2 [p1]",
 	},
+	{
+		Spec:    "RFC9404",
+		Section: "2119",
+		Level:   Level("MAY"),
+		Text:    "May 2017, <https://www",
+		Tests:   []string{},
+		Status:  Gap,
+		Note:    "Extracted by specextract from RFC9404 §2119 [p1]",
+	},
 }
-

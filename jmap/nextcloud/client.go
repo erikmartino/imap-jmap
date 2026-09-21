@@ -521,6 +521,7 @@ type SyncCollectionChange struct {
 	EventID string
 	Href    string
 	ETag    string
+	Created bool
 	Deleted bool
 }
 
@@ -764,6 +765,7 @@ func (c *Client) SyncCalendarCollection(ctx context.Context, calID, syncToken st
 		}
 		eventID := strings.TrimSuffix(filename, ".ics")
 
+		isCreated := strings.Contains(r.Status, "201")
 		isDeleted := false
 		if strings.Contains(r.Status, "404") {
 			isDeleted = true
@@ -780,6 +782,7 @@ func (c *Client) SyncCalendarCollection(ctx context.Context, calID, syncToken st
 			EventID: eventID,
 			Href:    r.Href,
 			ETag:    etag,
+			Created: isCreated,
 			Deleted: isDeleted,
 		})
 	}

@@ -22,15 +22,6 @@ var RFC9007Requirements = []Requirement{
 	},
 	{
 		Spec:    "RFC9007",
-		Section: "2",
-		Level:   Level("MUST"),
-		Text:    "must be done with the help of a header field, as already",
-		Tests:   []string{},
-		Status:  Gap,
-		Note:    "Extracted by specextract from RFC9007 §2 [p1]",
-	},
-	{
-		Spec:    "RFC9007",
 		Section: "1.1",
 		Level:   Level("MUST"),
 		Text:    "The key words \"MUST\", \"MUST NOT\", \"REQUIRED\", \"SHALL\", \"SHALL NOT\",",
@@ -82,6 +73,15 @@ var RFC9007Requirements = []Requirement{
 		Tests:   []string{},
 		Status:  Gap,
 		Note:    "Extracted by specextract from RFC9007 §1.3 [p1]",
+	},
+	{
+		Spec:    "RFC9007",
+		Section: "2",
+		Level:   Level("MUST"),
+		Text:    "must be done with the help of a header field, as already",
+		Tests:   []string{},
+		Status:  Gap,
+		Note:    "Extracted by specextract from RFC9007 §2 [p1]",
 	},
 	{
 		Spec:    "RFC9007",
@@ -219,4 +219,3 @@ var RFC9007Requirements = []Requirement{
 		Note:    "Extracted by specextract from RFC9007 §2119 [p1]",
 	},
 }
-

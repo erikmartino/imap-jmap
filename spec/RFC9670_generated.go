@@ -319,15 +319,6 @@ var RFC9670Requirements = []Requirement{
 	},
 	{
 		Spec:    "RFC9670",
-		Section: "2.5",
-		Level:   Level("MAY"),
-		Text:    "| Note: Implementations backed by an external directory may be",
-		Tests:   []string{},
-		Status:  Gap,
-		Note:    "Extracted by specextract from RFC9670 §2.5 [p1]",
-	},
-	{
-		Spec:    "RFC9670",
 		Section: "3",
 		Level:   Level("MAY"),
 		Text:    "Clients may present the list of notifications to the user and allow",
@@ -383,15 +374,6 @@ var RFC9670Requirements = []Requirement{
 	{
 		Spec:    "RFC9670",
 		Section: "3.4.1",
-		Level:   Level("MAY"),
-		Text:    "are optional:",
-		Tests:   []string{},
-		Status:  Gap,
-		Note:    "Extracted by specextract from RFC9670 §3.4.1 [p1]",
-	},
-	{
-		Spec:    "RFC9670",
-		Section: "3.4.1",
 		Level:   Level("MUST"),
 		Text:    "The creation date must be on or after this date to match the",
 		Tests:   []string{},
@@ -424,15 +406,6 @@ var RFC9670Requirements = []Requirement{
 		Tests:   []string{},
 		Status:  Gap,
 		Note:    "Extracted by specextract from RFC9670 §3.4.1 [p5]",
-	},
-	{
-		Spec:    "RFC9670",
-		Section: "3.4.1",
-		Level:   Level("MUST"),
-		Text:    "All given conditions in the FilterCondition object must match for the",
-		Tests:   []string{},
-		Status:  Gap,
-		Note:    "Extracted by specextract from RFC9670 §3.4.1 [p6]",
 	},
 	{
 		Spec:    "RFC9670",
@@ -714,4 +687,3 @@ var RFC9670Requirements = []Requirement{
 		Note:    "Extracted by specextract from RFC9670 §2119 [p1]",
 	},
 }
-

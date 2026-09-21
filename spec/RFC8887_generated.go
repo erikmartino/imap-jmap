@@ -302,15 +302,6 @@ var RFC8887Requirements = []Requirement{
 	{
 		Spec:    "RFC8887",
 		Section: "4.3.5.2",
-		Level:   Level("MAY"),
-		Text:    "* pushState: \"String\" (optional)",
-		Tests:   []string{},
-		Status:  Gap,
-		Note:    "Extracted by specextract from RFC8887 §4.3.5.2 [p2]",
-	},
-	{
-		Spec:    "RFC8887",
-		Section: "4.3.5.2",
 		Level:   Level("SHOULD"),
 		Text:    "Upon receipt of a \"pushState\" token, the server SHOULD",
 		Tests:   []string{},
@@ -372,4 +363,3 @@ var RFC8887Requirements = []Requirement{
 		Note:    "Extracted by specextract from RFC8887 §2119 [p1]",
 	},
 }
-

@@ -319,15 +319,6 @@ var RFC9661Requirements = []Requirement{
 	},
 	{
 		Spec:    "RFC9661",
-		Section: "2.6",
-		Level:   Level("MUST"),
-		Text:    "Script content must first be uploaded as per Section 2",
-		Tests:   []string{},
-		Status:  Gap,
-		Note:    "Extracted by specextract from RFC9661 §2.6 [p1]",
-	},
-	{
-		Spec:    "RFC9661",
 		Section: "3",
 		Level:   Level("SHOULD"),
 		Text:    "Servers SHOULD impose quotas on Sieve scripts to prevent malicious",
@@ -417,4 +408,3 @@ var RFC9661Requirements = []Requirement{
 		Note:    "Extracted by specextract from RFC9661 §2119 [p1]",
 	},
 }
-

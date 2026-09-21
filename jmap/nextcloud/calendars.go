@@ -838,7 +838,8 @@ func (b *CalendarsBackend) CalendarEventChanges(ctx context.Context, sinceState 
 		return []jmapcore.Id{}, []jmapcore.Id{}, []jmapcore.Id{}, newState, false
 	}
 
-	var updatedList, destroyedList []jmapcore.Id
+	var createdList, updatedList, destroyedList []jmapcore.Id
+	seenCreated := make(map[jmapcore.Id]bool)
 	seenUpdated := make(map[jmapcore.Id]bool)
 	seenDestroyed := make(map[jmapcore.Id]bool)
 
@@ -849,9 +850,9 @@ func (b *CalendarsBackend) CalendarEventChanges(ctx context.Context, sinceState 
 			if err == nil {
 				for _, obj := range objs {
 					id := jmapcore.Id(obj.ID)
-					if !seenUpdated[id] {
-						seenUpdated[id] = true
-						updatedList = append(updatedList, id)
+					if !seenCreated[id] {
+						seenCreated[id] = true
+						createdList = append(createdList, id)
 					}
 				}
 			}
@@ -870,20 +871,32 @@ func (b *CalendarsBackend) CalendarEventChanges(ctx context.Context, sinceState 
 		for _, ch := range res.Changes {
 			id := jmapcore.Id(ch.EventID)
 			if ch.Deleted {
+				delete(seenCreated, id)
 				delete(seenUpdated, id)
 				if !seenDestroyed[id] {
 					seenDestroyed[id] = true
 					destroyedList = append(destroyedList, id)
 				}
 			} else {
-				if !seenDestroyed[id] && !seenUpdated[id] {
-					seenUpdated[id] = true
-					updatedList = append(updatedList, id)
+				isCreate := ch.Created || b.getEventTracker(u).ActionForID(id) == "create"
+				if isCreate {
+					if !seenDestroyed[id] && !seenCreated[id] {
+						seenCreated[id] = true
+						createdList = append(createdList, id)
+					}
+				} else {
+					if !seenDestroyed[id] && !seenUpdated[id] && !seenCreated[id] {
+						seenUpdated[id] = true
+						updatedList = append(updatedList, id)
+					}
 				}
 			}
 		}
 	}
 
+	if createdList == nil {
+		createdList = []jmapcore.Id{}
+	}
 	if updatedList == nil {
 		updatedList = []jmapcore.Id{}
 	}
@@ -891,7 +904,7 @@ func (b *CalendarsBackend) CalendarEventChanges(ctx context.Context, sinceState 
 		destroyedList = []jmapcore.Id{}
 	}
 
-	return []jmapcore.Id{}, updatedList, destroyedList, newState, false
+	return createdList, updatedList, destroyedList, newState, false
 }
 
 func (b *CalendarsBackend) GetAllCalendarEvents(ctx context.Context) ([]*jmapcalendar.CalendarEvent, error) {
@@ -1196,6 +1209,10 @@ func (b *CalendarsBackend) GetCalendarEvents(ctx context.Context, ids []jmapcore
 }
 
 func (b *CalendarsBackend) CreateCalendarEvent(ctx context.Context, event *jmapcalendar.CalendarEvent) (*jmapcalendar.CalendarEvent, error) {
+	return b.putCalendarEvent(ctx, event, false)
+}
+
+func (b *CalendarsBackend) putCalendarEvent(ctx context.Context, event *jmapcalendar.CalendarEvent, isUpdate bool) (*jmapcalendar.CalendarEvent, error) {
 	if event == nil {
 		return nil, fmt.Errorf("event is nil")
 	}
@@ -1271,8 +1288,12 @@ func (b *CalendarsBackend) CreateCalendarEvent(ctx context.Context, event *jmapc
 	}
 
 	b.cache.StoreEvent(u, event)
+	action := "create"
+	if isUpdate {
+		action = "update"
+	}
 	b.mu.Lock()
-	st := b.getEventTracker(u).Record(event.ID, "create")
+	st := b.getEventTracker(u).Record(event.ID, action)
 	b.mu.Unlock()
 
 	b.emitStateChange(u, "CalendarEvent", st)
@@ -1706,7 +1727,7 @@ func (b *CalendarsBackend) UpdateCalendarEvent(ctx context.Context, id jmapcore.
 		master.RecurrenceOverrides[recID] = overridePatch
 		master.Sequence++
 		master.Updated = time.Now().UTC().Format(time.RFC3339)
-		return b.CreateCalendarEvent(ctx, master)
+		return b.putCalendarEvent(ctx, master, true)
 	}
 
 	u := b.user(ctx)
@@ -1751,7 +1772,7 @@ func (b *CalendarsBackend) UpdateCalendarEvent(ctx context.Context, id jmapcore.
 		}
 	}
 
-	return b.CreateCalendarEvent(ctx, ev)
+	return b.putCalendarEvent(ctx, ev, true)
 }
 
 func (b *CalendarsBackend) DeleteCalendarEvent(ctx context.Context, id jmapcore.Id) (bool, error) {
@@ -1775,7 +1796,7 @@ func (b *CalendarsBackend) DeleteCalendarEvent(ctx context.Context, id jmapcore.
 			master.RecurrenceOverrides[recID] = map[string]any{"excluded": true}
 			master.Sequence++
 			master.Updated = time.Now().UTC().Format(time.RFC3339)
-			_, _ = b.CreateCalendarEvent(ctx, master)
+			_, _ = b.putCalendarEvent(ctx, master, true)
 			return true, nil
 		}
 		return false, nil

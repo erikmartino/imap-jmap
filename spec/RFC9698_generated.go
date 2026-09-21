@@ -129,4 +129,3 @@ var RFC9698Requirements = []Requirement{
 		Note:    "Extracted by specextract from RFC9698 §2119 [p1]",
 	},
 }
-

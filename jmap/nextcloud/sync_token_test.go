@@ -65,26 +65,56 @@ func TestEmbeddedCalendarSyncTokenTranslation(t *testing.T) {
 		t.Fatalf("Expected state1 to start with 'sync-v1:', got %q", state1)
 	}
 
-	// 5. CalendarEventChanges since state0 must report the event as updated
+	// 5. CalendarEventChanges since state0 must report the event as created
 	created, updated, destroyed, newState, hasMore = calBackend.CalendarEventChanges(ctx, state0)
 	if hasMore {
 		t.Errorf("Expected hasMore=false")
 	}
 	found := false
-	for _, id := range updated {
+	for _, id := range created {
 		if id == createdEv.ID {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("Expected event %s in updated list, got %v", createdEv.ID, updated)
+		t.Errorf("Expected event %s in created list, got created=%v, updated=%v", createdEv.ID, created, updated)
+	}
+	if len(updated) != 0 {
+		t.Errorf("Expected 0 updated events, got %v", updated)
 	}
 	if len(destroyed) != 0 {
 		t.Errorf("Expected 0 destroyed events, got %v", destroyed)
 	}
 	if newState != state1 {
 		t.Errorf("Expected newState == state1 (%q), got %q", state1, newState)
+	}
+
+	// 5b. Update the event and verify it is reported as updated
+	_, err = calBackend.UpdateCalendarEvent(ctx, createdEv.ID, map[string]any{"title": "Updated Title"})
+	if err != nil {
+		t.Fatalf("UpdateCalendarEvent failed: %v", err)
+	}
+	state1b := calBackend.CalendarEventState(ctx)
+	created, updated, destroyed, newState, hasMore = calBackend.CalendarEventChanges(ctx, state1)
+	if hasMore {
+		t.Errorf("Expected hasMore=false")
+	}
+	foundUpdated := false
+	for _, id := range updated {
+		if id == createdEv.ID {
+			foundUpdated = true
+			break
+		}
+	}
+	if !foundUpdated {
+		t.Errorf("Expected event %s in updated list, got created=%v, updated=%v", createdEv.ID, created, updated)
+	}
+	if len(created) != 0 {
+		t.Errorf("Expected 0 created events, got %v", created)
+	}
+	if len(destroyed) != 0 {
+		t.Errorf("Expected 0 destroyed events, got %v", destroyed)
 	}
 
 	// 6. Delete the event
@@ -95,12 +125,12 @@ func TestEmbeddedCalendarSyncTokenTranslation(t *testing.T) {
 
 	// 7. State must change again
 	state2 := calBackend.CalendarEventState(ctx)
-	if state2 == state1 || state2 == state0 {
-		t.Fatalf("Expected state2 != state1 and state2 != state0, got %q", state2)
+	if state2 == state1b || state2 == state1 || state2 == state0 {
+		t.Fatalf("Expected state2 != state1b, got %q", state2)
 	}
 
-	// 8. CalendarEventChanges since state1 must report the event as destroyed
-	created, updated, destroyed, newState, hasMore = calBackend.CalendarEventChanges(ctx, state1)
+	// 8. CalendarEventChanges since state1b must report the event as destroyed
+	created, updated, destroyed, newState, hasMore = calBackend.CalendarEventChanges(ctx, state1b)
 	if hasMore {
 		t.Errorf("Expected hasMore=false")
 	}
@@ -184,16 +214,16 @@ func TestLiveNextcloudCalendarSyncTokenTranslation(t *testing.T) {
 		t.Fatalf("Expected state1 != state0 on live Nextcloud")
 	}
 
-	// 5. Changes since state0 must report createdEv.ID in updated
+	// 5. Changes since state0 must report createdEv.ID in created
 	created, updated, destroyed, newState, hasMore = calBackend.CalendarEventChanges(ctx, state0)
 	found := false
-	for _, id := range updated {
+	for _, id := range created {
 		if id == createdEv.ID {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("Expected event %s in updated list on live Nextcloud, got %v", createdEv.ID, updated)
+		t.Errorf("Expected event %s in created list on live Nextcloud, got created=%v, updated=%v", createdEv.ID, created, updated)
 	}
 }

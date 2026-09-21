@@ -78,6 +78,18 @@ func (t *ChangeTracker) Record(id jmapcore.Id, action string) string {
 	return fmt.Sprintf("~%d", t.counter)
 }
 
+// ActionForID returns the most recent action for an ID in the change history, or "" if not found.
+func (t *ChangeTracker) ActionForID(id jmapcore.Id) string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	for i := len(t.history) - 1; i >= 0; i-- {
+		if t.history[i].ID == id {
+			return t.history[i].Action
+		}
+	}
+	return ""
+}
+
 // Changes resolves mutations since the given state token into created, updated,
 // and destroyed id lists per RFC 8620 Section 5.2. If the client state is older
 // than the retained history, or if maxChanges is exceeded, hasMoreChanges is true.
