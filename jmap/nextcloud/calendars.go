@@ -1124,6 +1124,50 @@ func (b *CalendarsBackend) buildEventResponse(eventsMap map[jmapcore.Id]*jmapcal
 	return list, notFound
 }
 
+// applyCachedEventFields overlays the per-user fields kept in the backend cache (draft
+// state, time zone, keywords, recurrence overrides, participants) onto a freshly parsed
+// event. The CalDAV resource is the source of truth for event data; these fields are
+// proxy-local metadata that CalDAV does not carry.
+func (b *CalendarsBackend) applyCachedEventFields(u string, ev *jmapcalendar.CalendarEvent) {
+	cached, okCached := b.cache.GetEvent(u, ev.ID)
+	if !okCached || cached == nil {
+		return
+	}
+	ev.IsDraft = cached.IsDraft
+	ev.MayInviteSelf = cached.MayInviteSelf
+	ev.MayInviteOthers = cached.MayInviteOthers
+	ev.HideAttendees = cached.HideAttendees
+	ev.UseDefaultAlerts = cached.UseDefaultAlerts
+	if cached.TimeZone != "" {
+		ev.TimeZone = cached.TimeZone
+	}
+	if ev.OrganizerCalendarAddress == "" && cached.OrganizerCalendarAddress != "" {
+		ev.OrganizerCalendarAddress = cached.OrganizerCalendarAddress
+	}
+	if len(cached.CalendarIDs) > 0 {
+		if ev.CalendarIDs == nil {
+			ev.CalendarIDs = make(map[jmapcore.Id]bool)
+		}
+		for cid, isSet := range cached.CalendarIDs {
+			if isSet {
+				ev.CalendarIDs[cid] = true
+			}
+		}
+	}
+	if len(ev.RecurrenceOverrides) == 0 && len(cached.RecurrenceOverrides) > 0 {
+		ev.RecurrenceOverrides = cached.RecurrenceOverrides
+	}
+	if len(ev.Excluded) == 0 && len(cached.Excluded) > 0 {
+		ev.Excluded = cached.Excluded
+	}
+	if len(cached.Participants) > 0 {
+		ev.Participants = cached.Participants
+	}
+	if len(cached.Keywords) > 0 && len(ev.Keywords) == 0 {
+		ev.Keywords = cached.Keywords
+	}
+}
+
 func (b *CalendarsBackend) fetchEventsForCalendars(ctx context.Context, cals []*jmapcalendar.Calendar, start, end time.Time) (map[jmapcore.Id]*jmapcalendar.CalendarEvent, error) {
 	u := b.user(ctx)
 	windowed := !start.IsZero() || !end.IsZero()
@@ -1176,35 +1220,7 @@ func (b *CalendarsBackend) fetchEventsForCalendars(ctx context.Context, cals []*
 					ev.CalendarIDs = make(map[jmapcore.Id]bool)
 				}
 				ev.CalendarIDs[res.calID] = true
-				if cached, okCached := b.cache.GetEvent(u, evID); okCached && cached != nil {
-					ev.IsDraft = cached.IsDraft
-					ev.MayInviteSelf = cached.MayInviteSelf
-					ev.MayInviteOthers = cached.MayInviteOthers
-					ev.HideAttendees = cached.HideAttendees
-					ev.UseDefaultAlerts = cached.UseDefaultAlerts
-					if cached.TimeZone != "" {
-						ev.TimeZone = cached.TimeZone
-					}
-					if ev.OrganizerCalendarAddress == "" && cached.OrganizerCalendarAddress != "" {
-						ev.OrganizerCalendarAddress = cached.OrganizerCalendarAddress
-					}
-					if len(cached.CalendarIDs) > 0 {
-						for cid, isSet := range cached.CalendarIDs {
-							if isSet {
-								ev.CalendarIDs[cid] = true
-							}
-						}
-					}
-					if len(ev.RecurrenceOverrides) == 0 && len(cached.RecurrenceOverrides) > 0 {
-						ev.RecurrenceOverrides = cached.RecurrenceOverrides
-					}
-					if len(ev.Excluded) == 0 && len(cached.Excluded) > 0 {
-						ev.Excluded = cached.Excluded
-					}
-					if len(cached.Participants) > 0 {
-						ev.Participants = cached.Participants
-					}
-				}
+				b.applyCachedEventFields(u, ev)
 				freshMap[evID] = ev
 			}
 		}
@@ -1248,109 +1264,70 @@ func (b *CalendarsBackend) getCalendarEventsWindowed(ctx context.Context, ids []
 		cals, _, _ = b.GetCalendars(ctx, nil)
 	}
 
-	// Targeted retrieval: when specific IDs are requested, attempt targeted GetCalendarObject first
-	if ids != nil && len(ids) > 0 && len(ids) <= 20 {
-		masterMap := make(map[jmapcore.Id]bool)
+	// Targeted retrieval: when specific IDs are requested, fetch them with one
+	// calendar-multiget REPORT per calendar instead of one GET per id per calendar.
+	// The latter is O(ids x calendars) round-trips and is catastrophic when the
+	// upstream CalDAV server is slow.
+	if ids != nil && len(ids) > 0 {
+		masterSet := make(map[jmapcore.Id]bool)
 		for _, id := range ids {
 			baseID := id
 			if strings.Contains(string(id), "#") {
 				baseID = jmapcore.Id(strings.SplitN(string(id), "#", 2)[0])
 			}
-			masterMap[baseID] = true
+			masterSet[baseID] = true
+		}
+		masterIDs := make([]string, 0, len(masterSet))
+		for id := range masterSet {
+			masterIDs = append(masterIDs, string(id))
 		}
 
-		allFound := true
-		targetedEvents := make(map[jmapcore.Id]*jmapcalendar.CalendarEvent)
-
-		for mID := range masterMap {
-			var foundObj *CalendarObjectInfo
-			foundCals := make(map[jmapcore.Id]bool)
-
-			// 1. Check if calendar collection is known from cache
-			if knownCals := b.cache.GetCalIDsForEvent(u, mID); len(knownCals) > 0 {
-				for _, cid := range knownCals {
-					obj, err := b.client.GetCalendarObject(ctx, string(cid), string(mID))
-					if err == nil && obj != nil {
-						foundCals[cid] = true
-						if foundObj == nil {
-							foundObj = obj
-						}
-					}
-				}
+		foundObjs := make(map[jmapcore.Id]*CalendarObjectInfo, len(masterSet))
+		foundCals := make(map[jmapcore.Id]map[jmapcore.Id]bool, len(masterSet))
+		for _, cal := range cals {
+			objs, qErr := b.client.GetCalendarObjects(ctx, string(cal.ID), masterIDs)
+			if qErr != nil {
+				continue
 			}
-
-			// 2. If not found in known calendar, probe available calendars
-			if foundObj == nil {
-				for _, cal := range cals {
-					obj, err := b.client.GetCalendarObject(ctx, string(cal.ID), string(mID))
-					if err == nil && obj != nil {
-						foundCals[cal.ID] = true
-						if foundObj == nil {
-							foundObj = obj
-						}
-					}
+			for name, obj := range objs {
+				mID := jmapcore.Id(name)
+				if foundObjs[mID] == nil {
+					foundObjs[mID] = obj
 				}
-			}
-
-			if foundObj != nil && foundObj.Data != nil && len(foundCals) > 0 {
-				parsedList, pErr := jmapcalendar.CalendarEventsFromICalendar(foundObj.Data)
-				if pErr == nil && len(parsedList) > 0 {
-					ev := parsedList[0]
-					ev.ID = mID
-					if ev.CalendarIDs == nil {
-						ev.CalendarIDs = make(map[jmapcore.Id]bool)
-					}
-					for cid := range foundCals {
-						ev.CalendarIDs[cid] = true
-					}
-					if cached, okCached := b.cache.GetEvent(u, mID); okCached && cached != nil {
-						ev.IsDraft = cached.IsDraft
-						ev.MayInviteSelf = cached.MayInviteSelf
-						ev.MayInviteOthers = cached.MayInviteOthers
-						ev.HideAttendees = cached.HideAttendees
-						ev.UseDefaultAlerts = cached.UseDefaultAlerts
-						if cached.TimeZone != "" {
-							ev.TimeZone = cached.TimeZone
-						}
-						if ev.OrganizerCalendarAddress == "" && cached.OrganizerCalendarAddress != "" {
-							ev.OrganizerCalendarAddress = cached.OrganizerCalendarAddress
-						}
-						if len(cached.CalendarIDs) > 0 {
-							for cid, isSet := range cached.CalendarIDs {
-								if isSet {
-									ev.CalendarIDs[cid] = true
-								}
-							}
-						}
-						if len(ev.RecurrenceOverrides) == 0 && len(cached.RecurrenceOverrides) > 0 {
-							ev.RecurrenceOverrides = cached.RecurrenceOverrides
-						}
-						if len(ev.Excluded) == 0 && len(cached.Excluded) > 0 {
-							ev.Excluded = cached.Excluded
-						}
-						if len(cached.Participants) > 0 {
-							ev.Participants = cached.Participants
-						}
-						if len(cached.Keywords) > 0 && len(ev.Keywords) == 0 {
-							ev.Keywords = cached.Keywords
-						}
-					}
-					targetedEvents[mID] = ev
-				} else {
-					allFound = false
-					break
+				if foundCals[mID] == nil {
+					foundCals[mID] = make(map[jmapcore.Id]bool)
 				}
-			} else {
-				allFound = false
-				break
+				foundCals[mID][cal.ID] = true
 			}
 		}
 
-		if allFound && len(targetedEvents) == len(masterMap) {
-			b.cache.StoreEvents(u, targetedEvents)
-			storeRequestEvents(rc, u, windowKey, targetedEvents)
-			list, notFound := b.buildEventResponse(targetedEvents, ids)
-			return list, notFound, nil
+		if len(foundObjs) == len(masterSet) {
+			targetedEvents := make(map[jmapcore.Id]*jmapcalendar.CalendarEvent, len(foundObjs))
+			for mID, obj := range foundObjs {
+				if obj.Data == nil {
+					continue
+				}
+				parsedList, pErr := jmapcalendar.CalendarEventsFromICalendar(obj.Data)
+				if pErr != nil || len(parsedList) == 0 {
+					continue
+				}
+				ev := parsedList[0]
+				ev.ID = mID
+				if ev.CalendarIDs == nil {
+					ev.CalendarIDs = make(map[jmapcore.Id]bool)
+				}
+				for cid := range foundCals[mID] {
+					ev.CalendarIDs[cid] = true
+				}
+				b.applyCachedEventFields(u, ev)
+				targetedEvents[mID] = ev
+			}
+			if len(targetedEvents) == len(masterSet) {
+				b.cache.StoreEvents(u, targetedEvents)
+				storeRequestEvents(rc, u, windowKey, targetedEvents)
+				list, notFound := b.buildEventResponse(targetedEvents, ids)
+				return list, notFound, nil
+			}
 		}
 	}
 

@@ -74,3 +74,41 @@ func TestCalendarObjectIdInvertible(t *testing.T) {
 		t.Fatalf("expected %d distinct ids, got %v", len(ids), seen)
 	}
 }
+
+// TestGetCalendarObjectsMultiGet verifies that multiple objects are fetched in one
+// calendar-multiget REPORT and that missing resources are ignored rather than failing
+// the whole batch.
+func TestGetCalendarObjectsMultiGet(t *testing.T) {
+	_, client, cleanup := nextcloud.NewEmbeddedServer("user@example.com")
+	defer cleanup()
+
+	ctx := testContext()
+	cals, _, err := client.ListCalendars(ctx)
+	if err != nil || len(cals) == 0 {
+		t.Fatalf("ListCalendars failed: %v", err)
+	}
+	calID := cals[0].ID
+
+	ids := []string{"a", "b", "c"}
+	for _, id := range ids {
+		if err := client.PutCalendarObject(ctx, calID, id, testEventCalendar(id)); err != nil {
+			t.Fatalf("PutCalendarObject(%q) failed: %v", id, err)
+		}
+	}
+
+	objs, err := client.GetCalendarObjects(ctx, calID, append(append([]string{}, ids...), "does-not-exist"))
+	if err != nil {
+		t.Fatalf("GetCalendarObjects failed: %v", err)
+	}
+	if len(objs) != len(ids) {
+		t.Fatalf("expected %d objects, got %d (%v)", len(ids), len(objs), objs)
+	}
+	for _, id := range ids {
+		if objs[id] == nil {
+			t.Fatalf("expected object %q in result", id)
+		}
+	}
+	if objs["does-not-exist"] != nil {
+		t.Fatalf("missing resource should be absent")
+	}
+}

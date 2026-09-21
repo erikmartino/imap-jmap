@@ -527,6 +527,100 @@ func (c *Client) GetCalendarObject(ctx context.Context, calID, eventID string) (
 	}, nil
 }
 
+// GetCalendarObjects retrieves several calendar objects from one collection in a single
+// CalDAV calendar-multiget REPORT (RFC 4791 Section 7.9), instead of one round-trip per
+// resource. Resources that do not exist are simply absent from the result. The returned
+// map is keyed by event id.
+func (c *Client) GetCalendarObjects(ctx context.Context, calID string, eventIDs []string) (map[string]*CalendarObjectInfo, error) {
+	if len(eventIDs) == 0 {
+		return map[string]*CalendarObjectInfo{}, nil
+	}
+	calClient, u, err := c.CalDAV(ctx)
+	if err != nil {
+		return nil, err
+	}
+	calPath := c.getCalPath(ctx, calClient, u, calID)
+
+	type href struct {
+		Value string `xml:",chardata"`
+	}
+	type propReq struct {
+		GetETag      *struct{} `xml:"DAV: getetag"`
+		CalendarData *struct{} `xml:"urn:ietf:params:xml:ns:caldav calendar-data"`
+	}
+	type multiGetReq struct {
+		XMLName xml.Name `xml:"urn:ietf:params:xml:ns:caldav calendar-multiget"`
+		Prop    propReq  `xml:"DAV: prop"`
+		Hrefs   []href   `xml:"DAV: href"`
+	}
+
+	req := multiGetReq{Prop: propReq{GetETag: &struct{}{}, CalendarData: &struct{}{}}}
+	for _, id := range eventIDs {
+		req.Hrefs = append(req.Hrefs, href{Value: calPath + id})
+	}
+	reqBody, err := xml.Marshal(&req)
+	if err != nil {
+		return nil, err
+	}
+
+	urlStr := c.buildURL(calPath)
+	httpReq, err := http.NewRequestWithContext(ctx, "REPORT", urlStr, bytes.NewReader(reqBody))
+	if err != nil {
+		return nil, err
+	}
+	user, pass := c.getUserAndPass(ctx)
+	httpReq.SetBasicAuth(user, pass)
+	httpReq.Header.Set("Content-Type", "application/xml; charset=utf-8")
+
+	resp, err := c.HTTPClient.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("caldav: calendar-multiget failed with status %d", resp.StatusCode)
+	}
+
+	type multiGetMultiStatus struct {
+		XMLName   xml.Name `xml:"multistatus"`
+		Responses []struct {
+			Href     string `xml:"href"`
+			Propstat []struct {
+				Prop struct {
+					GetETag      string `xml:"getetag"`
+					CalendarData string `xml:"urn:ietf:params:xml:ns:caldav calendar-data"`
+				} `xml:"prop"`
+				Status string `xml:"status"`
+			} `xml:"propstat"`
+		} `xml:"response"`
+	}
+	var ms multiGetMultiStatus
+	if err := xml.NewDecoder(resp.Body).Decode(&ms); err != nil {
+		return nil, fmt.Errorf("caldav: failed to decode calendar-multiget response: %w", err)
+	}
+
+	res := make(map[string]*CalendarObjectInfo, len(ms.Responses))
+	for _, r := range ms.Responses {
+		var data, etag string
+		for _, ps := range r.Propstat {
+			if strings.Contains(ps.Status, "200") {
+				data = ps.Prop.CalendarData
+				etag = ps.Prop.GetETag
+			}
+		}
+		if data == "" {
+			continue
+		}
+		cal, derr := ical.NewDecoder(strings.NewReader(data)).Decode()
+		if derr != nil {
+			continue
+		}
+		name := path.Base(r.Href)
+		res[name] = &CalendarObjectInfo{ID: name, Data: cal, ETag: etag}
+	}
+	return res, nil
+}
+
 // PutCalendarObject creates or replaces a calendar object in a Nextcloud calendar collection.
 func (c *Client) PutCalendarObject(ctx context.Context, calID, eventID string, calObj *ical.Calendar) error {
 	calClient, u, err := c.CalDAV(ctx)
