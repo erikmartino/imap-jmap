@@ -220,11 +220,11 @@ func (b *IMAPSMTPBackend) GetAllEmails(ctx context.Context) ([]*jmapmail.Email, 
 	return allEmails, nil
 }
 
-// EmailsWithKeyword returns the ids of messages carrying the given JMAP keyword across
-// all selectable mailboxes, using a server-side IMAP SEARCH so only matching messages
-// are transferred (unlike QueryEmails, which materialises every message's metadata).
-// It is used to process Sieve-tagged iTIP mail.
-func (b *IMAPSMTPBackend) EmailsWithKeyword(ctx context.Context, keyword string) ([]jmapcore.Id, error) {
+// ITIPEmails returns the ids of messages that look like iMIP/iTIP mail across all
+// selectable mailboxes, using a server-side IMAP SEARCH (no Sieve tag, no body
+// transfer). Messages already marked with the marker keyword are excluded, so processed
+// iTIP mail is not rescanned.
+func (b *IMAPSMTPBackend) ITIPEmails(ctx context.Context, marker string) ([]jmapcore.Id, error) {
 	client, err := b.pool.GetClientForContext(ctx)
 	if err != nil {
 		return nil, err
@@ -235,7 +235,6 @@ func (b *IMAPSMTPBackend) EmailsWithKeyword(ctx context.Context, keyword string)
 	if err != nil {
 		return nil, err
 	}
-	flag := imappkg.MapJMAPKeywordToIMAPFlag(keyword)
 
 	var ids []jmapcore.Id
 	for _, m := range folders {
@@ -249,7 +248,7 @@ func (b *IMAPSMTPBackend) EmailsWithKeyword(ctx context.Context, keyword string)
 		if !selectable {
 			continue
 		}
-		uids, err := client.SearchKeyword(m.Name, flag)
+		uids, err := client.SearchITIP(m.Name, marker)
 		if err != nil {
 			continue
 		}

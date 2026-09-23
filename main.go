@@ -213,18 +213,6 @@ func main() {
 
 	accountResolver := jmapauth.PrimaryDomainResolver{PrimaryDomain: *primaryDomain}
 
-	manageSieveHost := os.Getenv("MANAGESIEVE_HOST")
-	manageSievePort := os.Getenv("MANAGESIEVE_PORT")
-	if manageSievePort == "" {
-		manageSievePort = "4190"
-	}
-	var sieveBackend jmapsieve.SieveBackend
-	if manageSieveHost != "" {
-		sieveBackend = managesieve.NewBackend(net.JoinHostPort(manageSieveHost, manageSievePort))
-	} else {
-		_, sieveBackend, _ = managesieve.NewEmbeddedBackend()
-	}
-
 	authBackend = &seedingAuthBackend{
 		inner:  authBackend,
 		seeded: make(map[string]bool),
@@ -236,10 +224,6 @@ func main() {
 			if ncPb, ok := principalsBackend.(*nextcloud.PrincipalsBackend); ok {
 				_ = ncPb.EnsureUser(accountCtx, subject, subject)
 			}
-			// Install the default iTIP-tagging Sieve script on first login, so the
-			// calendar can process iMIP replies/requests delivered by the real mail
-			// server. No-op if the user already has Sieve scripts.
-			_ = jmap.EnsureDefaultSieveScript(accountCtx, sieveBackend)
 		},
 	}
 
@@ -249,6 +233,18 @@ func main() {
 	}
 	if sn := os.Getenv("SERVER_NAME"); sn != "" {
 		outboundSender.LocalName = sn
+	}
+
+	manageSieveHost := os.Getenv("MANAGESIEVE_HOST")
+	manageSievePort := os.Getenv("MANAGESIEVE_PORT")
+	if manageSievePort == "" {
+		manageSievePort = "4190"
+	}
+	var sieveBackend jmapsieve.SieveBackend
+	if manageSieveHost != "" {
+		sieveBackend = managesieve.NewBackend(net.JoinHostPort(manageSieveHost, manageSievePort))
+	} else {
+		_, sieveBackend, _ = managesieve.NewEmbeddedBackend()
 	}
 
 	serverOpts := []jmap.Option{

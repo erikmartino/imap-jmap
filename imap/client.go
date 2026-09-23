@@ -335,16 +335,22 @@ func (c *Client) SearchSubject(folder string, query string) (res []uint32, err e
 	return res, nil
 }
 
-// SearchKeyword returns the UIDs of messages in the folder carrying the given IMAP
-// keyword/flag, evaluated server-side so no message bodies are transferred.
-func (c *Client) SearchKeyword(folder, keyword string) (res []uint32, err error) {
-	defer c.logCmd("SEARCH", "folder", folder, "keyword", keyword)(&err)
+// SearchITIP returns the UIDs of messages that look like iMIP/iTIP mail: a server-side
+// SEARCH for the literal "text/calendar" anywhere in the message, excluding messages
+// already marked processed with the given keyword. No Sieve tag is required; the marker
+// keyword is set by imap-jmap itself and is what stops rescanning.
+func (c *Client) SearchITIP(folder, marker string) (res []uint32, err error) {
+	defer c.logCmd("SEARCH", "folder", folder, "itip", true)(&err)
 	if _, err := c.cli.Select(folder, nil).Wait(); err != nil {
 		return nil, err
 	}
-	searchCmd := c.cli.UIDSearch(&imap.SearchCriteria{
-		Flag: []imap.Flag{imap.Flag(keyword)},
-	}, nil)
+	criteria := &imap.SearchCriteria{
+		Text: []string{"text/calendar"},
+	}
+	if marker != "" {
+		criteria.NotFlag = []imap.Flag{imap.Flag(marker)}
+	}
+	searchCmd := c.cli.UIDSearch(criteria, nil)
 	data, err := searchCmd.Wait()
 	if err != nil {
 		return nil, err
