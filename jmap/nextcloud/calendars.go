@@ -1175,12 +1175,16 @@ func (b *CalendarsBackend) fetchEventsForCalendars(ctx context.Context, cals []*
 		calID jmapcore.Id
 		objs  []*CalendarObjectInfo
 	}
+	const maxConcurrentQueries = 10
+	sem := make(chan struct{}, maxConcurrentQueries)
 	resChan := make(chan calResult, len(cals))
 	var wg sync.WaitGroup
 
 	for _, cal := range cals {
 		wg.Add(1)
+		sem <- struct{}{}
 		go func(cal *jmapcalendar.Calendar) {
+			defer func() { <-sem }()
 			defer wg.Done()
 			var objs []*CalendarObjectInfo
 			var qErr error
