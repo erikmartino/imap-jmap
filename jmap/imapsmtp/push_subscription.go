@@ -67,6 +67,12 @@ func (b *IMAPSMTPBackend) UpdatePushSubscription(ctx context.Context, id jmapcor
 	defer b.pushMu.Unlock()
 	if m, ok := b.pushSubscriptions[accountID]; ok {
 		if sub, ok := m[id]; ok {
+			if vCode, ok := patch["verificationCode"].(string); ok {
+				if sub.VerificationCode == nil || *sub.VerificationCode != vCode {
+					return nil, fmt.Errorf("invalid verification code")
+				}
+				sub.VerificationCode = nil
+			}
 			if types, ok := patch["types"].([]any); ok {
 				var ts []string
 				for _, item := range types {

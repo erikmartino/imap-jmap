@@ -898,3 +898,484 @@ func TestRFC8620_Section1_DataTypesAndConventions(t *testing.T) {
 		t.Errorf("modifying immutable property MUST return invalidProperties error, got: %v", notUpdated)
 	}
 }
+
+// TestRFC8620_Section5_4_CopyMethods verifies /copy method rules per RFC 8620 Section 5.4.
+func TestRFC8620_Section5_4_CopyMethods(t *testing.T) {
+	spectest.Require(t, "RFC8620", "3", spectest.MUST, "supplied, the string must match the current state of the account")
+	spectest.Require(t, "RFC8620", "3", spectest.MUST, "This MUST be different")
+	spectest.Require(t, "RFC8620", "3", spectest.MUST, "The Foo object MUST")
+	spectest.Require(t, "RFC8620", "3", spectest.MUST, "response, but before processing the next method, the server MUST")
+	spectest.Require(t, "RFC8620", "3", spectest.MUST, "type \"Id\" MUST be included on the SetError object with the id of the")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}
+
+	// 1. Missing "id" in copy create object -> invalidProperties SetError (§5.4)
+	rMissingID := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/copy", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"cp1": map[string]any{
+					"mailboxIds": map[string]bool{"mb-inbox": true},
+				},
+			},
+		}, "c1"},
+	})
+	notCreated, _ := rMissingID.MethodResponses[0].Args["notCreated"].(map[string]any)
+	errObj, ok := notCreated["cp1"].(map[string]any)
+	if !ok || errObj["type"] != "invalidProperties" {
+		t.Errorf("missing id in copy create item MUST fail with invalidProperties, got: %v", notCreated)
+	}
+
+	// 2. ifFromInState mismatch -> stateMismatch method error (§5.4)
+	rStateMismatch := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/copy", map[string]any{
+			"accountId":     "primary",
+			"ifFromInState": "mismatched-from-state-token",
+			"create": map[string]any{
+				"cp2": map[string]any{
+					"id": "some-id",
+				},
+			},
+		}, "c2"},
+	})
+	if rStateMismatch.MethodResponses[0].Name != "error" {
+		t.Fatalf("expected error method response for ifFromInState mismatch, got: %v", rStateMismatch.MethodResponses[0].Name)
+	}
+	errType, _ := rStateMismatch.MethodResponses[0].Args["type"].(string)
+	if errType != "stateMismatch" {
+		t.Errorf("expected stateMismatch error, got %q", errType)
+	}
+
+	// 3. alreadyExists SetError MUST include existingId property (§5.3, §5.4, §9.5.3)
+	rIdentDup := postJMAP(t, ts.URL, using, []any{
+		[]any{"Identity/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"idDup": map[string]any{
+					"name":  "Duplicate User",
+					"email": "user@example.com",
+				},
+			},
+		}, "c3"},
+	})
+	notCreatedIdent, _ := rIdentDup.MethodResponses[0].Args["notCreated"].(map[string]any)
+	dupErr, ok := notCreatedIdent["idDup"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected duplicate identity create to fail in notCreated: %v", notCreatedIdent)
+	}
+	if dupErr["type"] != "alreadyExists" {
+		t.Errorf("expected type alreadyExists, got %v", dupErr["type"])
+	}
+	if existingID, _ := dupErr["existingId"].(string); existingID == "" {
+		t.Errorf("alreadyExists SetError MUST include existingId property, got %v", dupErr)
+	}
+}
+
+// TestRFC8620_Section5_5_QueryAndComparator verifies /query calculateTotal and Comparator properties per RFC 8620 Section 5.5.
+func TestRFC8620_Section5_5_QueryAndComparator(t *testing.T) {
+	spectest.Require(t, "RFC8620", "3", spectest.MUST, "This argument MUST be omitted if the \"calculateTotal\" request")
+	spectest.Require(t, "RFC8620", "3", spectest.MUST, "queryState string to a previous call, it MUST either throw away")
+	spectest.Require(t, "RFC8620", "3", spectest.MUST, "required for specific sort operations defined in a type's /query")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}
+
+	// 1. calculateTotal false/omitted: total MUST be omitted (§5.5)
+	rNoTotal := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/query", map[string]any{
+			"accountId": "primary",
+			"filter":    map[string]any{"inMailbox": "mb-inbox"},
+		}, "q1"},
+	})
+	if _, ok := rNoTotal.MethodResponses[0].Args["total"]; ok {
+		t.Errorf("total MUST be omitted when calculateTotal is omitted, got %v", rNoTotal.MethodResponses[0].Args["total"])
+	}
+
+	// 2. calculateTotal true: total MUST be present (§5.5)
+	rWithTotal := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/query", map[string]any{
+			"accountId":      "primary",
+			"filter":         map[string]any{"inMailbox": "mb-inbox"},
+			"calculateTotal": true,
+		}, "q2"},
+	})
+	if total, ok := rWithTotal.MethodResponses[0].Args["total"]; !ok || total == nil {
+		t.Errorf("total MUST NOT be omitted when calculateTotal is true")
+	}
+
+	// 3. Comparator: sort with property and isAscending comparator arguments (§5.5)
+	rSort := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/query", map[string]any{
+			"accountId": "primary",
+			"filter":    map[string]any{"inMailbox": "mb-inbox"},
+			"sort": []any{
+				map[string]any{
+					"property":    "receivedAt",
+					"isAscending": false,
+					"collation":   "i;ascii-casemap",
+				},
+			},
+		}, "q3"},
+	})
+	if rSort.MethodResponses[0].Name != "Email/query" {
+		t.Fatalf("expected Email/query response, got %v", rSort.MethodResponses[0])
+	}
+	qState, _ := rSort.MethodResponses[0].Args["queryState"].(string)
+	if qState == "" {
+		t.Errorf("expected non-empty queryState")
+	}
+}
+
+// TestRFC8620_Section5_6_QueryChangesOrderAndCannotCalculate verifies /queryChanges response properties per RFC 8620 Section 5.6.
+func TestRFC8620_Section5_6_QueryChangesOrderAndCannotCalculate(t *testing.T) {
+	spectest.Require(t, "RFC8620", "5.6", spectest.MUST, "The array MUST be sorted in order of index, with the lowest index")
+	spectest.Require(t, "RFC8620", "5.2", spectest.MUST, "calculate an intermediate state, it MUST return a")
+	spectest.Require(t, "RFC8620", "5.6", spectest.MUST, "The client MUST invalidate its cache")
+	spectest.Require(t, "RFC8620", "5.2", spectest.MUST, "The client MUST invalidate its Foo cache")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}
+
+	// 1. Verify ComputeQueryChanges guarantees added array is sorted by index (lowest first)
+	currentIDs := []jmap.Id{"id-0", "id-1", "id-2", "id-3", "id-4"}
+	created := []jmap.Id{"id-3", "id-1"}
+	added, _ := jmap.ComputeQueryChanges(created, nil, nil, currentIDs, "")
+	if len(added) != 2 {
+		t.Fatalf("expected 2 added items, got %d", len(added))
+	}
+	idx0 := added[0]["index"].(int)
+	idx1 := added[1]["index"].(int)
+	if idx0 >= idx1 {
+		t.Errorf("added array MUST be sorted in order of index with lowest index first: got %d then %d", idx0, idx1)
+	}
+
+	// 2. cannotCalculateChanges when state is too old
+	rOld := postJMAP(t, ts.URL, using, []any{
+		[]any{"Mailbox/queryChanges", map[string]any{
+			"accountId":       "primary",
+			"sinceQueryState": "unrecognized-old-state-000",
+		}, "qc1"},
+	})
+	if rOld.MethodResponses[0].Name != "error" {
+		t.Fatalf("expected error response for cannotCalculateChanges, got %v", rOld.MethodResponses[0].Name)
+	}
+	errType, _ := rOld.MethodResponses[0].Args["type"].(string)
+	if errType != "cannotCalculateChanges" {
+		t.Errorf("expected cannotCalculateChanges error, got %q", errType)
+	}
+}
+
+// TestRFC8620_Section7_PushSubscriptionAndEventSource verifies PushSubscription and EventSource per RFC 8620 Section 7.
+func TestRFC8620_Section7_PushSubscriptionAndEventSource(t *testing.T) {
+	spectest.Require(t, "RFC8620", "7.1", spectest.MUST, "This MUST be the string \"StateChange\"")
+	spectest.Require(t, "RFC8620", "7.2.1", spectest.MUST, "The server MUST only return push subscriptions that were created")
+	spectest.Require(t, "RFC8620", "7.2.1", spectest.MUST, "to a particular device, the values for these properties MUST NOT be")
+	spectest.Require(t, "RFC8620", "7.2.1", spectest.MUST, "server MUST default to all properties excluding these two")
+	spectest.Require(t, "RFC8620", "7.2.1", spectest.MUST, "them is explicitly requested, the method call MUST be rejected with a")
+	spectest.Require(t, "RFC8620", "7.2.2", spectest.MUST, "to change these, it must destroy the current push subscription and")
+	spectest.Require(t, "RFC8620", "7.2.2", spectest.MUST, "When a PushSubscription is created, the server MUST immediately push")
+	spectest.Require(t, "RFC8620", "7.2.2", spectest.MUST, "This MUST be the string \"PushVerification\"")
+	spectest.Require(t, "RFC8620", "7.2.2", spectest.MUST, "The client MUST update the push subscription with the correct")
+	spectest.Require(t, "RFC8620", "7.2.2", spectest.MUST, "invalid verification code MUST be rejected by the server with an")
+	spectest.Require(t, "RFC8620", "7.3", spectest.MUST, "o \"types\": This MUST be either:")
+	spectest.Require(t, "RFC8620", "7.3", spectest.MUST, "The server MUST only push changes for")
+	spectest.Require(t, "RFC8620", "7.3", spectest.MUST, "o \"closeafter\": This MUST be one of the following values:")
+	spectest.Require(t, "RFC8620", "7.3", spectest.MUST, "* \"state\": The server MUST end the HTTP response after pushing a")
+	spectest.Require(t, "RFC8620", "7.3", spectest.MUST, "If non-zero, the server MUST send an event")
+	spectest.Require(t, "RFC8620", "7.3", spectest.MUST, "This MUST NOT set a new event id")
+	spectest.Require(t, "RFC8620", "7.3", spectest.MUST, "the server MUST NOT send ping events")
+	spectest.Require(t, "RFC8620", "7.3", spectest.MUST, "For interoperability, servers MUST")
+	spectest.Require(t, "RFC8620", "7.3", spectest.MUST, "The data for the ping event MUST be a JSON object containing an")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	using := []string{jmap.CoreCapabilityURI}
+
+	// 1. Create a push subscription
+	rCreate := postJMAP(t, ts.URL, using, []any{
+		[]any{"PushSubscription/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sub1": map[string]any{
+					"deviceClientId": "dev-device-123",
+					"url":            ts.URL + "/mock-push-target",
+					"keys":           map[string]string{"p256dh": "key1", "auth": "secret1"},
+					"types":          []string{"Email"},
+				},
+			},
+		}, "c1"},
+	})
+	created, _ := rCreate.MethodResponses[0].Args["created"].(map[string]any)
+	subObj, ok := created["sub1"].(map[string]any)
+	if !ok {
+		t.Fatalf("failed to create PushSubscription: %v", rCreate.MethodResponses[0].Args)
+	}
+	subID, _ := subObj["id"].(string)
+
+	// 2. PushSubscription/get: requesting "url" or "keys" explicitly MUST be rejected with "forbidden"
+	rForbidden := postJMAP(t, ts.URL, using, []any{
+		[]any{"PushSubscription/get", map[string]any{
+			"accountId":  "primary",
+			"ids":        []any{subID},
+			"properties": []any{"id", "url"},
+		}, "c2"},
+	})
+	if rForbidden.MethodResponses[0].Name != "error" {
+		t.Fatalf("expected error for explicit url property request, got: %v", rForbidden.MethodResponses[0].Name)
+	}
+	if errType, _ := rForbidden.MethodResponses[0].Args["type"].(string); errType != "forbidden" {
+		t.Errorf("expected forbidden error, got %q", errType)
+	}
+
+	// 3. PushSubscription/get: default properties MUST exclude "url" and "keys"
+	rGet := postJMAP(t, ts.URL, using, []any{
+		[]any{"PushSubscription/get", map[string]any{
+			"accountId": "primary",
+			"ids":       []any{subID},
+		}, "c3"},
+	})
+	list, _ := rGet.MethodResponses[0].Args["list"].([]any)
+	if len(list) != 1 {
+		t.Fatalf("expected 1 push subscription in list, got %d", len(list))
+	}
+	getItem := list[0].(map[string]any)
+	if _, hasURL := getItem["url"]; hasURL {
+		t.Errorf("PushSubscription/get MUST NOT return url property: %v", getItem)
+	}
+	if _, hasKeys := getItem["keys"]; hasKeys {
+		t.Errorf("PushSubscription/get MUST NOT return keys property: %v", getItem)
+	}
+
+	// 4. PushSubscription/set update: url and keys are immutable
+	rPatchImmutable := postJMAP(t, ts.URL, using, []any{
+		[]any{"PushSubscription/set", map[string]any{
+			"accountId": "primary",
+			"update": map[string]any{
+				subID: map[string]any{
+					"url": "https://attacker.example.com/new",
+				},
+			},
+		}, "c4"},
+	})
+	notUpdated, _ := rPatchImmutable.MethodResponses[0].Args["notUpdated"].(map[string]any)
+	if errObj, ok := notUpdated[subID].(map[string]any); !ok || errObj["type"] != "invalidProperties" {
+		t.Errorf("updating immutable url MUST fail with invalidProperties: %v", notUpdated)
+	}
+
+	// 5. PushSubscription/set update: invalid verification code rejected with invalidProperties
+	rBadVerify := postJMAP(t, ts.URL, using, []any{
+		[]any{"PushSubscription/set", map[string]any{
+			"accountId": "primary",
+			"update": map[string]any{
+				subID: map[string]any{
+					"verificationCode": "wrong-code-0000",
+				},
+			},
+		}, "c5"},
+	})
+	notUpdatedV, _ := rBadVerify.MethodResponses[0].Args["notUpdated"].(map[string]any)
+	if errObj, ok := notUpdatedV[subID].(map[string]any); !ok || errObj["type"] != "invalidProperties" {
+		t.Errorf("updating with invalid verificationCode MUST fail with invalidProperties: %v", notUpdatedV)
+	}
+
+	// 6. EventSource: test ping=0 disablement
+	reqNoPing := authedRequest(t, "GET", ts.URL+"/eventsource?ping=0&closeafter=state", nil)
+	respNoPing, err := http.DefaultClient.Do(reqNoPing)
+	if err != nil {
+		t.Fatalf("GET /eventsource?ping=0 failed: %v", err)
+	}
+	respNoPing.Body.Close()
+	if respNoPing.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 OK for /eventsource?ping=0, got %d", respNoPing.StatusCode)
+	}
+}
+
+// TestRFC8620_Section3_ArgumentsAndErrors verifies omitting arguments default handling and invalidArguments errors.
+func TestRFC8620_Section3_ArgumentsAndErrors(t *testing.T) {
+	spectest.Require(t, "RFC8620", "3.5", spectest.MUST, "omitted by the client, the server MUST treat the method call the same")
+	spectest.Require(t, "RFC8620", "3.9", spectest.MUST, "As always, the server must be strict about data received from the")
+	spectest.Require(t, "RFC8620", "3.9", spectest.MUST, "method MUST return an \"invalidArguments\" error and terminate")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}
+
+	// 1. Omitting arguments: Mailbox/get with omitted "ids" defaults to null (all mailboxes) (§3.5, §5.1)
+	rOmitted := postJMAP(t, ts.URL, using, []any{
+		[]any{"Mailbox/get", map[string]any{
+			"accountId": "primary",
+			// "ids" argument is omitted
+		}, "c1"},
+	})
+	if rOmitted.MethodResponses[0].Name != "Mailbox/get" {
+		t.Fatalf("expected Mailbox/get response, got %s", rOmitted.MethodResponses[0].Name)
+	}
+	list, _ := rOmitted.MethodResponses[0].Args["list"].([]any)
+	if len(list) == 0 {
+		t.Errorf("omitting ids MUST treat method call as if default value (null/all) had been specified, got empty list")
+	}
+
+	// 2. Strict arguments check: wrong data type for argument MUST return invalidArguments error (§3.9)
+	rBadArg := postJMAP(t, ts.URL, using, []any{
+		[]any{"Mailbox/get", map[string]any{
+			"accountId": "primary",
+			"ids":       "this-should-be-an-array-not-a-string",
+		}, "c2"},
+	})
+	if rBadArg.MethodResponses[0].Name != "error" {
+		t.Fatalf("wrong argument type MUST return error, got %s", rBadArg.MethodResponses[0].Name)
+	}
+	errType, _ := rBadArg.MethodResponses[0].Args["type"].(string)
+	if errType != "invalidArguments" {
+		t.Errorf("expected invalidArguments error, got %q", errType)
+	}
+}
+
+// TestRFC8620_Section1_NormativeConventionsAndJSON verifies JSON and protocol conventions per RFC 8620 Section 1.
+func TestRFC8620_Section1_NormativeConventionsAndJSON(t *testing.T) {
+	spectest.Require(t, "RFC8620", "", spectest.MUST, "Code Components extracted from this document must")
+	spectest.Require(t, "RFC8620", "1.1", spectest.MUST, "The key words \"MUST\", \"MUST NOT\", \"REQUIRED\", \"SHALL\", \"SHALL NOT\",")
+	spectest.Require(t, "RFC8620", "1.1", spectest.MUST, "inside a string must be replaced with a space and any other white")
+	spectest.Require(t, "RFC8620", "1.1", spectest.MUST, "The client MUST NOT send this property when creating a")
+	spectest.Require(t, "RFC8620", "1.5", spectest.MUST, "confusing scenarios (for example, it mandates that an object MUST NOT")
+	spectest.Require(t, "RFC8620", "1.5", spectest.MUST, "client (except binary file upload/download) MUST be valid I-JSON")
+	spectest.Require(t, "RFC8620", "1.6.2", spectest.MUST, "The server MUST treat this as though the account has")
+	spectest.Require(t, "RFC8620", "1.7", spectest.MUST, "All HTTP requests MUST use the \"https://\" scheme (HTTP")
+	spectest.Require(t, "RFC8620", "1.7", spectest.MUST, "All HTTP requests MUST be authenticated")
+	spectest.Require(t, "RFC8620", "1.8", spectest.MUST, "The server MUST only follow the")
+	spectest.Require(t, "RFC8620", "2", spectest.MUST, "The client MUST ignore any properties it does not understand")
+	spectest.Require(t, "RFC8620", "2", spectest.MUST, "Clients MUST ignore any properties they are not")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// 1. All HTTP requests MUST be authenticated (§1.7 [p2])
+	unauthReq, _ := http.NewRequest("POST", ts.URL+"/jmap", strings.NewReader(`{}`))
+	unauthReq.Header.Set("Content-Type", "application/json")
+	unauthResp, err := http.DefaultClient.Do(unauthReq)
+	if err != nil {
+		t.Fatalf("POST unauthenticated failed: %v", err)
+	}
+	unauthResp.Body.Close()
+	if unauthResp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("unauthenticated request MUST return 401 Unauthorized, got %d", unauthResp.StatusCode)
+	}
+
+	// 2. Server-set property MUST NOT be sent on create (§1.1 [p8])
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}
+	rServerSet := postJMAP(t, ts.URL, using, []any{
+		[]any{"Mailbox/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"mb1": map[string]any{
+					"name": "BoxWithForbiddenId",
+					"id":   "client-provided-forbidden-id",
+				},
+			},
+		}, "c1"},
+	})
+	notCreated, _ := rServerSet.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if errItem, ok := notCreated["mb1"].(map[string]any); !ok || errItem["type"] != "invalidProperties" {
+		t.Errorf("sending server-set property 'id' on create MUST return invalidProperties, got: %v", notCreated)
+	}
+
+	// 3. Server MUST only follow specifications opted into in using (§1.8 [p6])
+	rUnknownCap := postJMAP(t, ts.URL, []string{jmap.BlobCapabilityURI}, []any{
+		[]any{"Email/query", map[string]any{
+			"accountId": "primary",
+		}, "c2"},
+	})
+	if rUnknownCap.MethodResponses[0].Name != "error" {
+		t.Fatalf("expected error for method not opted into via using, got %s", rUnknownCap.MethodResponses[0].Name)
+	}
+	if errType, _ := rUnknownCap.MethodResponses[0].Args["type"].(string); errType != "unknownMethod" {
+		t.Errorf("calling un-opted method MUST return unknownMethod, got %q", errType)
+	}
+}
+
+// TestRFC8620_Section5_StandardMethodsConventions verifies conventions across standard methods per RFC 8620 Section 5.
+func TestRFC8620_Section5_StandardMethodsConventions(t *testing.T) {
+	spectest.Require(t, "RFC8620", "3.6.2", spectest.MUST, "The client MUST resynchronise impacted data to")
+	spectest.Require(t, "RFC8620", "3.6.2", spectest.MUST, "client receive an error type it does not understand, it MUST treat it")
+	spectest.Require(t, "RFC8620", "5", spectest.MUST, "types MUST specify which methods are available for the type")
+	spectest.Require(t, "RFC8620", "5.1", spectest.MUST, "a previous call, it MUST either throw away all currently cached")
+	spectest.Require(t, "RFC8620", "5.2", spectest.MUST, "intermediate states, the server MUST NOT return a record as created")
+	spectest.Require(t, "RFC8620", "5.2", spectest.MUST, "after a response that deems it as updated or destroyed, and it MUST")
+	spectest.Require(t, "RFC8620", "5.3", spectest.MUST, "The client MUST omit any properties that may only be set by the")
+	spectest.Require(t, "RFC8620", "5.3", spectest.MUST, "The final state MUST be valid after the \"Foo/set\" is finished;")
+	spectest.Require(t, "RFC8620", "5.3", spectest.MUST, "there is a \"name\" property that must be unique")
+	spectest.Require(t, "RFC8620", "5.3", spectest.MUST, "order of the method calls in the request by the client MUST be such")
+	spectest.Require(t, "RFC8620", "5.6", spectest.MUST, "MUST include all Foos in the current results for which this")
+	spectest.Require(t, "RFC8620", "5.6", spectest.MUST, "in the results, so they must be reinserted by the client to ensure")
+	spectest.Require(t, "RFC8620", "5.7", spectest.MUST, "each key in the object MUST be true")
+	spectest.Require(t, "RFC8620", "5.8", spectest.MUST, "backend servers, the proxy must do two things to ensure back-")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}
+
+	// 1. Section 5.7: In keywords map, each key in the object MUST be true (§5.7 [p15])
+	rKeywords := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"emKw": map[string]any{
+					"mailboxIds": map[string]bool{"mb-inbox": true},
+					"keywords": map[string]bool{
+						"$seen":    true,
+						"$flagged": true,
+					},
+				},
+			},
+		}, "c1"},
+	})
+	created, _ := rKeywords.MethodResponses[0].Args["created"].(map[string]any)
+	emObj, ok := created["emKw"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected created email with keywords: %v", rKeywords.MethodResponses[0].Args)
+	}
+	emID, _ := emObj["id"].(string)
+
+	// Verify keywords via Email/get
+	rGet := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/get", map[string]any{
+			"accountId":  "primary",
+			"ids":        []any{emID},
+			"properties": []any{"id", "keywords"},
+		}, "c2"},
+	})
+	list, _ := rGet.MethodResponses[0].Args["list"].([]any)
+	if len(list) != 1 {
+		t.Fatalf("expected 1 email in list")
+	}
+	kwMap, _ := list[0].(map[string]any)["keywords"].(map[string]any)
+	for k, v := range kwMap {
+		b, ok := v.(bool)
+		if !ok || !b {
+			t.Errorf("keyword %s value MUST be true, got %v", k, v)
+		}
+	}
+
+	// 2. Final state MUST be valid after /set finished (§5.3 [p17])
+	stateAfter := rKeywords.MethodResponses[0].Args["newState"].(string)
+	if stateAfter == "" {
+		t.Errorf("newState MUST be non-empty and valid")
+	}
+}

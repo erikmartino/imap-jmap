@@ -103,9 +103,9 @@ func HandleEmailQuery(backend MailBackend) jmaphandler.MethodHandler {
 			"canCalculateChanges": true,
 			"position":            position,
 			"ids":                 ids,
-			"total":               total,
 		}
 		if calcTotal {
+			res["total"] = total
 			res["calculateTotal"] = true
 		}
 		if _, ok := args["collapseThreads"]; ok {

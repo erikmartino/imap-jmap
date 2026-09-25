@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -23,6 +24,19 @@ func RegisterPushSubscriptionHandlers(r *jmaphandler.MethodRegistry, backend Mai
 func HandlePushSubscriptionGet(backend MailBackend) jmaphandler.MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
+
+		// Reject if url or keys explicitly requested (RFC 8620 Section 7.2.1)
+		var reqProps []string
+		if pList, ok := args["properties"].([]any); ok {
+			for _, p := range pList {
+				if ps, ok := p.(string); ok {
+					if ps == "url" || ps == "keys" {
+						return "error", jmapcore.MethodErrorArgs("forbidden", fmt.Sprintf("property %q cannot be requested on PushSubscription/get", ps))
+					}
+					reqProps = append(reqProps, ps)
+				}
+			}
+		}
 
 		var list []*PushSubscription
 		var notFound []jmapcore.Id
@@ -55,11 +69,47 @@ func HandlePushSubscriptionGet(backend MailBackend) jmaphandler.MethodHandler {
 			notFound = []jmapcore.Id{}
 		}
 
-		return "PushSubscription/get", map[string]any{
-			"accountId": accountID,
-			"list":      list,
-			"notFound":  notFound,
+		// Sanitize returned objects: url and keys MUST NOT be returned per RFC 8620 §7.2.1
+		sanitizedList := make([]map[string]any, 0, len(list))
+		for _, sub := range list {
+			if sub == nil {
+				continue
+			}
+			item := map[string]any{
+				"id":             string(sub.ID),
+				"deviceClientId": sub.DeviceClientID,
+			}
+			if sub.Expires != nil {
+				item["expires"] = *sub.Expires
+			}
+			if sub.Types != nil {
+				item["types"] = sub.Types
+			}
+			if sub.VerificationCode != nil {
+				item["verificationCode"] = *sub.VerificationCode
+			}
+
+			if len(reqProps) > 0 {
+				filtered := map[string]any{"id": item["id"]}
+				for _, p := range reqProps {
+					if val, ok := item[p]; ok {
+						filtered[p] = val
+					}
+				}
+				sanitizedList = append(sanitizedList, filtered)
+			} else {
+				sanitizedList = append(sanitizedList, item)
+			}
 		}
+
+		res := map[string]any{
+			"list":     sanitizedList,
+			"notFound": notFound,
+		}
+		if accountID != "" {
+			res["accountId"] = accountID
+		}
+		return "PushSubscription/get", res
 	}
 }
 
@@ -146,9 +196,21 @@ func HandlePushSubscriptionSet(backend MailBackend) jmaphandler.MethodHandler {
 					notUpdated[idStr] = map[string]any{"type": "invalidProperties", "description": "patch must be an object"}
 					continue
 				}
+				if _, hasURL := patch["url"]; hasURL {
+					notUpdated[idStr] = map[string]any{"type": "invalidProperties", "description": "url is immutable", "properties": []string{"url"}}
+					continue
+				}
+				if _, hasKeys := patch["keys"]; hasKeys {
+					notUpdated[idStr] = map[string]any{"type": "invalidProperties", "description": "keys is immutable", "properties": []string{"keys"}}
+					continue
+				}
 				upd, err := backend.UpdatePushSubscription(ctx, jmapcore.Id(idStr), patch)
 				if err != nil {
-					notUpdated[idStr] = map[string]any{"type": "notFound", "description": err.Error()}
+					errType := "invalidProperties"
+					if errors.Is(err, jmapcore.ErrNotFound) {
+						errType = "notFound"
+					}
+					notUpdated[idStr] = map[string]any{"type": errType, "description": err.Error()}
 				} else {
 					updated[idStr] = upd
 				}

@@ -29,9 +29,15 @@ func ResolveCopyAccountIDs(args map[string]any) (accountID, fromAccountID string
 	return accountID, fromAccountID
 }
 
-// ValidateCopyStates validates ifInState and destroyFromIfInState per RFC 8620 Section 5.4.
+// ValidateCopyStates validates ifFromInState, ifInState, and destroyFromIfInState per RFC 8620 Section 5.4.
 // @spec RFC8620#5.4-p2-MUST
 func ValidateCopyStates(ctx, srcCtx context.Context, args map[string]any, getDstState, getSrcState func(context.Context) string) (oldState string, errInv *jmapcore.Invocation) {
+	if ifFromInState, ok := args["ifFromInState"].(string); ok && ifFromInState != "" && ifFromInState != getSrcState(srcCtx) {
+		return "", &jmapcore.Invocation{
+			Name: "error",
+			Args: jmapcore.MethodErrorArgs("stateMismatch", "ifFromInState does not match source account state"),
+		}
+	}
 	oldState = getDstState(ctx)
 	if ifInState, ok := args["ifInState"].(string); ok && ifInState != "" && ifInState != oldState {
 		return "", &jmapcore.Invocation{

@@ -768,6 +768,7 @@ func TestRFC8621_Section4_5_1_EmailQueryFilteringAndSorting(t *testing.T) {
 				"filter": map[string]any{
 					"inMailbox": "mb-inbox",
 				},
+				"calculateTotal": true,
 				"sort": []any{
 					map[string]any{"property": "receivedAt", "isAscending": false},
 				},

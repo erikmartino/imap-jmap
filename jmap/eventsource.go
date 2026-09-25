@@ -34,8 +34,12 @@ func (s *Server) HandleEventSource(w http.ResponseWriter, r *http.Request) {
 
 	pingSec := 300
 	if pingStr := r.URL.Query().Get("ping"); pingStr != "" {
-		if p, err := strconv.Atoi(pingStr); err == nil && p > 0 {
-			pingSec = p
+		if p, err := strconv.Atoi(pingStr); err == nil {
+			if p == 0 {
+				pingSec = 0
+			} else if p > 0 {
+				pingSec = p
+			}
 		}
 	}
 
@@ -56,8 +60,13 @@ func (s *Server) HandleEventSource(w http.ResponseWriter, r *http.Request) {
 	subAlerts := s.Broadcaster.SubscribeAlerts(principalAccountID)
 	defer s.Broadcaster.UnsubscribeAlerts(subAlerts)
 
-	pingTicker := time.NewTicker(time.Duration(pingSec) * time.Second)
-	defer pingTicker.Stop()
+	var pingTicker *time.Ticker
+	var pingChan <-chan time.Time
+	if pingSec > 0 {
+		pingTicker = time.NewTicker(time.Duration(pingSec) * time.Second)
+		defer pingTicker.Stop()
+		pingChan = pingTicker.C
+	}
 
 	// Parse types filter
 	filterTypes := make(map[string]bool)
@@ -74,8 +83,8 @@ func (s *Server) HandleEventSource(w http.ResponseWriter, r *http.Request) {
 		case <-ctx.Done():
 			return
 
-		case <-pingTicker.C:
-			_, err := fmt.Fprintf(w, ": ping\n\n")
+		case <-pingChan:
+			_, err := fmt.Fprintf(w, "event: ping\ndata: {\"interval\":%d}\n\n", pingSec)
 			if err != nil {
 				return
 			}

@@ -127,7 +127,12 @@ func HandleIdentitySet(backend MailBackend) jmaphandler.MethodHandler {
 
 				createdIdentity, err := backend.CreateIdentity(ctx, &identity)
 				if err != nil {
-					notCreated[creationID] = jmapcore.SetError{Type: "invalidProperties", Description: err.Error()}
+					var setErr jmapcore.SetError
+					if errors.As(err, &setErr) {
+						notCreated[creationID] = setErr
+					} else {
+						notCreated[creationID] = jmapcore.SetError{Type: "invalidProperties", Description: err.Error()}
+					}
 				} else {
 					created[creationID] = createdIdentity
 					jmaphandler.RecordCreationRefs(ctx, creationRefs, creationID, createdIdentity.ID)

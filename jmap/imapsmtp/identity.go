@@ -3,6 +3,7 @@ package imapsmtp
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"imap-jmap/jmap/jmapauth"
@@ -57,16 +58,47 @@ func (b *IMAPSMTPBackend) GetIdentities(ctx context.Context) ([]*jmapmail.Identi
 }
 
 func (b *IMAPSMTPBackend) CreateIdentity(ctx context.Context, identity *jmapmail.Identity) (*jmapmail.Identity, error) {
-	if identity.ID == "" {
-		identity.ID = jmapcore.Id(fmt.Sprintf("id-%d", time.Now().UnixNano()))
-	}
 	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.identitiesMu.Lock()
+	defer b.identitiesMu.Unlock()
+
+	if b.identities == nil {
+		b.identities = make(map[string]map[jmapcore.Id]*jmapmail.Identity)
+	}
 	if b.identities[accountID] == nil {
 		b.identities[accountID] = make(map[jmapcore.Id]*jmapmail.Identity)
 	}
+
+	// Ensure default primary identity exists for duplicate detection
+	if _, ok := b.identities[accountID]["id-primary"]; !ok {
+		email := "user@example.com"
+		if subject, ok := jmapauth.SubjectFromContext(ctx); ok && subject != "" {
+			email = subject
+		} else if sub, ok := jmapauth.SubjectForAccountID(accountID); ok {
+			email = sub
+		}
+		b.identities[accountID]["id-primary"] = &jmapmail.Identity{
+			ID:        "id-primary",
+			Name:      email,
+			Email:     email,
+			MayDelete: false,
+		}
+	}
+
+	for existingID, existing := range b.identities[accountID] {
+		if strings.EqualFold(existing.Email, identity.Email) {
+			return nil, jmapcore.SetError{
+				Type:        "alreadyExists",
+				ExistingID:  existingID,
+				Description: fmt.Sprintf("identity with email %q already exists", identity.Email),
+			}
+		}
+	}
+
+	if identity.ID == "" {
+		identity.ID = jmapcore.Id(fmt.Sprintf("id-%d", time.Now().UnixNano()))
+	}
 	b.identities[accountID][identity.ID] = identity
-	b.identitiesMu.Unlock()
 
 	b.getIdentityTracker(accountID).Record(identity.ID, "create")
 	b.publishStateChange(ctx)

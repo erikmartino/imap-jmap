@@ -108,6 +108,7 @@ type SetError struct {
 	Description string   `json:"description,omitempty"`
 	Properties  []string `json:"properties,omitempty"`
 	NotFound    []string `json:"notFound,omitempty"`
+	ExistingID  Id       `json:"existingId,omitempty"`
 }
 
 func (e SetError) Error() string {
