@@ -476,6 +476,7 @@ func (s *Server) handleWellKnownJMAP(w http.ResponseWriter, r *http.Request) {
 		sessBytes, _ := json.Marshal(sess)
 		slog.Debug("JMAP Session Response", "remote", r.RemoteAddr, "payload", string(sessBytes))
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 		w.WriteHeader(http.StatusOK)
 		if r.Method == http.MethodGet {
 			_, _ = w.Write(sessBytes)

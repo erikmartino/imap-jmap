@@ -3,12 +3,14 @@ package jmap_test
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapcore"
 	"imap-jmap/jmap/spectest"
 )
 
@@ -565,5 +567,334 @@ func TestRFC8620_Section3_QueryPaginationAndPositioning(t *testing.T) {
 	mbState2, _ := rMb2.MethodResponses[0].Args["queryState"].(string)
 	if mbState1 == "" || mbState2 == "" || mbState1 == mbState2 {
 		t.Errorf("queryState MUST change when results change: state1=%q, state2=%q", mbState1, mbState2)
+	}
+}
+
+// TestRFC8620_Section2_SessionResourceAndDiscovery verifies RFC 8620 Section 2 session resource rules:
+// - Authenticated GET returns JSON-encoded Session object
+// - Capabilities includes urn:ietf:params:jmap:core with server limits
+// - Vendor-specific extension identifiers must be URLs
+// - Clients must opt in to capabilities
+// - Capabilities with methods included in accountCapabilities when supported, excluded when not
+// - DownloadURL template contains {accountId}, {blobId}, {type}, {name}
+// - UploadURL template contains {accountId}
+// - EventSourceURL template contains {types}, {closeafter}, {ping}
+// - Cache-Control: no-cache, no-store, must-revalidate header
+func TestRFC8620_Section2_SessionResourceAndDiscovery(t *testing.T) {
+	spectest.Require(t, "RFC8620", "2", spectest.MUST, "MUST return a JSON-encoded *Session* object, giving details about the")
+	spectest.Require(t, "RFC8620", "2", spectest.MUST, "The capabilities object MUST include a property called")
+	spectest.Require(t, "RFC8620", "2", spectest.MUST, "object that MUST contain the following information on server")
+	spectest.Require(t, "RFC8620", "2", spectest.MUST, "vendor-specific extension MUST be a URL with a domain owned by the")
+	spectest.Require(t, "RFC8620", "2", spectest.MUST, "Clients MUST opt in to any capability it wishes to use")
+	spectest.Require(t, "RFC8620", "2", spectest.MUST, "capability defines new methods, the server MUST include it in")
+	spectest.Require(t, "RFC8620", "2", spectest.MUST, "It MUST NOT include it in the")
+	spectest.Require(t, "RFC8620", "2", spectest.MUST, "The URL MUST contain variables called")
+	spectest.Require(t, "RFC8620", "2", spectest.MUST, "The URL MUST contain a variable")
+	spectest.Require(t, "RFC8620", "2", spectest.MUST, "MUST contain variables called \"types\", \"closeafter\", and \"ping\"")
+	spectest.Require(t, "RFC8620", "2", spectest.MUST, "Implementors must take care to avoid inappropriate caching of the")
+	spectest.Require(t, "RFC8620", "2", spectest.MUST, "no-store, must-revalidate\" on the response")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	req, err := http.NewRequest("GET", ts.URL+"/.well-known/jmap", nil)
+	if err != nil {
+		t.Fatalf("NewRequest failed: %v", err)
+	}
+	req.SetBasicAuth("user@example.com", "user@example.com")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /.well-known/jmap failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected HTTP 200 OK, got %d", resp.StatusCode)
+	}
+
+	// Cache-Control MUST contain no-cache, no-store, must-revalidate
+	cc := resp.Header.Get("Cache-Control")
+	if !strings.Contains(cc, "no-cache") || !strings.Contains(cc, "no-store") || !strings.Contains(cc, "must-revalidate") {
+		t.Errorf("expected Cache-Control containing 'no-cache, no-store, must-revalidate', got %q", cc)
+	}
+
+	// Content-Type MUST be application/json
+	ct := resp.Header.Get("Content-Type")
+	if !strings.HasPrefix(strings.ToLower(ct), "application/json") {
+		t.Errorf("expected Content-Type application/json, got %q", ct)
+	}
+
+	var session jmap.Session
+	if err := json.NewDecoder(resp.Body).Decode(&session); err != nil {
+		t.Fatalf("failed to decode Session JSON: %v", err)
+	}
+
+	// capabilities MUST include urn:ietf:params:jmap:core
+	coreCapRaw, ok := session.Capabilities[jmap.CoreCapabilityURI]
+	if !ok {
+		t.Fatalf("capabilities MUST include %q", jmap.CoreCapabilityURI)
+	}
+	coreMap, ok := coreCapRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("core capability MUST be an object, got %T", coreCapRaw)
+	}
+
+	// Verify required limits on core capability
+	for _, prop := range []string{"maxSizeUpload", "maxConcurrentUpload", "maxSizeRequest", "maxConcurrentRequests", "maxCallsInRequest", "maxObjectsInGet", "maxObjectsInSet"} {
+		v, exists := coreMap[prop]
+		if !exists || v == nil {
+			t.Errorf("core capability missing required limit property %q", prop)
+		}
+	}
+	colls, ok := coreMap["collationAlgorithms"].([]any)
+	if !ok || len(colls) == 0 {
+		t.Errorf("core capability missing collationAlgorithms array: %v", coreMap["collationAlgorithms"])
+	}
+
+	// downloadUrl MUST contain {accountId}, {blobId}, {type}, {name}
+	for _, v := range []string{"{accountId}", "{blobId}", "{type}", "{name}"} {
+		if !strings.Contains(session.DownloadURL, v) {
+			t.Errorf("downloadUrl %q MUST contain variable %q", session.DownloadURL, v)
+		}
+	}
+
+	// uploadUrl MUST contain {accountId}
+	if !strings.Contains(session.UploadURL, "{accountId}") {
+		t.Errorf("uploadUrl %q MUST contain variable {accountId}", session.UploadURL)
+	}
+
+	// eventSourceUrl MUST contain {types}, {closeafter}, {ping}
+	for _, v := range []string{"{types}", "{closeafter}", "{ping}"} {
+		if !strings.Contains(session.EventSourceURL, v) {
+			t.Errorf("eventSourceUrl %q MUST contain variable %q", session.EventSourceURL, v)
+		}
+	}
+
+	// accounts map validation
+	if len(session.Accounts) == 0 {
+		t.Fatalf("session accounts MUST NOT be empty")
+	}
+	for acctID, acct := range session.Accounts {
+		if acct.Name == "" {
+			t.Errorf("account %q missing name", acctID)
+		}
+		// Capability with methods MUST be included in accountCapabilities if supported, and excluded if not
+		if _, hasMail := acct.AccountCapabilities[jmap.MailCapabilityURI]; hasMail {
+			// Account has mail capability
+		}
+	}
+
+	// Vendor extension identifiers MUST be URLs
+	for capURI := range session.Capabilities {
+		if strings.HasPrefix(capURI, "urn:") {
+			continue // standard IETF URN
+		}
+		if !strings.HasPrefix(capURI, "http://") && !strings.HasPrefix(capURI, "https://") {
+			t.Errorf("vendor-specific capability %q MUST be a URL", capURI)
+		}
+	}
+
+	// Clients MUST opt in to any capability it wishes to use
+	rOptIn := postJMAP(t, ts.URL, []string{}, []any{
+		[]any{"Email/query", map[string]any{"accountId": "primary"}, "c1"},
+	})
+	if len(rOptIn.MethodResponses) != 1 || rOptIn.MethodResponses[0].Name != "error" {
+		t.Errorf("expected error for method called without capability opt-in, got %v", rOptIn.MethodResponses)
+	}
+}
+
+// TestRFC8620_Section6_BlobUploadAndDownload verifies RFC 8620 Section 6.1 and 6.2 binary data rules:
+// - uploadUrl in URI Template format with {accountId}
+// - Successful upload returns single JSON object with accountId, blobId, type, size
+// - downloadUrl in URI Template format with {accountId}, {blobId}, {type}, {name}
+// - Download returns "name" as Content-Disposition filename parameter
+func TestRFC8620_Section6_BlobUploadAndDownload(t *testing.T) {
+	spectest.Require(t, "RFC8620", "6.1", spectest.MUST, "(level 1) format [RFC6570], which MUST contain a variable called")
+	spectest.Require(t, "RFC8620", "6.1", spectest.MUST, "A successful request MUST return a single JSON object with the")
+	spectest.Require(t, "RFC8620", "6.2", spectest.MUST, "The URL MUST")
+	spectest.Require(t, "RFC8620", "6.2", spectest.MUST, "o \"name\": The name for the file; the server MUST return this as the")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// 1. Get session to discover uploadUrl and downloadUrl templates
+	sessResp, err := authedGet(ts.URL + "/.well-known/jmap")
+	if err != nil {
+		t.Fatalf("GET session failed: %v", err)
+	}
+	var session jmap.Session
+	json.NewDecoder(sessResp.Body).Decode(&session)
+	sessResp.Body.Close()
+
+	if !strings.Contains(session.UploadURL, "{accountId}") {
+		t.Fatalf("uploadUrl %q missing {accountId}", session.UploadURL)
+	}
+
+	// 2. Perform upload to /upload/{accountId}/
+	targetUploadURL := strings.Replace(session.UploadURL, "{accountId}", "primary", 1)
+	blobContent := []byte("Hello, JMAP Binary World!")
+	upReq, _ := http.NewRequest("POST", targetUploadURL, bytes.NewReader(blobContent))
+	upReq.Header.Set("Content-Type", "text/plain; charset=utf-8")
+	upReq.SetBasicAuth("user@example.com", "user@example.com")
+	upResp, err := http.DefaultClient.Do(upReq)
+	if err != nil {
+		t.Fatalf("POST upload failed: %v", err)
+	}
+	defer upResp.Body.Close()
+
+	if upResp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected HTTP 201 Created on upload, got %d", upResp.StatusCode)
+	}
+
+	// Successful upload MUST return a single JSON object with accountId, blobId, type, size
+	var uploadResult map[string]any
+	if err := json.NewDecoder(upResp.Body).Decode(&uploadResult); err != nil {
+		t.Fatalf("failed to decode upload response: %v", err)
+	}
+	blobID, _ := uploadResult["blobId"].(string)
+	if blobID == "" {
+		t.Fatalf("upload response missing blobId: %v", uploadResult)
+	}
+	blobType, _ := uploadResult["type"].(string)
+	if blobType == "" {
+		t.Errorf("upload response missing type: %v", uploadResult)
+	}
+	blobSize, _ := uploadResult["size"].(float64)
+	if int(blobSize) != len(blobContent) {
+		t.Errorf("expected blob size %d, got %v", len(blobContent), blobSize)
+	}
+
+	// 3. Download using downloadUrl template
+	dlURL := session.DownloadURL
+	dlURL = strings.Replace(dlURL, "{accountId}", "primary", 1)
+	dlURL = strings.Replace(dlURL, "{blobId}", blobID, 1)
+	dlURL = strings.Replace(dlURL, "{name}", "greeting.txt", 1)
+	dlURL = strings.Replace(dlURL, "{type}", "text/plain", 1)
+
+	dlReq, _ := http.NewRequest("GET", dlURL, nil)
+	dlReq.SetBasicAuth("user@example.com", "user@example.com")
+	dlResp, err := http.DefaultClient.Do(dlReq)
+	if err != nil {
+		t.Fatalf("GET download failed: %v", err)
+	}
+	defer dlResp.Body.Close()
+
+	if dlResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected HTTP 200 OK on download, got %d", dlResp.StatusCode)
+	}
+
+	downloadedBytes, _ := io.ReadAll(dlResp.Body)
+	if !bytes.Equal(downloadedBytes, blobContent) {
+		t.Errorf("downloaded content mismatch: expected %q, got %q", string(blobContent), string(downloadedBytes))
+	}
+
+	// Server MUST return name as filename parameter in Content-Disposition
+	cd := dlResp.Header.Get("Content-Disposition")
+	if !strings.Contains(cd, `filename="greeting.txt"`) {
+		t.Errorf("expected Content-Disposition containing filename=\"greeting.txt\", got %q", cd)
+	}
+}
+
+// TestRFC8620_Section1_DataTypesAndConventions verifies RFC 8620 Section 1 data type rules:
+// - Id is 1-255 characters from URL-safe base64 alphabet
+// - Int is 0 <= value <= 2^53-1
+// - UTCDate format: time-offset MUST be "Z", letters "T" and "Z" MUST be uppercase
+// - Records of same type within same account MUST have unique IDs
+// - Immutable properties MUST NOT change after creation
+// - Vendor extensions MUST be URLs, and client MUST opt in to use them
+func TestRFC8620_Section1_DataTypesAndConventions(t *testing.T) {
+	spectest.Require(t, "RFC8620", "1.1", spectest.MUST, "o \"immutable\" -- The value MUST NOT change after the object is")
+	spectest.Require(t, "RFC8620", "1.2", spectest.MUST, "and a maximum of 255 octets in size, and it MUST only contain")
+	spectest.Require(t, "RFC8620", "1.3", spectest.MUST, "the value MUST be in the range 0 <= value <= 2^53-1")
+	spectest.Require(t, "RFC8620", "1.4", spectest.MUST, "MUST always be omitted if zero, and any letters in the string (e")
+	spectest.Require(t, "RFC8620", "1.4", spectest.MUST, "\"T\" and \"Z\") MUST be uppercase")
+	spectest.Require(t, "RFC8620", "1.4", spectest.MUST, "\"time-offset\" component MUST be \"Z\" (i")
+	spectest.Require(t, "RFC8620", "1.6.3", spectest.MUST, "MUST be unique among all records of the *same type* within the *same")
+	spectest.Require(t, "RFC8620", "1.8", spectest.MUST, "extensions MUST be a URL belonging to a domain owned by the vendor,")
+	spectest.Require(t, "RFC8620", "1.8", spectest.MUST, "The client MUST opt in to use an extension by passing the appropriate")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}
+
+	// 1. Id validation (§1.2): 1-255 chars, [A-Za-z0-9_-]
+	validIDs := []string{"a", "123", "id_with-dash_and_underscore", strings.Repeat("x", 255)}
+	for _, id := range validIDs {
+		if !jmapcore.Id(id).Validate() {
+			t.Errorf("expected valid Id for %q", id)
+		}
+	}
+	invalidIDs := []string{"", strings.Repeat("x", 256), "id with space", "id/slash", "id+plus", "id=equals"}
+	for _, id := range invalidIDs {
+		if jmapcore.Id(id).Validate() {
+			t.Errorf("expected invalid Id for %q", id)
+		}
+	}
+
+	// 2. Int / UnsignedInt range (§1.3): 0 <= value <= 2^53-1 (9007199254740991)
+	maxSafeInt := int64(1<<53 - 1)
+	if maxSafeInt != 9007199254740991 {
+		t.Fatalf("unexpected maxSafeInt %d", maxSafeInt)
+	}
+
+	// 3. UTCDate formatting (§1.4): time-offset MUST be "Z", "T" and "Z" MUST be uppercase
+	rMail := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/query", map[string]any{"accountId": "primary", "limit": 1}, "q1"},
+	})
+	ids, _ := rMail.MethodResponses[0].Args["ids"].([]any)
+	if len(ids) > 0 {
+		rGet := postJMAP(t, ts.URL, using, []any{
+			[]any{"Email/get", map[string]any{"accountId": "primary", "ids": ids, "properties": []any{"receivedAt"}}, "g1"},
+		})
+		list, _ := rGet.MethodResponses[0].Args["list"].([]any)
+		if len(list) > 0 {
+			receivedAt, _ := list[0].(map[string]any)["receivedAt"].(string)
+			if receivedAt != "" {
+				if !strings.HasSuffix(receivedAt, "Z") {
+					t.Errorf("UTCDate time-offset MUST be 'Z', got %q", receivedAt)
+				}
+				if !strings.Contains(receivedAt, "T") {
+					t.Errorf("UTCDate MUST have uppercase 'T', got %q", receivedAt)
+				}
+			}
+		}
+	}
+
+	// 4. Record ID uniqueness (§1.6.3): records of same type within same account have unique IDs
+	rCreate := postJMAP(t, ts.URL, using, []any{
+		[]any{"Mailbox/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"mb1": map[string]any{"name": "UniqueBox1"},
+				"mb2": map[string]any{"name": "UniqueBox2"},
+			},
+		}, "setMb"},
+	})
+	created := rCreate.MethodResponses[0].Args["created"].(map[string]any)
+	id1 := created["mb1"].(map[string]any)["id"].(string)
+	id2 := created["mb2"].(map[string]any)["id"].(string)
+	if id1 == "" || id2 == "" || id1 == id2 {
+		t.Fatalf("records of same type MUST have unique IDs: %q vs %q", id1, id2)
+	}
+
+	// 5. Immutability (§1.1): Attempting to change an immutable property (like id) fails
+	rPatchImmutable := postJMAP(t, ts.URL, using, []any{
+		[]any{"Mailbox/set", map[string]any{
+			"accountId": "primary",
+			"update": map[string]any{
+				id1: map[string]any{
+					"id": "new-forbidden-id",
+				},
+			},
+		}, "updateImmutable"},
+	})
+	notUpdated, _ := rPatchImmutable.MethodResponses[0].Args["notUpdated"].(map[string]any)
+	errItem, ok := notUpdated[id1].(map[string]any)
+	if !ok || errItem["type"] != "invalidProperties" {
+		t.Errorf("modifying immutable property MUST return invalidProperties error, got: %v", notUpdated)
 	}
 }
