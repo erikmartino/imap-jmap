@@ -1834,8 +1834,8 @@ var RFC8620Requirements = []Requirement{
 		Section: "5.3",
 		Level:   Level("MUST"),
 		Text:    "If supplied, the string must match the current state;",
-		Tests:   []string{},
-		Status:  Gap,
+		Tests:   []string{"TestRFC8620_Section5_3_SetErrors_StateMismatchAllHandlers"},
+		Status:  Covered,
 		Note:    "Extracted by specextract from RFC8620 §5.3 [p2]",
 	},
 	{
@@ -2014,8 +2014,8 @@ var RFC8620Requirements = []Requirement{
 		Section: "5.3",
 		Level:   Level("MUST"),
 		Text:    "MUST be added to the notCreated/notUpdated/notDestroyed property of",
-		Tests:   []string{},
-		Status:  Gap,
+		Tests:   []string{"TestRFC8620_Section5_3_BatchPartialSuccessAndNotCreatedUpdatedDestroyed"},
+		Status:  Covered,
 		Note:    "Extracted by specextract from RFC8620 §5.3 [p22]",
 	},
 	{
@@ -2023,8 +2023,8 @@ var RFC8620Requirements = []Requirement{
 		Section: "5.3",
 		Level:   Level("MUST"),
 		Text:    "the response, and the server MUST continue to the next create/update/",
-		Tests:   []string{},
-		Status:  Gap,
+		Tests:   []string{"TestRFC8620_Section5_3_BatchPartialSuccessAndNotCreatedUpdatedDestroyed"},
+		Status:  Covered,
 		Note:    "Extracted by specextract from RFC8620 §5.3 [p23]",
 	},
 	{
@@ -2032,8 +2032,8 @@ var RFC8620Requirements = []Requirement{
 		Section: "5.3",
 		Level:   Level("MUST"),
 		Text:    "If an id given cannot be found, the update or destroy MUST be",
-		Tests:   []string{},
-		Status:  Gap,
+		Tests:   []string{"TestRFC8620_Section5_3_SetErrors_NotDestroyedAllHandlers", "TestRFC8620_Section5_3_SetErrors_NotUpdatedAllHandlers"},
+		Status:  Covered,
 		Note:    "Extracted by specextract from RFC8620 §5.3 [p24]",
 	},
 	{

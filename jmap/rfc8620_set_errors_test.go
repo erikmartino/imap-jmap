@@ -6,10 +6,14 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
+	"imap-jmap/jmap/spectest"
 )
 
 // TestRFC8620_Section5_3_SetErrors_StateMismatchAllHandlers verifies that an invalid ifInState token causes a stateMismatch error across all /set handlers per RFC 8620 Section 5.3.
 func TestRFC8620_Section5_3_SetErrors_StateMismatchAllHandlers(t *testing.T) {
+	spectest.Require(t, "RFC8620", "5.3", spectest.MUST,
+		"If supplied, the string must match the current state;")
+
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -57,6 +61,9 @@ func TestRFC8620_Section5_3_SetErrors_StateMismatchAllHandlers(t *testing.T) {
 
 // TestRFC8620_Section5_3_SetErrors_NotDestroyedAllHandlers asserts that destroying a non-existent ID returns notDestroyed with type notFound per RFC 8620 Section 5.3.
 func TestRFC8620_Section5_3_SetErrors_NotDestroyedAllHandlers(t *testing.T) {
+	spectest.Require(t, "RFC8620", "5.3", spectest.MUST,
+		"If an id given cannot be found, the update or destroy MUST be")
+
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -109,6 +116,9 @@ func TestRFC8620_Section5_3_SetErrors_NotDestroyedAllHandlers(t *testing.T) {
 
 // TestRFC8620_Section5_3_SetErrors_NotUpdatedAllHandlers asserts that updating a non-existent ID returns notUpdated with type notFound per RFC 8620 Section 5.3.
 func TestRFC8620_Section5_3_SetErrors_NotUpdatedAllHandlers(t *testing.T) {
+	spectest.Require(t, "RFC8620", "5.3", spectest.MUST,
+		"If an id given cannot be found, the update or destroy MUST be")
+
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -160,4 +170,90 @@ func TestRFC8620_Section5_3_SetErrors_NotUpdatedAllHandlers(t *testing.T) {
 		})
 	}
 	_ = context.Background()
+}
+
+// TestRFC8620_Section5_3_BatchPartialSuccessAndNotCreatedUpdatedDestroyed verifies RFC 8620 Section 5.3:
+// "If an individual create, update, or destroy fails... it MUST be added to the
+// notCreated/notUpdated/notDestroyed property of the response, and the server MUST continue
+// to the next create/update/destroy"
+func TestRFC8620_Section5_3_BatchPartialSuccessAndNotCreatedUpdatedDestroyed(t *testing.T) {
+	spectest.Require(t, "RFC8620", "5.3", spectest.MUST,
+		"MUST be added to the notCreated/notUpdated/notDestroyed property of")
+	spectest.Require(t, "RFC8620", "5.3", spectest.MUST,
+		"the response, and the server MUST continue to the next create/update/")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// 1. Create mailboxes first to use for update and destroy
+	r1 := postJMAP(t, ts.URL, []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, []any{
+		[]any{"Mailbox/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"mb1": map[string]any{"name": "ValidMB1"},
+				"mb2": map[string]any{"name": "ValidMB2"},
+			},
+		}, "setup"},
+	})
+	created, _ := r1.MethodResponses[0].Args["created"].(map[string]any)
+	id1 := created["mb1"].(map[string]any)["id"].(string)
+	id2 := created["mb2"].(map[string]any)["id"].(string)
+
+	// 2. Perform batch /set with mixed valid and invalid operations:
+	// - create: one valid, one invalid (empty name)
+	// - update: one valid (rename id1), one invalid (non-existent id)
+	// - destroy: one valid (destroy id2), one invalid (non-existent id)
+	r2 := postJMAP(t, ts.URL, []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, []any{
+		[]any{"Mailbox/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"validCreate":   map[string]any{"name": "BatchCreated"},
+				"invalidCreate": map[string]any{"name": ""},
+			},
+			"update": map[string]any{
+				id1:              map[string]any{"name": "BatchRenamed"},
+				"non-existent-u": map[string]any{"name": "Fail"},
+			},
+			"destroy": []any{id2, "non-existent-d"},
+		}, "batch"},
+	})
+
+	args := r2.MethodResponses[0].Args
+
+	// Verify create: valid succeeded in created, invalid reported in notCreated
+	createdMap, _ := args["created"].(map[string]any)
+	if createdMap["validCreate"] == nil {
+		t.Errorf("expected validCreate in created, got %v", createdMap)
+	}
+	notCreatedMap, _ := args["notCreated"].(map[string]any)
+	if notCreatedMap["invalidCreate"] == nil {
+		t.Errorf("expected invalidCreate in notCreated, got %v", notCreatedMap)
+	}
+
+	// Verify update: valid succeeded in updated, invalid reported in notUpdated
+	updatedMap, _ := args["updated"].(map[string]any)
+	if _, ok := updatedMap[id1]; !ok {
+		t.Errorf("expected %s in updated, got %v", id1, updatedMap)
+	}
+	notUpdatedMap, _ := args["notUpdated"].(map[string]any)
+	if notUpdatedMap["non-existent-u"] == nil {
+		t.Errorf("expected non-existent-u in notUpdated, got %v", notUpdatedMap)
+	}
+
+	// Verify destroy: valid succeeded in destroyed, invalid reported in notDestroyed
+	destroyedList, _ := args["destroyed"].([]any)
+	foundDestroyed := false
+	for _, d := range destroyedList {
+		if d == id2 {
+			foundDestroyed = true
+		}
+	}
+	if !foundDestroyed {
+		t.Errorf("expected %s in destroyed list, got %v", id2, destroyedList)
+	}
+	notDestroyedMap, _ := args["notDestroyed"].(map[string]any)
+	if notDestroyedMap["non-existent-d"] == nil {
+		t.Errorf("expected non-existent-d in notDestroyed, got %v", notDestroyedMap)
+	}
 }

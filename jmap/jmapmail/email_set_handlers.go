@@ -543,9 +543,28 @@ func validateEmailCreateData(ctx context.Context, accountID string, emData map[s
 				form = hdrSubParts[1]
 			}
 
-			if form != "all" && form != "asAddresses" && form != "asMessageIds" && form != "asURLs" {
+			if form != "all" && form != "asAddresses" && form != "asMessageIds" && form != "asURLs" && form != "asDate" {
 				if _, isList := v.([]any); isList {
 					return &jmapcore.SetError{Type: "invalidProperties", Properties: []string{"header:" + rawName}}
+				}
+			}
+
+			switch form {
+			case "asAddresses":
+				if !isAddressHeader(rawName) {
+					return &jmapcore.SetError{Type: "invalidProperties", Properties: []string{k}}
+				}
+			case "asMessageIds":
+				if !isMessageIdHeader(rawName) {
+					return &jmapcore.SetError{Type: "invalidProperties", Properties: []string{k}}
+				}
+			case "asDate":
+				if !isDateHeader(rawName) {
+					return &jmapcore.SetError{Type: "invalidProperties", Properties: []string{k}}
+				}
+			case "asURLs":
+				if !isURLHeader(rawName) {
+					return &jmapcore.SetError{Type: "invalidProperties", Properties: []string{k}}
 				}
 			}
 
@@ -560,6 +579,8 @@ func validateEmailCreateData(ctx context.Context, accountID string, emData map[s
 	}
 
 	var missingBlobs []string
+	bvMap, _ := emData["bodyValues"].(map[string]any)
+
 	if bsRaw, hasBS := emData["bodyStructure"]; hasBS {
 		var conflictProps []string
 		if _, has := emData["textBody"]; has {
@@ -576,7 +597,7 @@ func validateEmailCreateData(ctx context.Context, accountID string, emData map[s
 		}
 
 		if bsMap, ok := bsRaw.(map[string]any); ok {
-			if err := validateBodyPartTree(ctx, accountID, bsMap, "bodyStructure", blobBackend, &missingBlobs); err != nil {
+			if err := validateBodyPartTree(ctx, accountID, bsMap, "bodyStructure", bvMap, blobBackend, &missingBlobs); err != nil {
 				return err
 			}
 		}
@@ -593,7 +614,7 @@ func validateEmailCreateData(ctx context.Context, accountID string, emData map[s
 						return &jmapcore.SetError{Type: "invalidProperties", Properties: []string{"textBody"}}
 					}
 					path := fmt.Sprintf("textBody/%d", i)
-					if err := validateBodyPartTree(ctx, accountID, pMap, path, blobBackend, &missingBlobs); err != nil {
+					if err := validateBodyPartTree(ctx, accountID, pMap, path, bvMap, blobBackend, &missingBlobs); err != nil {
 						return err
 					}
 				}
@@ -612,7 +633,7 @@ func validateEmailCreateData(ctx context.Context, accountID string, emData map[s
 						return &jmapcore.SetError{Type: "invalidProperties", Properties: []string{"htmlBody"}}
 					}
 					path := fmt.Sprintf("htmlBody/%d", i)
-					if err := validateBodyPartTree(ctx, accountID, pMap, path, blobBackend, &missingBlobs); err != nil {
+					if err := validateBodyPartTree(ctx, accountID, pMap, path, bvMap, blobBackend, &missingBlobs); err != nil {
 						return err
 					}
 				}
@@ -625,7 +646,7 @@ func validateEmailCreateData(ctx context.Context, accountID string, emData map[s
 			for i, pRaw := range attList {
 				if pMap, ok := pRaw.(map[string]any); ok {
 					path := fmt.Sprintf("attachments/%d", i)
-					if err := validateBodyPartTree(ctx, accountID, pMap, path, blobBackend, &missingBlobs); err != nil {
+					if err := validateBodyPartTree(ctx, accountID, pMap, path, bvMap, blobBackend, &missingBlobs); err != nil {
 						return err
 					}
 				}
@@ -659,12 +680,46 @@ func validateEmailCreateData(ctx context.Context, accountID string, emData map[s
 	return nil
 }
 
+func isAddressHeader(name string) bool {
+	switch strings.ToLower(name) {
+	case "from", "to", "cc", "bcc", "reply-to", "sender",
+		"resent-from", "resent-to", "resent-cc", "resent-bcc", "resent-sender",
+		"disposition-notification-to":
+		return true
+	default:
+		return false
+	}
+}
+
+func isMessageIdHeader(name string) bool {
+	switch strings.ToLower(name) {
+	case "message-id", "in-reply-to", "references", "resent-message-id":
+		return true
+	default:
+		return false
+	}
+}
+
+func isDateHeader(name string) bool {
+	switch strings.ToLower(name) {
+	case "date", "resent-date":
+		return true
+	default:
+		return false
+	}
+}
+
+func isURLHeader(name string) bool {
+	n := strings.ToLower(name)
+	return strings.HasPrefix(n, "list-") || n == "archived-at"
+}
+
 func hbListRaw(hbRaw any) ([]any, bool) {
 	hbList, ok := hbRaw.([]any)
 	return hbList, ok
 }
 
-func validateBodyPartTree(ctx context.Context, accountID string, pMap map[string]any, path string, blobBackend jmapblob.BlobBackend, missingBlobs *[]string) *jmapcore.SetError {
+func validateBodyPartTree(ctx context.Context, accountID string, pMap map[string]any, path string, bodyValues map[string]any, blobBackend jmapblob.BlobBackend, missingBlobs *[]string) *jmapcore.SetError {
 	if _, has := pMap["headers"]; has {
 		return &jmapcore.SetError{Type: "invalidProperties", Properties: []string{path + "/headers"}}
 	}
@@ -674,11 +729,27 @@ func validateBodyPartTree(ctx context.Context, accountID string, pMap map[string
 			return &jmapcore.SetError{Type: "invalidProperties", Properties: []string{path + "/" + k}}
 		}
 	}
-	if _, hasPartID := pMap["partId"]; hasPartID {
+
+	_, hasPartID := pMap["partId"]
+	_, hasBlobID := pMap["blobId"]
+	if hasPartID && hasBlobID {
+		return &jmapcore.SetError{Type: "invalidProperties", Properties: []string{path + "/partId", path + "/blobId"}}
+	}
+
+	if hasPartID {
+		if pID, ok := pMap["partId"].(string); ok && pID != "" {
+			if bodyValues == nil || bodyValues[pID] == nil {
+				return &jmapcore.SetError{Type: "invalidProperties", Properties: []string{path + "/partId"}}
+			}
+		}
+		if _, hasCharset := pMap["charset"]; hasCharset {
+			return &jmapcore.SetError{Type: "invalidProperties", Properties: []string{path + "/charset"}}
+		}
 		if _, hasSize := pMap["size"]; hasSize {
 			return &jmapcore.SetError{Type: "invalidProperties", Properties: []string{path + "/size"}}
 		}
 	}
+
 	if bID, ok := pMap["blobId"].(string); ok && bID != "" {
 		if blobBackend != nil {
 			if _, found, _ := blobBackend.GetBlob(ctx, accountID, bID); !found {
@@ -686,11 +757,15 @@ func validateBodyPartTree(ctx context.Context, accountID string, pMap map[string
 			}
 		}
 	}
-	if subParts, ok := pMap["subParts"].([]any); ok {
+	if subParts, ok := pMap["subParts"].([]any); ok && len(subParts) > 0 {
+		partType, _ := pMap["type"].(string)
+		if partType != "" && !strings.HasPrefix(strings.ToLower(partType), "multipart/") {
+			return &jmapcore.SetError{Type: "invalidProperties", Properties: []string{path + "/subParts"}}
+		}
 		for i, sp := range subParts {
 			if spMap, ok := sp.(map[string]any); ok {
 				subPath := fmt.Sprintf("%s/subParts/%d", path, i)
-				if err := validateBodyPartTree(ctx, accountID, spMap, subPath, blobBackend, missingBlobs); err != nil {
+				if err := validateBodyPartTree(ctx, accountID, spMap, subPath, bodyValues, blobBackend, missingBlobs); err != nil {
 					return err
 				}
 			}

@@ -473,3 +473,522 @@ func TestRFC8621_EmailCreateGeneratesMessageID(t *testing.T) {
 		t.Errorf("expected Message-ID domain to match sender domain custom-domain.org, got %q", generatedID)
 	}
 }
+
+// TestRFC8621_EmailCreateRejectsHeadersProperty verifies RFC 8621 Section 4.6:
+// "The "headers" property MUST NOT be given on either the top-level Email or an EmailBodyPart"
+func TestRFC8621_EmailCreateRejectsHeadersProperty(t *testing.T) {
+	spectest.Require(t, "RFC8621", "4.6", spectest.MUST,
+		"o The \"headers\" property MUST NOT be given on either the top-level")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	r := postJMAP(t, ts.URL, []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"top": map[string]any{
+					"subject":    "Test",
+					"mailboxIds": map[string]any{"mb-inbox": true},
+					"headers":    []any{map[string]any{"name": "X-Custom", "value": "val"}},
+				},
+				"part": map[string]any{
+					"subject":    "Test 2",
+					"mailboxIds": map[string]any{"mb-inbox": true},
+					"bodyValues": map[string]any{"1": map[string]any{"value": "Body"}},
+					"textBody": []any{map[string]any{
+						"partId":  "1",
+						"headers": []any{map[string]any{"name": "X-Part", "value": "val"}},
+					}},
+				},
+			},
+		}, "c1"},
+	})
+
+	notCreated, ok := r.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected notCreated map, got %v", r.MethodResponses[0].Args)
+	}
+	for _, key := range []string{"top", "part"} {
+		errObj, ok := notCreated[key].(map[string]any)
+		if !ok || errObj["type"] != "invalidProperties" {
+			t.Errorf("expected %s rejected with invalidProperties, got %v", key, errObj)
+		}
+	}
+}
+
+// TestRFC8621_EmailCreateRejectsDuplicateHeaderProperties verifies RFC 8621 Section 4.6:
+// "There MUST NOT be two properties that represent the same header"
+func TestRFC8621_EmailCreateRejectsDuplicateHeaderProperties(t *testing.T) {
+	spectest.Require(t, "RFC8621", "4.6", spectest.MUST,
+		"o There MUST NOT be two properties that represent the same header")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	r := postJMAP(t, ts.URL, []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"dup": map[string]any{
+					"subject":        "Original Subject",
+					"header:Subject": "Duplicate Header Subject",
+					"mailboxIds":     map[string]any{"mb-inbox": true},
+				},
+			},
+		}, "c1"},
+	})
+
+	notCreated, ok := r.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected notCreated map, got %v", r.MethodResponses[0].Args)
+	}
+	errObj, ok := notCreated["dup"].(map[string]any)
+	if !ok || errObj["type"] != "invalidProperties" {
+		t.Errorf("expected duplicate header rejected with invalidProperties, got %v", errObj)
+	}
+}
+
+// TestRFC8621_EmailCreateRejectsForbiddenParsedForms verifies RFC 8621 Section 4.6:
+// "Header fields MUST NOT be specified in parsed forms that are forbidden for that header field"
+func TestRFC8621_EmailCreateRejectsForbiddenParsedForms(t *testing.T) {
+	spectest.Require(t, "RFC8621", "4.6", spectest.MUST,
+		"o Header fields MUST NOT be specified in parsed forms that are")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	r := postJMAP(t, ts.URL, []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"badForm": map[string]any{
+					"mailboxIds":                 map[string]any{"mb-inbox": true},
+					"header:Subject:asAddresses": []any{map[string]any{"email": "alice@example.com"}},
+				},
+			},
+		}, "c1"},
+	})
+
+	notCreated, ok := r.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected notCreated map, got %v", r.MethodResponses[0].Args)
+	}
+	errObj, ok := notCreated["badForm"].(map[string]any)
+	if !ok || errObj["type"] != "invalidProperties" {
+		t.Errorf("expected forbidden parsed form rejected with invalidProperties, got %v", errObj)
+	}
+}
+
+// TestRFC8621_EmailCreateRejectsContentHeadersOnTopLevel verifies RFC 8621 Section 4.6:
+// "Header fields beginning with \"Content-\" MUST NOT be specified on the Email object"
+func TestRFC8621_EmailCreateRejectsContentHeadersOnTopLevel(t *testing.T) {
+	spectest.Require(t, "RFC8621", "4.6", spectest.MUST,
+		"o Header fields beginning with \"Content-\" MUST NOT be specified on")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	r := postJMAP(t, ts.URL, []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"contentHdr": map[string]any{
+					"subject":             "Content header on top level",
+					"mailboxIds":          map[string]any{"mb-inbox": true},
+					"header:Content-Type": "text/plain",
+				},
+			},
+		}, "c1"},
+	})
+
+	notCreated, ok := r.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected notCreated map, got %v", r.MethodResponses[0].Args)
+	}
+	errObj, ok := notCreated["contentHdr"].(map[string]any)
+	if !ok || errObj["type"] != "invalidProperties" {
+		t.Errorf("expected top-level Content-* header rejected with invalidProperties, got %v", errObj)
+	}
+}
+
+// TestRFC8621_EmailCreateBodyStructureMutualExclusion verifies RFC 8621 Section 4.6:
+// "If a \"bodyStructure\" property is given, there MUST NOT be any textBody, htmlBody, or attachments property."
+func TestRFC8621_EmailCreateBodyStructureMutualExclusion(t *testing.T) {
+	spectest.Require(t, "RFC8621", "4.6", spectest.MUST,
+		"o If a \"bodyStructure\" property is given, there MUST NOT be")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	r := postJMAP(t, ts.URL, []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"conflict": map[string]any{
+					"subject":       "Conflict",
+					"mailboxIds":    map[string]any{"mb-inbox": true},
+					"bodyStructure": map[string]any{"partId": "1", "type": "text/plain"},
+					"textBody":      []any{map[string]any{"partId": "1"}},
+					"bodyValues":    map[string]any{"1": map[string]any{"value": "Hello"}},
+				},
+			},
+		}, "c1"},
+	})
+
+	notCreated, ok := r.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected notCreated map, got %v", r.MethodResponses[0].Args)
+	}
+	errObj, ok := notCreated["conflict"].(map[string]any)
+	if !ok || errObj["type"] != "invalidProperties" {
+		t.Errorf("expected bodyStructure conflict rejected with invalidProperties, got %v", errObj)
+	}
+}
+
+// TestRFC8621_EmailCreateBodyStructureSubPartsMultipartOnly verifies RFC 8621 Section 4.6:
+// "If given, the \"bodyStructure\" EmailBodyPart MUST NOT contain a subParts property unless the type is multipart/*"
+func TestRFC8621_EmailCreateBodyStructureSubPartsMultipartOnly(t *testing.T) {
+	spectest.Require(t, "RFC8621", "4.6", spectest.MUST,
+		"o If given, the \"bodyStructure\" EmailBodyPart MUST NOT contain a")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	r := postJMAP(t, ts.URL, []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"invalidSubParts": map[string]any{
+					"subject":    "Invalid subparts",
+					"mailboxIds": map[string]any{"mb-inbox": true},
+					"bodyStructure": map[string]any{
+						"type":     "text/plain",
+						"subParts": []any{map[string]any{"partId": "1"}},
+					},
+					"bodyValues": map[string]any{"1": map[string]any{"value": "Hello"}},
+				},
+			},
+		}, "c1"},
+	})
+
+	notCreated, ok := r.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected notCreated map, got %v", r.MethodResponses[0].Args)
+	}
+	errObj, ok := notCreated["invalidSubParts"].(map[string]any)
+	if !ok || errObj["type"] != "invalidProperties" {
+		t.Errorf("expected non-multipart subParts rejected with invalidProperties, got %v", errObj)
+	}
+}
+
+// TestRFC8621_EmailCreateTextBodySingleTextPlainPart verifies RFC 8621 Section 4.6:
+// "If given, textBody MUST contain exactly one body part and it MUST have type text/plain"
+func TestRFC8621_EmailCreateTextBodySingleTextPlainPart(t *testing.T) {
+	spectest.Require(t, "RFC8621", "4.6", spectest.MUST,
+		"o If given, textBody MUST contain exactly one body part and it MUST")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	r := postJMAP(t, ts.URL, []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"twoParts": map[string]any{
+					"subject":    "Two textBody parts",
+					"mailboxIds": map[string]any{"mb-inbox": true},
+					"bodyValues": map[string]any{
+						"1": map[string]any{"value": "Part 1"},
+						"2": map[string]any{"value": "Part 2"},
+					},
+					"textBody": []any{
+						map[string]any{"partId": "1"},
+						map[string]any{"partId": "2"},
+					},
+				},
+			},
+		}, "c1"},
+	})
+
+	notCreated, ok := r.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected notCreated map, got %v", r.MethodResponses[0].Args)
+	}
+	errObj, ok := notCreated["twoParts"].(map[string]any)
+	if !ok || errObj["type"] != "invalidProperties" {
+		t.Errorf("expected multi-part textBody rejected with invalidProperties, got %v", errObj)
+	}
+}
+
+// TestRFC8621_EmailCreateHtmlBodySingleTextHtmlPart verifies RFC 8621 Section 4.6:
+// "If given, htmlBody MUST contain exactly one body part and it MUST have type text/html"
+func TestRFC8621_EmailCreateHtmlBodySingleTextHtmlPart(t *testing.T) {
+	spectest.Require(t, "RFC8621", "4.6", spectest.MUST,
+		"o If given, htmlBody MUST contain exactly one body part and it MUST")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	r := postJMAP(t, ts.URL, []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"wrongType": map[string]any{
+					"subject":    "Wrong type for htmlBody",
+					"mailboxIds": map[string]any{"mb-inbox": true},
+					"bodyValues": map[string]any{"1": map[string]any{"value": "text"}},
+					"htmlBody":   []any{map[string]any{"partId": "1", "type": "text/plain"}},
+				},
+			},
+		}, "c1"},
+	})
+
+	notCreated, ok := r.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected notCreated map, got %v", r.MethodResponses[0].Args)
+	}
+	errObj, ok := notCreated["wrongType"].(map[string]any)
+	if !ok || errObj["type"] != "invalidProperties" {
+		t.Errorf("expected wrong-type htmlBody rejected with invalidProperties, got %v", errObj)
+	}
+}
+
+// TestRFC8621_EmailCreatePartIdOrBlobIdMutualExclusion verifies RFC 8621 Section 4.6:
+// "The client may specify a partId OR a blobId, but not both"
+func TestRFC8621_EmailCreatePartIdOrBlobIdMutualExclusion(t *testing.T) {
+	spectest.Require(t, "RFC8621", "4.6", spectest.MAY,
+		"* The client may specify a partId OR a blobId, but not both")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	r := postJMAP(t, ts.URL, []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"both": map[string]any{
+					"subject":    "Both partId and blobId",
+					"mailboxIds": map[string]any{"mb-inbox": true},
+					"bodyValues": map[string]any{"1": map[string]any{"value": "Hello"}},
+					"textBody": []any{
+						map[string]any{"partId": "1", "blobId": "blob-123"},
+					},
+				},
+			},
+		}, "c1"},
+	})
+
+	notCreated, ok := r.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected notCreated map, got %v", r.MethodResponses[0].Args)
+	}
+	errObj, ok := notCreated["both"].(map[string]any)
+	if !ok || errObj["type"] != "invalidProperties" {
+		t.Errorf("expected both partId and blobId rejected with invalidProperties, got %v", errObj)
+	}
+}
+
+// TestRFC8621_EmailCreatePartIdMustBeInBodyValues verifies RFC 8621 Section 4.6:
+// "a partId is given, this partId MUST be present in the bodyValues map"
+func TestRFC8621_EmailCreatePartIdMustBeInBodyValues(t *testing.T) {
+	spectest.Require(t, "RFC8621", "4.6", spectest.MUST,
+		"a partId is given, this partId MUST be present in the")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	r := postJMAP(t, ts.URL, []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"missingBV": map[string]any{
+					"subject":    "partId missing from bodyValues",
+					"mailboxIds": map[string]any{"mb-inbox": true},
+					"textBody":   []any{map[string]any{"partId": "non-existent"}},
+					"bodyValues": map[string]any{"other": map[string]any{"value": "abc"}},
+				},
+			},
+		}, "c1"},
+	})
+
+	notCreated, ok := r.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected notCreated map, got %v", r.MethodResponses[0].Args)
+	}
+	errObj, ok := notCreated["missingBV"].(map[string]any)
+	if !ok || errObj["type"] != "invalidProperties" {
+		t.Errorf("expected missing bodyValues partId rejected with invalidProperties, got %v", errObj)
+	}
+}
+
+// TestRFC8621_EmailCreatePartIdMustOmitCharsetAndSize verifies RFC 8621 Section 4.6:
+// "The \"charset\" property MUST be omitted if a partId is given" and
+// "The \"size\" property MUST be omitted if a partId is given"
+func TestRFC8621_EmailCreatePartIdMustOmitCharsetAndSize(t *testing.T) {
+	spectest.Require(t, "RFC8621", "4.6", spectest.MUST,
+		"* The \"charset\" property MUST be omitted if a partId is given")
+	spectest.Require(t, "RFC8621", "4.6", spectest.MUST,
+		"* The \"size\" property MUST be omitted if a partId is given")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	r := postJMAP(t, ts.URL, []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"withCharset": map[string]any{
+					"subject":    "Charset with partId",
+					"mailboxIds": map[string]any{"mb-inbox": true},
+					"bodyValues": map[string]any{"1": map[string]any{"value": "Hello"}},
+					"textBody": []any{
+						map[string]any{"partId": "1", "charset": "utf-8"},
+					},
+				},
+				"withSize": map[string]any{
+					"subject":    "Size with partId",
+					"mailboxIds": map[string]any{"mb-inbox": true},
+					"bodyValues": map[string]any{"2": map[string]any{"value": "World"}},
+					"textBody": []any{
+						map[string]any{"partId": "2", "size": float64(5)},
+					},
+				},
+			},
+		}, "c1"},
+	})
+
+	notCreated, ok := r.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected notCreated map, got %v", r.MethodResponses[0].Args)
+	}
+	for _, key := range []string{"withCharset", "withSize"} {
+		errObj, ok := notCreated[key].(map[string]any)
+		if !ok || errObj["type"] != "invalidProperties" {
+			t.Errorf("expected %s rejected with invalidProperties, got %v", key, errObj)
+		}
+	}
+}
+
+// TestRFC8621_EmailCreateRejectsContentTransferEncodingOnPart verifies RFC 8621 Section 4.6:
+// "A Content-Transfer-Encoding header field MUST NOT be given"
+func TestRFC8621_EmailCreateRejectsContentTransferEncodingOnPart(t *testing.T) {
+	spectest.Require(t, "RFC8621", "4.6", spectest.MUST,
+		"* A Content-Transfer-Encoding header field MUST NOT be given")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	r := postJMAP(t, ts.URL, []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"withCTE": map[string]any{
+					"subject":    "CTE on body part",
+					"mailboxIds": map[string]any{"mb-inbox": true},
+					"bodyValues": map[string]any{"1": map[string]any{"value": "Hello"}},
+					"textBody": []any{
+						map[string]any{
+							"partId":                           "1",
+							"header:Content-Transfer-Encoding": "base64",
+						},
+					},
+				},
+			},
+		}, "c1"},
+	})
+
+	notCreated, ok := r.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected notCreated map, got %v", r.MethodResponses[0].Args)
+	}
+	errObj, ok := notCreated["withCTE"].(map[string]any)
+	if !ok || errObj["type"] != "invalidProperties" {
+		t.Errorf("expected CTE on body part rejected with invalidProperties, got %v", errObj)
+	}
+}
+
+// TestRFC8621_EmailCreateBodyValuesTruncatedOrEncodingProblem verifies RFC 8621 Section 4.6:
+// "isTruncated and isEncodingProblem MUST be either false or omitted"
+func TestRFC8621_EmailCreateBodyValuesTruncatedOrEncodingProblem(t *testing.T) {
+	spectest.Require(t, "RFC8621", "4.6", spectest.MUST,
+		"MUST be either false or omitted")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	r := postJMAP(t, ts.URL, []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"truncated": map[string]any{
+					"subject":    "Truncated body value",
+					"mailboxIds": map[string]any{"mb-inbox": true},
+					"textBody":   []any{map[string]any{"partId": "1"}},
+					"bodyValues": map[string]any{"1": map[string]any{"value": "Hello", "isTruncated": true}},
+				},
+				"encodingProblem": map[string]any{
+					"subject":    "Encoding problem body value",
+					"mailboxIds": map[string]any{"mb-inbox": true},
+					"textBody":   []any{map[string]any{"partId": "2"}},
+					"bodyValues": map[string]any{"2": map[string]any{"value": "World", "isEncodingProblem": true}},
+				},
+			},
+		}, "c1"},
+	})
+
+	notCreated, ok := r.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected notCreated map, got %v", r.MethodResponses[0].Args)
+	}
+	for _, key := range []string{"truncated", "encodingProblem"} {
+		errObj, ok := notCreated[key].(map[string]any)
+		if !ok || errObj["type"] != "invalidProperties" {
+			t.Errorf("expected %s rejected with invalidProperties, got %v", key, errObj)
+		}
+	}
+}
+
+// TestRFC8621_EmailCreateRejectionWithInvalidProperties verifies RFC 8621 Section 4.6:
+// "Creation attempts that violate any of this SHOULD be rejected with an \"invalidProperties\" error"
+func TestRFC8621_EmailCreateRejectionWithInvalidProperties(t *testing.T) {
+	spectest.Require(t, "RFC8621", "4.6", spectest.SHOULD,
+		"Creation attempts that violate any of this SHOULD be rejected with an")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	r := postJMAP(t, ts.URL, []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"noMailboxes": map[string]any{
+					"subject": "Missing mailboxIds",
+				},
+			},
+		}, "c1"},
+	})
+
+	notCreated, ok := r.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected notCreated map, got %v", r.MethodResponses[0].Args)
+	}
+	errObj, ok := notCreated["noMailboxes"].(map[string]any)
+	if !ok || errObj["type"] != "invalidProperties" {
+		t.Errorf("expected missing mailboxIds rejected with invalidProperties, got %v", errObj)
+	}
+}
