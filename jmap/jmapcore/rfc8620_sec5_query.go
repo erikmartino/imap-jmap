@@ -233,3 +233,46 @@ func EvalFilterOperator(filter map[string]any, matchCondition func(map[string]an
 		return false, true
 	}
 }
+
+// ValidateFilter validates a FilterOperator or FilterCondition per RFC 8620 Section 5.5.
+// If filter is a FilterOperator (contains "operator" property), its "operator" MUST be
+// "AND", "OR", or "NOT", and its "conditions" MUST be an array of objects.
+// If filter is a FilterCondition, it MUST NOT have an "operator" property.
+// @spec RFC8620#5.5-p3-MUST
+// @spec RFC8620#5.5-p7-MUST
+func ValidateFilter(filter map[string]any) string {
+	if filter == nil {
+		return ""
+	}
+	rawOp, hasOp := filter["operator"]
+	if !hasOp {
+		// FilterCondition: MUST NOT have an "operator" property (satisfied since !hasOp)
+		return ""
+	}
+	opStr, ok := rawOp.(string)
+	if !ok {
+		return "filter operator must be a string"
+	}
+	upper := strings.ToUpper(opStr)
+	if upper != "AND" && upper != "OR" && upper != "NOT" {
+		return fmt.Sprintf("filter operator must be 'AND', 'OR', or 'NOT', got %q", opStr)
+	}
+	rawConds, hasConds := filter["conditions"]
+	if !hasConds || rawConds == nil {
+		return "FilterOperator must have 'conditions' array"
+	}
+	condsSlice, ok := rawConds.([]any)
+	if !ok {
+		return "FilterOperator 'conditions' must be an array"
+	}
+	for _, c := range condsSlice {
+		cMap, ok := c.(map[string]any)
+		if !ok {
+			return "filter condition must be a JSON object"
+		}
+		if subErr := ValidateFilter(cMap); subErr != "" {
+			return subErr
+		}
+	}
+	return ""
+}

@@ -824,6 +824,45 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
+			if strings.HasSuffix(call.Name, "/query") {
+				if rawLimit, hasLimit := resolvedArgs["limit"]; hasLimit && rawLimit != nil {
+					num, ok := rawLimit.(float64)
+					if !ok || num < 0 || num != float64(uint64(num)) {
+						respInv := Invocation{
+							Name:         "error",
+							Args:         InvalidArgumentsErrorArgs([]string{"limit"}, "limit must be a non-negative integer"),
+							ClientCallID: call.ClientCallID,
+						}
+						responses = append(responses, respInv)
+						executedMap[call.ClientCallID] = respInv
+						continue
+					}
+				}
+				if rawFilter, hasFilter := resolvedArgs["filter"]; hasFilter && rawFilter != nil {
+					if filterMap, ok := rawFilter.(map[string]any); ok {
+						if filterErr := ValidateFilter(filterMap); filterErr != "" {
+							respInv := Invocation{
+								Name:         "error",
+								Args:         InvalidArgumentsErrorArgs([]string{"filter"}, filterErr),
+								ClientCallID: call.ClientCallID,
+							}
+							responses = append(responses, respInv)
+							executedMap[call.ClientCallID] = respInv
+							continue
+						}
+					} else {
+						respInv := Invocation{
+							Name:         "error",
+							Args:         InvalidArgumentsErrorArgs([]string{"filter"}, "filter must be an object or null"),
+							ClientCallID: call.ClientCallID,
+						}
+						responses = append(responses, respInv)
+						executedMap[call.ClientCallID] = respInv
+						continue
+					}
+				}
+			}
+
 			targetAccountID = acctStr
 			if targetAccountID == "primary" || targetAccountID == principalAccountID || AccountIDForSubject(targetAccountID) == principalAccountID {
 				targetAccountID = principalAccountID

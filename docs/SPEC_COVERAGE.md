@@ -17,7 +17,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [jmap-websockets](#jmap-websockets) | RFC8887 | 7 | 0 | 0 | 7 | 100.0% |
 | [jscontact](#jscontact) | RFC9553, RFC9554, RFC9555 | 6 | 0 | 0 | 6 | 100.0% |
 | [smtp](#smtp) | RFC4954, RFC5228, RFC5232, RFC5321, RFC5429, RFC5546, RFC6047, RFC6376, RFC6409, RFC7208, RFC7489, RFC8601 | 46 | 0 | 0 | 46 | 100.0% |
-| [rfc8620-core](#rfc8620-core) | RFC8620 | 22 | 372 | 0 | 394 | 5.6% |
+| [rfc8620-core](#rfc8620-core) | RFC8620 | 52 | 342 | 0 | 394 | 13.2% |
 | [rfc8621-mail](#rfc8621-mail) | RFC8621 | 16 | 402 | 0 | 418 | 3.8% |
 | [rfc8887-websockets](#rfc8887-websockets) | RFC8887 | 0 | 40 | 0 | 40 | 0.0% |
 | [rfc9007-mdn](#rfc9007-mdn) | RFC9007 | 0 | 24 | 0 | 24 | 0.0% |
@@ -29,7 +29,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [rfc9670-sharing](#rfc9670-sharing) | RFC9670 | 0 | 76 | 0 | 76 | 0.0% |
 | [rfc9698-jmapaccess](#rfc9698-jmapaccess) | RFC9698 | 0 | 14 | 0 | 14 | 0.0% |
 | [rfc9749-vapid](#rfc9749-vapid) | RFC9749 | 0 | 24 | 0 | 24 | 0.0% |
-| **Total** | | **205** | **1187** | **0** | **1392** | **14.7%** |
+| **Total** | | **235** | **1157** | **0** | **1392** | **16.9%** |
 
 ---
 
@@ -263,7 +263,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 ## rfc8620-core
 
 * **Test Suite Directory**: [`jmap/`](../jmap/)
-* **Conformance**: 22 / 394 (5.6%)
+* **Conformance**: 52 / 394 (13.2%)
 
 | Spec | Section | Level | Requirement | Status | Tests | Note |
 | :--- | :---: | :---: | :--- | :---: | :--- | :--- |
@@ -371,35 +371,35 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8620 | [3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3) | `SHOULD` | unknown, it is RECOMMENDED to follow the advice in | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3 [p1] |
 | RFC8620 | [3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3) | `MAY` | The Comparator object may also have additional properties as | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3 [p2] |
 | RFC8620 | [3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3) | `MUST` | required for specific sort operations defined in a type's /query | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3 [p3] |
-| RFC8620 | [3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3) | `MUST` | Specifically, the negative value MUST be added to the total | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3 [p4] |
+| RFC8620 | [3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3) | `MUST` | Specifically, the negative value MUST be added to the total | ✅ Covered | `TestQueryAnchorPositioning`<br/>`TestRFC8620_Section3_QueryPaginationAndPositioning` | Extracted by specextract from RFC8620 §3 [p4] |
 | RFC8620 | [3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3) | `MAY` | This MAY be negative | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3 [p5] |
 | RFC8620 | [3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3) | `MAY` | The server MAY choose to enforce a maximum "limit" | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3 [p6] |
-| RFC8620 | [3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3) | `MUST` | value is given, the call MUST be rejected with an | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3 [p7] |
+| RFC8620 | [3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3) | `MUST` | value is given, the call MUST be rejected with an | ✅ Covered | `TestRFC8620_Section3_QueryPaginationAndPositioning` | Extracted by specextract from RFC8620 §3 [p7] |
 | RFC8620 | [3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3) | `MAY` | This may be slow and expensive for servers to calculate, | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3 [p8] |
 | RFC8620 | [3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3) | `SHOULD` | particularly with complex filters, so clients should take care to | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3 [p9] |
-| RFC8620 | [3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3) | `MUST` | client MUST be ignored | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3 [p10] |
-| RFC8620 | [3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3) | `MUST` | "anchorOffset" argument MUST be ignored | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3 [p11] |
-| RFC8620 | [3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3) | `MUST` | This string MUST change if the results of the query (i | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3 [p12] |
+| RFC8620 | [3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3) | `MUST` | client MUST be ignored | ✅ Covered | `TestQueryAnchorPositioning`<br/>`TestRFC8620_Section3_QueryPaginationAndPositioning` | Extracted by specextract from RFC8620 §3 [p10] |
+| RFC8620 | [3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3) | `MUST` | "anchorOffset" argument MUST be ignored | ✅ Covered | `TestQueryAnchorPositioning`<br/>`TestRFC8620_Section3_QueryPaginationAndPositioning` | Extracted by specextract from RFC8620 §3 [p11] |
+| RFC8620 | [3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3) | `MUST` | This string MUST change if the results of the query (i | ✅ Covered | `TestRFC8620_Section3_QueryPaginationAndPositioning` | Extracted by specextract from RFC8620 §3 [p12] |
 | RFC8620 | [3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3) | `MAY` | string MAY change if something has changed on the server, which | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3 [p13] |
 | RFC8620 | [3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3) | `MAY` | means the results may have changed but the server doesn't know for | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3 [p14] |
 | RFC8620 | [3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3) | `SHOULD` | Should a client receive back a response with a different | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3 [p15] |
 | RFC8620 | [3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3) | `MUST` | queryState string to a previous call, it MUST either throw away | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3 [p16] |
 | RFC8620 | [3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3) | `MAY` | guarantee that the "Foo/queryChanges" call will succeed, as it may | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3 [p17] |
-| RFC8620 | [3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3) | `MUST` | If "position" is >= "total", this MUST be | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3 [p18] |
+| RFC8620 | [3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3) | `MUST` | If "position" is >= "total", this MUST be | ✅ Covered | `TestRFC8620_Section3_QueryPaginationAndPositioning` | Extracted by specextract from RFC8620 §3 [p18] |
 | RFC8620 | [3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3) | `MUST` | This argument MUST be omitted if the "calculateTotal" request | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3 [p19] |
 | RFC8620 | [3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3) | `SHOULD` | search input, the client SHOULD suggest that the user simplify their | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3 [p21] |
-| RFC8620 | [3.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.1) | `MUST` | The request MUST be of type "application/json" and consist of a | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.1 [p1] |
-| RFC8620 | [3.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.1) | `MUST` | successful, the response MUST also be of type "application/json" and | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.1 [p2] |
+| RFC8620 | [3.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.1) | `MUST` | The request MUST be of type "application/json" and consist of a | ✅ Covered | `TestRFC8620_Section3_EnvelopeAndSequentialOrder` | Extracted by specextract from RFC8620 §3.1 [p1] |
+| RFC8620 | [3.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.1) | `MUST` | successful, the response MUST also be of type "application/json" and | ✅ Covered | `TestRFC8620_Section3_EnvelopeAndSequentialOrder` | Extracted by specextract from RFC8620 §3.1 [p2] |
 | RFC8620 | [3.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.3) | `MAY` | The client MAY | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.3 [p1] |
-| RFC8620 | [3.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.3) | `MUST` | calls MUST be processed sequentially, in order | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.3 [p2] |
+| RFC8620 | [3.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.3) | `MUST` | calls MUST be processed sequentially, in order | ✅ Covered | `TestRFC8620_Section3_EnvelopeAndSequentialOrder` | Extracted by specextract from RFC8620 §3.3 [p2] |
 | RFC8620 | [3.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.3) | `MAY` | o createdIds: "Id[Id]" (optional) | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.3 [p3] |
 | RFC8620 | [3.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.3) | `MAY` | As described later in this specification, some records may have a | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.3 [p4] |
 | RFC8620 | [3.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.3) | `MAY` | This may be an empty | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.3 [p5] |
 | RFC8620 | [3.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.3) | `MAY` | Future specifications MAY add further properties to the Request | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.3 [p6] |
-| RFC8620 | [3.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.3) | `MUST` | server MUST ignore any other properties it does not understand on the | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.3 [p7] |
-| RFC8620 | [3.4](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.4) | `MUST` | The output of the methods MUST be added to | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.4 [p1] |
+| RFC8620 | [3.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.3) | `MUST` | server MUST ignore any other properties it does not understand on the | ✅ Covered | `TestRFC8620_Section3_EnvelopeAndSequentialOrder` | Extracted by specextract from RFC8620 §3.3 [p7] |
+| RFC8620 | [3.4](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.4) | `MUST` | The output of the methods MUST be added to | ✅ Covered | `TestRFC8620_Section3_EnvelopeAndSequentialOrder` | Extracted by specextract from RFC8620 §3.4 [p1] |
 | RFC8620 | [3.4](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.4) | `MAY` | o createdIds: "Id[Id]" (optional; only returned if given in the | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.4 [p2] |
-| RFC8620 | [3.4](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.4) | `MUST` | This MUST | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.4 [p3] |
+| RFC8620 | [3.4](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.4) | `MUST` | This MUST | ✅ Covered | `TestRFC8620_Section3_EnvelopeAndSequentialOrder` | Extracted by specextract from RFC8620 §3.4 [p3] |
 | RFC8620 | [3.4](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.4) | `MAY` | Clients may use this to detect if this | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.4 [p4] |
 | RFC8620 | [3.5](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.5) | `MAY` | An argument to a method may be specified to have a default value | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.5 [p1] |
 | RFC8620 | [3.5](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.5) | `MUST` | omitted by the client, the server MUST treat the method call the same | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.5 [p2] |
@@ -411,31 +411,31 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8620 | [3.6](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6) | `MAY` | change may be separately rejected with a SetError, as described in | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.6 [p4] |
 | RFC8620 | [3.6.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.1) | `SHOULD` | SHOULD return a JSON "problem details" object as the response body, | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.6.1 [p1] |
 | RFC8620 | [3.6.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.1) | `MUST` | "limit" property MUST also be present on the "problem details" | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.6.1 [p2] |
-| RFC8620 | [3.6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.2) | `MUST` | MUST be inserted at the current point in the "methodResponses" array | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.6.2 [p1] |
-| RFC8620 | [3.6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.2) | `MUST` | and, unless otherwise specified, further processing MUST NOT happen | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.6.2 [p2] |
-| RFC8620 | [3.6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.2) | `MUST` | Any further method calls in the request MUST then be processed as | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.6.2 [p3] |
-| RFC8620 | [3.6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.2) | `MUST` | Errors at the method level MUST NOT generate an HTTP-level | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.6.2 [p4] |
-| RFC8620 | [3.6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.2) | `MUST` | The response name is "error", and it MUST have a type property | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.6.2 [p5] |
+| RFC8620 | [3.6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.2) | `MUST` | MUST be inserted at the current point in the "methodResponses" array | ✅ Covered | `TestRFC8620_Section3_6_2_MethodLevelErrors` | Extracted by specextract from RFC8620 §3.6.2 [p1] |
+| RFC8620 | [3.6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.2) | `MUST` | and, unless otherwise specified, further processing MUST NOT happen | ✅ Covered | `TestRFC8620_Section3_6_2_MethodLevelErrors` | Extracted by specextract from RFC8620 §3.6.2 [p2] |
+| RFC8620 | [3.6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.2) | `MUST` | Any further method calls in the request MUST then be processed as | ✅ Covered | `TestRFC8620_Section3_6_2_MethodLevelErrors` | Extracted by specextract from RFC8620 §3.6.2 [p3] |
+| RFC8620 | [3.6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.2) | `MUST` | Errors at the method level MUST NOT generate an HTTP-level | ✅ Covered | `TestRFC8620_Section3_6_2_MethodLevelErrors` | Extracted by specextract from RFC8620 §3.6.2 [p4] |
+| RFC8620 | [3.6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.2) | `MUST` | The response name is "error", and it MUST have a type property | ✅ Covered | `TestRFC8620_Section3_6_2_MethodLevelErrors` | Extracted by specextract from RFC8620 §3.6.2 [p5] |
 | RFC8620 | [3.6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.2) | `MAY` | Other properties may be present with further information; these are | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.6.2 [p6] |
-| RFC8620 | [3.6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.2) | `MUST` | the externally visible state of the server MUST NOT have changed if | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.6.2 [p7] |
+| RFC8620 | [3.6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.2) | `MUST` | the externally visible state of the server MUST NOT have changed if | ✅ Covered | `TestRFC8620_Section3_6_2_MethodLevelErrors` | Extracted by specextract from RFC8620 §3.6.2 [p7] |
 | RFC8620 | [3.6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.2) | `MAY` | The following error types are defined, which may be returned for any | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.6.2 [p8] |
 | RFC8620 | [3.6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.2) | `MAY` | backoff with a random factor) may succeed | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.6.2 [p9] |
 | RFC8620 | [3.6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.2) | `SHOULD` | A "description" property should provide more | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.6.2 [p10] |
 | RFC8620 | [3.6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.2) | `MUST` | The client MUST resynchronise impacted data to | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.6.2 [p11] |
-| RFC8620 | [3.6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.2) | `MUST` | otherwise invalid, or a required argument is missing | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.6.2 [p12] |
+| RFC8620 | [3.6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.2) | `MUST` | otherwise invalid, or a required argument is missing | ✅ Covered | `TestRFC8620_Section3_6_2_MethodLevelErrors` | Extracted by specextract from RFC8620 §3.6.2 [p12] |
 | RFC8620 | [3.6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.2) | `MAY` | "description" property MAY be present to help debug with an | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.6.2 [p13] |
 | RFC8620 | [3.6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.2) | `SHOULD` | Should a | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.6.2 [p14] |
 | RFC8620 | [3.6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.2) | `MUST` | client receive an error type it does not understand, it MUST treat it | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.6.2 [p15] |
-| RFC8620 | [3.7](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.7) | `MUST` | When processing a method call, the server MUST first check | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.7 [p1] |
+| RFC8620 | [3.7](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.7) | `MUST` | When processing a method call, the server MUST first check | ✅ Covered | `TestRFC8620_Section3_7_ResultReferenceResolutionAndErrors`<br/>`TestRFC8620_Section3_7_ResultReferences` | Extracted by specextract from RFC8620 §3.7 [p1] |
 | RFC8620 | [3.7](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.7) | `SHOULD` | result reference should be resolved and the value used as the "real" | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.7 [p2] |
-| RFC8620 | [3.7](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.7) | `MUST` | reference fails to resolve, the whole method MUST be rejected with an | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.7 [p3] |
-| RFC8620 | [3.7](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.7) | `MUST` | "#foo"), the method MUST return an "invalidArguments" error | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.7 [p4] |
-| RFC8620 | [3.7](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.7) | `MUST` | The required name of a response to that method call | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.7 [p5] |
+| RFC8620 | [3.7](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.7) | `MUST` | reference fails to resolve, the whole method MUST be rejected with an | ✅ Covered | `TestRFC8620_Section3_7_ResultReferenceResolutionAndErrors`<br/>`TestRFC8620_Section3_7_ResultReference_Errors` | Extracted by specextract from RFC8620 §3.7 [p3] |
+| RFC8620 | [3.7](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.7) | `MUST` | "#foo"), the method MUST return an "invalidArguments" error | ✅ Covered | `TestRFC8620_Section3_7_ResultReferenceResolutionAndErrors`<br/>`TestRFC8620_Section3_7_ResultReference_Errors` | Extracted by specextract from RFC8620 §3.7 [p4] |
+| RFC8620 | [3.7](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.7) | `MUST` | The required name of a response to that method call | ✅ Covered | `TestRFC8620_Section3_7_ResultReferenceResolutionAndErrors`<br/>`TestRFC8620_Section3_7_ResultReferences` | Extracted by specextract from RFC8620 §3.7 [p5] |
 | RFC8620 | [3.8](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.8) | `SHOULD` | example, an error message, the server SHOULD use information from the | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.8 [p1] |
 | RFC8620 | [3.8](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.8) | `SHOULD` | SHOULD indicate the language being used for user-visible strings | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.8 [p2] |
 | RFC8620 | [3.9](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.9) | `MUST` | As always, the server must be strict about data received from the | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.9 [p1] |
 | RFC8620 | [3.9](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.9) | `MUST` | method MUST return an "invalidArguments" error and terminate | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.9 [p2] |
-| RFC8620 | [3.10](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.10) | `MUST` | Method calls within a single request MUST be executed in order | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.10 [p1] |
+| RFC8620 | [3.10](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.10) | `MUST` | Method calls within a single request MUST be executed in order | ✅ Covered | `TestRFC8620_Section3_EnvelopeAndSequentialOrder` | Extracted by specextract from RFC8620 §3.10 [p1] |
 | RFC8620 | [3.10](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.10) | `MAY` | However, method calls from different concurrent API requests may be | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.10 [p2] |
 | RFC8620 | [3.10](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.10) | `MAY` | This means that the data on the server may change | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.10 [p3] |
 | RFC8620 | [4](https://www.rfc-editor.org/rfc/rfc8620.html#section-4) | `MAY` | These may distinguish | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §4 [p1] |
@@ -512,12 +512,12 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MAY` | Other properties MAY also be present on the SetError | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p41] |
 | RFC8620 | [5.5](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.5) | `SHOULD` | to include, how they should be sorted, and which part of the result | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.5 [p1] |
 | RFC8620 | [5.5](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.5) | `SHOULD` | should be returned (the full list may be *very* long) | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.5 [p2] |
-| RFC8620 | [5.5](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.5) | `MUST` | This MUST be one of the following strings: | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.5 [p3] |
-| RFC8620 | [5.5](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.5) | `MUST` | + "AND": All of the conditions must match for the filter to | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.5 [p4] |
-| RFC8620 | [5.5](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.5) | `MUST` | + "OR": At least one of the conditions must match for the | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.5 [p5] |
-| RFC8620 | [5.5](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.5) | `MUST` | + "NOT": None of the conditions must match for the filter to | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.5 [p6] |
-| RFC8620 | [5.5](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.5) | `MUST` | It MUST NOT have an | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.5 [p7] |
-| RFC8620 | [5.5](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.5) | `MUST` | order is server dependent, but it MUST be stable between calls to | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.5 [p8] |
+| RFC8620 | [5.5](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.5) | `MUST` | This MUST be one of the following strings: | ✅ Covered | `TestRFC8620_Section5_5_FilterOperatorAndSortStability` | Extracted by specextract from RFC8620 §5.5 [p3] |
+| RFC8620 | [5.5](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.5) | `MUST` | + "AND": All of the conditions must match for the filter to | ✅ Covered | `TestRFC8620_Section5_5_FilterOperatorAndSortStability` | Extracted by specextract from RFC8620 §5.5 [p4] |
+| RFC8620 | [5.5](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.5) | `MUST` | + "OR": At least one of the conditions must match for the | ✅ Covered | `TestRFC8620_Section5_5_FilterOperatorAndSortStability` | Extracted by specextract from RFC8620 §5.5 [p5] |
+| RFC8620 | [5.5](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.5) | `MUST` | + "NOT": None of the conditions must match for the filter to | ✅ Covered | `TestRFC8620_Section5_5_FilterOperatorAndSortStability` | Extracted by specextract from RFC8620 §5.5 [p6] |
+| RFC8620 | [5.5](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.5) | `MUST` | It MUST NOT have an | ✅ Covered | `TestRFC8620_Section5_5_FilterOperatorAndSortStability` | Extracted by specextract from RFC8620 §5.5 [p7] |
+| RFC8620 | [5.5](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.5) | `MUST` | order is server dependent, but it MUST be stable between calls to | ✅ Covered | `TestRFC8620_Section5_5_FilterOperatorAndSortStability` | Extracted by specextract from RFC8620 §5.5 [p8] |
 | RFC8620 | [5.5](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.5) | `MAY` | * isAscending: "Boolean" (optional; default: true) | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.5 [p9] |
 | RFC8620 | [5.5](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.5) | `MAY` | * collation: "String" (optional; default is server-dependent) | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.5 [p10] |
 | RFC8620 | [5.6](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.6) | `MAY` | common case, the client may have only downloaded and cached a | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.6 [p1] |

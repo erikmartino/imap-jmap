@@ -58,7 +58,10 @@ var (
 type ThreadFilterContext = jmapmail.ThreadFilterContext
 
 // EvalFilterOperator evaluates an RFC 8620 Section 5.5 FilterOperator object.
-var EvalFilterOperator = jmapcore.EvalFilterOperator
+var (
+	EvalFilterOperator = jmapcore.EvalFilterOperator
+	ValidateFilter     = jmapcore.ValidateFilter
+)
 
 // MatchesFilter checks if an email matches a filter object per RFC 8621 Section 4.5.
 func MatchesFilter(em *Email, filter map[string]any) bool {
