@@ -2,9 +2,11 @@ package jmap_test
 
 import (
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"imap-jmap/jmap"
+	"imap-jmap/jmap/spectest"
 )
 
 // TestRFC8621_EmailSetErrorPaths verifies Email/set reports notCreated/notUpdated/
@@ -401,5 +403,73 @@ func TestRFC9404_FileNodeSetUpdateMissingNotFound(t *testing.T) {
 	}
 	if errObj["type"] != "notFound" {
 		t.Errorf("expected notUpdated type notFound, got %v", errObj["type"])
+	}
+}
+
+// TestRFC8621_EmailCreateGeneratesMessageID verifies RFC 8621 Section 4.6:
+// "If no Message-ID header field is included, the server MUST generate and set a Message-ID header field in conformance with [RFC5322], Section 3.6.4."
+func TestRFC8621_EmailCreateGeneratesMessageID(t *testing.T) {
+	spectest.Require(t, "RFC8621", "4.6", spectest.MUST,
+		"included, the server MUST generate and set a Message-ID header field")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	r := postJMAP(t, ts.URL, []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"msg1": map[string]any{
+					"subject":    "Auto Message-ID Test",
+					"from":       []any{map[string]any{"email": "alice@custom-domain.org"}},
+					"to":         []any{map[string]any{"email": "bob@example.com"}},
+					"mailboxIds": map[string]any{"mb-inbox": true},
+					"bodyValues": map[string]any{"1": map[string]any{"value": "Hello World"}},
+					"textBody":   []any{map[string]any{"partId": "1"}},
+				},
+			},
+		}, "c1"},
+	})
+
+	created, ok := r.MethodResponses[0].Args["created"].(map[string]any)
+	if !ok || created["msg1"] == nil {
+		t.Fatalf("expected created msg1, got %v", r.MethodResponses[0].Args)
+	}
+	msgID := created["msg1"].(map[string]any)["id"].(string)
+
+	r2 := postJMAP(t, ts.URL, []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}, []any{
+		[]any{"Email/get", map[string]any{
+			"accountId":  "primary",
+			"ids":        []any{msgID},
+			"properties": []any{"id", "messageId", "from", "subject"},
+		}, "g1"},
+	})
+
+	list, _ := r2.MethodResponses[0].Args["list"].([]any)
+	if len(list) != 1 {
+		t.Fatalf("expected 1 email in list, got %v", list)
+	}
+	em := list[0].(map[string]any)
+	msgIDs, ok := em["messageId"].([]any)
+	if !ok || len(msgIDs) == 0 {
+		t.Fatalf("expected server-generated messageId, got %v", em["messageId"])
+	}
+	generatedID, ok := msgIDs[0].(string)
+	if !ok || generatedID == "" {
+		t.Fatalf("expected non-empty messageId string, got %v", msgIDs[0])
+	}
+	// Per RFC 8621 Section 4.1.2: Message-ID value is WITHOUT enclosing angle brackets
+	if strings.HasPrefix(generatedID, "<") || strings.HasSuffix(generatedID, ">") {
+		t.Errorf("JMAP messageId property MUST NOT contain enclosing angle brackets, got %q", generatedID)
+	}
+	// Verify that with angle brackets, it conforms to RFC 5322 Section 3.6.4
+	wrapped := "<" + generatedID + ">"
+	if !jmap.HasValidMessageID([]byte("Message-ID: " + wrapped + "\r\n\r\n")) {
+		t.Errorf("expected generated Message-ID to conform to RFC 5322 Section 3.6.4, got %q", wrapped)
+	}
+	// Verify domain is derived from sender rather than hardcoded example.com
+	if !strings.HasSuffix(generatedID, "@custom-domain.org") {
+		t.Errorf("expected Message-ID domain to match sender domain custom-domain.org, got %q", generatedID)
 	}
 }

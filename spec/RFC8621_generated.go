@@ -2194,8 +2194,8 @@ var RFC8621Requirements = []Requirement{
 		Section: "4.6",
 		Level:   Level("MUST"),
 		Text:    "included, the server MUST generate and set a Message-ID header field",
-		Tests:   []string{},
-		Status:  Gap,
+		Tests:   []string{"TestRFC8621_EmailCreateGeneratesMessageID"},
+		Status:  Covered,
 		Note:    "Extracted by specextract from RFC8621 §4.6 [p21]",
 	},
 	{

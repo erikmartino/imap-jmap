@@ -122,6 +122,11 @@ func TestRFC8984_SchedulingRequestExcludesOwner(t *testing.T) {
 				if len(em.TextBody) == 0 || em.TextBody[0].Type != "text/calendar; method=REQUEST" {
 					t.Errorf("REQUEST body part type = %v, want text/calendar; method=REQUEST", em.TextBody)
 				}
+				if len(em.MessageID) == 0 || em.MessageID[0] == "" {
+					t.Errorf("expected valid Message-ID in REQUEST email, got %v", em.MessageID)
+				} else if !jmap.HasValidMessageID([]byte("Message-ID: <" + em.MessageID[0] + ">\r\n\r\n")) {
+					t.Errorf("expected RFC 5322 valid Message-ID, got %q", em.MessageID[0])
+				}
 			case "user@example.com":
 				toOwner++
 			}

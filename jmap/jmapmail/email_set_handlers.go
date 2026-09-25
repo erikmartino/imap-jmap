@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"imap-jmap/jmap/jmapauth"
 	"imap-jmap/jmap/jmapblob"
 	"imap-jmap/jmap/jmapcore"
 	"imap-jmap/jmap/jmaphandler"
@@ -233,7 +234,15 @@ func HandleEmailSet(backend MailBackend, blobBackend jmapblob.BlobBackend) jmaph
 				}
 
 				if len(em.MessageID) == 0 {
-					em.MessageID = []string{fmt.Sprintf("%d@example.com", time.Now().UnixNano())}
+					sender := ""
+					if len(em.From) > 0 && em.From[0].Email != "" {
+						sender = em.From[0].Email
+					} else if len(em.Sender) > 0 && em.Sender[0].Email != "" {
+						sender = em.Sender[0].Email
+					} else if subj, ok := jmapauth.SubjectFromContext(ctx); ok && subj != "" {
+						sender = subj
+					}
+					em.MessageID = []string{GenerateMessageID(sender)}
 				}
 
 				if bodyValObj, ok := emData["bodyValues"].(map[string]any); ok {

@@ -81,6 +81,11 @@ func TestRFC6047_AutoSendInvitationAndCancellation(t *testing.T) {
 			if len(em.TextBody) == 0 || em.TextBody[0].Type != "text/calendar; method=REQUEST" {
 				t.Errorf("Expected Content-Type 'text/calendar; method=REQUEST', got %v", em.TextBody)
 			}
+			if len(em.MessageID) == 0 || em.MessageID[0] == "" {
+				t.Errorf("Expected valid Message-ID in iMIP invitation email, got empty/missing")
+			} else if !jmap.HasValidMessageID([]byte("Message-ID: <" + em.MessageID[0] + ">\r\n\r\n")) {
+				t.Errorf("Expected Message-ID to conform to RFC 5322 Section 3.6.4, got %q", em.MessageID[0])
+			}
 		}
 	}
 	if !foundInvite {
@@ -116,6 +121,11 @@ func TestRFC6047_AutoSendInvitationAndCancellation(t *testing.T) {
 			foundCancel = true
 			if len(em.TextBody) == 0 || em.TextBody[0].Type != "text/calendar; method=CANCEL" {
 				t.Errorf("Expected Content-Type 'text/calendar; method=CANCEL', got %v", em.TextBody)
+			}
+			if len(em.MessageID) == 0 || em.MessageID[0] == "" {
+				t.Errorf("Expected valid Message-ID in iMIP cancellation email, got empty/missing")
+			} else if !jmap.HasValidMessageID([]byte("Message-ID: <" + em.MessageID[0] + ">\r\n\r\n")) {
+				t.Errorf("Expected cancellation Message-ID to conform to RFC 5322 Section 3.6.4, got %q", em.MessageID[0])
 			}
 		}
 	}

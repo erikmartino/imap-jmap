@@ -172,6 +172,7 @@ func (b *IMAPSMTPBackend) CreateSubmission(ctx context.Context, sub *jmapmail.Em
 
 	// Dispatch over SMTP if configured and recipients exist
 	if b.smtpHost != "" && len(toSend) > 0 {
+		rawBytes = jmapmail.EnsureValidMessageID(rawBytes, from)
 		if err := b.pool.SendMail(ctx, from, toSend, rawBytes); err != nil {
 			return nil, fmt.Errorf("failed to send outbound email via SMTP: %w", err)
 		}

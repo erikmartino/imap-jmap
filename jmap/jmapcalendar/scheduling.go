@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"imap-jmap/jmap/jmapauth"
 	"imap-jmap/jmap/jmapcore"
@@ -148,17 +149,30 @@ func sendSchedulingEmail(ctx context.Context, mailBackend jmapmail.MailBackend, 
 		return fmt.Errorf("missing mailBackend, toAddr, or ics data")
 	}
 	subject = strings.ReplaceAll(strings.ReplaceAll(subject, "\r", ""), "\n", " ")
-	fromAddr = strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(fromAddr, "\r", ""), "\n", ""))
-	toAddr = strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(toAddr, "\r", ""), "\n", ""))
+	fromAddr = normalizeCalendarAddress(fromAddr)
+	toAddr = normalizeCalendarAddress(toAddr)
 	if fromAddr == "" {
-		fromAddr = "calendar@example.com"
+		if subj, ok := jmapauth.SubjectFromContext(ctx); ok && subj != "" {
+			fromAddr = normalizeCalendarAddress(subj)
+		} else if accID, ok := jmapauth.AccountIDFromContext(ctx); ok && accID != "" {
+			if s, ok := jmapauth.SubjectForAccountID(accID); ok && s != "" {
+				fromAddr = normalizeCalendarAddress(s)
+			}
+		}
 	}
+	if fromAddr == "" {
+		fromAddr = "calendar@localhost"
+	}
+	msgID := jmapmail.GenerateMessageID(fromAddr)
+	sentAt := time.Now().UTC().Format(time.RFC3339)
 	p1 := "1"
 	email := &jmapmail.Email{
 		MailboxIDs: map[jmapcore.Id]bool{"mb-sent": true},
 		Subject:    subject,
 		From:       []jmapmail.EmailAddress{{Email: fromAddr}},
 		To:         []jmapmail.EmailAddress{{Email: toAddr}},
+		MessageID:  []string{msgID},
+		SentAt:     &sentAt,
 		BodyStructure: jmapmail.EmailBodyPart{
 			PartID: &p1,
 			Type:   "text/calendar; method=" + method,
@@ -415,6 +429,15 @@ func dispatchITIPRequests(ctx context.Context, mailBackend jmapmail.MailBackend,
 	if organizerEmail == "" {
 		organizerEmail = organizerAddress(ev)
 	}
+	if organizerEmail == "" {
+		if subj, ok := jmapauth.SubjectFromContext(ctx); ok && subj != "" {
+			organizerEmail = normalizeCalendarAddress(subj)
+		} else if accID, ok := jmapauth.AccountIDFromContext(ctx); ok && accID != "" {
+			if s, ok := jmapauth.SubjectForAccountID(accID); ok && s != "" {
+				organizerEmail = normalizeCalendarAddress(s)
+			}
+		}
+	}
 	recipients := expandGroupRecipients(ctx, principalsBackend, schedulingRecipients(ev))
 	statusPatches := make(map[string]any)
 	for key, addr := range recipients {
@@ -456,6 +479,15 @@ func dispatchITIPCancels(ctx context.Context, mailBackend jmapmail.MailBackend, 
 	}
 	if organizerEmail == "" {
 		organizerEmail = organizerAddress(ev)
+	}
+	if organizerEmail == "" {
+		if subj, ok := jmapauth.SubjectFromContext(ctx); ok && subj != "" {
+			organizerEmail = normalizeCalendarAddress(subj)
+		} else if accID, ok := jmapauth.AccountIDFromContext(ctx); ok && accID != "" {
+			if s, ok := jmapauth.SubjectForAccountID(accID); ok && s != "" {
+				organizerEmail = normalizeCalendarAddress(s)
+			}
+		}
 	}
 	recipients := expandGroupRecipients(ctx, principalsBackend, schedulingRecipients(ev))
 	cancelICS, icsErr := BuildITIPCancel(ev, organizerEmail)

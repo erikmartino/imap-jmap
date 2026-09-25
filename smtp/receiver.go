@@ -9,8 +9,6 @@ import (
 	"net"
 	"net/mail"
 	"net/textproto"
-	"os"
-	"regexp"
 	"strings"
 	"time"
 
@@ -315,7 +313,7 @@ func (s *Session) Data(r io.Reader) error {
 	// only to the stored copy: the bytes that DKIM verifies stay the client's
 	// original bytes.
 	if s.mode == TransportModeSubmission && !hasValidMessageID(data) {
-		data = append([]byte(fmt.Sprintf("Message-ID: <%d.%d@%s>\r\n", time.Now().UnixNano(), os.Getpid(), s.backend.ServerName)), data...)
+		data = jmapmail.EnsureValidMessageID(data, s.backend.ServerName)
 	}
 
 	// Prepend an RFC 5321 Section 4.4 trace ("Received:") header. A receiving SMTP
@@ -687,17 +685,12 @@ func (s *Session) buildReceivedHeader() string {
 // msgIDRe matches the RFC 5322 Section 3.6.4 msg-id ABNF (id-left "@" id-right
 // wrapped in angle brackets) without whitespace, used to decide whether a
 // submitted message already carries a valid Message-ID (RFC 6409 Section 8.3).
-var msgIDRe = regexp.MustCompile(`^<[^<>@\s]+@[^<>@\s]+>$`)
+var msgIDRe = jmapmail.MsgIDRegex
 
 // hasValidMessageID reports whether the message carries a Message-ID header
 // field whose value conforms to the RFC 5322 Section 3.6.4 msg-id syntax.
 func hasValidMessageID(data []byte) bool {
-	msg, err := mail.ReadMessage(bytes.NewReader(data))
-	if err != nil {
-		return false
-	}
-	v := strings.TrimSpace(msg.Header.Get("Message-ID"))
-	return v != "" && msgIDRe.MatchString(v)
+	return jmapmail.HasValidMessageID(data)
 }
 
 // emailAddressMatches reports whether the envelope sender address matches the

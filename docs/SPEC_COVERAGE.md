@@ -18,7 +18,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [jscontact](#jscontact) | RFC9553, RFC9554, RFC9555 | 6 | 0 | 0 | 6 | 100.0% |
 | [smtp](#smtp) | RFC4954, RFC5228, RFC5232, RFC5321, RFC5429, RFC5546, RFC6047, RFC6376, RFC6409, RFC7208, RFC7489, RFC8601 | 46 | 0 | 0 | 46 | 100.0% |
 | [rfc8620-core](#rfc8620-core) | RFC8620 | 0 | 394 | 0 | 394 | 0.0% |
-| [rfc8621-mail](#rfc8621-mail) | RFC8621 | 0 | 418 | 0 | 418 | 0.0% |
+| [rfc8621-mail](#rfc8621-mail) | RFC8621 | 1 | 417 | 0 | 418 | 0.2% |
 | [rfc8887-websockets](#rfc8887-websockets) | RFC8887 | 0 | 40 | 0 | 40 | 0.0% |
 | [rfc9007-mdn](#rfc9007-mdn) | RFC9007 | 0 | 24 | 0 | 24 | 0.0% |
 | [rfc9219-smime](#rfc9219-smime) | RFC9219 | 0 | 24 | 0 | 24 | 0.0% |
@@ -29,7 +29,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [rfc9670-sharing](#rfc9670-sharing) | RFC9670 | 0 | 76 | 0 | 76 | 0.0% |
 | [rfc9698-jmapaccess](#rfc9698-jmapaccess) | RFC9698 | 0 | 14 | 0 | 14 | 0.0% |
 | [rfc9749-vapid](#rfc9749-vapid) | RFC9749 | 0 | 24 | 0 | 24 | 0.0% |
-| **Total** | | **167** | **1225** | **0** | **1392** | **12.0%** |
+| **Total** | | **168** | **1224** | **0** | **1392** | **12.1%** |
 
 ---
 
@@ -667,7 +667,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 ## rfc8621-mail
 
 * **Test Suite Directory**: [`jmap/`](../jmap/)
-* **Conformance**: 0 / 418 (0.0%)
+* **Conformance**: 1 / 418 (0.2%)
 
 | Spec | Section | Level | Requirement | Status | Tests | Note |
 | :--- | :---: | :---: | :--- | :---: | :--- | :--- |
@@ -914,7 +914,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8621 | [4.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.6) | `SHOULD` | Creation attempts that violate any of this SHOULD be rejected with an | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.6 [p18] |
 | RFC8621 | [4.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.6) | `MAY` | "invalidProperties" error; however, a server MAY choose to modify the | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.6 [p19] |
 | RFC8621 | [4.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.6) | `MAY` | The server MAY also choose to set additional headers | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.6 [p20] |
-| RFC8621 | [4.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.6) | `MUST` | included, the server MUST generate and set a Message-ID header field | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.6 [p21] |
+| RFC8621 | [4.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.6) | `MUST` | included, the server MUST generate and set a Message-ID header field | ✅ Covered | `TestRFC8621_EmailCreateGeneratesMessageID` | Extracted by specextract from RFC8621 §4.6 [p21] |
 | RFC8621 | [4.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.6) | `MAY` | The final message generated may be invalid per RFC 5322 | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.6 [p22] |
 | RFC8621 | [4.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.6) | `MAY` | example, if it is a half-finished draft, the To header field may have | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.6 [p23] |
 | RFC8621 | [4.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.6) | `MUST` | a value that does not conform to the required syntax for this header | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.6 [p24] |

@@ -820,7 +820,7 @@ func FormatEmailRFC822(em *Email) []byte {
 		h.SetAddressList("Reply-To", addrs)
 	}
 	if len(em.MessageID) > 0 && em.MessageID[0] != "" {
-		h.SetMessageID(em.MessageID[0])
+		h.SetMessageID(strings.Trim(em.MessageID[0], "<> \t\r\n"))
 	}
 	if len(em.InReplyTo) > 0 && em.InReplyTo[0] != "" {
 		h.Set("In-Reply-To", "<"+strings.Trim(em.InReplyTo[0], "<>")+">")

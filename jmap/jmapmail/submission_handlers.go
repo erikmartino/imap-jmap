@@ -435,6 +435,7 @@ func HandleEmailSubmissionSet(backend MailBackend, blobBackend jmapblob.BlobBack
 							} else if len(targetEmail.From) > 0 {
 								mailFrom = targetEmail.From[0].Email
 							}
+							rawBytes = EnsureValidMessageID(rawBytes, mailFrom)
 							results := outbound.SendMail(ctx, mailFrom, externalRecipients, rawBytes)
 							for _, rcpt := range externalRecipients {
 								res, ok := results[rcpt]
