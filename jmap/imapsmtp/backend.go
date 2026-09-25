@@ -3,6 +3,7 @@ package imapsmtp
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -440,6 +441,17 @@ func (t *itemTracker) Changes(sinceState string, maxChanges *uint64) (created, u
 	}
 	for id := range destroyedSet {
 		destroyed = append(destroyed, id)
+	}
+
+	sort.Slice(created, func(i, j int) bool { return created[i] < created[j] })
+	sort.Slice(updated, func(i, j int) bool { return updated[i] < updated[j] })
+	sort.Slice(destroyed, func(i, j int) bool { return destroyed[i] < destroyed[j] })
+
+	if maxChanges != nil && *maxChanges > 0 {
+		total := uint64(len(created) + len(updated) + len(destroyed))
+		if total > *maxChanges {
+			return nil, nil, nil, fmt.Sprintf("%d", t.counter), true
+		}
 	}
 
 	return created, updated, destroyed, fmt.Sprintf("%d", t.counter), false

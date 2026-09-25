@@ -13,24 +13,27 @@ func RegisterThreadHandlers(r *jmaphandler.MethodRegistry, backend MailBackend) 
 	r.Register("Thread/changes", HandleThreadChanges(backend))
 }
 
+var allowedThreadProperties = map[string]bool{
+	"id":       true,
+	"emailIds": true,
+}
+
 // HandleThreadGet implements Thread/get per RFC 8621 Section 3.1.
 func HandleThreadGet(backend MailBackend) jmaphandler.MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
-		idsRaw, hasIDs := args["ids"].([]any)
+		ids, hasIDs := jmaphandler.ParseIDs(args)
 		props := jmaphandler.ParseProperties(args)
+
+		if ok, bad := jmaphandler.ValidateProperties(props, allowedThreadProperties, nil); !ok {
+			return "error", jmapcore.InvalidArgumentsErrorArgs([]string{"properties"}, "invalid property: "+bad)
+		}
 
 		var list []*Thread
 		var notFound []jmapcore.Id
 		var err error
 
 		if hasIDs {
-			ids := make([]jmapcore.Id, 0, len(idsRaw))
-			for _, item := range idsRaw {
-				if idStr, ok := item.(string); ok {
-					ids = append(ids, jmapcore.Id(idStr))
-				}
-			}
 			list, notFound, err = backend.GetThreads(ctx, ids)
 		} else {
 			list, err = backend.GetAllThreads(ctx)
@@ -58,13 +61,9 @@ func HandleThreadChanges(backend MailBackend) jmaphandler.MethodHandler {
 		accountID, _ := args["accountId"].(string)
 		sinceState, _ := args["sinceState"].(string)
 
-		var maxChanges *uint64
-		if mc, ok := args["maxChanges"].(float64); ok {
-			if mc < 0 {
-				return "error", jmapcore.MethodErrorArgs(jmapcore.MethodErrorInvalidArguments, "maxChanges must be non-negative")
-			}
-			m := uint64(mc)
-			maxChanges = &m
+		maxChanges, errArgs := jmaphandler.ParseMaxChanges(args)
+		if errArgs != nil {
+			return "error", errArgs
 		}
 
 		created, updated, destroyed, newState, hasMore := backend.ThreadChanges(ctx, sinceState, maxChanges)

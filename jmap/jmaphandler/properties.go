@@ -1,6 +1,10 @@
 package jmaphandler
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"imap-jmap/jmap/jmapcore"
+)
 
 // ParseProperties extracts the optional "properties" argument per RFC 8620 Section 5.1.
 // If absent or nil, it returns nil (meaning "all properties").
@@ -21,6 +25,67 @@ func ParseProperties(args map[string]any) []string {
 		}
 	}
 	return props
+}
+
+// ValidateProperties checks that every requested property in props is in allowed or matches custom.
+// If an invalid property is found, it returns (false, invalidPropName).
+func ValidateProperties(props []string, allowed map[string]bool, custom func(string) bool) (bool, string) {
+	if props == nil {
+		return true, ""
+	}
+	for _, p := range props {
+		if allowed != nil && allowed[p] {
+			continue
+		}
+		if custom != nil && custom(p) {
+			continue
+		}
+		return false, p
+	}
+	return true, ""
+}
+
+// ParseIDs extracts the optional "ids" argument per RFC 8620 Section 5.1.
+// If absent or nil, it returns (nil, false) meaning "all records".
+// If present as an array, it returns deduplicated IDs preserving first-seen order, and true.
+// Duplicate IDs in the request are returned at most once per RFC 8620 Section 5.1 [p5].
+func ParseIDs(args map[string]any) ([]jmapcore.Id, bool) {
+	rawVal, ok := args["ids"]
+	if !ok || rawVal == nil {
+		return nil, false
+	}
+	raw, ok := rawVal.([]any)
+	if !ok {
+		return nil, false
+	}
+	seen := make(map[jmapcore.Id]struct{}, len(raw))
+	ids := make([]jmapcore.Id, 0, len(raw))
+	for _, item := range raw {
+		if s, ok := item.(string); ok {
+			id := jmapcore.Id(s)
+			if _, exists := seen[id]; !exists {
+				seen[id] = struct{}{}
+				ids = append(ids, id)
+			}
+		}
+	}
+	return ids, true
+}
+
+// ParseMaxChanges extracts and validates the optional "maxChanges" argument per RFC 8620 Section 5.2.
+// If absent or nil, it returns (nil, nil) allowing the server default.
+// If present, it MUST be a positive integer greater than 0. Otherwise it returns an invalidArguments error map.
+func ParseMaxChanges(args map[string]any) (*uint64, map[string]any) {
+	rawMC, ok := args["maxChanges"]
+	if !ok || rawMC == nil {
+		return nil, nil
+	}
+	mc, ok := rawMC.(float64)
+	if !ok || mc <= 0 || mc != float64(uint64(mc)) {
+		return nil, jmapcore.InvalidArgumentsErrorArgs([]string{"maxChanges"}, "maxChanges must be a positive integer greater than 0")
+	}
+	m := uint64(mc)
+	return &m, nil
 }
 
 // FilterProperties reduces a marshaled object to the requested property names. The "id"

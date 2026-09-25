@@ -36,6 +36,11 @@ func ResolveCreationID(id string, resolved map[string]jmapcore.Id) string {
 	return jmapcore.ResolveCreationID(id, resolved)
 }
 
+// ValidatePatch validates a PatchObject against target and serverSetProperties per RFC 8620 Section 5.3.
+func ValidatePatch(target map[string]any, patch map[string]any, serverSetProperties []string) *jmapcore.SetError {
+	return jmapcore.ValidatePatch(target, patch, serverSetProperties)
+}
+
 // RunCreateLoop processes a create map, resolving creation references and calling do for each
 // item in dependency order per RFC 8620 Section 5.3. Items whose dependencies cannot yet be
 // resolved are deferred until they can be, or reported as notCreated on a cycle.

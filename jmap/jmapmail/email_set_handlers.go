@@ -448,9 +448,13 @@ func HandleEmailSet(backend MailBackend, blobBackend jmapblob.BlobBackend) jmaph
 					resolvedID := jmaphandler.ResolveCreationID(idStr, creationRefs)
 					updatedEM, err := backend.UpdateEmail(ctx, jmapcore.Id(resolvedID), patch)
 					if err != nil {
-						notUpdated[string(resolvedID)] = map[string]any{
-							"type":        "notFound",
-							"description": err.Error(),
+						if setErr, ok := err.(jmapcore.SetError); ok {
+							notUpdated[string(resolvedID)] = setErr
+						} else {
+							notUpdated[string(resolvedID)] = jmapcore.SetError{
+								Type:        "notFound",
+								Description: err.Error(),
+							}
 						}
 					} else {
 						updated[string(resolvedID)] = updatedEM

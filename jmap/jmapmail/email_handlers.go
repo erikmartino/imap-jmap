@@ -12,7 +12,7 @@ import (
 func HandleEmailGet(backend MailBackend) jmaphandler.MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
-		idsRaw, hasIDs := args["ids"].([]any)
+		ids, hasIDs := jmaphandler.ParseIDs(args)
 		props := jmaphandler.ParseProperties(args)
 
 		// Validate any header properties in props
@@ -47,12 +47,6 @@ func HandleEmailGet(backend MailBackend) jmaphandler.MethodHandler {
 		var err error
 
 		if hasIDs {
-			ids := make([]jmapcore.Id, 0, len(idsRaw))
-			for _, item := range idsRaw {
-				if idStr, ok := item.(string); ok {
-					ids = append(ids, jmapcore.Id(idStr))
-				}
-			}
 			list, notFound, err = backend.GetEmails(ctx, ids)
 		} else {
 			list, err = backend.GetAllEmails(ctx)
@@ -361,13 +355,9 @@ func HandleEmailChanges(backend MailBackend) jmaphandler.MethodHandler {
 		accountID, _ := args["accountId"].(string)
 		sinceState, _ := args["sinceState"].(string)
 
-		var maxChanges *uint64
-		if mc, ok := args["maxChanges"].(float64); ok {
-			if mc < 0 {
-				return "error", jmapcore.MethodErrorArgs(jmapcore.MethodErrorInvalidArguments, "maxChanges must be non-negative")
-			}
-			m := uint64(mc)
-			maxChanges = &m
+		maxChanges, errArgs := jmaphandler.ParseMaxChanges(args)
+		if errArgs != nil {
+			return "error", errArgs
 		}
 
 		created, updated, destroyed, newState, hasMore := backend.EmailChanges(ctx, sinceState, maxChanges)

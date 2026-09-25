@@ -21,24 +21,37 @@ func RegisterMailboxHandlers(r *jmaphandler.MethodRegistry, backend MailBackend)
 	r.Register("Mailbox/queryChanges", HandleMailboxQueryChanges(backend))
 }
 
+var allowedMailboxProperties = map[string]bool{
+	"id":            true,
+	"name":          true,
+	"parentId":      true,
+	"role":          true,
+	"sortOrder":     true,
+	"totalEmails":   true,
+	"unreadEmails":  true,
+	"totalThreads":  true,
+	"unreadThreads": true,
+	"myRights":      true,
+	"isSubscribed":  true,
+	"shareWith":     true,
+}
+
 // HandleMailboxGet implements Mailbox/get per RFC 8621 Section 2.1.
 func HandleMailboxGet(backend MailBackend) jmaphandler.MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
-		idsRaw, hasIDs := args["ids"].([]any)
+		ids, hasIDs := jmaphandler.ParseIDs(args)
 		props := jmaphandler.ParseProperties(args)
+
+		if ok, bad := jmaphandler.ValidateProperties(props, allowedMailboxProperties, nil); !ok {
+			return "error", jmapcore.InvalidArgumentsErrorArgs([]string{"properties"}, "invalid property: "+bad)
+		}
 
 		var list []*Mailbox
 		var notFound []jmapcore.Id
 		var err error
 
 		if hasIDs {
-			ids := make([]jmapcore.Id, 0, len(idsRaw))
-			for _, item := range idsRaw {
-				if idStr, ok := item.(string); ok {
-					ids = append(ids, jmapcore.Id(idStr))
-				}
-			}
 			list, notFound, err = backend.GetMailboxes(ctx, ids)
 		} else {
 			list, err = backend.GetAllMailboxes(ctx)
@@ -69,13 +82,9 @@ func HandleMailboxChanges(backend MailBackend) jmaphandler.MethodHandler {
 		accountID, _ := args["accountId"].(string)
 		sinceState, _ := args["sinceState"].(string)
 
-		var maxChanges *uint64
-		if mc, ok := args["maxChanges"].(float64); ok {
-			if mc < 0 {
-				return "error", jmapcore.InvalidArgumentsErrorArgs([]string{"maxChanges"}, "maxChanges must be non-negative")
-			}
-			m := uint64(mc)
-			maxChanges = &m
+		maxChanges, errArgs := jmaphandler.ParseMaxChanges(args)
+		if errArgs != nil {
+			return "error", errArgs
 		}
 
 		created, updated, destroyed, updatedProperties, newState, hasMore := backend.MailboxChanges(ctx, sinceState, maxChanges)

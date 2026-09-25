@@ -17,7 +17,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [jmap-websockets](#jmap-websockets) | RFC8887 | 7 | 0 | 0 | 7 | 100.0% |
 | [jscontact](#jscontact) | RFC9553, RFC9554, RFC9555 | 6 | 0 | 0 | 6 | 100.0% |
 | [smtp](#smtp) | RFC4954, RFC5228, RFC5232, RFC5321, RFC5429, RFC5546, RFC6047, RFC6376, RFC6409, RFC7208, RFC7489, RFC8601 | 46 | 0 | 0 | 46 | 100.0% |
-| [rfc8620-core](#rfc8620-core) | RFC8620 | 4 | 390 | 0 | 394 | 1.0% |
+| [rfc8620-core](#rfc8620-core) | RFC8620 | 22 | 372 | 0 | 394 | 5.6% |
 | [rfc8621-mail](#rfc8621-mail) | RFC8621 | 16 | 402 | 0 | 418 | 3.8% |
 | [rfc8887-websockets](#rfc8887-websockets) | RFC8887 | 0 | 40 | 0 | 40 | 0.0% |
 | [rfc9007-mdn](#rfc9007-mdn) | RFC9007 | 0 | 24 | 0 | 24 | 0.0% |
@@ -29,7 +29,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [rfc9670-sharing](#rfc9670-sharing) | RFC9670 | 0 | 76 | 0 | 76 | 0.0% |
 | [rfc9698-jmapaccess](#rfc9698-jmapaccess) | RFC9698 | 0 | 14 | 0 | 14 | 0.0% |
 | [rfc9749-vapid](#rfc9749-vapid) | RFC9749 | 0 | 24 | 0 | 24 | 0.0% |
-| **Total** | | **187** | **1205** | **0** | **1392** | **13.4%** |
+| **Total** | | **205** | **1187** | **0** | **1392** | **14.7%** |
 
 ---
 
@@ -263,7 +263,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 ## rfc8620-core
 
 * **Test Suite Directory**: [`jmap/`](../jmap/)
-* **Conformance**: 4 / 394 (1.0%)
+* **Conformance**: 22 / 394 (5.6%)
 
 | Spec | Section | Level | Requirement | Status | Tests | Note |
 | :--- | :---: | :---: | :--- | :---: | :--- | :--- |
@@ -442,22 +442,22 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8620 | [5](https://www.rfc-editor.org/rfc/rfc8620.html#section-5) | `MAY` | Delta updates may be fetched via a | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5 [p1] |
 | RFC8620 | [5](https://www.rfc-editor.org/rfc/rfc8620.html#section-5) | `MAY` | Some types may not have all these methods | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5 [p2] |
 | RFC8620 | [5](https://www.rfc-editor.org/rfc/rfc8620.html#section-5) | `MUST` | types MUST specify which methods are available for the type | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5 [p3] |
-| RFC8620 | [5.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.1) | `MUST` | requested, the call MUST be rejected with an "invalidArguments" | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.1 [p1] |
-| RFC8620 | [5.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.1) | `MUST` | MUST change | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.1 [p2] |
+| RFC8620 | [5.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.1) | `MUST` | requested, the call MUST be rejected with an "invalidArguments" | ✅ Covered | `TestRFC8620_Section5_1_InvalidPropertiesRejected` | Extracted by specextract from RFC8620 §5.1 [p1] |
+| RFC8620 | [5.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.1) | `MUST` | MUST change | ✅ Covered | `TestRFC8620_Section5_1_StateChangesOnDataChange` | Extracted by specextract from RFC8620 §5.1 [p2] |
 | RFC8620 | [5.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.1) | `MUST` | a previous call, it MUST either throw away all currently cached | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.1 [p3] |
 | RFC8620 | [5.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.1) | `MAY` | The results MAY be in a different order to | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.1 [p4] |
-| RFC8620 | [5.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.1) | `MUST` | included more than once in the request, the server MUST only | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.1 [p5] |
+| RFC8620 | [5.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.1) | `MUST` | included more than once in the request, the server MUST only | ✅ Covered | `TestRFC8620_Section5_1_DuplicateIdsReturnedOnce` | Extracted by specextract from RFC8620 §5.1 [p5] |
 | RFC8620 | [5.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.1) | `MAY` | The following additional error may be returned instead of the "Foo/ | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.1 [p6] |
-| RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `MUST` | MAY choose to return fewer than this value but MUST NOT return | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.2 [p1] |
+| RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `MUST` | MAY choose to return fewer than this value but MUST NOT return | ✅ Covered | `TestRFC8620_Section5_2_MaxChangesValidationAndEnforcement` | Extracted by specextract from RFC8620 §5.2 [p1] |
 | RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `MAY` | If not given by the client, the server may choose how many | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.2 [p2] |
-| RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `MUST` | If supplied by the client, the value MUST be a | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.2 [p3] |
-| RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `MUST` | is given, the server MUST reject the call with an | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.2 [p4] |
+| RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `MUST` | If supplied by the client, the value MUST be a | ✅ Covered | `TestRFC8620_Section5_2_MaxChangesValidationAndEnforcement` | Extracted by specextract from RFC8620 §5.2 [p3] |
+| RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `MUST` | is given, the server MUST reject the call with an | ✅ Covered | `TestRFC8620_Section5_2_MaxChangesValidationAndEnforcement` | Extracted by specextract from RFC8620 §5.2 [p4] |
 | RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `MAY` | If true, the client may call "Foo/changes" again with the | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.2 [p5] |
 | RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `SHOULD` | server SHOULD just return the id in the "created" list but MAY return | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.2 [p6] |
 | RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `SHOULD` | server SHOULD just return the id in the "destroyed" list but MAY | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.2 [p7] |
 | RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `SHOULD` | server SHOULD remove the id from the response entirely | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.2 [p8] |
 | RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `MAY` | MAY include it in just the "destroyed" list or in both the | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.2 [p9] |
-| RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `MUST` | the server MUST ensure the number of ids returned across "created", | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.2 [p10] |
+| RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `MUST` | the server MUST ensure the number of ids returned across "created", | ✅ Covered | `TestRFC8620_Section5_2_MaxChangesValidationAndEnforcement` | Extracted by specextract from RFC8620 §5.2 [p10] |
 | RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `SHOULD` | server state, the server SHOULD generate an update to take the client | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.2 [p11] |
 | RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `MUST` | calculate an intermediate state, it MUST return a | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.2 [p12] |
 | RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `MAY` | When generating intermediate states, the server may choose how to | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.2 [p13] |
@@ -474,18 +474,18 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MAY` | The Foo object type definition may define default values for | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p3] |
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MAY` | Any such property may be omitted by the client | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p4] |
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | The client MUST omit any properties that may only be set by the | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p5] |
-| RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | All paths MUST also conform to the following restrictions; if | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p6] |
-| RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | there is any violation, the update MUST be rejected with an | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p7] |
-| RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | * The pointer MUST NOT reference inside an array (i | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p8] |
-| RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | NOT insert/delete from an array; the array MUST be replaced in | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p9] |
-| RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | slash) MUST already exist on the object being patched | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p10] |
-| RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | * There MUST NOT be two patches in the PatchObject where the | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p11] |
+| RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | All paths MUST also conform to the following restrictions; if | ✅ Covered | `TestRFC8620_Section5_3_PatchRestrictions` | Extracted by specextract from RFC8620 §5.3 [p6] |
+| RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | there is any violation, the update MUST be rejected with an | ✅ Covered | `TestRFC8620_Section5_3_PatchRestrictions` | Extracted by specextract from RFC8620 §5.3 [p7] |
+| RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | * The pointer MUST NOT reference inside an array (i | ✅ Covered | `TestRFC8620_Section5_3_PatchRestrictions` | Extracted by specextract from RFC8620 §5.3 [p8] |
+| RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | NOT insert/delete from an array; the array MUST be replaced in | ✅ Covered | `TestRFC8620_Section5_3_PatchRestrictions` | Extracted by specextract from RFC8620 §5.3 [p9] |
+| RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | slash) MUST already exist on the object being patched | ✅ Covered | `TestRFC8620_Section5_3_PatchRestrictions` | Extracted by specextract from RFC8620 §5.3 [p10] |
+| RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | * There MUST NOT be two patches in the PatchObject where the | ✅ Covered | `TestRFC8620_Section5_3_PatchRestrictions` | Extracted by specextract from RFC8620 §5.3 [p11] |
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MAY` | * Anything else: The value to set for this property (this may be | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p12] |
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MAY` | Any server-set properties MAY be included in the patch if their | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p13] |
-| RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | Otherwise, the update MUST be | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p14] |
+| RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | Otherwise, the update MUST be | ✅ Covered | `TestRFC8620_Section5_3_PatchRestrictions` | Extracted by specextract from RFC8620 §5.3 [p14] |
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MAY` | The client may choose to optimise | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p15] |
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MAY` | network usage by just sending the diff or may send the whole | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p16] |
-| RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | commit changes to some objects but not others; however, it MUST NOT | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p17] |
+| RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | commit changes to some objects but not others; however, it MUST NOT | ✅ Covered | `TestRFC8620_Section5_3_PatchRestrictions` | Extracted by specextract from RFC8620 §5.3 [p17] |
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | The final state MUST be valid after the "Foo/set" is finished; | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p18] |
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MAY` | however, the server may have to transition through invalid | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p19] |
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | there is a "name" property that must be unique | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p20] |
@@ -497,10 +497,10 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MAY` | Some records may hold references to other records (foreign keys) | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p26] |
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MAY` | That reference may be set (via create or update) in the same request | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p27] |
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | order of the method calls in the request by the client MUST be such | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p28] |
-| RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | processing a request, the server MUST keep a simple map for the | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p29] |
-| RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | references to the same type, the server MUST order the creates and | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p30] |
+| RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | processing a request, the server MUST keep a simple map for the | ✅ Covered | `TestRFC8620_Section5_3_CreationRefs_MapAndOrderingAndReuse` | Extracted by specextract from RFC8620 §5.3 [p29] |
+| RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | references to the same type, the server MUST order the creates and | ✅ Covered | `TestRFC8620_Section5_3_CreationRefs_MapAndOrderingAndReuse` | Extracted by specextract from RFC8620 §5.3 [p30] |
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `SHOULD` | A client SHOULD NOT reuse a creation id anywhere in the same | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p31] |
-| RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | If a creation id is reused, the server MUST map the | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p32] |
+| RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | If a creation id is reused, the server MUST map the | ✅ Covered | `TestRFC8620_Section5_3_CreationRefs_MapAndOrderingAndReuse` | Extracted by specextract from RFC8620 §5.3 [p32] |
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MAY` | id values may be passed with a request (see "The Request Object", | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p33] |
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MAY` | The following SetError types are defined and may be returned for set | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p34] |
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MAY` | It may work if tried again later | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p35] |

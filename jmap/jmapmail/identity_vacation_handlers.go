@@ -71,13 +71,9 @@ func HandleIdentityChanges(backend MailBackend) jmaphandler.MethodHandler {
 		accountID, _ := args["accountId"].(string)
 		sinceState, _ := args["sinceState"].(string)
 
-		var maxChanges *uint64
-		if mc, ok := args["maxChanges"].(float64); ok {
-			if mc < 0 {
-				return "error", jmapcore.MethodErrorArgs(jmapcore.MethodErrorInvalidArguments, "maxChanges must be non-negative")
-			}
-			m := uint64(mc)
-			maxChanges = &m
+		maxChanges, errArgs := jmaphandler.ParseMaxChanges(args)
+		if errArgs != nil {
+			return "error", errArgs
 		}
 
 		created, updated, destroyed, newState, hasMore := backend.IdentityChanges(ctx, sinceState, maxChanges)

@@ -291,6 +291,28 @@ func (b *IMAPSMTPBackend) UpdateMailbox(ctx context.Context, id jmapcore.Id, pat
 		return nil, jmapcore.SetError{Type: "notFound", Description: "mailbox not found"}
 	}
 
+	var pID any = nil
+	if target.ParentID != nil {
+		pID = string(*target.ParentID)
+	}
+	targetMap := map[string]any{
+		"id":            string(target.ID),
+		"name":          target.Name,
+		"parentId":      pID,
+		"role":          target.Role,
+		"sortOrder":     float64(target.SortOrder),
+		"totalEmails":   float64(target.TotalEmails),
+		"unreadEmails":  float64(target.UnreadEmails),
+		"totalThreads":  float64(target.TotalThreads),
+		"unreadThreads": float64(target.UnreadThreads),
+		"myRights":      target.MyRights,
+		"isSubscribed":  target.IsSubscribed,
+	}
+	serverSet := []string{"id", "totalEmails", "unreadEmails", "totalThreads", "unreadThreads", "myRights"}
+	if setErr := jmapcore.ValidatePatch(targetMap, patch, serverSet); setErr != nil {
+		return nil, *setErr
+	}
+
 	currentFolder := folderName
 	if realName, err := NameForMailboxID(target.ID); err == nil && realName != "" {
 		currentFolder = realName

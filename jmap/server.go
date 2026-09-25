@@ -784,7 +784,19 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if rawIDs, hasIDs := resolvedArgs["ids"]; hasIDs && rawIDs != nil {
-				if _, ok := rawIDs.([]any); !ok {
+				if slice, ok := rawIDs.([]any); ok {
+					if strings.HasSuffix(call.Name, "/get") {
+						seen := make(map[any]bool, len(slice))
+						deduped := make([]any, 0, len(slice))
+						for _, item := range slice {
+							if !seen[item] {
+								seen[item] = true
+								deduped = append(deduped, item)
+							}
+						}
+						resolvedArgs["ids"] = deduped
+					}
+				} else {
 					respInv := Invocation{
 						Name:         "error",
 						Args:         MethodErrorArgs(MethodErrorInvalidArguments, "ids must be an array or null"),
@@ -793,6 +805,22 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 					responses = append(responses, respInv)
 					executedMap[call.ClientCallID] = respInv
 					continue
+				}
+			}
+
+			if strings.HasSuffix(call.Name, "/changes") {
+				if rawMC, hasMC := resolvedArgs["maxChanges"]; hasMC && rawMC != nil {
+					num, ok := rawMC.(float64)
+					if !ok || num <= 0 || num != float64(uint64(num)) {
+						respInv := Invocation{
+							Name:         "error",
+							Args:         InvalidArgumentsErrorArgs([]string{"maxChanges"}, "maxChanges must be a positive integer greater than 0"),
+							ClientCallID: call.ClientCallID,
+						}
+						responses = append(responses, respInv)
+						executedMap[call.ClientCallID] = respInv
+						continue
+					}
 				}
 			}
 
