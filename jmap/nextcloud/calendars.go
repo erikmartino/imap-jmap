@@ -886,34 +886,91 @@ func (b *CalendarsBackend) CalendarHasEvents(ctx context.Context, id jmapcore.Id
 	return false, nil
 }
 
-func encodeSyncState(tokens map[string]string) string {
+// syncToken is one upstream change cursor in a JMAP state vector, tagged with
+// the kind of upstream token it holds so /changes knows how to enumerate the
+// delta: an RFC 6578 sync-token can be replayed directly, whereas a CTag only
+// signals "changed" and cannot enumerate.
+const (
+	syncTokenKindSync = "sync"
+	syncTokenKindCTag = "ctag"
+)
+
+type syncToken struct {
+	Kind  string `json:"k,omitempty"`
+	Token string `json:"t,omitempty"`
+}
+
+// isSyncState reports whether s is a state string produced by encodeSyncState
+// (either the current v2 encoding or the legacy v1 encoding).
+func isSyncState(s string) bool {
+	return strings.HasPrefix(s, "sync-v2:") || strings.HasPrefix(s, "sync-v1:")
+}
+
+func encodeSyncState(tokens map[string]syncToken) string {
 	if len(tokens) == 0 {
-		return "sync-v1:empty"
+		return "sync-v2:empty"
 	}
 	data, err := json.Marshal(tokens)
 	if err != nil {
-		return "sync-v1:empty"
+		return "sync-v2:empty"
 	}
-	return "sync-v1:" + base64.RawURLEncoding.EncodeToString(data)
+	return "sync-v2:" + base64.RawURLEncoding.EncodeToString(data)
 }
 
-func decodeSyncState(state string) (map[string]string, error) {
-	if !strings.HasPrefix(state, "sync-v1:") {
-		return nil, errors.New("not a sync-v1 state")
+func decodeSyncState(state string) (map[string]syncToken, error) {
+	switch {
+	case strings.HasPrefix(state, "sync-v2:"):
+		raw := strings.TrimPrefix(state, "sync-v2:")
+		if raw == "empty" || raw == "" {
+			return make(map[string]syncToken), nil
+		}
+		data, err := base64.RawURLEncoding.DecodeString(raw)
+		if err != nil {
+			return nil, err
+		}
+		var tokens map[string]syncToken
+		if err := json.Unmarshal(data, &tokens); err != nil {
+			return nil, err
+		}
+		return tokens, nil
+	case strings.HasPrefix(state, "sync-v1:"):
+		raw := strings.TrimPrefix(state, "sync-v1:")
+		if raw == "empty" || raw == "" {
+			return make(map[string]syncToken), nil
+		}
+		data, err := base64.RawURLEncoding.DecodeString(raw)
+		if err != nil {
+			return nil, err
+		}
+		var legacy map[string]string
+		if err := json.Unmarshal(data, &legacy); err != nil {
+			return nil, err
+		}
+		tokens := make(map[string]syncToken, len(legacy))
+		for calID, tok := range legacy {
+			// v1 did not record the token kind; assume a sync-token (the v1
+			// encoder preferred it) and let a rejected replay fail closed.
+			tokens[calID] = syncToken{Token: tok}
+		}
+		return tokens, nil
 	}
-	raw := strings.TrimPrefix(state, "sync-v1:")
-	if raw == "empty" || raw == "" {
-		return make(map[string]string), nil
+	return nil, errors.New("not a sync state")
+}
+
+// syncTokensFromStatuses builds the canonical state vector for a set of
+// calendars, preferring each collection's RFC 6578 sync-token and falling back
+// to its CTag.
+func syncTokensFromStatuses(statuses map[string]*CalendarSyncStatus) map[string]syncToken {
+	tokens := make(map[string]syncToken, len(statuses))
+	for calID, st := range statuses {
+		switch {
+		case st.SyncToken != "":
+			tokens[calID] = syncToken{Kind: syncTokenKindSync, Token: st.SyncToken}
+		case st.CTag != "":
+			tokens[calID] = syncToken{Kind: syncTokenKindCTag, Token: st.CTag}
+		}
 	}
-	data, err := base64.RawURLEncoding.DecodeString(raw)
-	if err != nil {
-		return nil, err
-	}
-	var tokens map[string]string
-	if err := json.Unmarshal(data, &tokens); err != nil {
-		return nil, err
-	}
-	return tokens, nil
+	return tokens
 }
 
 // CalendarEventState derives an opaque JMAP state token from CalDAV collection sync-tokens/CTags.
@@ -924,16 +981,7 @@ func (b *CalendarsBackend) CalendarEventState(ctx context.Context) string {
 		return b.getEventTracker(u).State()
 	}
 
-	tokens := make(map[string]string, len(statuses))
-	for calID, st := range statuses {
-		tok := st.SyncToken
-		if tok == "" {
-			tok = st.CTag
-		}
-		if tok != "" {
-			tokens[calID] = tok
-		}
-	}
+	tokens := syncTokensFromStatuses(statuses)
 	if len(tokens) == 0 {
 		return b.getEventTracker(u).State()
 	}
@@ -944,7 +992,7 @@ func (b *CalendarsBackend) CalendarEventState(ctx context.Context) string {
 // and RFC 6578 sync-collection REPORT to retrieve only modified/deleted entities.
 func (b *CalendarsBackend) CalendarEventChanges(ctx context.Context, sinceState string) (created, updated, destroyed []jmapcore.Id, newState string, hasMoreChanges bool) {
 	u := b.user(ctx)
-	if !strings.HasPrefix(sinceState, "sync-v1:") {
+	if !isSyncState(sinceState) {
 		return b.getEventTracker(u).Changes(sinceState)
 	}
 
@@ -958,16 +1006,7 @@ func (b *CalendarsBackend) CalendarEventChanges(ctx context.Context, sinceState 
 		return nil, nil, nil, "", false
 	}
 
-	newTokens := make(map[string]string, len(statuses))
-	for calID, st := range statuses {
-		tok := st.SyncToken
-		if tok == "" {
-			tok = st.CTag
-		}
-		if tok != "" {
-			newTokens[calID] = tok
-		}
-	}
+	newTokens := syncTokensFromStatuses(statuses)
 	newState = encodeSyncState(newTokens)
 
 	allMatch := true
@@ -975,7 +1014,7 @@ func (b *CalendarsBackend) CalendarEventChanges(ctx context.Context, sinceState 
 		allMatch = false
 	} else {
 		for calID, oldTok := range oldTokens {
-			if newTokens[calID] != oldTok {
+			if newTokens[calID].Token != oldTok.Token {
 				allMatch = false
 				break
 			}
@@ -1009,11 +1048,19 @@ func (b *CalendarsBackend) CalendarEventChanges(ctx context.Context, sinceState 
 			continue
 		}
 
-		if oldTok == newTok {
+		if oldTok.Token == newTok.Token {
 			continue
 		}
 
-		res, err := b.client.SyncCalendarCollection(ctx, calID, oldTok)
+		// A CTag only signals that the collection changed; it cannot enumerate
+		// the delta. Fail closed (cannotCalculateChanges) rather than replaying
+		// a non-sync token or guessing, unless the calendar is new to this state
+		// (handled above via the ETag listing).
+		if oldTok.Kind == syncTokenKindCTag || newTok.Kind == syncTokenKindCTag {
+			return nil, nil, nil, "", false
+		}
+
+		res, err := b.client.SyncCalendarCollection(ctx, calID, oldTok.Token)
 		if err != nil {
 			return nil, nil, nil, "", false
 		}

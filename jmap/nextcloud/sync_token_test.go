@@ -20,10 +20,10 @@ func TestEmbeddedCalendarSyncTokenTranslation(t *testing.T) {
 	ctx = jmapauth.ContextWithSubject(ctx, "user@example.com")
 	ctx = jmapauth.ContextWithCredentials(ctx, "user@example.com", "user@example.com")
 
-	// 1. Initial state must start with sync-v1:
+	// 1. Initial state must start with sync-v2:
 	state0 := calBackend.CalendarEventState(ctx)
-	if !strings.HasPrefix(state0, "sync-v1:") {
-		t.Fatalf("Expected state0 to start with 'sync-v1:', got %q", state0)
+	if !strings.HasPrefix(state0, "sync-v2:") {
+		t.Fatalf("Expected state0 to start with 'sync-v2:', got %q", state0)
 	}
 
 	// 2. Changes with same state must return no changes and hasMore=false
@@ -61,8 +61,8 @@ func TestEmbeddedCalendarSyncTokenTranslation(t *testing.T) {
 	if state1 == state0 {
 		t.Fatalf("Expected state1 != state0 after creating event")
 	}
-	if !strings.HasPrefix(state1, "sync-v1:") {
-		t.Fatalf("Expected state1 to start with 'sync-v1:', got %q", state1)
+	if !strings.HasPrefix(state1, "sync-v2:") {
+		t.Fatalf("Expected state1 to start with 'sync-v2:', got %q", state1)
 	}
 
 	// 5. CalendarEventChanges since state0 must report the event as created
@@ -173,8 +173,8 @@ func TestLiveNextcloudCalendarSyncTokenTranslation(t *testing.T) {
 
 	// 1. Initial state
 	state0 := calBackend.CalendarEventState(ctx)
-	if !strings.HasPrefix(state0, "sync-v1:") {
-		t.Fatalf("Expected state0 to start with 'sync-v1:', got %q", state0)
+	if !strings.HasPrefix(state0, "sync-v2:") {
+		t.Fatalf("Expected state0 to start with 'sync-v2:', got %q", state0)
 	}
 
 	// 2. Unchanged state must return immediately with 0 changes

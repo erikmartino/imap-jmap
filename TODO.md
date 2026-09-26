@@ -72,16 +72,15 @@ Close the `SHOULD`/`SHOULD NOT` gaps in the generated core and mail matrices.
 ### Priority 3: Stateless JMAP State ↔ Upstream Change Tokens
 Make every `state`/`sinceState` a pure, reversible function of upstream CalDAV (and later CardDAV/IMAP) change tokens so the proxy holds no authoritative change-tracking state: the client carries the token vector and the server recomputes changes on demand (RFC 8620 §5.2/§5.3). `CalendarEvent` already does this via `encodeSyncState`/`decodeSyncState` (`jmap/nextcloud/calendars.go:889-917`); `Calendar` still uses an in-memory `ChangeTracker`.
 
-- [ ] **3.1 Token-kind-aware, versioned state encoding (`jmap/nextcloud/calendars.go`)**
-  - Tag each collection token with its kind (`sync-token` | `ctag`) and bump the encoding version (`sync-v2:`), keeping `sync-v1:` decode compatibility.
-  - Keep the encoding canonical (JSON already sorts map keys) and cap the per-state size.
-- [ ] **3.2 Correct `/changes` fallback when only a CTag/ETag is available**
-  - Only feed `sync-token` values to `SyncCalendarCollection` (`calendars.go:1016`); a CTag there is rejected upstream.
-  - For CTag-only collections, either carry a compact per-resource ETag snapshot in the state and diff it via `ListCalendarObjectETags` (`jmap/nextcloud/client.go:928-947`), or fail closed with `cannotCalculateChanges`.
-  - Ensure malformed/expired tokens surface as `cannotCalculateChanges` (the handler maps empty `newState` at `jmap/jmapcalendar/calendar_event_handlers.go:227`), and cover it with a test.
+- [x] **3.1 Token-kind-aware, versioned state encoding (`jmap/nextcloud/calendars.go`)**
+  - `syncToken{Kind,Token}` vector encoded as `sync-v2:` (canonical: `encoding/json` sorts map keys); `sync-v1:` still decodes (legacy tokens get an empty kind, treated as sync attempts).
+  - `syncTokensFromStatuses` prefers each collection's sync-token and falls back to its CTag.
+- [x] **3.2 Correct `/changes` fallback when only a CTag/ETag is available**
+  - `CalendarEventChanges` only replays `sync-token` values; a changed CTag-only collection fails closed (empty `newState` → `cannotCalculateChanges`) instead of issuing a doomed `sync-collection` REPORT.
+  - New calendars are still enumerated from body-less ETags (`ListCalendarObjectETags`); malformed/legacy states surface as `cannotCalculateChanges` (handler maps empty `newState` at `jmap/jmapcalendar/calendar_event_handlers.go:227`).
 - [ ] **3.3 Convert `Calendar` collection state to the upstream token vector**
   - Reimplement `CalendarState`/`CalendarChanges` (`calendars.go:261-267`) from the home-set PROPFIND CTags/sync-tokens (`getCalendarCollections`, `client.go:766-912`): added/removed calendar ids → `created`/`destroyed`, CTag change → `updated`.
-  - Demote `getCalTracker` to a non-authoritative fallback used only when upstream tokens are unavailable.
+  - Caveat: a CalDAV CTag may not bump for metadata-only changes, so retain the tracker as the authoritative source for JMAP-local `Calendar` metadata edits and use the token vector only for membership/collection-content detection; demote `getCalTracker` accordingly.
 - [ ] **3.4 Guard invariants**
   - Never derive `state` from a windowed/partial fetch (already enforced at `calendars.go:1343-1347`; add regression coverage).
   - Keep `state` scoped per user/account so a multi-account request cannot reuse another account's token vector.
