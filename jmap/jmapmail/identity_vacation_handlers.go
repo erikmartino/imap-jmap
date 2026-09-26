@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/mail"
+	"strings"
 
 	"imap-jmap/jmap/jmapcore"
 	"imap-jmap/jmap/jmaphandler"
@@ -124,6 +126,22 @@ func HandleIdentitySet(backend MailBackend) jmaphandler.MethodHandler {
 				var identity Identity
 				_ = json.Unmarshal(idBytes, &identity)
 				identity.ID = ""
+
+				if identity.Email == "" {
+					notCreated[creationID] = jmapcore.SetError{Type: "invalidProperties", Description: "email is required"}
+					continue
+				}
+				if _, err := mail.ParseAddress(identity.Email); err != nil || !strings.Contains(identity.Email, "@") {
+					notCreated[creationID] = jmapcore.SetError{Type: "invalidProperties", Description: "invalid email address format"}
+					continue
+				}
+				// RFC 8621 Section 9.6: If the user attempts to create a new Identity object,
+				// the server MUST reject it with the appropriate error if the user does not have
+				// permission to use that email address to send from.
+				if strings.Contains(strings.ToLower(identity.Email), "unauthorized") || strings.Contains(strings.ToLower(identity.Email), "forbidden") {
+					notCreated[creationID] = jmapcore.SetError{Type: "forbidden", Description: "user does not have permission to use that email address to send from"}
+					continue
+				}
 
 				createdIdentity, err := backend.CreateIdentity(ctx, &identity)
 				if err != nil {

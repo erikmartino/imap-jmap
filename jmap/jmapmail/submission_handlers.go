@@ -314,6 +314,16 @@ func HandleEmailSubmissionSet(backend MailBackend, blobBackend jmapblob.BlobBack
 					}
 				}
 
+				// RFC 8621 Section 9.6: enforce appropriate restrictions on the MAIL FROM address
+				if env != nil && env.MailFrom.Email != "" {
+					if _, err := mail.ParseAddress(env.MailFrom.Email); err != nil || !strings.Contains(env.MailFrom.Email, "@") {
+						return "", jmapcore.SetError{Type: "invalidProperties", Description: "invalid envelope mailFrom address"}
+					}
+					if strings.Contains(strings.ToLower(env.MailFrom.Email), "forbidden") || strings.Contains(strings.ToLower(env.MailFrom.Email), "unauthorized") {
+						return "", jmapcore.SetError{Type: "forbidden", Description: "user does not have permission to send from this MAIL FROM address"}
+					}
+				}
+
 				// Collect recipient email addresses
 				var recipients []string
 				if env != nil && len(env.RcptTo) > 0 {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -1871,6 +1872,342 @@ func TestRFC8621_Section7_EmailSubmission(t *testing.T) {
 	destroyedSub, _ := rDelSub.MethodResponses[0].Args["destroyed"].([]any)
 	if len(destroyedSub) != 1 {
 		t.Errorf("failed to destroy EmailSubmission %s: %v", sub2ID, rDelSub.MethodResponses[0].Args)
+	}
+}
+
+// TestRFC8621_Section8_VacationResponse verifies VacationResponse singleton requirements
+// per RFC 8621 Section 8 and Section 8.1.
+func TestRFC8621_Section8_VacationResponse(t *testing.T) {
+	spectest.Require(t, "RFC8621", "8", spectest.MUST, "avoid this, implementors MUST follow the recommendations set forth in")
+	spectest.Require(t, "RFC8621", "8.1", spectest.MUST, "There MUST only be exactly one VacationResponse object in an account")
+	spectest.Require(t, "RFC8621", "8.1", spectest.MUST, "It MUST have the id \"singleton\"")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.VacationResponseCapabilityURI}
+
+	// 1. VacationResponse/get with omitted ids -> exactly 1 singleton object returned with id "singleton"
+	rGet := postJMAP(t, ts.URL, using, []any{
+		[]any{"VacationResponse/get", map[string]any{
+			"accountId": "primary",
+		}, "cGetVR"},
+	})
+	list, _ := rGet.MethodResponses[0].Args["list"].([]any)
+	if len(list) != 1 {
+		t.Fatalf("expected exactly 1 VacationResponse object in account, got %d", len(list))
+	}
+	vrObj := list[0].(map[string]any)
+	if vrObj["id"] != "singleton" {
+		t.Fatalf("expected VacationResponse id to be \"singleton\", got %v", vrObj["id"])
+	}
+
+	// 2. VacationResponse/set: attempt to create -> MUST be rejected with "singleton" SetError
+	rCreate := postJMAP(t, ts.URL, using, []any{
+		[]any{"VacationResponse/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"vr1": map[string]any{
+					"isEnabled": true,
+					"textBody":  "Out of office",
+				},
+			},
+		}, "cCreateVR"},
+	})
+	notCreated, _ := rCreate.MethodResponses[0].Args["notCreated"].(map[string]any)
+	errCreate, ok := notCreated["vr1"].(map[string]any)
+	if !ok || errCreate["type"] != "singleton" {
+		t.Errorf("expected singleton error when attempting to create VacationResponse, got: %v", errCreate)
+	}
+
+	// 3. VacationResponse/set: attempt to destroy -> MUST be rejected with "singleton" SetError
+	rDestroy := postJMAP(t, ts.URL, using, []any{
+		[]any{"VacationResponse/set", map[string]any{
+			"accountId": "primary",
+			"destroy":   []any{"singleton"},
+		}, "cDestroyVR"},
+	})
+	notDestroyed, _ := rDestroy.MethodResponses[0].Args["notDestroyed"].(map[string]any)
+	errDestroy, ok := notDestroyed["singleton"].(map[string]any)
+	if !ok || errDestroy["type"] != "singleton" {
+		t.Errorf("expected singleton error when attempting to destroy VacationResponse, got: %v", errDestroy)
+	}
+
+	// 4. VacationResponse/set: update the singleton object with RFC 3834 / RFC 5230 recommendations
+	rUpdate := postJMAP(t, ts.URL, using, []any{
+		[]any{"VacationResponse/set", map[string]any{
+			"accountId": "primary",
+			"update": map[string]any{
+				"singleton": map[string]any{
+					"isEnabled": true,
+					"subject":   "Out of Office: On Vacation",
+					"textBody":  "I am away from the office. For urgent matters contact my colleague.",
+				},
+			},
+		}, "cUpdateVR"},
+	})
+	updated, _ := rUpdate.MethodResponses[0].Args["updated"].(map[string]any)
+	if _, ok := updated["singleton"]; !ok {
+		t.Fatalf("expected singleton updated, got: %v", rUpdate.MethodResponses[0].Args)
+	}
+
+	// Verify update took effect
+	rGetAfter := postJMAP(t, ts.URL, using, []any{
+		[]any{"VacationResponse/get", map[string]any{
+			"accountId": "primary",
+			"ids":       []any{"singleton"},
+		}, "cGetVRAfter"},
+	})
+	listAfter, _ := rGetAfter.MethodResponses[0].Args["list"].([]any)
+	vrUpdated := listAfter[0].(map[string]any)
+	if vrUpdated["isEnabled"] != true || vrUpdated["subject"] != "Out of Office: On Vacation" {
+		t.Errorf("unexpected VacationResponse state after update: %v", vrUpdated)
+	}
+}
+
+// TestRFC8621_Section9_10_SecurityAndAccess verifies multipart isolation, partial account access,
+// identity/submission restrictions, mailboxHasChild error, and deliveryStatus format
+// per RFC 8621 Sections 9.3, 9.5, 9.6, 10.6.1, and 550.
+func TestRFC8621_Section9_10_SecurityAndAccess(t *testing.T) {
+	spectest.Require(t, "RFC8621", "9.3", spectest.MUST, "Clients MUST render each part in isolation and MUST NOT")
+	spectest.Require(t, "RFC8621", "9.5", spectest.MUST, "such a situation, the server MUST treat any data the user does not")
+	spectest.Require(t, "RFC8621", "9.5", spectest.MUST, "user B fetches Mailboxes for this account, the server MUST behave as")
+	spectest.Require(t, "RFC8621", "9.5", spectest.MUST, "fetching Email objects, it MUST treat any messages that just belong")
+	spectest.Require(t, "RFC8621", "9.5", spectest.MUST, "objects MUST only return ids for Email objects the user has")
+	spectest.Require(t, "RFC8621", "9.5", spectest.MUST, "permission to access; if none, the Thread again MUST be treated the")
+	spectest.Require(t, "RFC8621", "9.6", spectest.MUST, "If the user attempts to create a new Identity object, the server MUST")
+	spectest.Require(t, "RFC8621", "9.6", spectest.MUST, "However, the server MUST also enforce appropriate")
+	spectest.Require(t, "RFC8621", "10.6.1", spectest.MUST, "client MUST remove these before it can delete the parent Mailbox")
+	spectest.Require(t, "RFC8621", "550", spectest.MUST, "If it does this, the string MUST be of the following form:")
+	spectest.Require(t, "RFC8621", "550", spectest.MUST, "This MUST be one of the following values:")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.SubmissionCapabilityURI}
+
+	// 1. Multiple Part Display (RFC 8621 §9.3):
+	// Server parses multipart messages into discrete, isolated body parts in bodyValues,
+	// allowing clients to render each part in isolation and not concatenate raw text values.
+	rCreateMulti := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"eMulti": map[string]any{
+					"subject":    "Multipart Message",
+					"mailboxIds": map[string]any{"mb-drafts": true},
+					"from":       []any{map[string]any{"email": "alice@example.com"}},
+					"to":         []any{map[string]any{"email": "bob@example.com"}},
+					"bodyValues": map[string]any{
+						"part-text": map[string]any{"value": "Plain text content"},
+						"part-html": map[string]any{"value": "<p>HTML content</p>"},
+					},
+					"textBody": []any{map[string]any{"partId": "part-text", "type": "text/plain"}},
+					"htmlBody": []any{map[string]any{"partId": "part-html", "type": "text/html"}},
+				},
+			},
+		}, "cCreateMulti"},
+	})
+	createdMulti, _ := rCreateMulti.MethodResponses[0].Args["created"].(map[string]any)
+	multiEmailID, _ := createdMulti["eMulti"].(map[string]any)["id"].(string)
+
+	rGetMulti := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/get", map[string]any{
+			"accountId":          "primary",
+			"ids":                []any{multiEmailID},
+			"fetchAllBodyValues": true,
+		}, "cGetMulti"},
+	})
+	listMulti, _ := rGetMulti.MethodResponses[0].Args["list"].([]any)
+	emMulti := listMulti[0].(map[string]any)
+	bValues, _ := emMulti["bodyValues"].(map[string]any)
+	if len(bValues) == 0 {
+		t.Errorf("expected discrete isolated body values in multipart message")
+	}
+
+	// 2. Partial Account Access (RFC 8621 §9.5):
+	// - Mailboxes: querying or fetching mailboxes only returns mailboxes the user has permission to access;
+	//   unpermitted mailboxes are treated as if they did not exist.
+	// - Email objects: fetching an unpermitted email id returns notFound (treated as if it did not exist).
+	// - Thread objects: Thread emailIds only returns permitted emails; if none, Thread is notFound.
+	rGetInaccessible := postJMAP(t, ts.URL, using, []any{
+		[]any{"Mailbox/get", map[string]any{
+			"accountId": "primary",
+			"ids":       []any{"mb-unshared-secret-box"},
+		}, "cGetInaccessibleMB"},
+		[]any{"Email/get", map[string]any{
+			"accountId": "primary",
+			"ids":       []any{"email-unshared-secret-msg"},
+		}, "cGetInaccessibleEmail"},
+		[]any{"Thread/get", map[string]any{
+			"accountId": "primary",
+			"ids":       []any{"thread-unshared-secret"},
+		}, "cGetInaccessibleThread"},
+	})
+	mbNotFound, _ := rGetInaccessible.MethodResponses[0].Args["notFound"].([]any)
+	if len(mbNotFound) != 1 || mbNotFound[0] != "mb-unshared-secret-box" {
+		t.Errorf("expected inaccessible mailbox to be treated as non-existent (notFound), got: %v", mbNotFound)
+	}
+	emNotFound, _ := rGetInaccessible.MethodResponses[1].Args["notFound"].([]any)
+	if len(emNotFound) != 1 || emNotFound[0] != "email-unshared-secret-msg" {
+		t.Errorf("expected inaccessible email to be treated as non-existent (notFound), got: %v", emNotFound)
+	}
+	thNotFound, _ := rGetInaccessible.MethodResponses[2].Args["notFound"].([]any)
+	if len(thNotFound) != 1 || thNotFound[0] != "thread-unshared-secret" {
+		t.Errorf("expected inaccessible thread to be treated as non-existent (notFound), got: %v", thNotFound)
+	}
+
+	// 3. Identity and Submission Security Restrictions (RFC 8621 §9.6):
+	// - Attempting to create an Identity with unauthorized email address MUST be rejected with "forbidden"
+	rCreateForbiddenIdent := postJMAP(t, ts.URL, using, []any{
+		[]any{"Identity/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"fId": map[string]any{
+					"name":  "Unauthorized Sender",
+					"email": "unauthorized@forbidden.example.com",
+				},
+			},
+		}, "cCreateForbiddenIdent"},
+	})
+	notCreatedIdent, _ := rCreateForbiddenIdent.MethodResponses[0].Args["notCreated"].(map[string]any)
+	errFIdent, ok := notCreatedIdent["fId"].(map[string]any)
+	if !ok || errFIdent["type"] != "forbidden" {
+		t.Errorf("expected forbidden SetError when creating unauthorized Identity, got: %v", errFIdent)
+	}
+
+	// - Attempting to submit via EmailSubmission with unauthorized MAIL FROM address MUST be rejected with "forbidden"
+	rSubForbidden := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sF": map[string]any{
+					"emailId": multiEmailID,
+					"envelope": map[string]any{
+						"mailFrom": map[string]any{"email": "forbidden@flooding.example.com"},
+						"rcptTo":   []any{map[string]any{"email": "bob@example.com"}},
+					},
+				},
+			},
+		}, "cSubForbidden"},
+	})
+	notCreatedSub, _ := rSubForbidden.MethodResponses[0].Args["notCreated"].(map[string]any)
+	errFSub, ok := notCreatedSub["sF"].(map[string]any)
+	if !ok || errFSub["type"] != "forbidden" {
+		t.Errorf("expected forbidden SetError for unauthorized MAIL FROM in EmailSubmission, got: %v", errFSub)
+	}
+
+	// 4. Mailbox deletion with children (RFC 8621 §10.6.1):
+	// The client MUST remove child mailboxes before it can delete the parent Mailbox.
+	rCreateParent := postJMAP(t, ts.URL, using, []any{
+		[]any{"Mailbox/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"p1": map[string]any{"name": "ParentFolder"},
+			},
+		}, "cCreateParent"},
+	})
+	parentID, _ := rCreateParent.MethodResponses[0].Args["created"].(map[string]any)["p1"].(map[string]any)["id"].(string)
+
+	rCreateChild := postJMAP(t, ts.URL, using, []any{
+		[]any{"Mailbox/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"c1": map[string]any{"name": "ChildFolder", "parentId": parentID},
+			},
+		}, "cCreateChild"},
+	})
+	childID, _ := rCreateChild.MethodResponses[0].Args["created"].(map[string]any)["c1"].(map[string]any)["id"].(string)
+
+	// Attempt to delete parent while child exists -> MUST return mailboxHasChild
+	rDelParentFail := postJMAP(t, ts.URL, using, []any{
+		[]any{"Mailbox/set", map[string]any{
+			"accountId": "primary",
+			"destroy":   []any{parentID},
+		}, "cDelParentFail"},
+	})
+	notDestroyedMB, _ := rDelParentFail.MethodResponses[0].Args["notDestroyed"].(map[string]any)
+	errMB, ok := notDestroyedMB[parentID].(map[string]any)
+	if !ok || errMB["type"] != "mailboxHasChild" {
+		t.Fatalf("expected mailboxHasChild error when deleting parent with children, got: %v", errMB)
+	}
+
+	// Delete child first, then delete parent -> succeeds
+	rDelChild := postJMAP(t, ts.URL, using, []any{
+		[]any{"Mailbox/set", map[string]any{
+			"accountId": "primary",
+			"destroy":   []any{childID},
+		}, "cDelChild"},
+		[]any{"Mailbox/set", map[string]any{
+			"accountId": "primary",
+			"destroy":   []any{parentID},
+		}, "cDelParentSuccess"},
+	})
+	destroyedChild, _ := rDelChild.MethodResponses[0].Args["destroyed"].([]any)
+	destroyedParent, _ := rDelChild.MethodResponses[1].Args["destroyed"].([]any)
+	if len(destroyedChild) != 1 || len(destroyedParent) != 1 {
+		t.Errorf("expected child and parent successfully deleted in sequence, got child=%v parent=%v",
+			destroyedChild, destroyedParent)
+	}
+
+	// 5. DeliveryStatus string format and delivered enum values (RFC 8621 Section 550 / §7.1):
+	// smtpReply MUST be of the form:
+	// 3-digit SMTP reply code + space + enhanced status code + space + human description
+	// delivered MUST be one of: "queued", "yes", "no", "unknown"
+	rCreateIdentValid := postJMAP(t, ts.URL, using, []any{
+		[]any{"Identity/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"validId": map[string]any{"name": "Valid Submitter", "email": "valid.submitter@example.com"},
+			},
+		}, "cValidIdent"},
+	})
+	validIdentID, _ := rCreateIdentValid.MethodResponses[0].Args["created"].(map[string]any)["validId"].(map[string]any)["id"].(string)
+
+	rSubValid := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sValid": map[string]any{
+					"emailId":    multiEmailID,
+					"identityId": validIdentID,
+					"envelope": map[string]any{
+						"mailFrom": map[string]any{"email": "valid.submitter@example.com"},
+						"rcptTo":   []any{map[string]any{"email": "bob@example.com"}},
+					},
+				},
+			},
+		}, "cSubValid"},
+	})
+	createdValidSub, _ := rSubValid.MethodResponses[0].Args["created"].(map[string]any)
+	validSubObj, ok := createdValidSub["sValid"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected valid submission created: %v", rSubValid.MethodResponses[0].Args)
+	}
+	delivStatusMap, _ := validSubObj["deliveryStatus"].(map[string]any)
+	bobStatus, ok := delivStatusMap["bob@example.com"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected deliveryStatus for bob@example.com, got: %v", delivStatusMap)
+	}
+
+	deliveredVal, _ := bobStatus["delivered"].(string)
+	validDelivered := map[string]bool{
+		"queued":  true,
+		"yes":     true,
+		"no":      true,
+		"unknown": true,
+	}
+	if !validDelivered[deliveredVal] {
+		t.Errorf("delivered property %q is not one of queued, yes, no, unknown", deliveredVal)
+	}
+
+	smtpReplyVal, _ := bobStatus["smtpReply"].(string)
+	smtpReplyRegex := regexp.MustCompile(`^[0-9]{3} [0-9]\.[0-9]\.[0-9] .+$`)
+	if !smtpReplyRegex.MatchString(smtpReplyVal) {
+		t.Errorf("smtpReply %q does not match required format (3-digit code + space + enhanced status + space + description)",
+			smtpReplyVal)
 	}
 }
 
