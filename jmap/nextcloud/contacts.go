@@ -237,6 +237,19 @@ func (b *ContactsBackend) GetAddressBooks(ctx context.Context, ids []jmapcore.Id
 			ab.IsDefault = (ab.ID == "contacts" || ab.ID == "ab-default" || strings.EqualFold(ab.Name, "Contacts"))
 		}
 	}
+	// RFC 9610 Section 2: there SHOULD be exactly one default AddressBook. If no
+	// stored default matches and no book is the synthetic "Contacts", promote the
+	// first book so clients always have a default.
+	hasDefault := false
+	for _, ab := range list {
+		if ab.IsDefault {
+			hasDefault = true
+			break
+		}
+	}
+	if !hasDefault && len(list) > 0 {
+		list[0].IsDefault = true
+	}
 
 	b.mu.Lock()
 	if b.abPaths[u] == nil {
@@ -372,6 +385,12 @@ func (b *ContactsBackend) DeleteAddressBook(ctx context.Context, id jmapcore.Id,
 }
 
 func (b *ContactsBackend) SetDefaultAddressBook(ctx context.Context, id jmapcore.Id) error {
+	// RFC 9610 Section 2.3: an unknown id (or one the server does not permit) is
+	// ignored, leaving the current default unchanged and returning no error.
+	abs, _, err := b.GetAddressBooks(ctx, []jmapcore.Id{id})
+	if err != nil || len(abs) == 0 {
+		return nil
+	}
 	u := b.user(ctx)
 	b.mu.Lock()
 	if b.defaultAddressBooks == nil {

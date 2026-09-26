@@ -10,6 +10,39 @@ import (
 	"imap-jmap/jmap/jmaphandler"
 )
 
+// validateAddressBookName enforces RFC 9610 Section 2: the name MUST NOT be the
+// empty string and MUST NOT be greater than 255 octets when encoded as UTF-8.
+func validateAddressBookName(name string) *jmapcore.SetError {
+	if name == "" {
+		return &jmapcore.SetError{Type: "invalidProperties", Description: "name must not be empty", Properties: []string{"name"}}
+	}
+	if len(name) > 255 {
+		return &jmapcore.SetError{Type: "invalidProperties", Description: "name must not exceed 255 octets", Properties: []string{"name"}}
+	}
+	return nil
+}
+
+// validateCardInput enforces RFC 9610 Section 3 create constraints: every value
+// in addressBookIds MUST be true, and no two ContactCards in an account may
+// share a uid.
+func validateCardInput(cardMap map[string]any, existingUIDs map[string]bool) *jmapcore.SetError {
+	if abRaw, ok := cardMap["addressBookIds"]; ok && abRaw != nil {
+		abMap, ok := abRaw.(map[string]any)
+		if !ok {
+			return &jmapcore.SetError{Type: "invalidProperties", Properties: []string{"addressBookIds"}}
+		}
+		for _, v := range abMap {
+			if b, ok := v.(bool); !ok || !b {
+				return &jmapcore.SetError{Type: "invalidProperties", Properties: []string{"addressBookIds"}}
+			}
+		}
+	}
+	if uid, _ := cardMap["uid"].(string); uid != "" && existingUIDs[uid] {
+		return &jmapcore.SetError{Type: "invalidProperties", Description: "a ContactCard with this uid already exists", Properties: []string{"uid"}}
+	}
+	return nil
+}
+
 // RegisterContactsHandlers registers RFC 9610 JMAP for Contacts method handlers into MethodRegistry.
 func RegisterContactsHandlers(r *jmaphandler.MethodRegistry, backend ContactsBackend) {
 	if backend == nil {
@@ -131,6 +164,15 @@ func handleAddressBookSet(backend ContactsBackend) jmaphandler.MethodHandler {
 				abBytes, _ := json.Marshal(abMap)
 				var ab AddressBook
 				_ = json.Unmarshal(abBytes, &ab)
+				if se := validateAddressBookName(ab.Name); se != nil {
+					notCreated[creationID] = *se
+					continue
+				}
+				// RFC 9610 Section 2: sortOrder MUST be in the range 0 <= sortOrder < 2^31.
+				if ab.SortOrder >= 1<<31 {
+					notCreated[creationID] = jmapcore.SetError{Type: "invalidProperties", Description: "sortOrder out of range", Properties: []string{"sortOrder"}}
+					continue
+				}
 
 				createdAB, err := backend.CreateAddressBook(ctx, &ab)
 				if err != nil {
@@ -153,6 +195,13 @@ func handleAddressBookSet(backend ContactsBackend) jmaphandler.MethodHandler {
 							Properties:  []string{"isDefault"},
 						}
 						continue
+					}
+					if nameRaw, hasName := patch["name"]; hasName {
+						name, _ := nameRaw.(string)
+						if se := validateAddressBookName(name); se != nil {
+							notUpdated[string(resolvedID)] = *se
+							continue
+						}
 					}
 					updatedAB, err := backend.UpdateAddressBook(ctx, jmapcore.Id(resolvedID), resolvePatchCreationRefs(patch, creationRefs))
 					if err != nil {
@@ -341,8 +390,22 @@ func handleCardSet(backend ContactsBackend) jmaphandler.MethodHandler {
 		// in later method calls of the same request resolve (RFC 8620 Section 5.3).
 		creationRefs := newSetCreationRefs(ctx)
 
+		// uids already in use, so a batch cannot create two cards with the same
+		// uid (RFC 9610 Section 3: at most one ContactCard per uid).
+		existingUIDs := make(map[string]bool)
+		if cards, err := backend.GetAllCards(ctx); err == nil {
+			for _, c := range cards {
+				if c != nil && c.Uid != "" {
+					existingUIDs[c.Uid] = true
+				}
+			}
+		}
+
 		if createRaw, ok := args["create"].(map[string]any); ok {
 			notCreated = runCreateLoop(createRaw, creationRefs, func(creationID string, resolvedMap map[string]any) (string, error) {
+				if se := validateCardInput(resolvedMap, existingUIDs); se != nil {
+					return "", se
+				}
 				cardBytes, _ := json.Marshal(resolvedMap)
 				var card Card
 				_ = json.Unmarshal(cardBytes, &card)
@@ -353,6 +416,9 @@ func handleCardSet(backend ContactsBackend) jmaphandler.MethodHandler {
 					card.Version = "1.0"
 				}
 				normalizeCardName(&card)
+				if card.Uid != "" {
+					existingUIDs[card.Uid] = true
+				}
 
 				createdCard, err := backend.CreateCard(ctx, &card)
 				if err != nil {

@@ -8,10 +8,17 @@ import (
 
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/managesieve"
+	"imap-jmap/jmap/spectest"
 )
 
 // TestRFC9661_Capability tests urn:ietf:params:jmap:sieve capability discovery per RFC 9661 Section 2.
 func TestRFC9661_Capability(t *testing.T) {
+	spectest.Require(t, "RFC9661", "1.1", spectest.MUST, "Servers MUST support all")
+	spectest.Require(t, "RFC9661", "1.2.1", spectest.MUST,
+		"that MUST contain the following information on server capabilities:")
+	spectest.Require(t, "RFC9661", "1.2.1", spectest.MUST,
+		"For compatibility with ManageSieve, this MUST be at")
+
 	_, sieveBackend, cleanup := managesieve.NewEmbeddedBackend()
 	defer cleanup()
 	srv := jmap.NewServer(nil, jmap.WithSieveBackend(sieveBackend))

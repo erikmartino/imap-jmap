@@ -124,9 +124,65 @@ func matchesNotes(notes map[string]*JSContactNote, q string) bool {
 	return false
 }
 
-// matchesCardText searches the free-text fields of a Card used by the RFC 9610
-// "text" filter condition (title/name, emails, phones, addresses, orgs, notes).
+// cardSearchTerms splits a free-text query into lowercased terms, preserving
+// double-quoted phrases as single tokens (RFC 9610 Section 3.3.1), and stripping
+// the "*" wildcard and surrounding single quotes.
+func cardSearchTerms(q string) []string {
+	q = strings.ToLower(q)
+	var terms []string
+	var b strings.Builder
+	flush := func() {
+		if t := strings.Trim(b.String(), " \t\r\n*'\""); t != "" {
+			terms = append(terms, t)
+		}
+		b.Reset()
+	}
+	inQuote, escaped := false, false
+	for _, r := range q {
+		if escaped {
+			b.WriteRune(r)
+			escaped = false
+			continue
+		}
+		switch {
+		case r == '\\' && inQuote:
+			escaped = true
+		case r == '"':
+			if inQuote {
+				flush()
+				inQuote = false
+			} else {
+				flush()
+				inQuote = true
+			}
+		case !inQuote && (r == ' ' || r == '\t' || r == '\r' || r == '\n'):
+			flush()
+		default:
+			b.WriteRune(r)
+		}
+	}
+	flush()
+	return terms
+}
+
+// matchesCardText implements the RFC 9610 Section 3.3.1 "text" condition: every
+// whitespace-separated token (or quoted phrase) must be present somewhere in the
+// card's searchable free-text fields.
 func matchesCardText(card *Card, q string) bool {
+	terms := cardSearchTerms(q)
+	if len(terms) == 0 {
+		return true
+	}
+	for _, t := range terms {
+		if !cardContainsText(card, t) {
+			return false
+		}
+	}
+	return true
+}
+
+// cardContainsText reports whether any free-text field of the card contains q.
+func cardContainsText(card *Card, q string) bool {
 	if matchesCardName(card.Name, q) {
 		return true
 	}

@@ -7,10 +7,16 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
+	"imap-jmap/jmap/spectest"
 )
 
 // TestRFC9610_Capability tests urn:ietf:params:jmap:contacts capability discovery per RFC 9610 Section 2.
 func TestRFC9610_Capability(t *testing.T) {
+	spectest.Require(t, "RFC9610", "1.4.1", spectest.MUST,
+		"property is an object that MUST contain the following information on")
+	spectest.Require(t, "RFC9610", "1.4.1", spectest.MUST,
+		"MUST be an integer >= 1, or null for no limit (or rather, the")
+
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -37,6 +43,20 @@ func TestRFC9610_Capability(t *testing.T) {
 
 	if !contactsCap.MayCreateAddressBook {
 		t.Errorf("Expected mayCreateAddressBook true, got false")
+	}
+	// RFC 9610 Section 1.4.1: maxAddressBooksPerCard MUST be an integer >= 1 or null.
+	if contactsCap.MaxAddressBooksPerCard != nil && *contactsCap.MaxAddressBooksPerCard < 1 {
+		t.Errorf("maxAddressBooksPerCard must be >= 1 or null, got %d", *contactsCap.MaxAddressBooksPerCard)
+	}
+
+	// The capability is also an account capability (empty object with the same
+	// properties as the session capability).
+	acc, ok := session.Accounts[jmap.AccountIDForSubject(testUsername)]
+	if !ok {
+		t.Fatalf("primary account missing from session")
+	}
+	if _, ok := acc.AccountCapabilities[jmap.ContactsCapabilityURI]; !ok {
+		t.Errorf("accountCapabilities missing %q", jmap.ContactsCapabilityURI)
 	}
 }
 
@@ -527,6 +547,32 @@ func TestRFC9610_AddressBookRightsAndDefault(t *testing.T) {
 	list2 := jr.MethodResponses[0].Args["list"].([]any)
 	if len(list2) == 0 || list2[0].(map[string]any)["isDefault"] != true {
 		t.Errorf("expected newly set default addressbook to have isDefault true, got %#v", list2)
+	}
+
+	// 4. At most one AddressBook may be the default (RFC 9610 Section 2).
+	spectest.Require(t, "RFC9610", "2", spectest.MUST,
+		"MUST NOT be true for more than one AddressBook within an account")
+	allReq := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.ContactsCapabilityURI},
+		"methodCalls": []any{
+			[]any{"AddressBook/get", map[string]any{"accountId": "primary"}, "c5"},
+		},
+	}
+	body, _ = json.Marshal(allReq)
+	resp, err = authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("AddressBook/get failed: %v", err)
+	}
+	defer resp.Body.Close()
+	_ = json.NewDecoder(resp.Body).Decode(&jr)
+	defaults := 0
+	for _, item := range jr.MethodResponses[0].Args["list"].([]any) {
+		if item.(map[string]any)["isDefault"] == true {
+			defaults++
+		}
+	}
+	if defaults > 1 {
+		t.Errorf("at most one AddressBook may be default, got %d", defaults)
 	}
 }
 

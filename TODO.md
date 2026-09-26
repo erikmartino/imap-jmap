@@ -109,16 +109,28 @@ Drive all remaining JMAP RFC requirement matrices in `spec/` to 100% MUST/MUST N
   - WebSocket endpoint, subprotocol negotiation (`jmap`), request/response multiplexing, push notifications over WebSocket.
 - [ ] **1.2 RFC 9007 (JMAP for MDN)**:
   - MDN data model, `MDN/send` and `MDN/parse` method handlers, disposition headers, and S/MIME compatibility.
-- [ ] **1.3 RFC 9404 (JMAP Blob Management)**:
-  - `Blob/copy`, `Blob/lookup` handlers, blob upload/download streaming, Digest verification.
+- [~] **1.3 RFC 9404 (JMAP Blob Management)**:
+  - Handlers implemented (`Blob/get|copy|lookup|upload`, streaming, digest).
+  - [x] Capability clauses (session empty object, account properties, ≥64 data sources, digest algorithm list) and `Blob/upload` DataSourceObject handling (base64 validation, concatenation, size in octets, 64 sources). Matrix 0 → 8 covered.
+  - [x] `Blob/get` offset/length `isTruncated`, `isEncodingProblem`, `data:asText` null + `data:asBase64` returned for non-UTF-8 (fixed). Matrix → 12 covered.
+  - [x] Upload `createdIds` back-reference, `Blob/lookup` empty-array for missing/invisible blobs (fixed: no `notFound` leak), type-name capability validation. Matrix → 16 covered.
+  - [ ] Remaining: `Blob/upload` UTF-8 `data:asText` accepted, `Blob/lookup`/`Blob/get` per-account access controls, digest-algorithm registration/process clauses.
 - [~] **1.4 RFC 9425 (JMAP Quotas)**:
   - Handlers already implemented (`Quota/get`, `/changes`, `/query`, `/queryChanges`).
   - [x] Capability value is an empty object in session + account capabilities; `name`/`used` sortable (`Quota/query`), unsupported sort rejected; `Quota/changes` returns `updatedProperties: null`. Matrix 0 → 6 covered.
   - [ ] Remaining: filter out `types` the client did not request a capability for (and omit quotas with no recognized types); UTF-8 `description`; push coverage.
-- [ ] **1.5 RFC 9610 (JMAP for Contacts / JSContact RFC 9553)**:
-  - `Card/get`, `set`, `query`, `AddressBook/get`, `set` handlers, CardDAV round-trip translation.
-- [ ] **1.6 RFC 9661 (JMAP for Sieve Scripts)**:
-  - `SieveScript/get`, `set`, `test` handlers, ManageSieve protocol client encapsulation.
+- [~] **1.5 RFC 9610 (JMAP for Contacts / JSContact RFC 9553)**:
+  - Handlers + CardDAV round-trip implemented.
+  - [x] §3.3.1 `text` filter now tokenises + supports quoted phrases (all tokens must be present); tests cover `inAddressBook`/`uid`/`kind`/created+updated bounds/empty/AND/token/phrase, and `created`/`updated` sorting. Matrix 0 → 12 covered.
+  - [x] AddressBook `name` validation (non-empty, ≤255 UTF-8 octets) on create/update; single-`isDefault` invariant asserted. Matrix → 14 covered.
+  - [x] ContactCard create constraints: `addressBookIds` values MUST be true, uids unique per account, at-least-one-address-book ensured. Matrix → 17 covered.
+  - [x] `onSuccessSetIsDefault` unknown/permitted id is ignored; `AddressBook/get` always promotes exactly one default; capability `maxAddressBooksPerCard`; `sortOrder` range validated. Matrix → 22 covered.
+  - [ ] Remaining (features, not test-linking): Media `data:` URI → `blobId`+`mediaType` conversion, `shareWith` escalation `forbidden`, ACL enforcement, photo upload.
+- [~] **1.6 RFC 9661 (JMAP for Sieve Scripts)**:
+  - Handlers + ManageSieve client implemented.
+  - [x] Capability discovery and SieveScript `name` validation (Net-Unicode, forbidden control chars) + account-wide uniqueness (`alreadyExists` with `existingId`). Matrix 0 → 7 covered.
+  - [x] `SieveScript/query` sorting by `name`/`isActive` (implemented; unknown → `unsupportedSort`). Matrix → 8 covered.
+  - [ ] Remaining: script content size `tooLarge`/`overQuota`, active-script destroy/deactivate ordering, VacationResponse script protections.
 - [ ] **1.7 RFC 9698 (JMAPACCESS IMAP)**:
   - JMAPACCESS authentication token exchange and IMAP authorization.
 - [ ] **1.8 RFC 9749 (JMAP Push VAPID / Web Push)**:

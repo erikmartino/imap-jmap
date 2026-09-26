@@ -112,6 +112,11 @@ func handleBlobGet(backend BlobBackend) MethodHandler {
 				} else {
 					res["data:asText"] = nil
 					isEncodingProblem = true
+					// RFC 9404 Section 4.2: when "data" was requested and the
+					// octets are not valid UTF-8, data:asBase64 MUST be returned.
+					if wantProp("data") {
+						res["data:asBase64"] = base64.StdEncoding.EncodeToString(rangeBytes)
+					}
 				}
 			}
 			if wantProp("isEncodingProblem") || isEncodingProblem {
@@ -280,21 +285,19 @@ func handleBlobLookup(backend BlobBackend, refs BlobReferenceBackend) MethodHand
 		}
 
 		list := make([]map[string]any, 0, len(idsRaw))
-		var notFound []Id
 		for _, raw := range idsRaw {
 			blobID, ok := raw.(string)
 			if !ok {
 				continue
 			}
-			if _, found, _ := backend.GetBlob(ctx, accountID, blobID); !found {
-				notFound = append(notFound, Id(blobID))
-				continue
-			}
+			// RFC 9404 Section 4.3: a blob that is missing or not visible to the
+			// user still gets a BlobInfo with an empty array for each type, so the
+			// response does not leak whether the blob exists.
 			matched := make(map[string][]Id, len(typeNames))
 			for _, tn := range typeNames {
 				matched[tn] = []Id{}
 			}
-			if refs != nil {
+			if _, found, _ := backend.GetBlob(ctx, accountID, blobID); found && refs != nil {
 				refMatched, _ := refs.LookupBlobReferences(ctx, typeNames, Id(blobID))
 				for tn, ids := range refMatched {
 					matched[tn] = ids
@@ -305,14 +308,10 @@ func handleBlobLookup(backend BlobBackend, refs BlobReferenceBackend) MethodHand
 				"matchedIds": matched,
 			})
 		}
-		if notFound == nil {
-			notFound = []Id{}
-		}
 
 		return "Blob/lookup", map[string]any{
 			"accountId": accountID,
 			"list":      list,
-			"notFound":  notFound,
 		}
 	}
 }

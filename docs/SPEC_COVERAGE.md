@@ -22,14 +22,14 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [rfc8887-websockets](#rfc8887-websockets) | RFC8887 | 0 | 40 | 0 | 40 | 0.0% |
 | [rfc9007-mdn](#rfc9007-mdn) | RFC9007 | 0 | 24 | 0 | 24 | 0.0% |
 | [rfc9219-smime](#rfc9219-smime) | RFC9219 | 0 | 24 | 0 | 24 | 0.0% |
-| [rfc9404-blobs](#rfc9404-blobs) | RFC9404 | 0 | 52 | 0 | 52 | 0.0% |
+| [rfc9404-blobs](#rfc9404-blobs) | RFC9404 | 16 | 36 | 0 | 52 | 30.8% |
 | [rfc9425-quotas](#rfc9425-quotas) | RFC9425 | 6 | 24 | 0 | 30 | 20.0% |
-| [rfc9610-contacts](#rfc9610-contacts) | RFC9610 | 0 | 84 | 0 | 84 | 0.0% |
-| [rfc9661-sieve](#rfc9661-sieve) | RFC9661 | 0 | 45 | 0 | 45 | 0.0% |
+| [rfc9610-contacts](#rfc9610-contacts) | RFC9610 | 22 | 62 | 0 | 84 | 26.2% |
+| [rfc9661-sieve](#rfc9661-sieve) | RFC9661 | 8 | 37 | 0 | 45 | 17.8% |
 | [rfc9670-sharing](#rfc9670-sharing) | RFC9670 | 0 | 76 | 0 | 76 | 0.0% |
 | [rfc9698-jmapaccess](#rfc9698-jmapaccess) | RFC9698 | 0 | 14 | 0 | 14 | 0.0% |
 | [rfc9749-vapid](#rfc9749-vapid) | RFC9749 | 0 | 24 | 0 | 24 | 0.0% |
-| **Total** | | **521** | **871** | **0** | **1392** | **37.4%** |
+| **Total** | | **567** | **825** | **0** | **1392** | **40.7%** |
 
 ---
 
@@ -1213,7 +1213,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 ## rfc9404-blobs
 
 * **Test Suite Directory**: [`jmap/`](../jmap/)
-* **Conformance**: 0 / 52 (0.0%)
+* **Conformance**: 16 / 52 (30.8%)
 
 | Spec | Section | Level | Requirement | Status | Tests | Note |
 | :--- | :---: | :---: | :--- | :---: | :--- | :--- |
@@ -1223,40 +1223,40 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC9404 | [2](https://www.rfc-editor.org/rfc/rfc9404.html#section-2) | `MUST` | The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §2 [p1] |
 | RFC9404 | [2](https://www.rfc-editor.org/rfc/rfc9404.html#section-2) | `SHOULD` | "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §2 [p2] |
 | RFC9404 | [2](https://www.rfc-editor.org/rfc/rfc9404.html#section-2) | `MAY` | "OPTIONAL" in this document are to be interpreted as described in | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §2 [p3] |
-| RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MUST` | the capability in one or more accountCapabilities properties MUST | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §3.1 [p1] |
-| RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MUST` | MUST be an empty object | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §3.1 [p2] |
-| RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MUST` | property is an object that MUST contain the following information on | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §3.1 [p3] |
+| RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MUST` | the capability in one or more accountCapabilities properties MUST | ✅ Covered | `TestRFC9404_Section2_Capability` | Extracted by specextract from RFC9404 §3.1 [p1] |
+| RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MUST` | MUST be an empty object | ✅ Covered | `TestRFC9404_Section2_Capability` | Extracted by specextract from RFC9404 §3.1 [p2] |
+| RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MUST` | property is an object that MUST contain the following information on | ✅ Covered | `TestRFC9404_Section2_Capability` | Extracted by specextract from RFC9404 §3.1 [p3] |
 | RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MUST` | Clients MUST NOT attempt to create blobs larger than this size | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §3.1 [p4] |
 | RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MUST` | If this value is null, then clients are not required to limit the | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §3.1 [p5] |
-| RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MUST` | Servers MUST allow at least 64 DataSourceObjects per creation | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §3.1 [p6] |
+| RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MUST` | Servers MUST allow at least 64 DataSourceObjects per creation | ✅ Covered | `TestRFC9404_Section2_Capability` | Extracted by specextract from RFC9404 §3.1 [p6] |
 | RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MAY` | Note that the supportedTypeNames list may include private types | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §3.1 [p7] |
 | RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MUST` | Clients MUST ignore type names they do not recognise | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §3.1 [p8] |
-| RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MUST` | list MUST be present in the "HTTP Digest Algorithm Values" | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §3.1 [p9] |
+| RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MUST` | list MUST be present in the "HTTP Digest Algorithm Values" | ✅ Covered | `TestRFC9404_Section2_Capability` | Extracted by specextract from RFC9404 §3.1 [p9] |
 | RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MUST` | registry defined by [RFC3230]; however, in JMAP, they must be | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §3.1 [p10] |
 | RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `SHOULD` | Clients SHOULD prefer algorithms listed earlier in this list | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §3.1 [p11] |
 | RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MAY` | provided, the server MAY perform content analysis and return one | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.1 [p1] |
 | RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MAY` | This may be extended in the future; | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.1 [p2] |
-| RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MUST` | For each successful upload, servers MUST add an entry to the | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.1 [p3] |
-| RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MUST` | caller did not explicitly pass a createdIds, the value must be | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.1 [p4] |
+| RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MUST` | For each successful upload, servers MUST add an entry to the | ✅ Covered | `TestRFC9404_Section4_1_CreatedIdsBackReference` | Extracted by specextract from RFC9404 §4.1 [p3] |
+| RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MUST` | caller did not explicitly pass a createdIds, the value must be | ✅ Covered | `TestRFC9404_Section4_1_CreatedIdsBackReference` | Extracted by specextract from RFC9404 §4.1 [p4] |
 | RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `SHOULD` | limit for JMAP requests specified by the server, and clients SHOULD | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.1 [p5] |
 | RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MUST` | * data:asText: "String\|null" (raw octets, must be UTF-8) | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.1 [p6] |
 | RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MAY` | * offset: "UnsignedInt\|null" (MAY be zero) | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.1 [p7] |
 | RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MAY` | * length: "UnsignedInt\|null" (MAY be zero) | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.1 [p8] |
 | RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MUST` | contained in them, the server MUST NOT guess the user's intent and | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.1 [p9] |
-| RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MUST` | MUST reject the creation and return a notCreated response for that | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.1 [p10] |
+| RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MUST` | MUST reject the creation and return a notCreated response for that | ✅ Covered | `TestRFC9404_Section4_1_UploadDataSources` | Extracted by specextract from RFC9404 §4.1 [p10] |
 | RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MUST` | invalid UTF-8 in data:asText MUST result in a notCreated response | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.1 [p11] |
-| RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MUST` | A server MUST accept at least 64 DataSourceObjects per create, as | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.1 [p12] |
+| RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MUST` | A server MUST accept at least 64 DataSourceObjects per create, as | ✅ Covered | `TestRFC9404_Section4_1_UploadDataSources` | Extracted by specextract from RFC9404 §4.1 [p12] |
 | RFC9404 | [4.2](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.2) | `MAY` | A standard JMAP get, with two additional optional parameters: | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.2 [p1] |
-| RFC9404 | [4.2](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.2) | `MUST` | The size value MUST always be the number of octets in the underlying | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.2 [p2] |
-| RFC9404 | [4.2](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.2) | `MUST` | isEncodingProblem MUST be set to true, and the data:asText response | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.2 [p3] |
-| RFC9404 | [4.2](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.2) | `MUST` | value MUST be null | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.2 [p4] |
-| RFC9404 | [4.2](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.2) | `MUST` | data is not valid UTF-8, then data:asBase64 MUST be returned | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.2 [p5] |
-| RFC9404 | [4.2](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.2) | `MUST` | isTruncated property in the result MUST be set to true to tell the | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.2 [p6] |
+| RFC9404 | [4.2](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.2) | `MUST` | The size value MUST always be the number of octets in the underlying | ✅ Covered | `TestRFC9404_Section4_1_UploadDataSources` | Extracted by specextract from RFC9404 §4.2 [p2] |
+| RFC9404 | [4.2](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.2) | `MUST` | isEncodingProblem MUST be set to true, and the data:asText response | ✅ Covered | `TestRFC9404_Section4_2_BlobGetRangeAndEncoding` | Extracted by specextract from RFC9404 §4.2 [p3] |
+| RFC9404 | [4.2](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.2) | `MUST` | value MUST be null | ✅ Covered | `TestRFC9404_Section4_2_BlobGetRangeAndEncoding` | Extracted by specextract from RFC9404 §4.2 [p4] |
+| RFC9404 | [4.2](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.2) | `MUST` | data is not valid UTF-8, then data:asBase64 MUST be returned | ✅ Covered | `TestRFC9404_Section4_2_BlobGetRangeAndEncoding` | Extracted by specextract from RFC9404 §4.2 [p5] |
+| RFC9404 | [4.2](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.2) | `MUST` | isTruncated property in the result MUST be set to true to tell the | ✅ Covered | `TestRFC9404_Section4_2_BlobGetRangeAndEncoding` | Extracted by specextract from RFC9404 §4.2 [p6] |
 | RFC9404 | [4.2](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.2) | `SHOULD` | Servers SHOULD store the size for blobs in a format that is efficient | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.2 [p7] |
 | RFC9404 | [4.2](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.2) | `SHOULD` | to read, and clients SHOULD limit their request to just the size | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.2 [p8] |
 | RFC9404 | [4.3](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.3) | `MAY` | which "Can reference blobs" is true may be specified, and the | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.3 [p1] |
-| RFC9404 | [4.3](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.3) | `MUST` | capability that defines each type must also be used by the overall | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.3 [p2] |
-| RFC9404 | [4.3](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.3) | `MUST` | all, then the server MUST still return an empty array for each type | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.3 [p3] |
+| RFC9404 | [4.3](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.3) | `MUST` | capability that defines each type must also be used by the overall | ✅ Covered | `TestRFC9404_Section4_3_BlobLookup`<br/>`TestRFC9404_Section4_3_BlobLookupUnknownDataType` | Extracted by specextract from RFC9404 §4.3 [p2] |
+| RFC9404 | [4.3](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.3) | `MUST` | all, then the server MUST still return an empty array for each type | ✅ Covered | `TestRFC9404_Section4_3_BlobLookup` | Extracted by specextract from RFC9404 §4.3 [p3] |
 | RFC9404 | [5](https://www.rfc-editor.org/rfc/rfc9404.html#section-5) | `MUST` | requires that all JSON data be UTF-8 encoded, so servers MUST only | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §5 [p1] |
 | RFC9404 | [5](https://www.rfc-editor.org/rfc/rfc9404.html#section-5) | `MUST` | Servers MUST apply any access controls, such that if the | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §5 [p2] |
 | RFC9404 | [5](https://www.rfc-editor.org/rfc/rfc9404.html#section-5) | `MUST` | does not have access to see, then that emailId MUST NOT be returned | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §5 [p3] |
@@ -1315,7 +1315,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 ## rfc9610-contacts
 
 * **Test Suite Directory**: [`jmap/`](../jmap/)
-* **Conformance**: 0 / 84 (0.0%)
+* **Conformance**: 22 / 84 (26.2%)
 
 | Spec | Section | Level | Requirement | Status | Tests | Note |
 | :--- | :---: | :---: | :--- | :---: | :--- | :--- |
@@ -1325,18 +1325,18 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC9610 | [1.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-1.1) | `SHOULD` | "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §1.1 [p2] |
 | RFC9610 | [1.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-1.1) | `MAY` | "OPTIONAL" in this document are to be interpreted as described in | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §1.1 [p3] |
 | RFC9610 | [1.3](https://www.rfc-editor.org/rfc/rfc9610.html#section-1.3) | `MAY` | In servers with support for JMAP Sharing [RFC9670], users may see and | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §1.3 [p1] |
-| RFC9610 | [1.4.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-1.4.1) | `MUST` | property is an object that MUST contain the following information on | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §1.4.1 [p1] |
-| RFC9610 | [1.4.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-1.4.1) | `MUST` | MUST be an integer >= 1, or null for no limit (or rather, the | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §1.4.1 [p2] |
+| RFC9610 | [1.4.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-1.4.1) | `MUST` | property is an object that MUST contain the following information on | ✅ Covered | `TestRFC9610_Capability` | Extracted by specextract from RFC9610 §1.4.1 [p1] |
+| RFC9610 | [1.4.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-1.4.1) | `MUST` | MUST be an integer >= 1, or null for no limit (or rather, the | ✅ Covered | `TestRFC9610_Capability` | Extracted by specextract from RFC9610 §1.4.1 [p2] |
 | RFC9610 | [1.4.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-1.4.1) | `MAY` | *mayCreateAddressBook*: Boolean | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §1.4.1 [p3] |
 | RFC9610 | [1.4.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-1.4.1) | `MAY` | The user may create an AddressBook in this account if, and only | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §1.4.1 [p4] |
 | RFC9610 | [2](https://www.rfc-editor.org/rfc/rfc9610.html#section-2) | `MUST` | This MUST NOT be the | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §2 [p1] |
-| RFC9610 | [2](https://www.rfc-editor.org/rfc/rfc9610.html#section-2) | `MUST` | empty string and MUST NOT be greater than 255 octets in size when | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §2 [p2] |
+| RFC9610 | [2](https://www.rfc-editor.org/rfc/rfc9610.html#section-2) | `MUST` | empty string and MUST NOT be greater than 255 octets in size when | ✅ Covered | `TestRFC9610_Section2_AddressBookNameValidation` | Extracted by specextract from RFC9610 §2 [p2] |
 | RFC9610 | [2](https://www.rfc-editor.org/rfc/rfc9610.html#section-2) | `MAY` | An optional long-form description of the AddressBook that provides | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §2 [p3] |
-| RFC9610 | [2](https://www.rfc-editor.org/rfc/rfc9610.html#section-2) | `MUST` | The number MUST | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §2 [p4] |
+| RFC9610 | [2](https://www.rfc-editor.org/rfc/rfc9610.html#section-2) | `MUST` | The number MUST | ✅ Covered | `TestRFC9610_Section2_AddressBookNameValidation` | Extracted by specextract from RFC9610 §2 [p4] |
 | RFC9610 | [2](https://www.rfc-editor.org/rfc/rfc9610.html#section-2) | `SHOULD` | AddressBooks with equal order should be sorted in | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §2 [p5] |
 | RFC9610 | [2](https://www.rfc-editor.org/rfc/rfc9610.html#section-2) | `SHOULD` | The sorting should take into account | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §2 [p6] |
 | RFC9610 | [2](https://www.rfc-editor.org/rfc/rfc9610.html#section-2) | `SHOULD` | This SHOULD be true for exactly one AddressBook in any account and | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §2 [p7] |
-| RFC9610 | [2](https://www.rfc-editor.org/rfc/rfc9610.html#section-2) | `MUST` | MUST NOT be true for more than one AddressBook within an account | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §2 [p8] |
+| RFC9610 | [2](https://www.rfc-editor.org/rfc/rfc9610.html#section-2) | `MUST` | MUST NOT be true for more than one AddressBook within an account | ✅ Covered | `TestRFC9610_AddressBookRightsAndDefault` | Extracted by specextract from RFC9610 §2 [p8] |
 | RFC9610 | [2](https://www.rfc-editor.org/rfc/rfc9610.html#section-2) | `SHOULD` | The default AddressBook should be used by clients whenever they | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §2 [p9] |
 | RFC9610 | [2](https://www.rfc-editor.org/rfc/rfc9610.html#section-2) | `MAY` | may automatically set the card as belonging to the default | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §2 [p10] |
 | RFC9610 | [2](https://www.rfc-editor.org/rfc/rfc9610.html#section-2) | `SHOULD` | This SHOULD default to false for AddressBooks in | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §2 [p11] |
@@ -1355,39 +1355,39 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC9610 | [2](https://www.rfc-editor.org/rfc/rfc9610.html#section-2) | `MAY` | *mayDelete*: Boolean | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §2 [p24] |
 | RFC9610 | [2](https://www.rfc-editor.org/rfc/rfc9610.html#section-2) | `MAY` | The user may delete the AddressBook itself | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §2 [p25] |
 | RFC9610 | [2.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-2.1) | `MAY` | The "ids" argument may be null to fetch all at once | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §2.1 [p1] |
-| RFC9610 | [2.3](https://www.rfc-editor.org/rfc/rfc9610.html#section-2.3) | `MUST` | server for policy reasons, it MUST be ignored and the current default | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §2.3 [p1] |
-| RFC9610 | [2.3](https://www.rfc-editor.org/rfc/rfc9610.html#section-2.3) | `MUST` | successfully changed, any changed objects MUST be reported in either | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §2.3 [p2] |
+| RFC9610 | [2.3](https://www.rfc-editor.org/rfc/rfc9610.html#section-2.3) | `MUST` | server for policy reasons, it MUST be ignored and the current default | ✅ Covered | `TestRFC9610_Section2_3_OnSuccessSetIsDefaultPolicy` | Extracted by specextract from RFC9610 §2.3 [p1] |
+| RFC9610 | [2.3](https://www.rfc-editor.org/rfc/rfc9610.html#section-2.3) | `MUST` | successfully changed, any changed objects MUST be reported in either | ✅ Covered | `TestRFC9610_AddressBookRightsAndDefault` | Extracted by specextract from RFC9610 §2.3 [p2] |
 | RFC9610 | [2.3](https://www.rfc-editor.org/rfc/rfc9610.html#section-2.3) | `MAY` | The "shareWith" property may only be set by users that have the | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §2.3 [p3] |
 | RFC9610 | [2.3](https://www.rfc-editor.org/rfc/rfc9610.html#section-2.3) | `MAY` | "mayShare" right | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §2.3 [p4] |
 | RFC9610 | [2.3](https://www.rfc-editor.org/rfc/rfc9610.html#section-2.3) | `MUST` | Any attempt to do so MUST be rejected with a "forbidden" | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §2.3 [p5] |
 | RFC9610 | [2.3](https://www.rfc-editor.org/rfc/rfc9610.html#section-2.3) | `MAY` | The server MAY forbid users from | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §2.3 [p6] |
 | RFC9610 | [3](https://www.rfc-editor.org/rfc/rfc9610.html#section-3) | `MAY` | The "id" property MAY be different to | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3 [p1] |
-| RFC9610 | [3](https://www.rfc-editor.org/rfc/rfc9610.html#section-3) | `MUST` | However, there MUST NOT be more than one ContactCard | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3 [p2] |
-| RFC9610 | [3](https://www.rfc-editor.org/rfc/rfc9610.html#section-3) | `MUST` | card MUST belong to at least one AddressBook at all times (until | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3 [p3] |
-| RFC9610 | [3](https://www.rfc-editor.org/rfc/rfc9610.html#section-3) | `MUST` | MUST be true | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3 [p4] |
+| RFC9610 | [3](https://www.rfc-editor.org/rfc/rfc9610.html#section-3) | `MUST` | However, there MUST NOT be more than one ContactCard | ✅ Covered | `TestRFC9610_Section3_CardConstraints` | Extracted by specextract from RFC9610 §3 [p2] |
+| RFC9610 | [3](https://www.rfc-editor.org/rfc/rfc9610.html#section-3) | `MUST` | card MUST belong to at least one AddressBook at all times (until | ✅ Covered | `TestRFC9610_Section3_CardConstraints` | Extracted by specextract from RFC9610 §3 [p3] |
+| RFC9610 | [3](https://www.rfc-editor.org/rfc/rfc9610.html#section-3) | `MUST` | MUST be true | ✅ Covered | `TestRFC9610_Section3_CardConstraints` | Extracted by specextract from RFC9610 §3 [p4] |
 | RFC9610 | [3](https://www.rfc-editor.org/rfc/rfc9610.html#section-3) | `SHOULD` | "data:" URL scheme [RFC2397] SHOULD return a "blobId" property and | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3 [p5] |
 | RFC9610 | [3](https://www.rfc-editor.org/rfc/rfc9610.html#section-3) | `MUST` | The "mediaType" property MUST also be set | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3 [p6] |
 | RFC9610 | [3](https://www.rfc-editor.org/rfc/rfc9610.html#section-3) | `MAY` | when creating or updating a ContactCard, clients MAY send a "blobId" | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3 [p7] |
 | RFC9610 | [3](https://www.rfc-editor.org/rfc/rfc9610.html#section-3) | `SHOULD` | Clients should consider the group to contain any ContactCard with a | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3 [p8] |
 | RFC9610 | [3](https://www.rfc-editor.org/rfc/rfc9610.html#section-3) | `SHOULD` | cannot be found SHOULD be ignored but preserved | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3 [p9] |
 | RFC9610 | [3.3.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.1) | `MAY` | may be omitted: | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3.3.1 [p1] |
-| RFC9610 | [3.3.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.1) | `MUST` | A card must be in this address book to match | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3.3.1 [p2] |
-| RFC9610 | [3.3.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.1) | `MUST` | A card must have this string exactly as its uid (as defined in | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3.3.1 [p3] |
-| RFC9610 | [3.3.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.1) | `MUST` | A card must have a "kind" property (as defined in Section 2 | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3.3.1 [p4] |
-| RFC9610 | [3.3.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.1) | `MUST` | 3 of [RFC9553]) must be before this date-time to match | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3.3.1 [p5] |
-| RFC9610 | [3.3.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.1) | `MUST` | 3 of [RFC9553]) must be the same or after this date- | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3.3.1 [p6] |
-| RFC9610 | [3.3.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.1) | `MUST` | 10 of [RFC9553]) must be before this date-time to | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3.3.1 [p7] |
-| RFC9610 | [3.3.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.1) | `MUST` | 10 of [RFC9553]) must be the same or after this date- | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3.3.1 [p8] |
-| RFC9610 | [3.3.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.1) | `MUST` | condition MUST always evaluate to true | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3.3.1 [p9] |
-| RFC9610 | [3.3.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.1) | `MUST` | specified, ALL must apply for the condition to be true (it is | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3.3.1 [p10] |
+| RFC9610 | [3.3.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.1) | `MUST` | A card must be in this address book to match | ✅ Covered | `TestRFC9610_Section3_3_1_CardFilterConditions` | Extracted by specextract from RFC9610 §3.3.1 [p2] |
+| RFC9610 | [3.3.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.1) | `MUST` | A card must have this string exactly as its uid (as defined in | ✅ Covered | `TestRFC9610_Section3_3_1_CardFilterConditions` | Extracted by specextract from RFC9610 §3.3.1 [p3] |
+| RFC9610 | [3.3.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.1) | `MUST` | A card must have a "kind" property (as defined in Section 2 | ✅ Covered | `TestRFC9610_Section3_3_1_CardFilterConditions` | Extracted by specextract from RFC9610 §3.3.1 [p4] |
+| RFC9610 | [3.3.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.1) | `MUST` | 3 of [RFC9553]) must be before this date-time to match | ✅ Covered | `TestRFC9610_Section3_3_1_CardFilterConditions` | Extracted by specextract from RFC9610 §3.3.1 [p5] |
+| RFC9610 | [3.3.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.1) | `MUST` | 3 of [RFC9553]) must be the same or after this date- | ✅ Covered | `TestRFC9610_Section3_3_1_CardFilterConditions` | Extracted by specextract from RFC9610 §3.3.1 [p6] |
+| RFC9610 | [3.3.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.1) | `MUST` | 10 of [RFC9553]) must be before this date-time to | ✅ Covered | `TestRFC9610_Section3_3_1_CardFilterConditions` | Extracted by specextract from RFC9610 §3.3.1 [p7] |
+| RFC9610 | [3.3.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.1) | `MUST` | 10 of [RFC9553]) must be the same or after this date- | ✅ Covered | `TestRFC9610_Section3_3_1_CardFilterConditions` | Extracted by specextract from RFC9610 §3.3.1 [p8] |
+| RFC9610 | [3.3.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.1) | `MUST` | condition MUST always evaluate to true | ✅ Covered | `TestRFC9610_Section3_3_1_CardFilterConditions` | Extracted by specextract from RFC9610 §3.3.1 [p9] |
+| RFC9610 | [3.3.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.1) | `MUST` | specified, ALL must apply for the condition to be true (it is | ✅ Covered | `TestRFC9610_Section3_3_1_CardFilterConditions` | Extracted by specextract from RFC9610 §3.3.1 [p10] |
 | RFC9610 | [3.3.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.1) | `SHOULD` | * Text SHOULD be matched in a case-insensitive manner | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3.3.1 [p11] |
 | RFC9610 | [3.3.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.1) | `SHOULD` | SHOULD be treated as a phrase search | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3.3.1 [p12] |
-| RFC9610 | [3.3.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.1) | `MUST` | required for that exact sequence of words, excluding the | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3.3.1 [p13] |
+| RFC9610 | [3.3.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.1) | `MUST` | required for that exact sequence of words, excluding the | ✅ Covered | `TestRFC9610_Section3_3_1_CardFilterConditions` | Extracted by specextract from RFC9610 §3.3.1 [p13] |
 | RFC9610 | [3.3.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.1) | `SHOULD` | * Outside of a phrase, whitespace SHOULD be treated as dividing | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3.3.1 [p14] |
 | RFC9610 | [3.3.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.1) | `MAY` | separate tokens that may be searched for separately in the | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3.3.1 [p15] |
-| RFC9610 | [3.3.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.1) | `MUST` | contact, but MUST all be present for the contact to match the | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3.3.1 [p16] |
+| RFC9610 | [3.3.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.1) | `MUST` | contact, but MUST all be present for the contact to match the | ✅ Covered | `TestRFC9610_Section3_3_1_CardFilterConditions` | Extracted by specextract from RFC9610 §3.3.1 [p16] |
 | RFC9610 | [3.3.1](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.1) | `MAY` | * Tokens MAY be matched on a whole-word basis using stemming (e | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3.3.1 [p17] |
-| RFC9610 | [3.3.2](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.2) | `MUST` | object MUST be supported for sorting: | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3.3.2 [p1] |
+| RFC9610 | [3.3.2](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.2) | `MUST` | object MUST be supported for sorting: | ✅ Covered | `TestRFC9610_ContactCard_QuerySort` | Extracted by specextract from RFC9610 §3.3.2 [p1] |
 | RFC9610 | [3.3.2](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.3.2) | `SHOULD` | object SHOULD be supported for sorting: | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3.3.2 [p2] |
 | RFC9610 | [3.5](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.5) | `MUST` | To set a new photo, the file must first be uploaded using the upload | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3.5 [p1] |
 | RFC9610 | [3.5](https://www.rfc-editor.org/rfc/rfc9610.html#section-3.5) | `MUST` | The server MUST | ⚠️ **Gap** | — | Extracted by specextract from RFC9610 §3.5 [p2] |
@@ -1409,7 +1409,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 ## rfc9661-sieve
 
 * **Test Suite Directory**: [`jmap/`](../jmap/)
-* **Conformance**: 0 / 45 (0.0%)
+* **Conformance**: 8 / 45 (17.8%)
 
 | Spec | Section | Level | Requirement | Status | Tests | Note |
 | :--- | :---: | :---: | :--- | :---: | :--- | :--- |
@@ -1418,15 +1418,15 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC9661 | [1.1](https://www.rfc-editor.org/rfc/rfc9661.html#section-1.1) | `MUST` | The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", | ⚠️ **Gap** | — | Extracted by specextract from RFC9661 §1.1 [p1] |
 | RFC9661 | [1.1](https://www.rfc-editor.org/rfc/rfc9661.html#section-1.1) | `SHOULD` | "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and | ⚠️ **Gap** | — | Extracted by specextract from RFC9661 §1.1 [p2] |
 | RFC9661 | [1.1](https://www.rfc-editor.org/rfc/rfc9661.html#section-1.1) | `MAY` | "OPTIONAL" in this document are to be interpreted as described in | ⚠️ **Gap** | — | Extracted by specextract from RFC9661 §1.1 [p3] |
-| RFC9661 | [1.1](https://www.rfc-editor.org/rfc/rfc9661.html#section-1.1) | `MUST` | Servers MUST support all | ⚠️ **Gap** | — | Extracted by specextract from RFC9661 §1.1 [p4] |
-| RFC9661 | [1.2.1](https://www.rfc-editor.org/rfc/rfc9661.html#section-1.2.1) | `MUST` | that MUST contain the following information on server capabilities: | ⚠️ **Gap** | — | Extracted by specextract from RFC9661 §1.2.1 [p1] |
-| RFC9661 | [1.2.1](https://www.rfc-editor.org/rfc/rfc9661.html#section-1.2.1) | `MUST` | property is an object that MUST contain the following information on | ⚠️ **Gap** | — | Extracted by specextract from RFC9661 §1.2.1 [p2] |
-| RFC9661 | [1.2.1](https://www.rfc-editor.org/rfc/rfc9661.html#section-1.2.1) | `MUST` | For compatibility with ManageSieve, this MUST be at | ⚠️ **Gap** | — | Extracted by specextract from RFC9661 §1.2.1 [p3] |
+| RFC9661 | [1.1](https://www.rfc-editor.org/rfc/rfc9661.html#section-1.1) | `MUST` | Servers MUST support all | ✅ Covered | `TestRFC9661_Capability` | Extracted by specextract from RFC9661 §1.1 [p4] |
+| RFC9661 | [1.2.1](https://www.rfc-editor.org/rfc/rfc9661.html#section-1.2.1) | `MUST` | that MUST contain the following information on server capabilities: | ✅ Covered | `TestRFC9661_Capability` | Extracted by specextract from RFC9661 §1.2.1 [p1] |
+| RFC9661 | [1.2.1](https://www.rfc-editor.org/rfc/rfc9661.html#section-1.2.1) | `MUST` | property is an object that MUST contain the following information on | ✅ Covered | `TestRFC9661_Capability` | Extracted by specextract from RFC9661 §1.2.1 [p2] |
+| RFC9661 | [1.2.1](https://www.rfc-editor.org/rfc/rfc9661.html#section-1.2.1) | `MUST` | For compatibility with ManageSieve, this MUST be at | ✅ Covered | `TestRFC9661_Capability` | Extracted by specextract from RFC9661 §1.2.1 [p3] |
 | RFC9661 | [2.1](https://www.rfc-editor.org/rfc/rfc9661.html#section-2.1) | `MAY` | *name*: String\|null (optional; default is server dependent) | ⚠️ **Gap** | — | Extracted by specextract from RFC9661 §2.1 [p1] |
-| RFC9661 | [2.1](https://www.rfc-editor.org/rfc/rfc9661.html#section-2.1) | `MUST` | If non-null, this MUST be | ⚠️ **Gap** | — | Extracted by specextract from RFC9661 §2.1 [p2] |
-| RFC9661 | [2.1](https://www.rfc-editor.org/rfc/rfc9661.html#section-2.1) | `MUST` | For compatibility with ManageSieve, servers MUST reject names that | ⚠️ **Gap** | — | Extracted by specextract from RFC9661 §2.1 [p3] |
+| RFC9661 | [2.1](https://www.rfc-editor.org/rfc/rfc9661.html#section-2.1) | `MUST` | If non-null, this MUST be | ✅ Covered | `TestRFC9661_Section2_1_SieveScriptNameConstraints` | Extracted by specextract from RFC9661 §2.1 [p2] |
+| RFC9661 | [2.1](https://www.rfc-editor.org/rfc/rfc9661.html#section-2.1) | `MUST` | For compatibility with ManageSieve, servers MUST reject names that | ✅ Covered | `TestRFC9661_Section2_1_SieveScriptNameConstraints` | Extracted by specextract from RFC9661 §2.1 [p3] |
 | RFC9661 | [2.1](https://www.rfc-editor.org/rfc/rfc9661.html#section-2.1) | `MAY` | Servers MAY reject names that violate server policy (e | ⚠️ **Gap** | — | Extracted by specextract from RFC9661 §2.1 [p4] |
-| RFC9661 | [2.1](https://www.rfc-editor.org/rfc/rfc9661.html#section-2.1) | `MUST` | The name MUST be unique among all SieveScripts within an account | ⚠️ **Gap** | — | Extracted by specextract from RFC9661 §2.1 [p5] |
+| RFC9661 | [2.1](https://www.rfc-editor.org/rfc/rfc9661.html#section-2.1) | `MUST` | The name MUST be unique among all SieveScripts within an account | ✅ Covered | `TestRFC9661_Section2_1_SieveScriptNameConstraints` | Extracted by specextract from RFC9661 §2.1 [p5] |
 | RFC9661 | [2.1](https://www.rfc-editor.org/rfc/rfc9661.html#section-2.1) | `MAY` | A user may have at most one active script | ⚠️ **Gap** | — | Extracted by specextract from RFC9661 §2.1 [p6] |
 | RFC9661 | [2.2](https://www.rfc-editor.org/rfc/rfc9661.html#section-2.2) | `MUST` | A script MUST be UTF-8 content [RFC3629] of at least 1 character in | ⚠️ **Gap** | — | Extracted by specextract from RFC9661 §2.2 [p1] |
 | RFC9661 | [2.2](https://www.rfc-editor.org/rfc/rfc9661.html#section-2.2) | `MUST` | A script MUST NOT | ⚠️ **Gap** | — | Extracted by specextract from RFC9661 §2.2 [p2] |
@@ -1447,7 +1447,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC9661 | [2.4](https://www.rfc-editor.org/rfc/rfc9661.html#section-2.4) | `SHOULD` | The "description" property on the SetError object SHOULD contain a | ⚠️ **Gap** | — | Extracted by specextract from RFC9661 §2.4 [p13] |
 | RFC9661 | [2.5](https://www.rfc-editor.org/rfc/rfc9661.html#section-2.5) | `MAY` | properties, either of which may be omitted: | ⚠️ **Gap** | — | Extracted by specextract from RFC9661 §2.5 [p1] |
 | RFC9661 | [2.5](https://www.rfc-editor.org/rfc/rfc9661.html#section-2.5) | `MUST` | The "isActive" property of the SieveScript must be identical to | ⚠️ **Gap** | — | Extracted by specextract from RFC9661 §2.5 [p2] |
-| RFC9661 | [2.5](https://www.rfc-editor.org/rfc/rfc9661.html#section-2.5) | `MUST` | The following SieveScript properties MUST be supported for sorting: | ⚠️ **Gap** | — | Extracted by specextract from RFC9661 §2.5 [p3] |
+| RFC9661 | [2.5](https://www.rfc-editor.org/rfc/rfc9661.html#section-2.5) | `MUST` | The following SieveScript properties MUST be supported for sorting: | ✅ Covered | `TestRFC9661_Section2_5_SieveScriptSort` | Extracted by specextract from RFC9661 §2.5 [p3] |
 | RFC9661 | [3](https://www.rfc-editor.org/rfc/rfc9661.html#section-3) | `SHOULD` | Servers SHOULD impose quotas on Sieve scripts to prevent malicious | ⚠️ **Gap** | — | Extracted by specextract from RFC9661 §3 [p1] |
 | RFC9661 | [4](https://www.rfc-editor.org/rfc/rfc9661.html#section-4) | `MUST` | * MUST allow the VacationResponse Sieve script to be fetched by the | ⚠️ **Gap** | — | Extracted by specextract from RFC9661 §4 [p1] |
 | RFC9661 | [4](https://www.rfc-editor.org/rfc/rfc9661.html#section-4) | `MUST` | * MUST allow the VacationResponse Sieve script to be activated or | ⚠️ **Gap** | — | Extracted by specextract from RFC9661 §4 [p2] |

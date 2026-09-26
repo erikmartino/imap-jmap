@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
+	"imap-jmap/jmap/spectest"
 )
 
 // TestRFC9404_Section2_Capability tests urn:ietf:params:jmap:blob capability discovery per RFC 9404 Section 2.
@@ -27,9 +28,22 @@ func TestRFC9404_Section2_Capability(t *testing.T) {
 		t.Fatalf("Failed to decode session: %v", err)
 	}
 
-	_, ok := session.Capabilities[jmap.BlobCapabilityURI]
+	spectest.Require(t, "RFC9404", "3.1", spectest.MUST,
+		"the capability in one or more accountCapabilities properties MUST")
+	spectest.Require(t, "RFC9404", "3.1", spectest.MUST, "MUST be an empty object")
+	spectest.Require(t, "RFC9404", "3.1", spectest.MUST,
+		"property is an object that MUST contain the following information on")
+	spectest.Require(t, "RFC9404", "3.1", spectest.MUST,
+		"Servers MUST allow at least 64 DataSourceObjects per creation")
+	spectest.Require(t, "RFC9404", "3.1", spectest.MUST,
+		"list MUST be present in the \"HTTP Digest Algorithm Values\"")
+
+	capRaw, ok := session.Capabilities[jmap.BlobCapabilityURI]
 	if !ok {
 		t.Fatalf("Capability %q missing in Session capabilities", jmap.BlobCapabilityURI)
+	}
+	if m, ok := capRaw.(map[string]any); !ok || len(m) != 0 {
+		t.Errorf("session blob capability MUST be an empty object, got %v", capRaw)
 	}
 
 	acc, ok := session.Accounts[jmap.AccountIDForSubject(testUsername)]
@@ -241,18 +255,34 @@ func TestRFC9404_Section4_3_BlobLookup(t *testing.T) {
 		}, "c3"},
 	})
 
-	notFoundRaw, _ := lookupArgs["notFound"].([]any)
-	if len(notFoundRaw) != 1 || notFoundRaw[0] != "missing-blob" {
-		t.Errorf("Expected notFound [missing-blob], got %v", lookupArgs["notFound"])
+	spectest.Require(t, "RFC9404", "4.3", spectest.MUST,
+		"capability that defines each type must also be used by the overall")
+	spectest.Require(t, "RFC9404", "4.3", spectest.MUST,
+		"all, then the server MUST still return an empty array for each type")
+
+	// Both the existing and the missing blob get a BlobInfo; the missing one has
+	// empty arrays per type so existence is not leaked.
+	listRaw, _ := lookupArgs["list"].([]any)
+	if len(listRaw) != 2 {
+		t.Fatalf("Expected 2 BlobInfo entries, got %v", lookupArgs["list"])
+	}
+	byID := map[string]map[string]any{}
+	for _, raw := range listRaw {
+		m := raw.(map[string]any)
+		byID[m["id"].(string)] = m
+	}
+	if byID["missing-blob"] == nil {
+		t.Fatalf("missing blob MUST still be present in list, got %v", lookupArgs["list"])
+	}
+	for tn, v := range byID["missing-blob"]["matchedIds"].(map[string]any) {
+		if arr, _ := v.([]any); len(arr) != 0 {
+			t.Errorf("missing blob matchedIds[%s] must be empty, got %v", tn, v)
+		}
 	}
 
-	listRaw, _ := lookupArgs["list"].([]any)
-	if len(listRaw) != 1 {
-		t.Fatalf("Expected 1 BlobInfo entry, got %v", lookupArgs["list"])
-	}
-	info := listRaw[0].(map[string]any)
-	if info["id"] != blobID {
-		t.Errorf("Expected BlobInfo id %s, got %v", blobID, info["id"])
+	info := byID[blobID]
+	if info == nil {
+		t.Fatalf("Expected BlobInfo for %s, got %v", blobID, lookupArgs["list"])
 	}
 	matched, _ := info["matchedIds"].(map[string]any)
 	emailMatches, _ := matched["Email"].([]any)
@@ -371,5 +401,41 @@ func TestRFC9404_Section4_BlobCopy(t *testing.T) {
 	notCopied, ok := methodResp.Args["notCopied"].(map[string]any)
 	if !ok || notCopied["c2"] == nil {
 		t.Errorf("Expected notCopied entry for key 'c2', got %v", methodResp.Args["notCopied"])
+	}
+}
+
+// TestRFC9404_Section4_3_BlobLookupUnknownDataType verifies that a typeName
+// whose defining capability is not in the request's using set is rejected with
+// unknownDataType (RFC 9404 Section 4.3).
+func TestRFC9404_Section4_3_BlobLookupUnknownDataType(t *testing.T) {
+	spectest.Require(t, "RFC9404", "4.3", spectest.MUST,
+		"capability that defines each type must also be used by the overall")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Contacts capability is intentionally omitted from using.
+	reqPayload := map[string]any{
+		"using": []string{jmap.CoreCapabilityURI, jmap.BlobCapabilityURI},
+		"methodCalls": []any{
+			[]any{"Blob/lookup", map[string]any{
+				"accountId": "primary",
+				"typeNames": []string{"ContactCard"},
+				"ids":       []string{"whatever"},
+			}, "c1"},
+		},
+	}
+	body, _ := json.Marshal(reqPayload)
+	resp, err := authedPost(ts.URL+"/jmap", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /jmap failed: %v", err)
+	}
+	defer resp.Body.Close()
+	var jr jmap.Response
+	_ = json.NewDecoder(resp.Body).Decode(&jr)
+	mr := jr.MethodResponses[0]
+	if mr.Name != "error" || mr.Args["type"] != "unknownDataType" {
+		t.Errorf("expected unknownDataType when the type's capability is absent, got %v", mr)
 	}
 }
