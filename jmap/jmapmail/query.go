@@ -31,6 +31,26 @@ type ThreadFilterContext struct {
 	ThreadEmailsWithKw map[jmapcore.Id]map[string]int
 }
 
+// BuildThreadFilterContext constructs a ThreadFilterContext from an email slice.
+func BuildThreadFilterContext(emails []*Email) *ThreadFilterContext {
+	tc := &ThreadFilterContext{
+		ThreadEmailsCount:  make(map[jmapcore.Id]int),
+		ThreadEmailsWithKw: make(map[jmapcore.Id]map[string]int),
+	}
+	for _, em := range emails {
+		tc.ThreadEmailsCount[em.ThreadID]++
+		if tc.ThreadEmailsWithKw[em.ThreadID] == nil {
+			tc.ThreadEmailsWithKw[em.ThreadID] = make(map[string]int)
+		}
+		for kw, val := range em.Keywords {
+			if val {
+				tc.ThreadEmailsWithKw[em.ThreadID][strings.ToLower(kw)]++
+			}
+		}
+	}
+	return tc
+}
+
 // MatchesFilter checks if an email matches a filter object per RFC 8621 Section 4.5.
 func MatchesFilter(em *Email, filter map[string]any) bool {
 	return MatchesFilterWithThreadContext(em, filter, nil)
@@ -107,14 +127,15 @@ func MatchesFilterWithThreadContext(em *Email, filter map[string]any, tc *Thread
 
 	// allInThreadHaveKeyword
 	if kwRaw, ok := filter["allInThreadHaveKeyword"].(string); ok && kwRaw != "" {
+		normKw := strings.ToLower(kwRaw)
 		if tc != nil {
 			count := tc.ThreadEmailsCount[em.ThreadID]
-			withKw := tc.ThreadEmailsWithKw[em.ThreadID][kwRaw]
+			withKw := tc.ThreadEmailsWithKw[em.ThreadID][normKw]
 			if count == 0 || withKw != count {
 				return false
 			}
 		} else {
-			if em.Keywords == nil || !em.Keywords[kwRaw] {
+			if em.Keywords == nil || !em.Keywords[normKw] {
 				return false
 			}
 		}
@@ -122,13 +143,14 @@ func MatchesFilterWithThreadContext(em *Email, filter map[string]any, tc *Thread
 
 	// someInThreadHaveKeyword
 	if kwRaw, ok := filter["someInThreadHaveKeyword"].(string); ok && kwRaw != "" {
+		normKw := strings.ToLower(kwRaw)
 		if tc != nil {
-			withKw := tc.ThreadEmailsWithKw[em.ThreadID][kwRaw]
+			withKw := tc.ThreadEmailsWithKw[em.ThreadID][normKw]
 			if withKw == 0 {
 				return false
 			}
 		} else {
-			if em.Keywords == nil || !em.Keywords[kwRaw] {
+			if em.Keywords == nil || !em.Keywords[normKw] {
 				return false
 			}
 		}
@@ -136,13 +158,14 @@ func MatchesFilterWithThreadContext(em *Email, filter map[string]any, tc *Thread
 
 	// noneInThreadHaveKeyword
 	if kwRaw, ok := filter["noneInThreadHaveKeyword"].(string); ok && kwRaw != "" {
+		normKw := strings.ToLower(kwRaw)
 		if tc != nil {
-			withKw := tc.ThreadEmailsWithKw[em.ThreadID][kwRaw]
+			withKw := tc.ThreadEmailsWithKw[em.ThreadID][normKw]
 			if withKw > 0 {
 				return false
 			}
 		} else {
-			if em.Keywords != nil && em.Keywords[kwRaw] {
+			if em.Keywords != nil && em.Keywords[normKw] {
 				return false
 			}
 		}
@@ -350,6 +373,9 @@ func matchHeader(em *Email, headerName, headerValue string) bool {
 		return false
 	}
 
+	if checkHeaders(em.Headers) {
+		return true
+	}
 	if checkHeaders(em.BodyStructure.Headers) {
 		return true
 	}

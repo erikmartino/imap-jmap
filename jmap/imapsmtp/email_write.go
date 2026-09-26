@@ -14,30 +14,9 @@ import (
 
 // MapKeywordsToIMAPFlags converts JMAP keywords map to a slice of IMAP flag strings.
 func MapKeywordsToIMAPFlags(keywords map[string]bool) []string {
-	var flags []string
-	for kw, present := range keywords {
-		if !present {
-			continue
-		}
-		switch kw {
-		case "$seen":
-			flags = append(flags, "\\Seen")
-		case "$flagged":
-			flags = append(flags, "\\Flagged")
-		case "$draft":
-			flags = append(flags, "\\Draft")
-		case "$answered":
-			flags = append(flags, "\\Answered")
-		default:
-			if strings.HasPrefix(kw, "$") {
-				flags = append(flags, kw)
-			} else {
-				flags = append(flags, "$"+kw)
-			}
-		}
-	}
-	return flags
+	return imappkg.MapKeywordsToFlags(keywords)
 }
+
 
 // CreateEmail creates or imports an email into an IMAP mailbox via APPEND.
 func (b *IMAPSMTPBackend) CreateEmail(ctx context.Context, em *jmapmail.Email) (*jmapmail.Email, error) {
@@ -105,8 +84,16 @@ func (b *IMAPSMTPBackend) CreateEmail(ctx context.Context, em *jmapmail.Email) (
 		em.ReceivedAt = msgTime.UTC().Format(time.RFC3339Nano)
 	}
 	if em.ThreadID == "" {
-		if len(em.MessageID) > 0 {
-			em.ThreadID = ThreadIDFor(em.MessageID[0], emailID)
+		rootMsgID := ""
+		if len(em.References) > 0 && em.References[0] != "" {
+			rootMsgID = em.References[0]
+		} else if len(em.InReplyTo) > 0 && em.InReplyTo[0] != "" {
+			rootMsgID = em.InReplyTo[0]
+		} else if len(em.MessageID) > 0 && em.MessageID[0] != "" {
+			rootMsgID = em.MessageID[0]
+		}
+		if rootMsgID != "" {
+			em.ThreadID = ThreadIDFor(rootMsgID, emailID)
 		} else {
 			em.ThreadID = emailID
 		}

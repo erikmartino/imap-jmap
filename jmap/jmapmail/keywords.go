@@ -186,7 +186,8 @@ func MapJMAPKeywordsToIMAPFlags(keywords map[string]bool) []string {
 // The upstream Sieve filter tags incoming iTIP mail with "$itip" so imap-jmap can find
 // and process it; that tag is an implementation detail, not a user keyword.
 var internalKeywords = map[string]bool{
-	"$itip": true,
+	"$itip":    true,
+	"$deleted": true,
 }
 
 // IsInternalKeyword reports whether kw is a proxy-internal keyword.
@@ -194,8 +195,29 @@ func IsInternalKeyword(kw string) bool {
 	return internalKeywords[strings.ToLower(strings.TrimSpace(kw))]
 }
 
+// IsValidKeyword reports whether a keyword string conforms to RFC 8621 Section 4.1.1:
+// 1-255 characters in the ASCII subset %x21-%x7e (no control characters or spaces),
+// and must NOT include any of: ( ) { ] % * " \
+func IsValidKeyword(kw string) bool {
+	if len(kw) < 1 || len(kw) > 255 {
+		return false
+	}
+	for i := 0; i < len(kw); i++ {
+		b := kw[i]
+		if b < 0x21 || b > 0x7e {
+			return false
+		}
+		switch b {
+		case '(', ')', '{', ']', '%', '*', '"', '\\':
+			return false
+		}
+	}
+	return true
+}
+
 // VisibleKeywords returns the client-visible view of a keyword set, dropping
-// proxy-internal keywords. The input map is not modified.
+// proxy-internal keywords. The keys in the returned map are normalized to lowercase
+// per RFC 8621 Section 4.1.1. The input map is not modified.
 func VisibleKeywords(keywords map[string]bool) map[string]bool {
 	if len(keywords) == 0 {
 		return keywords
@@ -205,7 +227,8 @@ func VisibleKeywords(keywords map[string]bool) map[string]bool {
 		if IsInternalKeyword(k) {
 			continue
 		}
-		out[k] = v
+		out[strings.ToLower(k)] = v
 	}
 	return out
 }
+

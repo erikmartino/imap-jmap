@@ -116,8 +116,16 @@ func (b *IMAPSMTPBackend) GetEmails(ctx context.Context, ids []jmapcore.Id) ([]*
 				em.SentAt = &s
 			}
 
-			if len(em.MessageID) > 0 {
-				em.ThreadID = ThreadIDFor(em.MessageID[0], emailID)
+			rootMsgID := ""
+			if len(em.References) > 0 && em.References[0] != "" {
+				rootMsgID = em.References[0]
+			} else if len(em.InReplyTo) > 0 && em.InReplyTo[0] != "" {
+				rootMsgID = em.InReplyTo[0]
+			} else if len(em.MessageID) > 0 && em.MessageID[0] != "" {
+				rootMsgID = em.MessageID[0]
+			}
+			if rootMsgID != "" {
+				em.ThreadID = ThreadIDFor(rootMsgID, emailID)
 			} else {
 				em.ThreadID = emailID
 			}
@@ -207,8 +215,16 @@ func (b *IMAPSMTPBackend) GetAllEmails(ctx context.Context) ([]*jmapmail.Email, 
 				em.SentAt = &s
 			}
 
-			if len(em.MessageID) > 0 {
-				em.ThreadID = ThreadIDFor(em.MessageID[0], emailID)
+			rootMsgID := ""
+			if len(em.References) > 0 && em.References[0] != "" {
+				rootMsgID = em.References[0]
+			} else if len(em.InReplyTo) > 0 && em.InReplyTo[0] != "" {
+				rootMsgID = em.InReplyTo[0]
+			} else if len(em.MessageID) > 0 && em.MessageID[0] != "" {
+				rootMsgID = em.MessageID[0]
+			}
+			if rootMsgID != "" {
+				em.ThreadID = ThreadIDFor(rootMsgID, emailID)
 			} else {
 				em.ThreadID = emailID
 			}
@@ -267,9 +283,10 @@ func (b *IMAPSMTPBackend) QueryEmails(ctx context.Context, filter map[string]any
 		return nil, 0, err
 	}
 
+	tc := jmapmail.BuildThreadFilterContext(emails)
 	var filtered []*jmapmail.Email
 	for _, em := range emails {
-		if jmapmail.MatchesFilter(em, filter) {
+		if jmapmail.MatchesFilterWithThreadContext(em, filter, tc) {
 			filtered = append(filtered, em)
 		}
 	}

@@ -15,6 +15,11 @@ func HandleEmailQuery(backend MailBackend) jmaphandler.MethodHandler {
 			ctx = jmapauth.ContextWithAccountID(ctx, accountID)
 		}
 		filter, _ := args["filter"].(map[string]any)
+		if filter != nil {
+			if errMsg := ValidateEmailFilter(filter); errMsg != "" {
+				return "error", jmapcore.MethodErrorArgs(jmapcore.MethodErrorInvalidArguments, errMsg)
+			}
+		}
 
 		comparators := jmapcore.ParseComparators(args)
 		if errType, errMsg := jmapcore.ValidateComparators(comparators, emailSortableProperties); errType != "" {
@@ -121,6 +126,11 @@ func HandleEmailQueryChanges(backend MailBackend) jmaphandler.MethodHandler {
 		upToID, _ := args["upToId"].(string)
 		sinceState, _ := args["sinceQueryState"].(string)
 		filter, _ := args["filter"].(map[string]any)
+		if filter != nil {
+			if errMsg := ValidateEmailFilter(filter); errMsg != "" {
+				return "error", jmapcore.MethodErrorArgs(jmapcore.MethodErrorInvalidArguments, errMsg)
+			}
+		}
 		comparators := jmapcore.ParseComparators(args)
 		if errType, errMsg := jmapcore.ValidateComparators(comparators, emailSortableProperties); errType != "" {
 			return "error", jmapcore.MethodErrorArgs(errType, errMsg)
@@ -156,3 +166,44 @@ func HandleEmailQueryChanges(backend MailBackend) jmaphandler.MethodHandler {
 		return "Email/queryChanges", res
 	}
 }
+
+// ValidateEmailFilter validates an Email/query filter object (FilterCondition or FilterOperator)
+// per RFC 8620 Section 5.5 and RFC 8621 Section 4.4.1.
+func ValidateEmailFilter(filter map[string]any) string {
+	if filter == nil {
+		return ""
+	}
+	if err := jmapcore.ValidateFilter(filter); err != "" {
+		return err
+	}
+	// Recursively validate operators
+	if rawOp, hasOp := filter["operator"]; hasOp && rawOp != nil {
+		if conds, ok := filter["conditions"].([]any); ok {
+			for _, c := range conds {
+				if cMap, ok := c.(map[string]any); ok {
+					if subErr := ValidateEmailFilter(cMap); subErr != "" {
+						return subErr
+					}
+				}
+			}
+		}
+		return ""
+	}
+	// FilterCondition
+	if hdrRaw, hasHdr := filter["header"]; hasHdr {
+		hdrList, ok := hdrRaw.([]any)
+		if !ok || len(hdrList) < 1 || len(hdrList) > 2 {
+			return "header filter property must be an array of 1 or 2 elements"
+		}
+		if _, ok := hdrList[0].(string); !ok {
+			return "first element of header filter must be a string"
+		}
+		if len(hdrList) == 2 {
+			if _, ok := hdrList[1].(string); !ok {
+				return "second element of header filter must be a string"
+			}
+		}
+	}
+	return ""
+}
+

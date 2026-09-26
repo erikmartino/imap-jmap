@@ -68,6 +68,11 @@ func MatchesFilter(em *Email, filter map[string]any) bool {
 	return jmapmail.MatchesFilter(em, filter)
 }
 
+// BuildThreadFilterContext constructs a ThreadFilterContext from an email slice.
+func BuildThreadFilterContext(emails []*Email) *ThreadFilterContext {
+	return jmapmail.BuildThreadFilterContext(emails)
+}
+
 // MatchesFilterWithThreadContext checks if an email matches a filter object with thread context.
 func MatchesFilterWithThreadContext(em *Email, filter map[string]any, tc *ThreadFilterContext) bool {
 	return jmapmail.MatchesFilterWithThreadContext(em, filter, tc)

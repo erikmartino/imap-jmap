@@ -856,6 +856,12 @@ func FormatEmailRFC822(em *Email) []byte {
 		h.Set("X-JMAP-SMIME-Errors", strings.Join(em.SMIMEErrors, ","))
 	}
 
+	for _, hdr := range em.Headers {
+		if hdr.Name != "" && !h.Has(hdr.Name) {
+			h.Set(hdr.Name, hdr.Value)
+		}
+	}
+
 	partIDToSet := ""
 	if len(em.TextBody) > 0 && em.TextBody[0].PartID != nil {
 		partIDToSet = *em.TextBody[0].PartID

@@ -20,4 +20,5 @@ type (
 	EmailSubmission         = jmapmail.EmailSubmission
 	SearchSnippet           = jmapmail.SearchSnippet
 	VacationResponse        = jmapmail.VacationResponse
+	EmailHeader             = jmapmail.EmailHeader
 )

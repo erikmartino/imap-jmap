@@ -446,6 +446,52 @@ func HandleEmailSet(backend MailBackend, blobBackend jmapblob.BlobBackend) jmaph
 				if rawPatch, ok := patchRaw.(map[string]any); ok {
 					patch := jmaphandler.ResolvePatchCreationRefs(rawPatch, creationRefs)
 					resolvedID := jmaphandler.ResolveCreationID(idStr, creationRefs)
+
+					var patchErr *jmapcore.SetError
+					for k, v := range patch {
+						if k == "mailboxIds" {
+							if mbMap, ok := v.(map[string]any); !ok || len(mbMap) == 0 {
+								patchErr = &jmapcore.SetError{Type: "invalidProperties", Properties: []string{"mailboxIds"}}
+								break
+							} else {
+								for _, mv := range mbMap {
+									if b, isBool := mv.(bool); !isBool || !b {
+										patchErr = &jmapcore.SetError{Type: "invalidProperties", Properties: []string{"mailboxIds"}}
+										break
+									}
+								}
+								if patchErr != nil {
+									break
+								}
+							}
+						} else if k == "keywords" {
+							if kwMap, ok := v.(map[string]any); !ok {
+								patchErr = &jmapcore.SetError{Type: "invalidProperties", Properties: []string{"keywords"}}
+								break
+							} else {
+								for kwK, kwV := range kwMap {
+									if b, isBool := kwV.(bool); !isBool || !b || !IsValidKeyword(kwK) {
+										patchErr = &jmapcore.SetError{Type: "invalidProperties", Properties: []string{"keywords"}}
+										break
+									}
+								}
+								if patchErr != nil {
+									break
+								}
+							}
+						} else if strings.HasPrefix(k, "keywords/") {
+							kwName := strings.TrimPrefix(k, "keywords/")
+							if !IsValidKeyword(kwName) {
+								patchErr = &jmapcore.SetError{Type: "invalidProperties", Properties: []string{k}}
+								break
+							}
+						}
+					}
+					if patchErr != nil {
+						notUpdated[string(resolvedID)] = *patchErr
+						continue
+					}
+
 					updatedEM, err := backend.UpdateEmail(ctx, jmapcore.Id(resolvedID), patch)
 					if err != nil {
 						if setErr, ok := err.(jmapcore.SetError); ok {
@@ -490,29 +536,29 @@ func HandleEmailSet(backend MailBackend, blobBackend jmapblob.BlobBackend) jmaph
 	}
 }
 
-// IsValidKeyword reports whether the keyword contains only valid characters.
-func IsValidKeyword(k string) bool {
-	if len(k) == 0 || len(k) > 255 {
-		return false
-	}
-	for _, r := range k {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '$' || r == '_' {
-			continue
-		}
-		return false
-	}
-	return true
-}
-
-func isValidKeyword(k string) bool {
-	return IsValidKeyword(k)
-}
-
 // validateEmailCreateData enforces the RFC 8621 Section 4.6 constraints on Email
 // objects submitted for creation, returning a SetError or nil if acceptable.
 func validateEmailCreateData(ctx context.Context, accountID string, emData map[string]any, blobBackend jmapblob.BlobBackend) *jmapcore.SetError {
-	if mbMap, ok := emData["mailboxIds"].(map[string]any); !ok || len(mbMap) == 0 {
+	mbMap, ok := emData["mailboxIds"].(map[string]any)
+	if !ok || len(mbMap) == 0 {
 		return &jmapcore.SetError{Type: "invalidProperties", Properties: []string{"mailboxIds"}}
+	}
+	for _, v := range mbMap {
+		if b, isBool := v.(bool); !isBool || !b {
+			return &jmapcore.SetError{Type: "invalidProperties", Properties: []string{"mailboxIds"}}
+		}
+	}
+
+	if kwRaw, hasKw := emData["keywords"]; hasKw {
+		kwMap, ok := kwRaw.(map[string]any)
+		if !ok {
+			return &jmapcore.SetError{Type: "invalidProperties", Properties: []string{"keywords"}}
+		}
+		for k, v := range kwMap {
+			if b, isBool := v.(bool); !isBool || !b || !IsValidKeyword(k) {
+				return &jmapcore.SetError{Type: "invalidProperties", Properties: []string{"keywords"}}
+			}
+		}
 	}
 
 	if _, has := emData["headers"]; has {

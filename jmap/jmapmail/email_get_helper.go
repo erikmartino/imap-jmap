@@ -75,6 +75,26 @@ func ParseHeaderProperty(prop string) (*ParsedHeaderProperty, error) {
 		return nil, fmt.Errorf("too many parts in header property: %q", prop)
 	}
 
+	// Validate parsed forms per RFC 8621 Section 4.1.2 & Section 4.2
+	switch form {
+	case HeaderFormAddresses, HeaderFormGroupedAddresses:
+		if !isAddressHeader(name) {
+			return nil, fmt.Errorf("form %s is not permitted on header %q", form, name)
+		}
+	case HeaderFormMessageIDs:
+		if !isMessageIdHeader(name) {
+			return nil, fmt.Errorf("form %s is not permitted on header %q", form, name)
+		}
+	case HeaderFormDate:
+		if !isDateHeader(name) {
+			return nil, fmt.Errorf("form %s is not permitted on header %q", form, name)
+		}
+	case HeaderFormURLs:
+		if !isURLHeader(name) {
+			return nil, fmt.Errorf("form %s is not permitted on header %q", form, name)
+		}
+	}
+
 	return &ParsedHeaderProperty{
 		RawProp: prop,
 		Name:    name,
@@ -82,6 +102,7 @@ func ParseHeaderProperty(prop string) (*ParsedHeaderProperty, error) {
 		All:     all,
 	}, nil
 }
+
 
 func isValidHeaderForm(f HeaderForm) bool {
 	switch f {
@@ -158,6 +179,7 @@ func unfoldHeader(raw string) string {
 }
 
 func decodeHeaderText(raw string) string {
+	raw = strings.ReplaceAll(raw, "\x00", "")
 	unfolded := unfoldHeader(raw)
 
 	dec := new(mime.WordDecoder)
@@ -168,6 +190,7 @@ func decodeHeaderText(raw string) string {
 
 	return norm.NFC.String(decoded)
 }
+
 
 func decodeHeaderAddresses(raw string) any {
 	unfolded := unfoldHeader(raw)

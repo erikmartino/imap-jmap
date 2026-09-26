@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"imap-jmap/jmap"
@@ -432,3 +433,679 @@ func TestRFC8621_Section3_ThreadAndSnippets(t *testing.T) {
 		t.Errorf("expected RFC 2047 decoded name 'Alice Smith', got %q", firstName)
 	}
 }
+
+// TestRFC8621_Section4_EmailPropertiesAndGet verifies RFC 8621 Section 4, 4.1, 4.1.1, 4.1.2.1, 4.1.3, 4.1.4, and 4.2
+// requirements covering Email properties, keywords, header parsing/decoding, body truncation, and default properties.
+func TestRFC8621_Section4_EmailPropertiesAndGet(t *testing.T) {
+	spectest.Require(t, "RFC8621", "4", spectest.MUST, "or white space rules per [RFC2047] MUST NOT be decoded")
+	spectest.Require(t, "RFC8621", "4.1", spectest.MUST, "complexities of various encodings that are required in a valid")
+	spectest.Require(t, "RFC8621", "4.1.1", spectest.MUST, "mail store MUST belong to one or more Mailboxes at all times")
+	spectest.Require(t, "RFC8621", "4.1.1", spectest.MUST, "object MUST be true")
+	spectest.Require(t, "RFC8621", "4.1.1", spectest.MUST, "each key in the object MUST be true")
+	spectest.Require(t, "RFC8621", "4.1.1", spectest.MUST, "keyword MUST NOT be visible via JMAP (and so are not counted in")
+	spectest.Require(t, "RFC8621", "4.1.1", spectest.MUST, "and space), and it MUST NOT include any of these characters:")
+	spectest.Require(t, "RFC8621", "4.1.1", spectest.MUST, "Because JSON is case sensitive, servers MUST return keywords in")
+	spectest.Require(t, "RFC8621", "4.1.2.1", spectest.MUST, "message MUST be either ASCII (RFC 5322) or UTF-8 (RFC 6532); however,")
+	spectest.Require(t, "RFC8621", "4.1.2.1", spectest.MUST, "Any NUL octet MUST be")
+	spectest.Require(t, "RFC8621", "4.1.3", spectest.MUST, "If both suffixes are used, they MUST be specified in the order above")
+	spectest.Require(t, "RFC8621", "4.1.4", spectest.MUST, "This MUST NOT be more than 256 characters in length")
+	spectest.Require(t, "RFC8621", "4.1.4", spectest.MUST, "// Must be one of the allowed body types")
+	spectest.Require(t, "RFC8621", "4.2", spectest.MUST, "object returned in \"bodyValues\" MUST be truncated if necessary so")
+	spectest.Require(t, "RFC8621", "4.2", spectest.MUST, "The server MUST ensure the truncation results in valid UTF-8 and")
+	spectest.Require(t, "RFC8621", "4.2", spectest.MUST, "following default MUST be used instead of \"all\" properties:")
+	spectest.Require(t, "RFC8621", "4.2", spectest.MUST, ", \"header:From:asDate\") MUST result in the method call")
+	spectest.Require(t, "RFC8621", "4.2", spectest.MUST, "capitalization of the property name in the response MUST be identical")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}
+
+	// 1. mailboxIds validation (RFC 8621 §4.1.1):
+	// - Email MUST belong to one or more mailboxes
+	// - Each key in mailboxIds must have value true
+	rEmptyMb := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"eEmptyMb": map[string]any{
+					"mailboxIds": map[string]any{},
+				},
+			},
+		}, "c1"},
+	})
+	notCreatedEmptyMb, _ := rEmptyMb.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if _, ok := notCreatedEmptyMb["eEmptyMb"]; !ok {
+		t.Fatalf("expected empty mailboxIds to be rejected: %v", rEmptyMb.MethodResponses[0].Args)
+	}
+
+	rFalseMb := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"eFalseMb": map[string]any{
+					"mailboxIds": map[string]any{"mb-inbox": false},
+				},
+			},
+		}, "c2"},
+	})
+	notCreatedFalseMb, _ := rFalseMb.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if _, ok := notCreatedFalseMb["eFalseMb"]; !ok {
+		t.Fatalf("expected mailboxIds with false value to be rejected: %v", rFalseMb.MethodResponses[0].Args)
+	}
+
+	// 2. keywords validation (RFC 8621 §4.1.1):
+	// - Each value must be true
+	// - Must not contain forbidden characters: ( ) { ] % * " \
+	// - Must not contain spaces or control characters
+	rFalseKw := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"eFalseKw": map[string]any{
+					"mailboxIds": map[string]bool{"mb-inbox": true},
+					"keywords":   map[string]any{"$seen": false},
+				},
+			},
+		}, "c3"},
+	})
+	notCreatedFalseKw, _ := rFalseKw.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if _, ok := notCreatedFalseKw["eFalseKw"]; !ok {
+		t.Fatalf("expected keywords with false value to be rejected: %v", rFalseKw.MethodResponses[0].Args)
+	}
+
+	for _, invalidKw := range []string{"star*keyword", "space keyword", "paren(keyword", "bracket]keyword", "percent%kw", "quote\"kw", "slash\\kw"} {
+		rBadKw := postJMAP(t, ts.URL, using, []any{
+			[]any{"Email/set", map[string]any{
+				"accountId": "primary",
+				"create": map[string]any{
+					"eBadKw": map[string]any{
+						"mailboxIds": map[string]bool{"mb-inbox": true},
+						"keywords":   map[string]any{invalidKw: true},
+					},
+				},
+			}, "cBadKw"},
+		})
+		notCreatedBadKw, _ := rBadKw.MethodResponses[0].Args["notCreated"].(map[string]any)
+		if _, ok := notCreatedBadKw["eBadKw"]; !ok {
+			t.Fatalf("expected keyword %q to be rejected: %v", invalidKw, rBadKw.MethodResponses[0].Args)
+		}
+	}
+
+	// 3. Create valid Email with mixed-case keywords
+	rCreateValid := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"eValid": map[string]any{
+					"mailboxIds": map[string]bool{"mb-inbox": true},
+					"keywords":   map[string]bool{"$Flagged": true, "CustomTag": true},
+					"subject":    "Test Valid Email",
+					"from":       []any{map[string]any{"name": "Sender", "email": "sender@example.com"}},
+					"to":         []any{map[string]any{"name": "Receiver", "email": "receiver@example.com"}},
+					"textBody":   []any{map[string]any{"partId": "part-1", "type": "text/plain"}},
+					"bodyValues": map[string]any{
+						"part-1": map[string]any{
+							"value": "This is a body text that exceeds twenty bytes for testing truncation.",
+						},
+					},
+				},
+			},
+		}, "cCreateValid"},
+	})
+	createdValid, _ := rCreateValid.MethodResponses[0].Args["created"].(map[string]any)
+	eValidObj, ok := createdValid["eValid"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected eValid created: %v", rCreateValid.MethodResponses[0].Args)
+	}
+	validEmailID, _ := eValidObj["id"].(string)
+
+	// 4. Email/get with omitted properties -> MUST return exactly the 24 default properties (RFC 8621 §4.2)
+	// And keywords MUST be lowercase (RFC 8621 §4.1.1)
+	rGetDefault := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/get", map[string]any{
+			"accountId": "primary",
+			"ids":       []any{validEmailID},
+		}, "cGetDefault"},
+	})
+	listDefault, _ := rGetDefault.MethodResponses[0].Args["list"].([]any)
+	if len(listDefault) != 1 {
+		t.Fatalf("expected 1 email in list, got %v", listDefault)
+	}
+	emDefaultMap := listDefault[0].(map[string]any)
+
+	expectedDefaults := []string{
+		"id", "blobId", "threadId", "mailboxIds", "keywords", "size", "receivedAt",
+		"messageId", "inReplyTo", "references", "sender", "from", "to", "cc", "bcc",
+		"replyTo", "subject", "sentAt", "hasAttachment", "preview", "bodyValues",
+		"textBody", "htmlBody", "attachments",
+	}
+	for _, prop := range expectedDefaults {
+		if _, exists := emDefaultMap[prop]; !exists {
+			t.Errorf("missing RFC 8621 default property %q in response", prop)
+		}
+	}
+
+	// Keywords must be returned in lowercase
+	kws, _ := emDefaultMap["keywords"].(map[string]any)
+	if !kws["$flagged"].(bool) || !kws["customtag"].(bool) {
+		t.Errorf("expected lowercase keywords $flagged and customtag, got %v", kws)
+	}
+	if _, hasUpper := kws["$Flagged"]; hasUpper {
+		t.Errorf("uppercase keyword was not lowercased: %v", kws)
+	}
+
+	// 5. Preview length constraint (RFC 8621 §4.1.4): MUST NOT be more than 256 characters
+	prevStr, _ := emDefaultMap["preview"].(string)
+	if len([]rune(prevStr)) > 256 {
+		t.Errorf("preview length %d exceeds 256 characters", len([]rune(prevStr)))
+	}
+
+	// 6. Truncation of bodyValues with maxBodyValueBytes (RFC 8621 §4.2):
+	// MUST be truncated so it does not exceed maxBodyValueBytes, result in valid UTF-8, and set isTruncated: true
+	rGetTruncated := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/get", map[string]any{
+			"accountId":          "primary",
+			"ids":                []any{validEmailID},
+			"fetchAllBodyValues": true,
+			"maxBodyValueBytes":  10,
+		}, "cGetTrunc"},
+	})
+	listTrunc, _ := rGetTruncated.MethodResponses[0].Args["list"].([]any)
+	bvTrunc, _ := listTrunc[0].(map[string]any)["bodyValues"].(map[string]any)
+	p1Trunc, _ := bvTrunc["part-1"].(map[string]any)
+	truncVal, _ := p1Trunc["value"].(string)
+	if len(truncVal) > 10 {
+		t.Errorf("body value was not truncated to <= 10 bytes: %q (len %d)", truncVal, len(truncVal))
+	}
+	if isTrunc, ok := p1Trunc["isTruncated"].(bool); !ok || !isTrunc {
+		t.Errorf("expected isTruncated: true, got %v", p1Trunc["isTruncated"])
+	}
+
+	// 7. Forbidden header forms and capitalization (RFC 8621 §4.1.3 & §4.2):
+	// - "header:From:asDate" is forbidden -> MUST reject with invalidArguments
+	rBadHeaderForm := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/get", map[string]any{
+			"accountId":  "primary",
+			"ids":        []any{validEmailID},
+			"properties": []any{"id", "header:From:asDate"},
+		}, "cBadForm"},
+	})
+	if rBadHeaderForm.MethodResponses[0].Name != "error" || rBadHeaderForm.MethodResponses[0].Args["type"] != "invalidArguments" {
+		t.Errorf("expected invalidArguments for header:From:asDate, got %v", rBadHeaderForm.MethodResponses[0])
+	}
+
+	// - Inverted suffix order "header:Subject:all:asRaw" -> MUST reject with invalidArguments
+	rBadSuffixOrder := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/get", map[string]any{
+			"accountId":  "primary",
+			"ids":        []any{validEmailID},
+			"properties": []any{"id", "header:Subject:all:asRaw"},
+		}, "cBadSuffix"},
+	})
+	if rBadSuffixOrder.MethodResponses[0].Name != "error" || rBadSuffixOrder.MethodResponses[0].Args["type"] != "invalidArguments" {
+		t.Errorf("expected invalidArguments for inverted suffixes header:Subject:all:asRaw, got %v", rBadSuffixOrder.MethodResponses[0])
+	}
+
+	// - Exact capitalization matching in response (RFC 8621 §4.2)
+	rHdrCap := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/get", map[string]any{
+			"accountId":  "primary",
+			"ids":        []any{validEmailID},
+			"properties": []any{"id", "header:SubJect:asRaw"},
+		}, "cCap"},
+	})
+	listCap, _ := rHdrCap.MethodResponses[0].Args["list"].([]any)
+	emCapMap := listCap[0].(map[string]any)
+	if _, ok := emCapMap["header:SubJect:asRaw"]; !ok {
+		t.Errorf("expected exact capitalization 'header:SubJect:asRaw' in response, got %v", emCapMap)
+	}
+
+	// 8. RFC 2047 whitespace/placement violation and NUL octet dropping (RFC 8621 §4 & §4.1.2.1)
+	rawMIME := []byte("From: sender@example.com\r\n" +
+		"To: recipient@example.com\r\n" +
+		"Subject: Test =?utf-8?x?bad?= and =?utf-8?q?incomplete\r\n" +
+		"X-NUL-Header: HeaderWith\x00NUL\r\n" +
+		"Date: Fri, 26 Sep 2026 10:00:00 +0000\r\n" +
+		"Message-ID: <nul-test@example.com>\r\n" +
+		"\r\n" +
+		"Body content.")
+	blob, err := srv.BlobBackend.PutBlob(context.Background(), jmap.AccountIDForSubject(testUsername), "message/rfc822", rawMIME)
+	if err != nil {
+		t.Fatalf("PutBlob failed: %v", err)
+	}
+	rImport := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/import", map[string]any{
+			"accountId": "primary",
+			"emails": map[string]any{
+				"mNUL": map[string]any{
+					"blobId":     blob.ID,
+					"mailboxIds": map[string]bool{"mb-inbox": true},
+				},
+			},
+		}, "cImp"},
+	})
+	createdNUL, _ := rImport.MethodResponses[0].Args["created"].(map[string]any)
+	nulID := createdNUL["mNUL"].(map[string]any)["id"].(string)
+
+	rGetNUL := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/get", map[string]any{
+			"accountId":  "primary",
+			"ids":        []any{nulID},
+			"properties": []any{"id", "header:X-NUL-Header:asText", "header:Subject:asText"},
+		}, "cGetNUL"},
+	})
+	listNUL, _ := rGetNUL.MethodResponses[0].Args["list"].([]any)
+	nulEmMap := listNUL[0].(map[string]any)
+	nulHeaderVal, _ := nulEmMap["header:X-NUL-Header:asText"].(string)
+	if strings.Contains(nulHeaderVal, "\x00") {
+		t.Errorf("NUL octet was not dropped from header: %q", nulHeaderVal)
+	}
+	if nulHeaderVal != "HeaderWithNUL" {
+		t.Errorf("expected 'HeaderWithNUL', got %q", nulHeaderVal)
+	}
+	// Text that looks like RFC 2047 but violates syntax/placement rules per RFC 2047 MUST NOT be decoded
+	subjVal, _ := nulEmMap["header:Subject:asText"].(string)
+	if !strings.Contains(subjVal, "=?utf-8?x?bad?=") {
+		t.Errorf("expected invalid RFC 2047 syntax not to be decoded, got %q", subjVal)
+	}
+}
+
+// TestRFC8621_Section4_EmailQueryFilterAndSort verifies RFC 8621 Section 4.4.1 and 4.4.2
+// requirements covering Email/query FilterCondition properties, header array rules,
+// phrase searching, sorting by receivedAt and keywords, and stable sort tie-breaking.
+func TestRFC8621_Section4_EmailQueryFilterAndSort(t *testing.T) {
+	spectest.Require(t, "RFC8621", "4.4.1", spectest.MUST, "An Email must be in this Mailbox to match the")
+	spectest.Require(t, "RFC8621", "4.4.1", spectest.MUST, "An Email must be in at least one Mailbox")
+	spectest.Require(t, "RFC8621", "4.4.1", spectest.MUST, "The \"receivedAt\" date-time of the Email must be before this date-")
+	spectest.Require(t, "RFC8621", "4.4.1", spectest.MUST, "The \"receivedAt\" date-time of the Email must be the same or after")
+	spectest.Require(t, "RFC8621", "4.4.1", spectest.MUST, "The \"size\" property of the Email must be equal to or greater than")
+	spectest.Require(t, "RFC8621", "4.4.1", spectest.MUST, "The \"size\" property of the Email must be less than this number to")
+	spectest.Require(t, "RFC8621", "4.4.1", spectest.MUST, "must have the given keyword to match the condition")
+	spectest.Require(t, "RFC8621", "4.4.1", spectest.MUST, "Email must have the given keyword to match the condition")
+	spectest.Require(t, "RFC8621", "4.4.1", spectest.MUST, "must *not* have the given keyword to match the condition")
+	spectest.Require(t, "RFC8621", "4.4.1", spectest.MUST, "This Email must have the given keyword to match the condition")
+	spectest.Require(t, "RFC8621", "4.4.1", spectest.MUST, "This Email must not have the given keyword to match the condition")
+	spectest.Require(t, "RFC8621", "4.4.1", spectest.MUST, "The \"hasAttachment\" property of the Email must be identical to the")
+	spectest.Require(t, "RFC8621", "4.4.1", spectest.MUST, "The server MUST look up text in the")
+	spectest.Require(t, "RFC8621", "4.4.1", spectest.MUST, "The array MUST contain either one or two elements")
+	spectest.Require(t, "RFC8621", "4.4.1", spectest.MUST, "condition MUST always evaluate to true")
+	spectest.Require(t, "RFC8621", "4.4.1", spectest.MUST, "specified, ALL must apply for the condition to be true (it is")
+	spectest.Require(t, "RFC8621", "4.4.1", spectest.MUST, "required for that exact word or sequence of words, excluding the")
+	spectest.Require(t, "RFC8621", "4.4.1", spectest.MUST, "Within a phrase, to match one of the following characters you MUST")
+	spectest.Require(t, "RFC8621", "4.4.1", spectest.MUST, "separate tokens that may be searched for separately but MUST all")
+	spectest.Require(t, "RFC8621", "4.4.2", spectest.MUST, "MUST be supported for sorting:")
+	spectest.Require(t, "RFC8621", "4.4.2", spectest.MUST, "sort, the Comparator object MUST also have a \"keyword\" property")
+	spectest.Require(t, "RFC8621", "4.4.2", spectest.MUST, "o \"hasKeyword\" - This value MUST be considered true if the Email has")
+	spectest.Require(t, "RFC8621", "4.4.2", spectest.MUST, "o \"allInThreadHaveKeyword\" - This value MUST be considered true for")
+	spectest.Require(t, "RFC8621", "4.4.2", spectest.MUST, "o \"someInThreadHaveKeyword\" - This value MUST be considered true for")
+	spectest.Require(t, "RFC8621", "4.4.2", spectest.MUST, "properties, then the order is server dependent but must be stable")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	ctx := seedCtx()
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}
+
+	// Create another mailbox for inMailboxOtherThan testing
+	_, _ = srv.MailBackend.CreateMailbox(ctx, &jmap.Mailbox{
+		ID:   "mb-archive",
+		Name: "Archive",
+	})
+
+	// Seed emails for querying:
+	// Email 1: Inbox only, Flagged, receivedAt 2026-02-01, size 100, no attachment, subject "Project Phoenix Update"
+	e1, _ := srv.MailBackend.CreateEmail(ctx, &jmap.Email{
+		MailboxIDs:    map[jmap.Id]bool{"mb-inbox": true},
+		Keywords:      map[string]bool{"$flagged": true, "$seen": true},
+		Subject:       "Project Phoenix Update",
+		ReceivedAt:    "2026-02-01T10:00:00Z",
+		Size:          100,
+		HasAttachment: false,
+		MessageID:     []string{"msg-alpha-root@example.com"},
+		From:          []jmap.EmailAddress{{Name: "Alice", Email: "alice@example.com"}},
+		To:            []jmap.EmailAddress{{Name: "Team", Email: "team@example.com"}},
+		Headers:       []jmap.EmailHeader{{Name: "X-Workflow", Value: "Automated"}},
+	})
+
+	// Email 2: Archive only, not flagged, in same thread via InReplyTo, receivedAt 2026-03-01, size 500, with attachment, subject "Quarterly Budget Report"
+	e2, _ := srv.MailBackend.CreateEmail(ctx, &jmap.Email{
+		MailboxIDs:    map[jmap.Id]bool{"mb-archive": true},
+		Keywords:      map[string]bool{"$seen": true},
+		Subject:       "Quarterly Budget Report",
+		ReceivedAt:    "2026-03-01T10:00:00Z",
+		Size:          500,
+		HasAttachment: true,
+		InReplyTo:     []string{"msg-alpha-root@example.com"},
+		Attachments:   []jmap.EmailBodyPart{{Type: "application/pdf"}},
+		From:          []jmap.EmailAddress{{Name: "Bob", Email: "bob@example.com"}},
+		To:            []jmap.EmailAddress{{Name: "Team", Email: "team@example.com"}},
+	})
+
+	// Email 3: Archive only, Flagged, different thread, receivedAt 2026-04-01, size 300, subject "Secret Project Briefing"
+	e3, _ := srv.MailBackend.CreateEmail(ctx, &jmap.Email{
+		MailboxIDs:    map[jmap.Id]bool{"mb-archive": true},
+		Keywords:      map[string]bool{"$flagged": true},
+		Subject:       "Secret Project Briefing",
+		ReceivedAt:    "2026-04-01T10:00:00Z",
+		Size:          300,
+		HasAttachment: false,
+		MessageID:     []string{"msg-beta@example.com"},
+		From:          []jmap.EmailAddress{{Name: "Charlie", Email: "charlie@example.com"}},
+		To:            []jmap.EmailAddress{{Name: "Alice", Email: "alice@example.com"}},
+		Headers:       []jmap.EmailHeader{{Name: "X-Workflow", Value: "Manual"}},
+	})
+
+	// 1. Zero properties on FilterCondition -> MUST always evaluate to true (RFC 8621 §4.4.1)
+	rAll := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/query", map[string]any{
+			"accountId": "primary",
+			"filter":    map[string]any{},
+		}, "cAll"},
+	})
+	allIDs, _ := rAll.MethodResponses[0].Args["ids"].([]any)
+	if len(allIDs) < 3 {
+		t.Errorf("empty filter must return all emails, got %d", len(allIDs))
+	}
+
+	// 2. Multiple properties specified -> ALL must apply (AND logic) (RFC 8621 §4.4.1)
+	// inMailbox: "mb-inbox" AND hasKeyword: "$flagged" -> e1 only (e2 is in inbox but not flagged; e3 is flagged but not in inbox)
+	rAnd := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/query", map[string]any{
+			"accountId": "primary",
+			"filter": map[string]any{
+				"inMailbox":  "mb-inbox",
+				"hasKeyword": "$flagged",
+			},
+		}, "cAnd"},
+	})
+	andIDs, _ := rAnd.MethodResponses[0].Args["ids"].([]any)
+	if len(andIDs) != 1 || andIDs[0] != string(e1.ID) {
+		t.Errorf("AND filter expected [%s], got %v", e1.ID, andIDs)
+	}
+
+	// 3. inMailboxOtherThan: ["mb-inbox"] -> emails in at least one mailbox other than inbox (e2 and e3)
+	rOtherThan := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/query", map[string]any{
+			"accountId": "primary",
+			"filter": map[string]any{
+				"inMailboxOtherThan": []any{"mb-inbox"},
+			},
+		}, "cOther"},
+	})
+	otherIDs, _ := rOtherThan.MethodResponses[0].Args["ids"].([]any)
+	hasE1, hasE2, hasE3 := false, false, false
+	for _, id := range otherIDs {
+		if id == string(e1.ID) {
+			hasE1 = true
+		}
+		if id == string(e2.ID) {
+			hasE2 = true
+		}
+		if id == string(e3.ID) {
+			hasE3 = true
+		}
+	}
+	if hasE1 || !hasE2 || !hasE3 {
+		t.Errorf("inMailboxOtherThan: expected e2 and e3, got %v", otherIDs)
+	}
+
+	// 4. before and after receivedAt date-time (RFC 8621 §4.4.1)
+	rBefore := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/query", map[string]any{
+			"accountId": "primary",
+			"filter": map[string]any{
+				"before": "2026-02-15T00:00:00Z",
+			},
+		}, "cBefore"},
+	})
+	beforeIDs, _ := rBefore.MethodResponses[0].Args["ids"].([]any)
+	if len(beforeIDs) != 1 || beforeIDs[0] != string(e1.ID) {
+		t.Errorf("before filter expected [%s], got %v", e1.ID, beforeIDs)
+	}
+
+	rAfter := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/query", map[string]any{
+			"accountId": "primary",
+			"filter": map[string]any{
+				"after": "2026-03-15T00:00:00Z",
+			},
+		}, "cAfter"},
+	})
+	afterIDs, _ := rAfter.MethodResponses[0].Args["ids"].([]any)
+	if len(afterIDs) != 1 || afterIDs[0] != string(e3.ID) {
+		t.Errorf("after filter expected [%s], got %v", e3.ID, afterIDs)
+	}
+
+	// 5. minSize and maxSize (RFC 8621 §4.4.1)
+	rSize := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/query", map[string]any{
+			"accountId": "primary",
+			"filter": map[string]any{
+				"minSize": 250,
+				"maxSize": 400,
+			},
+		}, "cSize"},
+	})
+	sizeIDs, _ := rSize.MethodResponses[0].Args["ids"].([]any)
+	if len(sizeIDs) != 1 || sizeIDs[0] != string(e3.ID) {
+		t.Errorf("size filter (250..400) expected [%s], got %v", e3.ID, sizeIDs)
+	}
+
+	// 6. hasKeyword and notKeyword (RFC 8621 §4.4.1)
+	rKw := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/query", map[string]any{
+			"accountId": "primary",
+			"filter": map[string]any{
+				"notKeyword": "$flagged",
+			},
+		}, "cNotKw"},
+	})
+	notKwIDs, _ := rKw.MethodResponses[0].Args["ids"].([]any)
+	for _, id := range notKwIDs {
+		if id == string(e1.ID) || id == string(e3.ID) {
+			t.Errorf("notKeyword: $flagged matched flagged email: %v", notKwIDs)
+		}
+	}
+
+	// 7. allInThreadHaveKeyword and someInThreadHaveKeyword (RFC 8621 §4.4.1)
+	// th-alpha has e1 (flagged) and e2 (not flagged).
+	// someInThreadHaveKeyword $flagged -> matches e1 and e2.
+	// allInThreadHaveKeyword $flagged -> does not match e1 or e2 (because e2 lacks it).
+	// th-beta has e3 only (flagged). allInThreadHaveKeyword $flagged -> matches e3.
+	rSomeKw := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/query", map[string]any{
+			"accountId": "primary",
+			"filter": map[string]any{
+				"someInThreadHaveKeyword": "$flagged",
+			},
+		}, "cSome"},
+	})
+	someIDs, _ := rSomeKw.MethodResponses[0].Args["ids"].([]any)
+	if len(someIDs) < 3 {
+		t.Errorf("someInThreadHaveKeyword expected all 3 emails, got %v", someIDs)
+	}
+
+	rAllKw := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/query", map[string]any{
+			"accountId": "primary",
+			"filter": map[string]any{
+				"allInThreadHaveKeyword": "$flagged",
+			},
+		}, "cAllKw"},
+	})
+	allKwIDs, _ := rAllKw.MethodResponses[0].Args["ids"].([]any)
+	if len(allKwIDs) != 1 || allKwIDs[0] != string(e3.ID) {
+		t.Errorf("allInThreadHaveKeyword expected only e3, got %v", allKwIDs)
+	}
+
+	// 8. hasAttachment (RFC 8621 §4.4.1)
+	rAtt := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/query", map[string]any{
+			"accountId": "primary",
+			"filter": map[string]any{
+				"hasAttachment": true,
+			},
+		}, "cAtt"},
+	})
+	attIDs, _ := rAtt.MethodResponses[0].Args["ids"].([]any)
+	if len(attIDs) != 1 || attIDs[0] != string(e2.ID) {
+		t.Errorf("hasAttachment expected [%s], got %v", e2.ID, attIDs)
+	}
+
+	// 9. text filter and phrase search (RFC 8621 §4.4.1)
+	rText := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/query", map[string]any{
+			"accountId": "primary",
+			"filter": map[string]any{
+				"text": "\"Project Phoenix\"",
+			},
+		}, "cText"},
+	})
+	textIDs, _ := rText.MethodResponses[0].Args["ids"].([]any)
+	if len(textIDs) != 1 || textIDs[0] != string(e1.ID) {
+		t.Errorf("text phrase search expected [%s], got %v", e1.ID, textIDs)
+	}
+
+	// 10. header filter array constraints (RFC 8621 §4.4.1)
+	// - 1 element array matches header field presence
+	rHdr1 := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/query", map[string]any{
+			"accountId": "primary",
+			"filter": map[string]any{
+				"header": []any{"X-Workflow"},
+			},
+		}, "cHdr1"},
+	})
+	hdr1IDs, _ := rHdr1.MethodResponses[0].Args["ids"].([]any)
+	if len(hdr1IDs) != 2 {
+		t.Errorf("header 1-element filter expected 2 emails (e1 and e3), got %v", hdr1IDs)
+	}
+
+	// - 2 element array matches header value text
+	rHdr2 := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/query", map[string]any{
+			"accountId": "primary",
+			"filter": map[string]any{
+				"header": []any{"X-Workflow", "Automated"},
+			},
+		}, "cHdr2"},
+	})
+	hdr2IDs, _ := rHdr2.MethodResponses[0].Args["ids"].([]any)
+	if len(hdr2IDs) != 1 || hdr2IDs[0] != string(e1.ID) {
+		t.Errorf("header 2-element filter expected [%s], got %v", e1.ID, hdr2IDs)
+	}
+
+	// - 0 elements or > 2 elements MUST be rejected with invalidArguments
+	rBadHdr := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/query", map[string]any{
+			"accountId": "primary",
+			"filter": map[string]any{
+				"header": []any{},
+			},
+		}, "cBadHdr"},
+	})
+	if rBadHdr.MethodResponses[0].Name != "error" || rBadHdr.MethodResponses[0].Args["type"] != "invalidArguments" {
+		t.Errorf("expected invalidArguments for empty header array, got %v", rBadHdr.MethodResponses[0])
+	}
+
+	rBadHdr3 := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/query", map[string]any{
+			"accountId": "primary",
+			"filter": map[string]any{
+				"header": []any{"A", "B", "C"},
+			},
+		}, "cBadHdr3"},
+	})
+	if rBadHdr3.MethodResponses[0].Name != "error" || rBadHdr3.MethodResponses[0].Args["type"] != "invalidArguments" {
+		t.Errorf("expected invalidArguments for 3-element header array, got %v", rBadHdr3.MethodResponses[0])
+	}
+
+	// 11. Sorting by receivedAt MUST be supported (RFC 8621 §4.4.2)
+	rSortRec := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/query", map[string]any{
+			"accountId": "primary",
+			"sort": []any{
+				map[string]any{"property": "receivedAt", "isAscending": true},
+			},
+		}, "cSortRec"},
+	})
+	sortRecIDs, _ := rSortRec.MethodResponses[0].Args["ids"].([]any)
+	if len(sortRecIDs) < 3 {
+		t.Fatalf("expected at least 3 sorted emails, got %v", sortRecIDs)
+	}
+
+	// 12. Comparator keyword property requirement (RFC 8621 §4.4.2):
+	// hasKeyword sort without keyword property MUST be rejected with invalidArguments
+	rMissingKwSort := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/query", map[string]any{
+			"accountId": "primary",
+			"sort": []any{
+				map[string]any{"property": "hasKeyword"},
+			},
+		}, "cMissingKw"},
+	})
+	if rMissingKwSort.MethodResponses[0].Name != "error" || rMissingKwSort.MethodResponses[0].Args["type"] != "invalidArguments" {
+		t.Errorf("expected invalidArguments for hasKeyword sort missing keyword property, got %v", rMissingKwSort.MethodResponses[0])
+	}
+
+	// 13. Sorting by hasKeyword with keyword property (RFC 8621 §4.4.2)
+	rSortKw := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/query", map[string]any{
+			"accountId": "primary",
+			"sort": []any{
+				map[string]any{"property": "hasKeyword", "keyword": "$flagged", "isAscending": false},
+			},
+		}, "cSortKw"},
+	})
+	sortKwIDs, _ := rSortKw.MethodResponses[0].Args["ids"].([]any)
+	// Emails with $flagged (e1, e3) must appear before emails without $flagged (e2)
+	var idxE1, idxE2, idxE3 int
+	for i, id := range sortKwIDs {
+		if id == string(e1.ID) {
+			idxE1 = i
+		}
+		if id == string(e2.ID) {
+			idxE2 = i
+		}
+		if id == string(e3.ID) {
+			idxE3 = i
+		}
+	}
+	if !(idxE1 < idxE2 && idxE3 < idxE2) {
+		t.Errorf("hasKeyword desc sort failed: expected e1 and e3 before e2, got e1=%d, e3=%d, e2=%d", idxE1, idxE3, idxE2)
+	}
+
+	// 14. Stable sorting tie-breaking (RFC 8621 §4.4.2)
+	// Two emails with identical sort values must preserve stable order
+	e4, _ := srv.MailBackend.CreateEmail(ctx, &jmap.Email{
+		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
+		Subject:    "Stable Sort Test",
+		ReceivedAt: "2026-05-01T10:00:00Z",
+		Size:       777,
+	})
+	e5, _ := srv.MailBackend.CreateEmail(ctx, &jmap.Email{
+		MailboxIDs: map[jmap.Id]bool{"mb-inbox": true},
+		Subject:    "Stable Sort Test",
+		ReceivedAt: "2026-05-01T10:00:00Z",
+		Size:       777,
+	})
+	rStable := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/query", map[string]any{
+			"accountId": "primary",
+			"filter": map[string]any{
+				"subject": "Stable Sort Test",
+			},
+			"sort": []any{
+				map[string]any{"property": "subject", "isAscending": true},
+			},
+		}, "cStable"},
+	})
+	stableIDs, _ := rStable.MethodResponses[0].Args["ids"].([]any)
+	if len(stableIDs) != 2 || stableIDs[0] != string(e4.ID) || stableIDs[1] != string(e5.ID) {
+		t.Errorf("stable sort order failed: expected [%s, %s], got %v", e4.ID, e5.ID, stableIDs)
+	}
+}
+

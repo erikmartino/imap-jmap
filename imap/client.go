@@ -614,6 +614,16 @@ func (c *Client) FetchMessagesByUIDs(folder string, uids []uint32) (res []Messag
 		return nil, err
 	}
 	for _, msg := range msgs {
+		isDeleted := false
+		for _, f := range msg.Flags {
+			if f == imap.FlagDeleted {
+				isDeleted = true
+				break
+			}
+		}
+		if isDeleted {
+			continue
+		}
 		raw := msg.FindBodySection(bodySection)
 		var flags []string
 		for _, f := range msg.Flags {
@@ -656,6 +666,16 @@ func (c *Client) FetchAllMessages(folder string) (res []MessageData, err error) 
 		return nil, err
 	}
 	for _, msg := range msgs {
+		isDeleted := false
+		for _, f := range msg.Flags {
+			if f == imap.FlagDeleted {
+				isDeleted = true
+				break
+			}
+		}
+		if isDeleted {
+			continue
+		}
 		raw := msg.FindBodySection(bodySection)
 		var flags []string
 		for _, f := range msg.Flags {
