@@ -922,8 +922,10 @@ func (c *Client) GetCalendarSyncStatuses(ctx context.Context) (map[string]*Calen
 }
 
 // ListCalendarObjectETags lists the calendar object resources in a collection together
-// with their ETags. It uses go-webdav's WebDAV ReadDir (a body-less PROPFIND Depth:1),
-// so change detection can discover added resources from CalDAV ETags alone instead of
+// with their ETags. It issues a body-less PROPFIND Depth:1 requesting only
+// resourcetype/getetag (rather than go-webdav's ReadDir, which also requests
+// getcontentlength and fails against servers that do not expose it), so change
+// detection can discover added resources from CalDAV ETags alone instead of
 // downloading and parsing every event body. The returned map is keyed by event id.
 func (c *Client) ListCalendarObjectETags(ctx context.Context, calID string) (map[string]string, error) {
 	calClient, u, err := c.CalDAV(ctx)
@@ -931,17 +933,84 @@ func (c *Client) ListCalendarObjectETags(ctx context.Context, calID string) (map
 		return nil, err
 	}
 	calPath := c.getCalPath(ctx, calClient, u, calID)
-	entries, err := calClient.ReadDir(ctx, calPath, false)
+	urlStr := c.buildURL(calPath)
+
+	type propfindProp struct {
+		ResourceType struct {
+			InnerXML []byte `xml:",innerxml"`
+		} `xml:"DAV: resourcetype"`
+		GetETag string `xml:"DAV: getetag"`
+	}
+	type propfindReq struct {
+		XMLName xml.Name     `xml:"DAV: propfind"`
+		Prop    propfindProp `xml:"DAV: prop"`
+	}
+	reqBody, err := xml.Marshal(&propfindReq{})
 	if err != nil {
 		return nil, err
 	}
+	reqBody = append([]byte(xml.Header), reqBody...)
 
-	res := make(map[string]string, len(entries))
-	for _, fi := range entries {
-		if fi.IsDir {
+	req, err := http.NewRequestWithContext(ctx, "PROPFIND", urlStr, bytes.NewReader(reqBody))
+	if err != nil {
+		return nil, err
+	}
+	user, pass := c.getUserAndPass(ctx)
+	req.SetBasicAuth(user, pass)
+	req.Header.Set("Depth", "1")
+	req.Header.Set("Content-Type", "application/xml; charset=utf-8")
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("caldav: PROPFIND failed with status %d", resp.StatusCode)
+	}
+
+	type propfindMultiStatus struct {
+		XMLName   xml.Name `xml:"multistatus"`
+		Responses []struct {
+			Href     string `xml:"href"`
+			Propstat []struct {
+				Prop struct {
+					ResourceType struct {
+						InnerXML []byte `xml:",innerxml"`
+					} `xml:"resourcetype"`
+					GetETag string `xml:"getetag"`
+				} `xml:"prop"`
+				Status string `xml:"status"`
+			} `xml:"propstat"`
+		} `xml:"response"`
+	}
+	var ms propfindMultiStatus
+	if err := xml.NewDecoder(resp.Body).Decode(&ms); err != nil {
+		return nil, fmt.Errorf("caldav: failed to decode PROPFIND response: %w", err)
+	}
+
+	cleanCal := strings.TrimRight(calPath, "/") + "/"
+	res := make(map[string]string, len(ms.Responses))
+	for _, r := range ms.Responses {
+		if strings.TrimRight(r.Href, "/")+"/" == cleanCal {
+			continue // the collection itself
+		}
+		var etag string
+		isCollection := false
+		for _, ps := range r.Propstat {
+			if strings.Contains(ps.Status, "200") {
+				if bytes.Contains(ps.Prop.ResourceType.InnerXML, []byte("collection")) {
+					isCollection = true
+				}
+				if ps.Prop.GetETag != "" {
+					etag = ps.Prop.GetETag
+				}
+			}
+		}
+		if isCollection || etag == "" {
 			continue
 		}
-		res[path.Base(fi.Path)] = fi.ETag
+		res[path.Base(strings.TrimRight(r.Href, "/"))] = etag
 	}
 	return res, nil
 }

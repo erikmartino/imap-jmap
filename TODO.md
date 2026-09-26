@@ -85,9 +85,11 @@ Make every `state`/`sinceState` a pure, reversible function of upstream CalDAV (
   - Never derive `state` from a windowed/partial fetch (already enforced at `calendars.go:1343-1347`; add regression coverage).
   - Keep `state` scoped per user/account so a multi-account request cannot reuse another account's token vector.
   - Keep `queryState` unmapped (no CalDAV query cursor): local tracker / `cannotCalculateChanges` only.
-- [ ] **3.5 Hermetic tests (embedded Nextcloud backend)**
-  - `state → tokens → state` round-trip determinism; `sync-v1:` decode; malformed/expired token → `cannotCalculateChanges`.
-  - CTag-only collection change path; calendar added/removed between states; cross-account isolation.
+- [x] **3.5 Hermetic tests (embedded Nextcloud backend)**
+  - `jmap/nextcloud/state_handling_test.go`: v2 round-trip determinism + `sync-v1:` decode, malformed/unknown state → `cannotCalculateChanges`, empty vector, kind selection.
+  - `CalendarEvent/changes` lifecycle (create/update/destroy), calculable from every previously returned state, multi-calendar deltas, membership add (ETag discovery), membership remove (fail closed), CTag-only changed (fail closed) / unchanged (no-op), tracker fallback, and cross-account isolation.
+  - `Calendar/changes` tracker lifecycle (create/update/destroy).
+  - Fixed gaps the tests exposed: `ListCalendarObjectETags` now uses a targeted `getetag` PROPFIND (go-webdav `ReadDir` requested `getcontentlength` and failed against servers omitting it); embedded server now routes `DELETE` on a calendar collection to the backend; removed collections fail closed instead of silently dropping their events.
 - [ ] **3.6 Follow-on (optional)**: apply the same pattern to CardDAV `ContactCard`/`AddressBook` (ETag/CTag) and to IMAP `Email`/`Mailbox` (CONDSTORE/QRESYNC `HIGHESTMODSEQ` + `UIDVALIDITY`), replacing in-memory trackers where the upstream cursor is available.
 
 ---

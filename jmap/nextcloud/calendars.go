@@ -1025,6 +1025,15 @@ func (b *CalendarsBackend) CalendarEventChanges(ctx context.Context, sinceState 
 		return []jmapcore.Id{}, []jmapcore.Id{}, []jmapcore.Id{}, newState, false
 	}
 
+	// A collection present in the client's state but absent now has been removed
+	// (or lost its cursor). Its resources can no longer be enumerated, so fail
+	// closed rather than silently dropping their destruction.
+	for calID := range oldTokens {
+		if _, ok := newTokens[calID]; !ok {
+			return nil, nil, nil, "", false
+		}
+	}
+
 	var createdList, updatedList, destroyedList []jmapcore.Id
 	seenCreated := make(map[jmapcore.Id]bool)
 	seenUpdated := make(map[jmapcore.Id]bool)

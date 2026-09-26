@@ -999,6 +999,19 @@ func NewEmbeddedServer(usernames ...string) (*httptest.Server, *Client, func()) 
 				r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 			}
 
+			// Deleting a calendar collection (a direct child of the calendar
+			// home set) is handled by the backend; go-webdav's caldav handler
+			// only routes DELETE to calendar *objects*.
+			if r.Method == http.MethodDelete {
+				home := strings.TrimRight("/remote.php/dav/calendars/"+u, "/") + "/"
+				if rel := strings.TrimPrefix(reqPath, home); rel != reqPath && rel != "" && !strings.Contains(strings.Trim(rel, "/"), "/") {
+					if err := calMem.DeleteCalendar(r.Context(), reqPath); err == nil {
+						w.WriteHeader(http.StatusNoContent)
+						return
+					}
+				}
+			}
+
 			calH.ServeHTTP(w, r)
 			return
 		}
