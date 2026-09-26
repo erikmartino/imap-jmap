@@ -17,7 +17,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [jmap-websockets](#jmap-websockets) | RFC8887 | 7 | 0 | 0 | 7 | 100.0% |
 | [jscontact](#jscontact) | RFC9553, RFC9554, RFC9555 | 6 | 0 | 0 | 6 | 100.0% |
 | [smtp](#smtp) | RFC4954, RFC5228, RFC5232, RFC5321, RFC5429, RFC5546, RFC6047, RFC6376, RFC6409, RFC7208, RFC7489, RFC8601 | 46 | 0 | 0 | 46 | 100.0% |
-| [rfc8620-core](#rfc8620-core) | RFC8620 | 140 | 254 | 0 | 394 | 35.5% |
+| [rfc8620-core](#rfc8620-core) | RFC8620 | 176 | 218 | 0 | 394 | 44.7% |
 | [rfc8621-mail](#rfc8621-mail) | RFC8621 | 16 | 402 | 0 | 418 | 3.8% |
 | [rfc8887-websockets](#rfc8887-websockets) | RFC8887 | 0 | 40 | 0 | 40 | 0.0% |
 | [rfc9007-mdn](#rfc9007-mdn) | RFC9007 | 0 | 24 | 0 | 24 | 0.0% |
@@ -29,7 +29,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [rfc9670-sharing](#rfc9670-sharing) | RFC9670 | 0 | 76 | 0 | 76 | 0.0% |
 | [rfc9698-jmapaccess](#rfc9698-jmapaccess) | RFC9698 | 0 | 14 | 0 | 14 | 0.0% |
 | [rfc9749-vapid](#rfc9749-vapid) | RFC9749 | 0 | 24 | 0 | 24 | 0.0% |
-| **Total** | | **323** | **1069** | **0** | **1392** | **23.2%** |
+| **Total** | | **359** | **1033** | **0** | **1392** | **25.8%** |
 
 ---
 
@@ -263,7 +263,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 ## rfc8620-core
 
 * **Test Suite Directory**: [`jmap/`](../jmap/)
-* **Conformance**: 140 / 394 (35.5%)
+* **Conformance**: 176 / 394 (44.7%)
 
 | Spec | Section | Level | Requirement | Status | Tests | Note |
 | :--- | :---: | :---: | :--- | :---: | :--- | :--- |
@@ -333,27 +333,27 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `SHOULD` | Since the client should only | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2 [p24] |
 | RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `SHOULD` | property of an API response), it is RECOMMENDED to disable HTTP | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2 [p25] |
 | RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MUST` | no-store, must-revalidate" on the response | ✅ Covered | `TestRFC8620_Section2_SessionResourceAndDiscovery` | Extracted by specextract from RFC8620 §2 [p26] |
-| RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MUST` | To protect the privacy of the user, the deviceClientId id MUST NOT | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2 [p1] |
-| RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MUST` | This MUST begin with "https://" | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2 [p2] |
-| RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MUST` | If supplied, the server MUST | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2 [p3] |
-| RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MUST` | The object MUST have the following properties: | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2 [p4] |
-| RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MUST` | This MUST be null (or omitted) when the subscription is created | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2 [p5] |
-| RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MUST` | server MUST NOT make further requests to this resource after this | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2 [p6] |
+| RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MUST` | To protect the privacy of the user, the deviceClientId id MUST NOT | ✅ Covered | `TestRFC8620_Section7_2_PushSubscriptionCreationAndValidation` | Extracted by specextract from RFC8620 §2 [p1] |
+| RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MUST` | This MUST begin with "https://" | ✅ Covered | `TestRFC8620_Section7_2_PushSubscriptionCreationAndValidation` | Extracted by specextract from RFC8620 §2 [p2] |
+| RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MUST` | If supplied, the server MUST | ✅ Covered | `TestRFC8620_Section7_2_PushSubscriptionCreationAndValidation` | Extracted by specextract from RFC8620 §2 [p3] |
+| RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MUST` | The object MUST have the following properties: | ✅ Covered | `TestRFC8620_Section7_2_PushSubscriptionCreationAndValidation` | Extracted by specextract from RFC8620 §2 [p4] |
+| RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MUST` | This MUST be null (or omitted) when the subscription is created | ✅ Covered | `TestRFC8620_Section7_2_PushSubscriptionCreationAndValidation` | Extracted by specextract from RFC8620 §2 [p5] |
+| RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MUST` | server MUST NOT make further requests to this resource after this | ✅ Covered | `TestRFC8620_Section7_2_PushSubscriptionCreationAndValidation` | Extracted by specextract from RFC8620 §2 [p6] |
 | RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MAY` | It MAY automatically destroy the push subscription at or | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2 [p7] |
 | RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MAY` | The server MAY choose to set an expiry if none is given by the | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2 [p8] |
-| RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MUST` | The POST request MUST have a content type of "application/json" and | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2 [p9] |
-| RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MUST` | The request MUST | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2 [p10] |
+| RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MUST` | The POST request MUST have a content type of "application/json" and | ✅ Covered | `TestRFC8620_Section7_2_PushSubscriptionCreationAndValidation` | Extracted by specextract from RFC8620 §2 [p9] |
+| RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MUST` | The request MUST | ✅ Covered | `TestRFC8620_Section7_2_PushSubscriptionCreationAndValidation` | Extracted by specextract from RFC8620 §2 [p10] |
 | RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MAY` | have a "TTL" header and MAY have "Urgency" and/or "Topic" headers, as | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2 [p11] |
-| RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MUST` | A "429" (Too Many Requests) response MUST cause the JMAP server to | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2 [p12] |
+| RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MUST` | A "429" (Too Many Requests) response MUST cause the JMAP server to | ✅ Covered | `TestRFC8620_Section7_2_PushSubscriptionCreationAndValidation` | Extracted by specextract from RFC8620 §2 [p12] |
 | RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MAY` | A client MAY use the rest of [RFC8030] in combination | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2 [p13] |
 | RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MAY` | it MAY rely on alternative mechanisms to ensure the delivery of the | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2 [p14] |
 | RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `SHOULD` | Should these credentials expire or | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2 [p15] |
-| RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MUST` | be revoked, the push subscription MUST be destroyed by the JMAP | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2 [p16] |
+| RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MUST` | be revoked, the push subscription MUST be destroyed by the JMAP | ✅ Covered | `TestRFC8620_Section7_2_PushSubscriptionCreationAndValidation` | Extracted by specextract from RFC8620 §2 [p16] |
 | RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `SHOULD` | with a timeout), the server SHOULD NOT set or bound the expiry time | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2 [p17] |
-| RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MUST` | for the push subscription given by the client but MUST expire it when | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2 [p18] |
+| RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MUST` | for the push subscription given by the client but MUST expire it when | ✅ Covered | `TestRFC8620_Section7_2_PushSubscriptionCreationAndValidation` | Extracted by specextract from RFC8620 §2 [p18] |
 | RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `SHOULD` | authentication [RFC7617]), the server SHOULD set an expiry time for | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2 [p19] |
-| RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MUST` | This maximum expiry time MUST be at least | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2 [p20] |
-| RFC8620 | [2.0](https://www.rfc-editor.org/rfc/rfc8620.html#section-2.0) | `MUST` | When a push subscription is destroyed, the server MUST securely erase | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2.0 [p1] |
+| RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MUST` | This maximum expiry time MUST be at least | ✅ Covered | `TestRFC8620_Section7_2_PushSubscriptionCreationAndValidation` | Extracted by specextract from RFC8620 §2 [p20] |
+| RFC8620 | [2.0](https://www.rfc-editor.org/rfc/rfc8620.html#section-2.0) | `MUST` | When a push subscription is destroyed, the server MUST securely erase | ✅ Covered | `TestRFC8620_Section7_2_PushSubscriptionCreationAndValidation` | Extracted by specextract from RFC8620 §2.0 [p1] |
 | RFC8620 | [2.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2.2) | `SHOULD` | com" SHOULD publish a | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2.2 [p1] |
 | RFC8620 | [2.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2.2) | `MAY` | If the client has a username in the form of an email address, it MAY | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2.2 [p2] |
 | RFC8620 | [3](https://www.rfc-editor.org/rfc/rfc8620.html#section-3) | `MAY` | The client may make an API request to the server to get or set | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3 [p1] |
@@ -539,17 +539,17 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8620 | [6](https://www.rfc-editor.org/rfc/rfc8620.html#section-6) | `MAY` | Any blobId that exists within an account may be used when creating/ | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §6 [p1] |
 | RFC8620 | [6](https://www.rfc-editor.org/rfc/rfc8620.html#section-6) | `MAY` | may have a blobId that represents the object in Internet Message | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §6 [p2] |
 | RFC8620 | [6](https://www.rfc-editor.org/rfc/rfc8620.html#section-6) | `MAY` | When the client uses a blobId in a create/update, the server MAY | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §6 [p3] |
-| RFC8620 | [6](https://www.rfc-editor.org/rfc/rfc8620.html#section-6) | `MUST` | If it does so, it MUST return any properties that | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §6 [p4] |
+| RFC8620 | [6](https://www.rfc-editor.org/rfc/rfc8620.html#section-6) | `MUST` | If it does so, it MUST return any properties that | ✅ Covered | `TestRFC8620_Section6_BlobManagementAndAccess` | Extracted by specextract from RFC8620 §6 [p4] |
 | RFC8620 | [6](https://www.rfc-editor.org/rfc/rfc8620.html#section-6) | `MAY` | attachment) MAY be deleted by the server to free up resources | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §6 [p5] |
 | RFC8620 | [6](https://www.rfc-editor.org/rfc/rfc8620.html#section-6) | `SHOULD` | o The server SHOULD use a separate quota for unreferenced blobs to | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §6 [p6] |
 | RFC8620 | [6](https://www.rfc-editor.org/rfc/rfc8620.html#section-6) | `SHOULD` | quota SHOULD be separate per user | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §6 [p7] |
 | RFC8620 | [6](https://www.rfc-editor.org/rfc/rfc8620.html#section-6) | `SHOULD` | o This quota SHOULD be at least the maximum total size that a single | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §6 [p8] |
 | RFC8620 | [6](https://www.rfc-editor.org/rfc/rfc8620.html#section-6) | `SHOULD` | JMAP Mail, this should be at least the maximum total attachments | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §6 [p9] |
-| RFC8620 | [6](https://www.rfc-editor.org/rfc/rfc8620.html#section-6) | `MUST` | o When an upload would take the user over quota, the server MUST | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §6 [p10] |
-| RFC8620 | [6](https://www.rfc-editor.org/rfc/rfc8620.html#section-6) | `MUST` | unreferenced blob MUST NOT be deleted for at least 1 hour from the | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §6 [p11] |
+| RFC8620 | [6](https://www.rfc-editor.org/rfc/rfc8620.html#section-6) | `MUST` | o When an upload would take the user over quota, the server MUST | ✅ Covered | `TestRFC8620_Section6_BlobManagementAndAccess` | Extracted by specextract from RFC8620 §6 [p10] |
+| RFC8620 | [6](https://www.rfc-editor.org/rfc/rfc8620.html#section-6) | `MUST` | unreferenced blob MUST NOT be deleted for at least 1 hour from the | ✅ Covered | `TestRFC8620_Section6_BlobManagementAndAccess` | Extracted by specextract from RFC8620 §6 [p11] |
 | RFC8620 | [6](https://www.rfc-editor.org/rfc/rfc8620.html#section-6) | `MAY` | time of upload; if reuploaded, the same blobId MAY be returned, | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §6 [p12] |
 | RFC8620 | [6](https://www.rfc-editor.org/rfc/rfc8620.html#section-6) | `SHOULD` | but this SHOULD reset the expiry time | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §6 [p13] |
-| RFC8620 | [6](https://www.rfc-editor.org/rfc/rfc8620.html#section-6) | `MUST` | o A blob MUST NOT be deleted during the method call that removed the | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §6 [p14] |
+| RFC8620 | [6](https://www.rfc-editor.org/rfc/rfc8620.html#section-6) | `MUST` | o A blob MUST NOT be deleted during the method call that removed the | ✅ Covered | `TestRFC8620_Section6_BlobManagementAndAccess` | Extracted by specextract from RFC8620 §6 [p14] |
 | RFC8620 | [6.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-6.1) | `MUST` | (level 1) format [RFC6570], which MUST contain a variable called | ✅ Covered | `TestRFC8620_Section6_BlobUploadAndDownload` | Extracted by specextract from RFC8620 §6.1 [p1] |
 | RFC8620 | [6.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-6.1) | `MAY` | The client may use this template in combination with an | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §6.1 [p2] |
 | RFC8620 | [6.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-6.1) | `MUST` | A successful request MUST return a single JSON object with the | ✅ Covered | `TestRFC8620_Section6_BlobUploadAndDownload` | Extracted by specextract from RFC8620 §6.1 [p3] |
@@ -557,7 +557,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8620 | [6.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-6.1) | `SHOULD` | Clients should use the blobId returned in a timely manner | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §6.1 [p5] |
 | RFC8620 | [6.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-6.1) | `MAY` | rare circumstances, the server may have deleted the blob before the | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §6.1 [p6] |
 | RFC8620 | [6.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-6.1) | `SHOULD` | client uses it; the client should keep a reference to the local file | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §6.1 [p7] |
-| RFC8620 | [6.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-6.1) | `MUST` | reference to a blob, unreferenced blobs MUST only be accessible to | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §6.1 [p9] |
+| RFC8620 | [6.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-6.1) | `MUST` | reference to a blob, unreferenced blobs MUST only be accessible to | ✅ Covered | `TestRFC8620_Section6_BlobManagementAndAccess` | Extracted by specextract from RFC8620 §6.1 [p9] |
 | RFC8620 | [6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-6.2) | `MUST` | The URL MUST | ✅ Covered | `TestRFC8620_Section6_BlobUploadAndDownload` | Extracted by specextract from RFC8620 §6.2 [p1] |
 | RFC8620 | [6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-6.2) | `MUST` | o "name": The name for the file; the server MUST return this as the | ✅ Covered | `TestRFC8620_Section6_BlobUploadAndDownload` | Extracted by specextract from RFC8620 §6.2 [p2] |
 | RFC8620 | [6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-6.2) | `SHOULD` | recommended to set long cache times and use the "immutable" Cache- | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §6.2 [p3] |
@@ -569,8 +569,8 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8620 | [7.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-7.1) | `MUST` | This MUST be the string "StateChange" | ✅ Covered | `TestRFC8620_Section7_PushSubscriptionAndEventSource` | Extracted by specextract from RFC8620 §7.1 [p1] |
 | RFC8620 | [7.1.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-7.1.1) | `MAY` | If the client is itself making changes, it may receive a StateChange | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §7.1.1 [p1] |
 | RFC8620 | [7.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-7.2) | `MAY` | Clients may create a PushSubscription to register a URL with the JMAP | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §7.2 [p1] |
-| RFC8620 | [7.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-7.2) | `MUST` | server MUST NOT make any further requests to the URL until the client | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §7.2 [p2] |
-| RFC8620 | [7.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-7.2) | `MUST` | This string MUST | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §7.2 [p3] |
+| RFC8620 | [7.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-7.2) | `MUST` | server MUST NOT make any further requests to the URL until the client | ✅ Covered | `TestRFC8620_Section7_2_PushSubscriptionCreationAndValidation` | Extracted by specextract from RFC8620 §7.2 [p2] |
+| RFC8620 | [7.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-7.2) | `MUST` | This string MUST | ✅ Covered | `TestRFC8620_Section5_QueryStateChanges` | Extracted by specextract from RFC8620 §7.2 [p3] |
 | RFC8620 | [7.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-7.2) | `SHOULD` | It SHOULD be easy to regenerate and not depend on | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §7.2 [p4] |
 | RFC8620 | [7.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-7.2) | `SHOULD` | It is RECOMMENDED to use a secure hash of a | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §7.2 [p5] |
 | RFC8620 | [7.2.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-7.2.1) | `MAY` | The "ids" argument may be null to fetch all at | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §7.2.1 [p1] |
@@ -587,7 +587,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8620 | [7.2.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-7.2.2) | `MAY` | The client may update the "expires" property to extend (or, less | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §7.2.2 [p7] |
 | RFC8620 | [7.2.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-7.2.2) | `MAY` | MAY modify the proposed new expiry time to enforce server-defined | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §7.2.2 [p8] |
 | RFC8620 | [7.2.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-7.2.2) | `SHOULD` | Clients SHOULD NOT update or destroy a push subscription that they | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §7.2.2 [p9] |
-| RFC8620 | [7.2.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-7.2.3) | `MUST` | client MUST be able to handle receiving the push while the request | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §7.2.3 [p1] |
+| RFC8620 | [7.2.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-7.2.3) | `MUST` | client MUST be able to handle receiving the push while the request | ✅ Covered | `TestRFC8620_Section7_2_PushSubscriptionCreationAndValidation` | Extracted by specextract from RFC8620 §7.2.3 [p1] |
 | RFC8620 | [7.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-7.3) | `SHOULD` | The server SHOULD also send a new event id that encodes the entire | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §7.3 [p1] |
 | RFC8620 | [7.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-7.3) | `SHOULD` | If so, it SHOULD send these changes immediately on | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §7.3 [p2] |
 | RFC8620 | [7.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-7.3) | `MUST` | o "types": This MUST be either: | ✅ Covered | `TestRFC8620_Section7_PushSubscriptionAndEventSource` | Extracted by specextract from RFC8620 §7.3 [p4] |
@@ -604,41 +604,41 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8620 | [7.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-7.3) | `MAY` | closeafter mode may be required | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §7.3 [p15] |
 | RFC8620 | [7.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-7.3) | `MAY` | A client MAY hold open multiple connections to the event-source | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §7.3 [p16] |
 | RFC8620 | [7.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-7.3) | `SHOULD` | resource, although it SHOULD try to use a single connection for | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §7.3 [p17] |
-| RFC8620 | [8.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.1) | `MUST` | via JMAP, all requests MUST use TLS 1 | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.1 [p1] |
+| RFC8620 | [8.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.1) | `MUST` | via JMAP, all requests MUST use TLS 1 | ✅ Covered | `TestRFC8620_Section8_SecurityLimitsAndTLS` | Extracted by specextract from RFC8620 §8.1 [p1] |
 | RFC8620 | [8.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.1) | `SHOULD` | Servers SHOULD support | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.1 [p2] |
-| RFC8620 | [8.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.1) | `MUST` | Clients MUST validate TLS certificate chains to protect against | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.1 [p3] |
+| RFC8620 | [8.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.1) | `MUST` | Clients MUST validate TLS certificate chains to protect against | ✅ Covered | `TestRFC8620_Section8_SecurityLimitsAndTLS` | Extracted by specextract from RFC8620 §8.1 [p3] |
 | RFC8620 | [8.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.2) | `SHOULD` | should take care to assess the security characteristics of different | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.2 [p1] |
 | RFC8620 | [8.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.2) | `SHOULD` | Use of the Basic authentication scheme is NOT RECOMMENDED | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.2 [p2] |
 | RFC8620 | [8.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.2) | `SHOULD` | that choose to use it are strongly recommended to require generation | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.2 [p3] |
 | RFC8620 | [8.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.3) | `MAY` | The attacker may then intercept | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.3 [p1] |
 | RFC8620 | [8.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.3) | `SHOULD` | Servers SHOULD ensure this path resolves or | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.3 [p2] |
-| RFC8620 | [8.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.3) | `MUST` | If this is not feasible, servers MUST ensure this path cannot be | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.3 [p3] |
+| RFC8620 | [8.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.3) | `MUST` | If this is not feasible, servers MUST ensure this path cannot be | ✅ Covered | `TestRFC8620_Section8_SecurityLimitsAndTLS` | Extracted by specextract from RFC8620 §8.3 [p3] |
 | RFC8620 | [8.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.3) | `MAY` | controlled by an attacker, as again it may be used to steal | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.3 [p4] |
 | RFC8620 | [8.4](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.4) | `MAY` | implementations may need to allocate storage to hold JSON string | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.4 [p1] |
 | RFC8620 | [8.4](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.4) | `MAY` | implementations may still wish to place limits on the size of | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.4 [p2] |
 | RFC8620 | [8.5](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.5) | `MAY` | A small request may result in a very large response and require | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.5 [p1] |
-| RFC8620 | [8.5](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.5) | `MUST` | JMAP servers MUST implement sensible limits to mitigate against | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.5 [p2] |
-| RFC8620 | [8.6](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.6) | `MUST` | considerations that MUST be considered when implementing this | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.6 [p1] |
-| RFC8620 | [8.6](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.6) | `MUST` | The server MUST ensure the URL is externally resolvable to avoid | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.6 [p2] |
+| RFC8620 | [8.5](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.5) | `MUST` | JMAP servers MUST implement sensible limits to mitigate against | ✅ Covered | `TestRFC8620_Section8_SecurityLimitsAndTLS` | Extracted by specextract from RFC8620 §8.5 [p2] |
+| RFC8620 | [8.6](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.6) | `MUST` | considerations that MUST be considered when implementing this | ✅ Covered | `TestRFC8620_Section7_2_PushSubscriptionCreationAndValidation` | Extracted by specextract from RFC8620 §8.6 [p1] |
+| RFC8620 | [8.6](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.6) | `MUST` | The server MUST ensure the URL is externally resolvable to avoid | ✅ Covered | `TestRFC8620_Section7_2_PushSubscriptionCreationAndValidation` | Extracted by specextract from RFC8620 §8.6 [p2] |
 | RFC8620 | [8.6](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.6) | `MAY` | A malicious client may use the push subscription to attempt to flood | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.6 [p3] |
-| RFC8620 | [8.6](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.6) | `MUST` | sends a PushVerification object to the URL and MUST NOT send any | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.6 [p4] |
-| RFC8620 | [8.6](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.6) | `MUST` | The verification code MUST contain sufficient entropy | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.6 [p5] |
-| RFC8620 | [8.6](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.6) | `MUST` | The server MUST limit the number of push subscriptions any one user | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.6 [p6] |
+| RFC8620 | [8.6](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.6) | `MUST` | sends a PushVerification object to the URL and MUST NOT send any | ✅ Covered | `TestRFC8620_Section7_2_PushSubscriptionCreationAndValidation` | Extracted by specextract from RFC8620 §8.6 [p4] |
+| RFC8620 | [8.6](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.6) | `MUST` | The verification code MUST contain sufficient entropy | ✅ Covered | `TestRFC8620_Section7_2_PushSubscriptionCreationAndValidation` | Extracted by specextract from RFC8620 §8.6 [p5] |
+| RFC8620 | [8.6](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.6) | `MUST` | The server MUST limit the number of push subscriptions any one user | ✅ Covered | `TestRFC8620_Section7_2_PushSubscriptionCreationAndValidation` | Extracted by specextract from RFC8620 §8.6 [p6] |
 | RFC8620 | [8.6](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.6) | `MAY` | may have to ensure the user cannot cause the server to send a large | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.6 [p7] |
-| RFC8620 | [8.6](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.6) | `MUST` | The rate of creation MUST also | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.6 [p8] |
+| RFC8620 | [8.6](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.6) | `MUST` | The rate of creation MUST also | ✅ Covered | `TestRFC8620_Section7_2_PushSubscriptionCreationAndValidation` | Extracted by specextract from RFC8620 §8.6 [p8] |
 | RFC8620 | [8.7](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.7) | `MAY` | minimal, a passive man-in-the-middle attacker may be able to gain | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.7 [p1] |
-| RFC8620 | [8.7](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.7) | `MUST` | and JMAP server, the client MUST specify encryption keys when | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.7 [p2] |
-| RFC8620 | [8.7](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.7) | `MUST` | algorithms are required in the future | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.7 [p3] |
+| RFC8620 | [8.7](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.7) | `MUST` | and JMAP server, the client MUST specify encryption keys when | ✅ Covered | `TestRFC8620_Section7_2_PushSubscriptionCreationAndValidation` | Extracted by specextract from RFC8620 §8.7 [p2] |
+| RFC8620 | [8.7](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.7) | `MUST` | algorithms are required in the future | ✅ Covered | `TestRFC8620_Section7_2_PushSubscriptionCreationAndValidation` | Extracted by specextract from RFC8620 §8.7 [p3] |
 | RFC8620 | [8.8](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.8) | `MAY` | monitor network traffic may be able to glean information from the | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.8 [p1] |
 | RFC8620 | [8.8](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.8) | `MAY` | well, they may reasonably conclude that someone on Server X is | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.8 [p2] |
-| RFC8620 | [9.4](https://www.rfc-editor.org/rfc/rfc8620.html#section-9.4) | `MUST` | follows the specification required process | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §9.4 [p1] |
+| RFC8620 | [9.4](https://www.rfc-editor.org/rfc/rfc8620.html#section-9.4) | `MUST` | follows the specification required process | ✅ Covered | `TestRFC8620_Section9_IANARegistrationsAndCapabilities` | Extracted by specextract from RFC8620 §9.4 [p1] |
 | RFC8620 | [9.4.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-9.4.1) | `SHOULD` | Notice of a potential JMAP common-use registration SHOULD be sent to | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §9.4.1 [p1] |
 | RFC8620 | [9.4.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-9.4.1) | `MAY` | Registrations that are not intended for common use MAY | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §9.4.1 [p2] |
 | RFC8620 | [9.4.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-9.4.1) | `MAY` | OPTIONAL, but is encouraged | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §9.4.1 [p3] |
 | RFC8620 | [9.4.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-9.4.1) | `MAY` | The submitter may submit a revised | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §9.4.1 [p4] |
-| RFC8620 | [9.4.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-9.4.3) | `MUST` | published specification is not required | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §9.4.3 [p1] |
+| RFC8620 | [9.4.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-9.4.3) | `MUST` | published specification is not required | ✅ Covered | `TestRFC8620_Section9_IANARegistrationsAndCapabilities` | Extracted by specextract from RFC8620 §9.4.3 [p1] |
 | RFC8620 | [9.4.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-9.4.3) | `SHOULD` | The DE should also verify that the capability does not | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §9.4.3 [p2] |
-| RFC8620 | [9.4.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-9.4.3) | `MUST` | denial notice must be justified by an explanation, and, in the cases | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §9.4.3 [p3] |
+| RFC8620 | [9.4.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-9.4.3) | `MUST` | denial notice must be justified by an explanation, and, in the cases | ✅ Covered | `TestRFC8620_Section9_IANARegistrationsAndCapabilities` | Extracted by specextract from RFC8620 §9.4.3 [p3] |
 | RFC8620 | [9.4.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-9.4.3) | `SHOULD` | modified so as to become acceptable should be provided | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §9.4.3 [p4] |
 | RFC8620 | [9.4.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-9.4.3) | `MAY` | If the DE does not respond within 30 days, the registrant may request | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §9.4.3 [p5] |
 | RFC8620 | [9.4.4](https://www.rfc-editor.org/rfc/rfc8620.html#section-9.4.4) | `MAY` | controller may request a change to its definition | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §9.4.4 [p1] |

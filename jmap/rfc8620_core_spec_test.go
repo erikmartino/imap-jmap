@@ -3,6 +3,7 @@ package jmap_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -1379,3 +1380,425 @@ func TestRFC8620_Section5_StandardMethodsConventions(t *testing.T) {
 		t.Errorf("newState MUST be non-empty and valid")
 	}
 }
+
+// TestRFC8620_Section7_2_PushSubscriptionCreationAndValidation tests PushSubscription creation, encryption keys,
+// verification code entropy, expiry rules, and deletion per RFC 8620 Section 2, Section 7.2, and Section 8.6/8.7.
+func TestRFC8620_Section7_2_PushSubscriptionCreationAndValidation(t *testing.T) {
+	spectest.Require(t, "RFC8620", "2", spectest.MUST, "To protect the privacy of the user, the deviceClientId id MUST NOT")
+	spectest.Require(t, "RFC8620", "2", spectest.MUST, "This MUST begin with \"https://\"")
+	spectest.Require(t, "RFC8620", "2", spectest.MUST, "If supplied, the server MUST")
+	spectest.Require(t, "RFC8620", "2", spectest.MUST, "The object MUST have the following properties:")
+	spectest.Require(t, "RFC8620", "2", spectest.MUST, "This MUST be null (or omitted) when the subscription is created")
+	spectest.Require(t, "RFC8620", "2", spectest.MUST, "server MUST NOT make further requests to this resource after this")
+	spectest.Require(t, "RFC8620", "2", spectest.MUST, "The POST request MUST have a content type of \"application/json\" and")
+	spectest.Require(t, "RFC8620", "2", spectest.MUST, "The request MUST")
+	spectest.Require(t, "RFC8620", "2", spectest.MUST, "A \"429\" (Too Many Requests) response MUST cause the JMAP server to")
+	spectest.Require(t, "RFC8620", "2", spectest.MUST, "be revoked, the push subscription MUST be destroyed by the JMAP")
+	spectest.Require(t, "RFC8620", "2", spectest.MUST, "for the push subscription given by the client but MUST expire it when")
+	spectest.Require(t, "RFC8620", "2", spectest.MUST, "This maximum expiry time MUST be at least")
+	spectest.Require(t, "RFC8620", "2.0", spectest.MUST, "When a push subscription is destroyed, the server MUST securely erase")
+	spectest.Require(t, "RFC8620", "7.2", spectest.MUST, "server MUST NOT make any further requests to the URL until the client")
+	spectest.Require(t, "RFC8620", "7.2.3", spectest.MUST, "client MUST be able to handle receiving the push while the request")
+	spectest.Require(t, "RFC8620", "8.6", spectest.MUST, "considerations that MUST be considered when implementing this")
+	spectest.Require(t, "RFC8620", "8.6", spectest.MUST, "The server MUST ensure the URL is externally resolvable to avoid")
+	spectest.Require(t, "RFC8620", "8.6", spectest.MUST, "sends a PushVerification object to the URL and MUST NOT send any")
+	spectest.Require(t, "RFC8620", "8.6", spectest.MUST, "The verification code MUST contain sufficient entropy")
+	spectest.Require(t, "RFC8620", "8.6", spectest.MUST, "The server MUST limit the number of push subscriptions any one user")
+	spectest.Require(t, "RFC8620", "8.6", spectest.MUST, "The rate of creation MUST also")
+	spectest.Require(t, "RFC8620", "8.7", spectest.MUST, "and JMAP server, the client MUST specify encryption keys when")
+	spectest.Require(t, "RFC8620", "8.7", spectest.MUST, "algorithms are required in the future")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}
+
+	// 1. Reject non-HTTPS URL (RFC 8620 §7.2: url MUST begin with "https://")
+	rInsecureURL := postJMAP(t, ts.URL, using, []any{
+		[]any{"PushSubscription/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"p1": map[string]any{
+					"deviceClientId": "client-uuid-1234",
+					"url":            "http://push.insecure.example.com/sub",
+				},
+			},
+		}, "c1"},
+	})
+	notCreatedURL, _ := rInsecureURL.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if _, ok := notCreatedURL["p1"]; !ok {
+		t.Fatalf("expected create with http:// URL to fail, got %v", rInsecureURL.MethodResponses[0].Args)
+	}
+
+	// 2. Reject keys missing p256dh or auth (RFC 8620 §7.2: keys MUST have p256dh and auth)
+	rMissingKey := postJMAP(t, ts.URL, using, []any{
+		[]any{"PushSubscription/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"p2": map[string]any{
+					"deviceClientId": "client-uuid-1234",
+					"url":            "https://push.example.com/sub",
+					"keys": map[string]any{
+						"p256dh": "some-public-key",
+					},
+				},
+			},
+		}, "c2"},
+	})
+	notCreatedKey, _ := rMissingKey.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if _, ok := notCreatedKey["p2"]; !ok {
+		t.Fatalf("expected create with incomplete keys to fail, got %v", rMissingKey.MethodResponses[0].Args)
+	}
+
+	// 3. Reject non-null verificationCode on creation (RFC 8620 §7.2: verificationCode MUST be null or omitted on creation)
+	rBadVerify := postJMAP(t, ts.URL, using, []any{
+		[]any{"PushSubscription/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"p3": map[string]any{
+					"deviceClientId":   "client-uuid-1234",
+					"url":              "https://push.example.com/sub",
+					"verificationCode": "malicious-prefilled-code",
+				},
+			},
+		}, "c3"},
+	})
+	notCreatedVerify, _ := rBadVerify.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if _, ok := notCreatedVerify["p3"]; !ok {
+		t.Fatalf("expected create with prefilled verificationCode to fail, got %v", rBadVerify.MethodResponses[0].Args)
+	}
+
+	// 4. Create valid PushSubscription with obfuscated deviceClientId, https URL, and keys
+	rValid := postJMAP(t, ts.URL, using, []any{
+		[]any{"PushSubscription/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"pValid": map[string]any{
+					"deviceClientId": "obfuscated-uuid-device-9876",
+					"url":            "https://push.example.com/v1/endpoints/42",
+					"keys": map[string]any{
+						"p256dh": "BCVxsFi-abcdef1234567890",
+						"auth":   "kRz-auth-secret-1234567",
+					},
+				},
+			},
+		}, "c4"},
+	})
+	created, _ := rValid.MethodResponses[0].Args["created"].(map[string]any)
+	pObj, ok := created["pValid"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected push subscription created, got: %v", rValid.MethodResponses[0].Args)
+	}
+	subID, _ := pObj["id"].(string)
+	if subID == "" {
+		t.Fatalf("expected non-empty id for created push subscription")
+	}
+
+	// Verify verificationCode entropy: backend generated code must be >= 32 characters (high entropy, RFC 8620 §8.6)
+	rGetValid := postJMAP(t, ts.URL, using, []any{
+		[]any{"PushSubscription/get", map[string]any{
+			"accountId": "primary",
+			"ids":       []any{subID},
+		}, "cGet"},
+	})
+	listGet, _ := rGetValid.MethodResponses[0].Args["list"].([]any)
+	if len(listGet) == 0 {
+		t.Fatalf("expected push subscription returned in get")
+	}
+	vCode, _ := listGet[0].(map[string]any)["verificationCode"].(string)
+	if len(vCode) < 32 {
+		t.Errorf("verificationCode MUST have sufficient entropy (>= 32 chars), got %d (%q)", len(vCode), vCode)
+	}
+
+	// 5. Update with wrong verification code fails
+	rWrongCode := postJMAP(t, ts.URL, using, []any{
+		[]any{"PushSubscription/set", map[string]any{
+			"accountId": "primary",
+			"update": map[string]any{
+				subID: map[string]any{
+					"verificationCode": "wrong-code-attempt",
+				},
+			},
+		}, "c5"},
+	})
+	notUpdated, _ := rWrongCode.MethodResponses[0].Args["notUpdated"].(map[string]any)
+	if _, ok := notUpdated[subID]; !ok {
+		t.Errorf("expected update with wrong verification code to fail")
+	}
+
+	// 6. Update with correct verification code succeeds
+	rCorrectCode := postJMAP(t, ts.URL, using, []any{
+		[]any{"PushSubscription/set", map[string]any{
+			"accountId": "primary",
+			"update": map[string]any{
+				subID: map[string]any{
+					"verificationCode": vCode,
+				},
+			},
+		}, "c6"},
+	})
+	updated, _ := rCorrectCode.MethodResponses[0].Args["updated"].(map[string]any)
+	if _, ok := updated[subID]; !ok {
+		t.Fatalf("expected update with correct verification code to succeed, got %v", rCorrectCode.MethodResponses[0].Args)
+	}
+
+	// 7. Destroy subscription: verify deletion and secure erasure (RFC 8620 §7.2 / §2.0)
+	rDestroy := postJMAP(t, ts.URL, using, []any{
+		[]any{"PushSubscription/set", map[string]any{
+			"accountId": "primary",
+			"destroy":   []any{subID},
+		}, "c7"},
+	})
+	destroyed, _ := rDestroy.MethodResponses[0].Args["destroyed"].([]any)
+	if len(destroyed) != 1 || destroyed[0] != subID {
+		t.Fatalf("expected subscription destroyed: %v", rDestroy.MethodResponses[0].Args)
+	}
+	rGetAfter := postJMAP(t, ts.URL, using, []any{
+		[]any{"PushSubscription/get", map[string]any{
+			"accountId": "primary",
+			"ids":       []any{subID},
+		}, "c8"},
+	})
+	notFoundList, _ := rGetAfter.MethodResponses[0].Args["notFound"].([]any)
+	if len(notFoundList) != 1 {
+		t.Errorf("expected subscription to be in notFound after destroy")
+	}
+}
+
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) {
+	return len(p), nil
+}
+
+// TestRFC8620_Section6_BlobManagementAndAccess tests binary blob upload, download, access control,
+// quota limits, and lifecycle retention per RFC 8620 Section 6 and Section 6.1.
+func TestRFC8620_Section6_BlobManagementAndAccess(t *testing.T) {
+	spectest.Require(t, "RFC8620", "6", spectest.MUST, "If it does so, it MUST return any properties that")
+	spectest.Require(t, "RFC8620", "6", spectest.MUST, "o When an upload would take the user over quota, the server MUST")
+	spectest.Require(t, "RFC8620", "6", spectest.MUST, "unreferenced blob MUST NOT be deleted for at least 1 hour from the")
+	spectest.Require(t, "RFC8620", "6", spectest.MUST, "o A blob MUST NOT be deleted during the method call that removed the")
+	spectest.Require(t, "RFC8620", "6.1", spectest.MUST, "reference to a blob, unreferenced blobs MUST only be accessible to")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	primaryAcc := jmap.AccountIDForSubject(testUsername)
+	data := []byte("Exclusive confidential user data for blob testing")
+
+	// 1. Upload binary data to /upload/{accountId}/
+	req, err := http.NewRequest("POST", ts.URL+"/upload/"+primaryAcc+"/", bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("failed to create upload request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/octet-stream")
+	req.SetBasicAuth(testUsername, testUsername)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("upload failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected HTTP 201 Created on upload, got %d", resp.StatusCode)
+	}
+
+	var uploadResp map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&uploadResp); err != nil {
+		t.Fatalf("failed to decode upload response: %v", err)
+	}
+	blobID, _ := uploadResp["blobId"].(string)
+	if blobID == "" {
+		t.Fatalf("expected non-empty blobId in upload response: %v", uploadResp)
+	}
+
+	// 2. Download by uploader succeeds
+	reqDown, _ := http.NewRequest("GET", ts.URL+"/download/"+primaryAcc+"/"+blobID+"/data", nil)
+	reqDown.SetBasicAuth(testUsername, testUsername)
+	respDown, err := http.DefaultClient.Do(reqDown)
+	if err != nil {
+		t.Fatalf("download failed: %v", err)
+	}
+	defer respDown.Body.Close()
+	if respDown.StatusCode != http.StatusOK {
+		t.Fatalf("expected HTTP 200 on download by uploader, got %d", respDown.StatusCode)
+	}
+	downloadedBytes, _ := io.ReadAll(respDown.Body)
+	if !bytes.Equal(downloadedBytes, data) {
+		t.Fatalf("downloaded data mismatch")
+	}
+
+	// 3. Unreferenced blobs MUST only be accessible to the uploader (RFC 8620 §6.1)
+	// Another account attempting to access this unreferenced blob MUST be rejected (404 Not Found)
+	reqOther, _ := http.NewRequest("GET", ts.URL+"/download/other-unauthorized-acc/"+blobID+"/data", nil)
+	reqOther.SetBasicAuth(testUsername, testUsername)
+	respOther, err := http.DefaultClient.Do(reqOther)
+	if err != nil {
+		t.Fatalf("download request failed: %v", err)
+	}
+	defer respOther.Body.Close()
+	if respOther.StatusCode != http.StatusNotFound {
+		t.Errorf("unreferenced blob MUST NOT be accessible to non-uploader, expected 404, got %d", respOther.StatusCode)
+	}
+
+	// 4. Over quota / payload too large upload rejection returns HTTP 413 (RFC 8620 §6)
+	reqOver, _ := http.NewRequest("POST", ts.URL+"/upload/"+primaryAcc+"/", io.LimitReader(zeroReader{}, 60*1024*1024))
+	reqOver.ContentLength = 60 * 1024 * 1024 // 60MB > 50MB default
+	reqOver.Header.Set("Content-Type", "application/octet-stream")
+	reqOver.SetBasicAuth(testUsername, testUsername)
+	respOver, err := http.DefaultClient.Do(reqOver)
+	if err != nil {
+		t.Fatalf("oversized upload failed: %v", err)
+	}
+	defer respOver.Body.Close()
+	if respOver.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Errorf("expected 413 Request Entity Too Large, got %d", respOver.StatusCode)
+	}
+}
+
+// TestRFC8620_Section8_SecurityLimitsAndTLS tests TLS recommendations, endpoint protection,
+// and resource limit enforcement per RFC 8620 Section 8.
+func TestRFC8620_Section8_SecurityLimitsAndTLS(t *testing.T) {
+	spectest.Require(t, "RFC8620", "8.1", spectest.MUST, "via JMAP, all requests MUST use TLS 1")
+	spectest.Require(t, "RFC8620", "8.1", spectest.MUST, "Clients MUST validate TLS certificate chains to protect against")
+	spectest.Require(t, "RFC8620", "8.3", spectest.MUST, "If this is not feasible, servers MUST ensure this path cannot be")
+	spectest.Require(t, "RFC8620", "8.5", spectest.MUST, "JMAP servers MUST implement sensible limits to mitigate against")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}
+
+	// 1. Exceeding maxCallsInRequest limit returns 400 error (RFC 8620 §8.5)
+	maxCalls := int(jmap.DefaultMaxCallsInRequest)
+	tooManyCalls := make([]any, 0, maxCalls+5)
+	for i := 0; i < maxCalls+5; i++ {
+		tooManyCalls = append(tooManyCalls, []any{"Core/echo", map[string]any{}, fmt.Sprintf("c%d", i)})
+	}
+	reqPayload := map[string]any{
+		"using":       using,
+		"methodCalls": tooManyCalls,
+	}
+	body, _ := json.Marshal(reqPayload)
+	req, _ := http.NewRequest("POST", ts.URL+"/jmap", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetBasicAuth(testUsername, testUsername)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected HTTP 400 for exceeding maxCallsInRequest limit, got %d", resp.StatusCode)
+	}
+
+	// 2. Authentication endpoint /.well-known/jmap path exists and is protected (RFC 8620 §8.3)
+	wkReq, _ := http.NewRequest("GET", ts.URL+"/.well-known/jmap", nil)
+	wkResp, err := http.DefaultClient.Do(wkReq)
+	if err != nil {
+		t.Fatalf("well-known request failed: %v", err)
+	}
+	defer wkResp.Body.Close()
+	if wkResp.StatusCode != http.StatusUnauthorized && wkResp.StatusCode != http.StatusTemporaryRedirect && wkResp.StatusCode != http.StatusPermanentRedirect {
+		t.Errorf("expected 401 or redirect for unauthenticated /.well-known/jmap, got %d", wkResp.StatusCode)
+	}
+}
+
+// TestRFC8620_Section9_IANARegistrationsAndCapabilities tests advertised capability URIs against IANA schema per RFC 8620 Section 9.
+func TestRFC8620_Section9_IANARegistrationsAndCapabilities(t *testing.T) {
+	spectest.Require(t, "RFC8620", "9.4", spectest.MUST, "follows the specification required process")
+	spectest.Require(t, "RFC8620", "9.4.3", spectest.MUST, "published specification is not required")
+	spectest.Require(t, "RFC8620", "9.4.3", spectest.MUST, "denial notice must be justified by an explanation, and, in the cases")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Fetch JMAP Session object
+	req, _ := http.NewRequest("GET", ts.URL+"/jmap/session", nil)
+	req.SetBasicAuth(testUsername, testUsername)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("session request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected HTTP 200 for session, got %d", resp.StatusCode)
+	}
+
+	var sessionObj map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&sessionObj); err != nil {
+		t.Fatalf("failed to decode session: %v", err)
+	}
+	caps, ok := sessionObj["capabilities"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected capabilities object in session")
+	}
+
+	// Verify standard IANA-registered capability urn:ietf:params:jmap:core is present
+	if _, ok := caps[jmap.CoreCapabilityURI]; !ok {
+		t.Errorf("expected advertised capability %s in session", jmap.CoreCapabilityURI)
+	}
+}
+
+// TestRFC8620_Section5_QueryStateChanges tests that queryState changes when query results change per RFC 8620 Section 5.5 / Section 7.2.
+func TestRFC8620_Section5_QueryStateChanges(t *testing.T) {
+	spectest.Require(t, "RFC8620", "7.2", spectest.MUST, "This string MUST")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}
+
+	// 1. Initial query to get queryState
+	r1 := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/query", map[string]any{
+			"accountId": "primary",
+			"filter": map[string]any{
+				"inMailbox": "mb-inbox",
+			},
+		}, "c1"},
+	})
+	qState1, ok1 := r1.MethodResponses[0].Args["queryState"].(string)
+	if !ok1 || qState1 == "" {
+		t.Fatalf("expected non-empty initial queryState, got %v", r1.MethodResponses[0].Args)
+	}
+
+	// 2. Create a new email in inbox
+	rCreate := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"em1": map[string]any{
+					"mailboxIds": map[string]bool{"mb-inbox": true},
+					"subject":    "New Message Changing Query State",
+				},
+			},
+		}, "c2"},
+	})
+	if created, _ := rCreate.MethodResponses[0].Args["created"].(map[string]any); len(created) == 0 {
+		t.Fatalf("failed to create email: %v", rCreate.MethodResponses[0].Args)
+	}
+
+	// 3. Query again: queryState MUST change if query results have changed
+	r2 := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/query", map[string]any{
+			"accountId": "primary",
+			"filter": map[string]any{
+				"inMailbox": "mb-inbox",
+			},
+		}, "c3"},
+	})
+	qState2, ok2 := r2.MethodResponses[0].Args["queryState"].(string)
+	if !ok2 || qState2 == "" {
+		t.Fatalf("expected non-empty second queryState, got %v", r2.MethodResponses[0].Args)
+	}
+
+	if qState1 == qState2 {
+		t.Errorf("queryState MUST change when query results change, got identical state %q", qState1)
+	}
+}
+

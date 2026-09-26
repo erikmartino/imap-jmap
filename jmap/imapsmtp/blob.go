@@ -184,6 +184,10 @@ func (b *IMAPSMTPBackend) GetBlob(ctx context.Context, accountID, blobID string)
 	blob, ok := b.blobs[blobID]
 	b.blobsMu.RUnlock()
 	if ok {
+		if blob.AccountID != "" && accountID != "" && blob.AccountID != accountID {
+			// Unreferenced blobs MUST only be accessible to the uploader (RFC 8620 §6.1)
+			return nil, false, nil
+		}
 		return blob, true, nil
 	}
 

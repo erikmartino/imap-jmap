@@ -2,6 +2,8 @@ package imapsmtp
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -46,18 +48,26 @@ func (b *IMAPSMTPBackend) CreatePushSubscription(ctx context.Context, sub *jmapm
 	if sub.ID == "" {
 		sub.ID = jmapcore.Id(fmt.Sprintf("push-%d", time.Now().UnixNano()))
 	}
-	vCode := fmt.Sprintf("verify-%d", time.Now().UnixNano())
+	// High-entropy verification code per RFC 8620 §8.6
+	randBuf := make([]byte, 32)
+	_, _ = rand.Read(randBuf)
+	vCode := hex.EncodeToString(randBuf)
 	sub.VerificationCode = &vCode
 
 	b.pushMu.Lock()
+	defer b.pushMu.Unlock()
 	if b.pushSubscriptions == nil {
 		b.pushSubscriptions = make(map[string]map[jmapcore.Id]*jmapmail.PushSubscription)
 	}
 	if b.pushSubscriptions[accountID] == nil {
 		b.pushSubscriptions[accountID] = make(map[jmapcore.Id]*jmapmail.PushSubscription)
 	}
+	// Limit maximum push subscriptions per user (RFC 8620 §8.6)
+	const maxPushSubscriptionsPerAccount = 50
+	if len(b.pushSubscriptions[accountID]) >= maxPushSubscriptionsPerAccount {
+		return nil, fmt.Errorf("maximum limit of push subscriptions reached for account")
+	}
 	b.pushSubscriptions[accountID][sub.ID] = sub
-	b.pushMu.Unlock()
 	return sub, nil
 }
 
@@ -96,7 +106,13 @@ func (b *IMAPSMTPBackend) DeletePushSubscription(ctx context.Context, id jmapcor
 	b.pushMu.Lock()
 	defer b.pushMu.Unlock()
 	if m, ok := b.pushSubscriptions[accountID]; ok {
-		if _, ok := m[id]; ok {
+		if sub, ok := m[id]; ok {
+			// Securely erase URL and encryption keys per RFC 8620 §7.2 / §2.0
+			if sub != nil {
+				sub.URL = ""
+				sub.Keys = nil
+				sub.VerificationCode = nil
+			}
 			delete(m, id)
 			return true, nil
 		}

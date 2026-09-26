@@ -159,6 +159,16 @@ func HandlePushSubscriptionSet(backend MailBackend) jmaphandler.MethodHandler {
 					notCreated[clientKey] = map[string]any{"type": "invalidProperties", "description": "deviceClientId is required", "properties": []string{"deviceClientId"}}
 					continue
 				}
+				if sub.Keys != nil {
+					if sub.Keys.P256dh == "" || sub.Keys.Auth == "" {
+						notCreated[clientKey] = map[string]any{"type": "invalidProperties", "description": "keys must contain p256dh and auth", "properties": []string{"keys"}}
+						continue
+					}
+				}
+				if sub.VerificationCode != nil && *sub.VerificationCode != "" {
+					notCreated[clientKey] = map[string]any{"type": "invalidProperties", "description": "verificationCode must be null or omitted when creating a subscription", "properties": []string{"verificationCode"}}
+					continue
+				}
 				created_, err := backend.CreatePushSubscription(ctx, &sub)
 				if err != nil {
 					notCreated[clientKey] = map[string]any{"type": "serverFail", "description": err.Error()}
@@ -176,6 +186,7 @@ func HandlePushSubscriptionSet(backend MailBackend) jmaphandler.MethodHandler {
 							req, err := http.NewRequest("POST", targetURL, bytes.NewReader(verificationPayload))
 							if err == nil {
 								req.Header.Set("Content-Type", "application/json")
+								req.Header.Set("TTL", "86400")
 								client := &http.Client{Timeout: 5 * time.Second}
 								resp, err := client.Do(req)
 								if err == nil {
