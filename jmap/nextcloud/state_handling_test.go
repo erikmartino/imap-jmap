@@ -16,6 +16,7 @@ import (
 	"imap-jmap/jmap/jmapcalendar"
 	"imap-jmap/jmap/jmapcontacts"
 	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmapfilenode"
 )
 
 // concurrencyTrackingTransport records the maximum number of in-flight CalDAV
@@ -811,6 +812,103 @@ func TestAddressBookMetadataPersistedUpstream(t *testing.T) {
 		}
 	}
 }
+
+// TestFileNodeDeterministicIDsAcrossInstances verifies that FileNode IDs are derived
+// deterministically from upstream WebDAV paths, are stable and identical across separate
+// backend instances with zero local state, and allow operations across fresh instances.
+func TestFileNodeDeterministicIDsAcrossInstances(t *testing.T) {
+	client, _, _, fileNodeBackend, _, _, cleanup := NewEmbeddedBackendWithBlobs("user@example.com")
+	defer cleanup()
+	ctx := stateTestCtx("user@example.com")
+
+	// 1. Create a folder and a child file.
+	folder, err := fileNodeBackend.CreateFileNode(ctx, &jmapfilenode.FileNode{
+		Name:     "Projects",
+		IsFolder: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateFileNode folder failed: %v", err)
+	}
+
+	file, err := fileNodeBackend.CreateFileNode(ctx, &jmapfilenode.FileNode{
+		Name:     "report.txt",
+		ParentID: &folder.ID,
+		Type:     "text/plain",
+	})
+	if err != nil {
+		t.Fatalf("CreateFileNode file failed: %v", err)
+	}
+
+	// 2. Verify IDs match FileNodeIDForPath deterministically.
+	expectedFolderID := FileNodeIDForPath("Projects")
+	expectedFileID := FileNodeIDForPath("Projects/report.txt")
+	if folder.ID != expectedFolderID {
+		t.Errorf("folder ID mismatch: got %s, want %s", folder.ID, expectedFolderID)
+	}
+	if file.ID != expectedFileID {
+		t.Errorf("file ID mismatch: got %s, want %s", file.ID, expectedFileID)
+	}
+
+	// 3. Verify PathForFileNodeID decodes the paths back cleanly.
+	pFolder, err := PathForFileNodeID(folder.ID)
+	if err != nil || pFolder != "Projects" {
+		t.Errorf("PathForFileNodeID(folder.ID) = %q, %v; want 'Projects'", pFolder, err)
+	}
+	pFile, err := PathForFileNodeID(file.ID)
+	if err != nil || pFile != "Projects/report.txt" {
+		t.Errorf("PathForFileNodeID(file.ID) = %q, %v; want 'Projects/report.txt'", pFile, err)
+	}
+
+	// 4. Create a completely fresh FileNodeBackend instance with zero proxy-local state.
+	be2 := NewFileNodeBackend(client)
+	nodes, notFound, err := be2.GetFileNodes(ctx, []jmapcore.Id{folder.ID, file.ID})
+	if err != nil {
+		t.Fatalf("be2.GetFileNodes failed: %v", err)
+	}
+	if len(notFound) > 0 {
+		t.Fatalf("be2.GetFileNodes reported notFound: %v", notFound)
+	}
+	if len(nodes) != 2 {
+		t.Fatalf("be2.GetFileNodes expected 2 nodes, got %d", len(nodes))
+	}
+
+	foundFolder := false
+	foundFile := false
+	for _, n := range nodes {
+		if n.ID == folder.ID {
+			foundFolder = true
+			if !n.IsFolder || n.Name != "Projects" {
+				t.Errorf("fresh backend folder mismatch: %#v", n)
+			}
+		}
+		if n.ID == file.ID {
+			foundFile = true
+			if n.IsFolder || n.Name != "report.txt" || n.ParentID == nil || *n.ParentID != folder.ID {
+				t.Errorf("fresh backend file mismatch: %#v", n)
+			}
+		}
+	}
+	if !foundFolder || !foundFile {
+		t.Errorf("failed to discover both nodes on fresh backend: foundFolder=%v, foundFile=%v", foundFolder, foundFile)
+	}
+
+	// 5. Delete file using the fresh backend instance.
+	ok, err := be2.DeleteFileNode(ctx, file.ID)
+	if err != nil || !ok {
+		t.Fatalf("be2.DeleteFileNode failed: ok=%v, err=%v", ok, err)
+	}
+
+	// 6. Third fresh backend verifies file is gone upstream.
+	be3 := NewFileNodeBackend(client)
+	_, notFound3, err := be3.GetFileNodes(ctx, []jmapcore.Id{file.ID})
+	if err != nil {
+		t.Fatalf("be3.GetFileNodes failed: %v", err)
+	}
+	if len(notFound3) != 1 || notFound3[0] != file.ID {
+		t.Errorf("expected file %s in notFound on fresh backend, got %v", file.ID, notFound3)
+	}
+}
+
 
 
 // --- Calendar collection state (content-addressed) ---------------------------

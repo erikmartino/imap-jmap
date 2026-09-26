@@ -140,8 +140,11 @@ Per `AGENTS.md` §1 ("Stateless Proxy & Zero Local Filesystem Sync"), the proxy 
   - Home-set PROPPATCH persists `urn:ietf:params:jmap:contacts default-addressbook` for default address book resolution across instances.
   - Embedded mock CardDAV server intercepts collection/homeset PROPFIND, PROPPATCH, MKCOL, and DELETE.
   - Removed authoritative in-memory maps (`defaultAddressBooks`, `absCache`, `homeSets`). Tested via `TestAddressBookMetadataPersistedUpstream`.
-- [ ] **4.3 Deterministic FileNode ids** (`nextcloud/filenode.go`)
-  - Replace `pathToID`/`idToPath`/`nextID` with an id derived from the WebDAV path; delete the local counter and maps.
+- [x] **4.3 Deterministic FileNode ids** (`nextcloud/filenode.go`)
+  - Replaced `pathToID`/`idToPath`/`nextID` with deterministic IDs derived from the WebDAV relative path using `FileNodeIDForPath` and `PathForFileNodeID`.
+  - Deleted the local counter and authoritative path/ID maps.
+  - Handled moves/renames via WebDAV `fs.Move` and deterministic target ID, maintaining non-authoritative same-process redirection for client references.
+  - Verified across fresh backend instances via `TestFileNodeDeterministicIDsAcrossInstances`.
 - [ ] **4.4 Deterministic SieveScript ids** (`managesieve/backend.go`)
   - Use the script name (or a stable hash of it) as the id; drop `nameToID`/`idToName`/`idCounter`.
 - [ ] **4.5 IMAP mailbox state** (`imapsmtp/backend.go`)

@@ -3,6 +3,7 @@ package nextcloud
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -33,9 +34,7 @@ type FileNodeBackend struct {
 
 	nodeTrackers map[string]*jmappush.ChangeTracker
 	nodesCache   map[string]map[jmapcore.Id]*jmapfilenode.FileNode
-	pathToID     map[string]map[string]jmapcore.Id
-	idToPath     map[string]map[jmapcore.Id]string
-	nextID       uint64
+	movedIDs     map[string]map[jmapcore.Id]jmapcore.Id
 }
 
 var _ jmapfilenode.FileNodeBackend = (*FileNodeBackend)(nil)
@@ -46,8 +45,7 @@ func NewFileNodeBackend(client *Client) *FileNodeBackend {
 		client:       client,
 		nodeTrackers: make(map[string]*jmappush.ChangeTracker),
 		nodesCache:   make(map[string]map[jmapcore.Id]*jmapfilenode.FileNode),
-		pathToID:     make(map[string]map[string]jmapcore.Id),
-		idToPath:     make(map[string]map[jmapcore.Id]string),
+		movedIDs:     make(map[string]map[jmapcore.Id]jmapcore.Id),
 	}
 }
 
@@ -117,7 +115,83 @@ func cleanRelPath(p string) string {
 	clean = strings.TrimPrefix(clean, "/remote.php/webdav")
 	clean = strings.TrimPrefix(clean, "remote.php/webdav")
 	clean = strings.Trim(clean, "/")
+	if clean == "." {
+		return ""
+	}
 	return clean
+}
+
+// FileNodeIDForPath derives a deterministic JMAP ID from a WebDAV relative path.
+func FileNodeIDForPath(relPath string) jmapcore.Id {
+	clean := cleanRelPath(relPath)
+	if clean == "" {
+		return "fn-root"
+	}
+	return jmapcore.Id("fn-" + base64.RawURLEncoding.EncodeToString([]byte(clean)))
+}
+
+// PathForFileNodeID decodes a WebDAV relative path from a deterministic JMAP ID.
+func PathForFileNodeID(id jmapcore.Id) (string, error) {
+	s := string(id)
+	if s == "" || s == "root" || s == "fn-root" {
+		return "", nil
+	}
+	raw := strings.TrimPrefix(s, "fn-")
+	raw = strings.TrimRight(raw, "=")
+	data, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return "", fmt.Errorf("invalid file node id encoding: %w", err)
+	}
+	return cleanRelPath(string(data)), nil
+}
+
+func (b *FileNodeBackend) relPathForNodeLocked(u string, n *jmapfilenode.FileNode) string {
+	if n == nil {
+		return ""
+	}
+	if n.ParentID == nil || *n.ParentID == "" || *n.ParentID == "root" || *n.ParentID == "fn-root" {
+		return cleanRelPath(n.Name)
+	}
+	parent := b.nodesCache[u][*n.ParentID]
+	if parent != nil {
+		pRel := b.relPathForNodeLocked(u, parent)
+		if pRel != "" {
+			return path.Join(pRel, n.Name)
+		}
+		return cleanRelPath(n.Name)
+	}
+	if pRel, err := PathForFileNodeID(*n.ParentID); err == nil && pRel != "" {
+		return path.Join(pRel, n.Name)
+	}
+	return cleanRelPath(n.Name)
+}
+
+func (b *FileNodeBackend) trackMovedLocked(u string, oldID, newID jmapcore.Id) {
+	if oldID == "" || newID == "" || oldID == newID {
+		return
+	}
+	if b.movedIDs[u] == nil {
+		b.movedIDs[u] = make(map[jmapcore.Id]jmapcore.Id)
+	}
+	b.movedIDs[u][oldID] = newID
+}
+
+func (b *FileNodeBackend) resolveMovedIDLocked(u string, id jmapcore.Id) jmapcore.Id {
+	if b.movedIDs[u] != nil {
+		if target, ok := b.movedIDs[u][id]; ok && target != "" {
+			return target
+		}
+	}
+	return id
+}
+
+func (b *FileNodeBackend) pathForNodeIDLocked(u string, id jmapcore.Id) string {
+	resolved := b.resolveMovedIDLocked(u, id)
+	if n := b.nodesCache[u][resolved]; n != nil {
+		return b.relPathForNodeLocked(u, n)
+	}
+	p, _ := PathForFileNodeID(resolved)
+	return p
 }
 
 func mimeTypeForName(name string) string {
@@ -152,12 +226,6 @@ func mimeTypeForName(name string) string {
 func (b *FileNodeBackend) ensureMapsLocked(u string) {
 	if b.nodesCache[u] == nil {
 		b.nodesCache[u] = make(map[jmapcore.Id]*jmapfilenode.FileNode)
-	}
-	if b.pathToID[u] == nil {
-		b.pathToID[u] = make(map[string]jmapcore.Id)
-	}
-	if b.idToPath[u] == nil {
-		b.idToPath[u] = make(map[jmapcore.Id]string)
 	}
 }
 
@@ -203,13 +271,7 @@ func (b *FileNodeBackend) syncFromWebDAV(ctx context.Context, u string) error {
 			b.mu.Lock()
 			b.ensureMapsLocked(u)
 
-			nodeID, exists := b.pathToID[u][clean]
-			if !exists {
-				b.nextID++
-				nodeID = jmapcore.Id(fmt.Sprintf("fn-%d", b.nextID))
-				b.pathToID[u][clean] = nodeID
-				b.idToPath[u][nodeID] = clean
-			}
+			nodeID := FileNodeIDForPath(clean)
 
 			nowStr := fi.ModTime.Format(time.RFC3339)
 			if nowStr == "" {
@@ -292,9 +354,9 @@ func (b *FileNodeBackend) GetFileByBlobID(ctx context.Context, blobID string) (s
 		return "", "", nil, jmapcore.ErrNotFound
 	}
 
-	for id, n := range userCache {
+	for _, n := range userCache {
 		if !n.IsFolder && n.Type != "folder" && n.Type != "directory" && n.BlobID != nil && string(*n.BlobID) == blobID {
-			rel := b.idToPath[u][id]
+			rel := b.relPathForNodeLocked(u, n)
 			return rel, n.Type, nil, nil
 		}
 	}
@@ -325,16 +387,21 @@ func (b *FileNodeBackend) GetFileNodes(ctx context.Context, ids []jmapcore.Id) (
 	var notFound []jmapcore.Id
 
 	if len(ids) > 0 {
-		for _, id := range ids {
+		for _, rawID := range ids {
+			id := b.resolveMovedIDLocked(u, rawID)
 			if n, ok := userCache[id]; ok {
 				list = append(list, n)
 			} else {
-				notFound = append(notFound, id)
+				notFound = append(notFound, rawID)
 			}
 		}
 	} else {
+		seen := make(map[jmapcore.Id]bool)
 		for _, n := range userCache {
-			list = append(list, n)
+			if !seen[n.ID] {
+				seen[n.ID] = true
+				list = append(list, n)
+			}
 		}
 		sort.Slice(list, func(i, j int) bool {
 			return list[i].ID < list[j].ID
@@ -361,24 +428,22 @@ func (b *FileNodeBackend) CreateFileNode(ctx context.Context, node *jmapfilenode
 
 	b.mu.Lock()
 	b.ensureMapsLocked(u)
+	parentRel := ""
 	if node.ParentID != nil {
-		if _, ok := b.idToPath[u][*node.ParentID]; !ok {
+		parentRel = b.pathForNodeIDLocked(u, *node.ParentID)
+		if parentRel == "" && *node.ParentID != "root" && *node.ParentID != "fn-root" {
 			b.mu.Unlock()
 			return nil, fmt.Errorf("parent not found: %s", *node.ParentID)
 		}
 	}
-	if node.ID == "" {
-		b.nextID++
-		node.ID = jmapcore.Id(fmt.Sprintf("fn-%d", b.nextID))
-	}
-
-	parentRel := ""
-	if node.ParentID != nil {
-		parentRel = b.idToPath[u][*node.ParentID]
+	if parentRel != "" {
+		if stat, err := fs.Stat(ctx, parentRel); err != nil || !stat.IsDir {
+			b.mu.Unlock()
+			return nil, fmt.Errorf("parent not found: %s", *node.ParentID)
+		}
 	}
 	targetRel := path.Join(parentRel, node.Name)
-	b.pathToID[u][targetRel] = node.ID
-	b.idToPath[u][node.ID] = targetRel
+	node.ID = FileNodeIDForPath(targetRel)
 	bb := b.blobBackend
 	b.mu.Unlock()
 
@@ -397,10 +462,6 @@ func (b *FileNodeBackend) CreateFileNode(ctx context.Context, node *jmapfilenode
 		node.Size = 0
 
 		if stat, err := fs.Stat(ctx, targetRel); err == nil && !stat.IsDir {
-			b.mu.Lock()
-			delete(b.pathToID[u], targetRel)
-			delete(b.idToPath[u], node.ID)
-			b.mu.Unlock()
 			return nil, fmt.Errorf("cannot create folder %q: path is an existing file", targetRel)
 		}
 		_ = fs.Mkdir(ctx, targetRel)
@@ -411,10 +472,6 @@ func (b *FileNodeBackend) CreateFileNode(ctx context.Context, node *jmapfilenode
 		}
 
 		if stat, err := fs.Stat(ctx, targetRel); err == nil && stat.IsDir {
-			b.mu.Lock()
-			delete(b.pathToID[u], targetRel)
-			delete(b.idToPath[u], node.ID)
-			b.mu.Unlock()
 			return nil, fmt.Errorf("cannot create file %q: path is an existing folder", targetRel)
 		}
 
@@ -478,6 +535,7 @@ func (b *FileNodeBackend) UpdateFileNode(ctx context.Context, id jmapcore.Id, pa
 	if node == nil {
 		node = nodes[0]
 	}
+	oldRel := b.pathForNodeIDLocked(u, id)
 	oldName := node.Name
 	oldParent := node.ParentID
 
@@ -537,7 +595,6 @@ func (b *FileNodeBackend) UpdateFileNode(ctx context.Context, id jmapcore.Id, pa
 		}
 	}
 	node.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	oldRel := b.idToPath[u][id]
 	bb := b.blobBackend
 	b.mu.Unlock()
 
@@ -549,7 +606,7 @@ func (b *FileNodeBackend) UpdateFileNode(ctx context.Context, id jmapcore.Id, pa
 		b.mu.RLock()
 		newParentRel := ""
 		if node.ParentID != nil {
-			newParentRel = b.idToPath[u][*node.ParentID]
+			newParentRel = b.pathForNodeIDLocked(u, *node.ParentID)
 		}
 		newRel := path.Join(newParentRel, node.Name)
 		b.mu.RUnlock()
@@ -565,9 +622,14 @@ func (b *FileNodeBackend) UpdateFileNode(ctx context.Context, id jmapcore.Id, pa
 			}
 			_ = fs.Move(ctx, oldRel, newRel, nil)
 			b.mu.Lock()
-			delete(b.pathToID[u], oldRel)
-			b.pathToID[u][newRel] = id
-			b.idToPath[u][id] = newRel
+			newDeterministicID := FileNodeIDForPath(newRel)
+			oldDeterministicID := FileNodeIDForPath(oldRel)
+			delete(b.nodesCache[u], id)
+			delete(b.nodesCache[u], oldDeterministicID)
+			node.ID = newDeterministicID
+			b.nodesCache[u][newDeterministicID] = node
+			b.trackMovedLocked(u, id, newDeterministicID)
+			b.trackMovedLocked(u, oldDeterministicID, newDeterministicID)
 			b.mu.Unlock()
 		}
 	}
@@ -575,7 +637,7 @@ func (b *FileNodeBackend) UpdateFileNode(ctx context.Context, id jmapcore.Id, pa
 	// Update blob content on WebDAV if blobId was patched
 	if _, blobPatched := patch["blobId"]; blobPatched && node.BlobID != nil && !node.IsFolder {
 		b.mu.RLock()
-		currentRel := b.idToPath[u][id]
+		currentRel := b.pathForNodeIDLocked(u, node.ID)
 		b.mu.RUnlock()
 		if fs, _, err := b.client.WebDAV(ctx); err == nil && bb != nil && currentRel != "" {
 			if blob, found, _ := bb.GetBlob(ctx, u, string(*node.BlobID)); found && blob != nil {
@@ -589,7 +651,7 @@ func (b *FileNodeBackend) UpdateFileNode(ctx context.Context, id jmapcore.Id, pa
 	}
 
 	b.mu.Lock()
-	b.nodesCache[u][id] = node
+	b.nodesCache[u][node.ID] = node
 	st := b.getNodeTracker(u).Record(id, "update")
 	b.mu.Unlock()
 
@@ -597,14 +659,17 @@ func (b *FileNodeBackend) UpdateFileNode(ctx context.Context, id jmapcore.Id, pa
 	return node, nil
 }
 
-func (b *FileNodeBackend) DeleteFileNode(ctx context.Context, id jmapcore.Id) (bool, error) {
-	if id == "" {
+func (b *FileNodeBackend) DeleteFileNode(ctx context.Context, rawID jmapcore.Id) (bool, error) {
+	if rawID == "" {
 		return false, nil
 	}
 	u := b.user(ctx)
 	if u == "" {
 		return false, ErrForbidden
 	}
+	b.mu.RLock()
+	id := b.resolveMovedIDLocked(u, rawID)
+	b.mu.RUnlock()
 	nodes, notFound, err := b.GetFileNodes(ctx, []jmapcore.Id{id})
 	if err != nil {
 		return false, err
@@ -619,7 +684,7 @@ func (b *FileNodeBackend) DeleteFileNode(ctx context.Context, id jmapcore.Id) (b
 	}
 
 	b.mu.RLock()
-	targetRel := b.idToPath[u][id]
+	targetRel := b.pathForNodeIDLocked(u, id)
 	b.mu.RUnlock()
 
 	if targetRel == "" {
@@ -631,14 +696,15 @@ func (b *FileNodeBackend) DeleteFileNode(ctx context.Context, id jmapcore.Id) (b
 	b.mu.Lock()
 	if b.nodesCache[u] != nil {
 		delete(b.nodesCache[u], id)
+		delete(b.nodesCache[u], rawID)
+		targetID := FileNodeIDForPath(targetRel)
+		delete(b.nodesCache[u], targetID)
 	}
-	if b.pathToID[u] != nil {
-		delete(b.pathToID[u], targetRel)
+	if b.movedIDs[u] != nil {
+		delete(b.movedIDs[u], id)
+		delete(b.movedIDs[u], rawID)
 	}
-	if b.idToPath[u] != nil {
-		delete(b.idToPath[u], id)
-	}
-	st := b.getNodeTracker(u).Record(id, "destroy")
+	st := b.getNodeTracker(u).Record(rawID, "destroy")
 	b.mu.Unlock()
 
 	b.emitStateChange(u, "FileNode", st)
