@@ -145,8 +145,11 @@ Per `AGENTS.md` §1 ("Stateless Proxy & Zero Local Filesystem Sync"), the proxy 
   - Deleted the local counter and authoritative path/ID maps.
   - Handled moves/renames via WebDAV `fs.Move` and deterministic target ID, maintaining non-authoritative same-process redirection for client references.
   - Verified across fresh backend instances via `TestFileNodeDeterministicIDsAcrossInstances`.
-- [ ] **4.4 Deterministic SieveScript ids** (`managesieve/backend.go`)
-  - Use the script name (or a stable hash of it) as the id; drop `nameToID`/`idToName`/`idCounter`.
+- [x] **4.4 Deterministic SieveScript ids** (`managesieve/backend.go`)
+  - Replaced `nameToID`/`idToName`/`idCounter` with deterministic IDs derived from the script name using `SieveScriptIDForName` and `NameForSieveScriptID` (with base64url encoding per RFC 9661 §2.1 and RFC 8620 §1.2).
+  - Dropped local ID counter and authoritative ID/name state.
+  - Handled script renames with non-authoritative same-process move redirection for continuity.
+  - Verified across independent fresh backend instances via `TestSieveScriptDeterministicIDsAcrossInstances`.
 - [ ] **4.5 IMAP mailbox state** (`imapsmtp/backend.go`)
   - Derive/apply `isSubscribed` via `SUBSCRIBE`/`LSUB`; move `sortOrder`/parent/identity metadata to IMAP METADATA or the extension store; rely on IMAP `RENAME` for moves.
 - [ ] **4.6 JMAP extension store** (new `jmap/*` + `imapsmtp`/`nextcloud` adapters)

@@ -2,6 +2,7 @@ package managesieve
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"sort"
 	"strings"
@@ -22,9 +23,7 @@ type Backend struct {
 	trackersMu  sync.Mutex
 	trackers    map[string]*jmappush.ChangeTracker
 	broadcaster *jmappush.Broadcaster
-	nameToID    map[string]map[string]jmapcore.Id // user -> scriptName -> jmapcore.Id
-	idToName    map[string]map[jmapcore.Id]string // user -> jmapcore.Id -> scriptName
-	idCounter   uint64
+	movedIDs    map[string]map[jmapcore.Id]jmapcore.Id // user -> oldID -> newID (transient redirection)
 }
 
 var _ jmapsieve.SieveBackend = (*Backend)(nil)
@@ -34,8 +33,7 @@ func NewBackend(addr string) *Backend {
 	return &Backend{
 		addr:     addr,
 		trackers: make(map[string]*jmappush.ChangeTracker),
-		nameToID: make(map[string]map[string]jmapcore.Id),
-		idToName: make(map[string]map[jmapcore.Id]string),
+		movedIDs: make(map[string]map[jmapcore.Id]jmapcore.Id),
 	}
 }
 
@@ -109,44 +107,42 @@ func (b *Backend) dial(ctx context.Context) (*Client, string, error) {
 	return c, user, nil
 }
 
-func (b *Backend) idForName(u, name string) jmapcore.Id {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.nameToID[u] == nil {
-		b.nameToID[u] = make(map[string]jmapcore.Id)
-		b.idToName[u] = make(map[jmapcore.Id]string)
+// SieveScriptIDForName returns the deterministic JMAP Id for a Sieve script name.
+// Per RFC 9661 §2.1 and RFC 8620 §1.2, IDs must be valid URL and Filename Safe Base64 strings.
+func SieveScriptIDForName(name string) jmapcore.Id {
+	return jmapcore.Id("s-" + base64.RawURLEncoding.EncodeToString([]byte(name)))
+}
+
+// NameForSieveScriptID decodes the Sieve script name from a deterministic JMAP Id.
+// If the ID is not formatted as "s-<base64>", it falls back to the ID string itself.
+func NameForSieveScriptID(id jmapcore.Id) string {
+	s := string(id)
+	if strings.HasPrefix(s, "s-") {
+		if decoded, err := base64.RawURLEncoding.DecodeString(s[2:]); err == nil {
+			return string(decoded)
+		}
 	}
-	if id, exists := b.nameToID[u][name]; exists {
-		return id
+	return s
+}
+
+func (b *Backend) resolveID(u string, id jmapcore.Id) jmapcore.Id {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if userMoved, ok := b.movedIDs[u]; ok {
+		if target, moved := userMoved[id]; moved {
+			return target
+		}
 	}
-	b.idCounter++
-	id := jmapcore.Id(fmt.Sprintf("sieve-%d", b.idCounter))
-	b.nameToID[u][name] = id
-	b.idToName[u][id] = name
 	return id
 }
 
-func (b *Backend) nameForID(u string, id jmapcore.Id) string {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	if b.idToName[u] != nil {
-		if name, exists := b.idToName[u][id]; exists {
-			return name
-		}
-	}
-	// Fallback to id as string
-	return string(id)
-}
-
-func (b *Backend) registerID(u, name string, id jmapcore.Id) {
+func (b *Backend) recordMove(u string, oldID, newID jmapcore.Id) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.nameToID[u] == nil {
-		b.nameToID[u] = make(map[string]jmapcore.Id)
-		b.idToName[u] = make(map[jmapcore.Id]string)
+	if b.movedIDs[u] == nil {
+		b.movedIDs[u] = make(map[jmapcore.Id]jmapcore.Id)
 	}
-	b.nameToID[u][name] = id
-	b.idToName[u][id] = name
+	b.movedIDs[u][oldID] = newID
 }
 
 // SieveScriptState returns the current state token for the user.
@@ -195,7 +191,7 @@ func (b *Backend) GetSieveScripts(ctx context.Context, ids []jmapcore.Id) ([]*jm
 		var list []*jmapsieve.SieveScript
 		for _, info := range infos {
 			content, _ := c.GetScript(info.Name)
-			id := b.idForName(user, info.Name)
+			id := SieveScriptIDForName(info.Name)
 			list = append(list, &jmapsieve.SieveScript{
 				ID:       id,
 				Name:     info.Name,
@@ -210,29 +206,35 @@ func (b *Backend) GetSieveScripts(ctx context.Context, ids []jmapcore.Id) ([]*jm
 	var list []*jmapsieve.SieveScript
 	var notFound []jmapcore.Id
 
-	for _, id := range ids {
-		name := b.nameForID(user, id)
+	for _, rawID := range ids {
+		resolvedID := b.resolveID(user, rawID)
+		name := NameForSieveScriptID(resolvedID)
 		info, exists := infoMap[name]
 		if !exists {
-			// Try matching by id directly as name
-			info, exists = infoMap[string(id)]
+			// Try matching by resolvedID or rawID directly as name
+			info, exists = infoMap[string(resolvedID)]
 			if exists {
-				name = string(id)
+				name = string(resolvedID)
+			} else {
+				info, exists = infoMap[string(rawID)]
+				if exists {
+					name = string(rawID)
+				}
 			}
 		}
 		if !exists {
-			notFound = append(notFound, id)
+			notFound = append(notFound, rawID)
 			continue
 		}
 
 		content, gErr := c.GetScript(name)
 		if gErr != nil {
-			notFound = append(notFound, id)
+			notFound = append(notFound, rawID)
 			continue
 		}
 
 		list = append(list, &jmapsieve.SieveScript{
-			ID:       id,
+			ID:       SieveScriptIDForName(name),
 			Name:     name,
 			Content:  content,
 			IsActive: info.Active,
@@ -267,11 +269,11 @@ func (b *Backend) CreateSieveScript(ctx context.Context, script *jmapsieve.Sieve
 	defer c.Close()
 
 	name := script.Name
-	if name == "" {
-		name = string(script.ID)
+	if name == "" && script.ID != "" {
+		name = NameForSieveScriptID(script.ID)
 	}
 	if name == "" {
-		name = fmt.Sprintf("script-%d", b.idCounter+1)
+		name = "default"
 	}
 
 	if err := c.PutScript(name, script.Content); err != nil {
@@ -284,11 +286,7 @@ func (b *Backend) CreateSieveScript(ctx context.Context, script *jmapsieve.Sieve
 		}
 	}
 
-	if script.ID == "" {
-		script.ID = b.idForName(user, name)
-	} else {
-		b.registerID(user, name, script.ID)
-	}
+	script.ID = SieveScriptIDForName(name)
 	script.Name = name
 
 	st := b.getTracker(user).Record(script.ID, "create")
@@ -305,8 +303,18 @@ func (b *Backend) UpdateSieveScript(ctx context.Context, id jmapcore.Id, patch m
 	}
 	defer c.Close()
 
-	oldName := b.nameForID(user, id)
+	resolvedID := b.resolveID(user, id)
+	oldName := NameForSieveScriptID(resolvedID)
 	content, err := c.GetScript(oldName)
+	if err != nil {
+		if string(resolvedID) != oldName {
+			if c2, err2 := c.GetScript(string(resolvedID)); err2 == nil {
+				oldName = string(resolvedID)
+				content = c2
+				err = nil
+			}
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("sieve script %s: %w", id, jmapcore.ErrNotFound)
 	}
@@ -324,12 +332,29 @@ func (b *Backend) UpdateSieveScript(ctx context.Context, id jmapcore.Id, patch m
 		content = cPatch
 	}
 
+	newID := SieveScriptIDForName(newName)
+
 	if newName != oldName {
+		wasActive := false
+		infos, _ := c.ListScripts()
+		for _, inf := range infos {
+			if inf.Name == oldName && inf.Active {
+				wasActive = true
+				break
+			}
+		}
+
 		if err := c.PutScript(newName, content); err != nil {
 			return nil, err
 		}
+		if wasActive {
+			_ = c.SetActive(newName)
+		}
 		_ = c.DeleteScript(oldName)
-		b.registerID(user, newName, id)
+		b.recordMove(user, id, newID)
+		if resolvedID != id {
+			b.recordMove(user, resolvedID, newID)
+		}
 	} else if _, ok := patch["content"]; ok {
 		if err := c.PutScript(newName, content); err != nil {
 			return nil, err
@@ -357,11 +382,11 @@ func (b *Backend) UpdateSieveScript(ctx context.Context, id jmapcore.Id, patch m
 		}
 	}
 
-	st := b.getTracker(user).Record(id, "update")
+	st := b.getTracker(user).Record(newID, "update")
 	b.emitStateChange(user, st)
 
 	return &jmapsieve.SieveScript{
-		ID:       id,
+		ID:       newID,
 		Name:     newName,
 		Content:  content,
 		IsActive: isActive,
@@ -377,14 +402,24 @@ func (b *Backend) DeleteSieveScript(ctx context.Context, id jmapcore.Id) (bool, 
 	}
 	defer c.Close()
 
-	name := b.nameForID(user, id)
+	resolvedID := b.resolveID(user, id)
+	name := NameForSieveScriptID(resolvedID)
+
 	// If active, deactivate first per RFC 5804 rule that active script cannot be deleted directly
 	infos, _ := c.ListScripts()
+	var found bool
 	for _, inf := range infos {
-		if inf.Name == name && inf.Active {
-			_ = c.SetActive("")
+		if inf.Name == name || inf.Name == string(resolvedID) {
+			name = inf.Name
+			found = true
+			if inf.Active {
+				_ = c.SetActive("")
+			}
 			break
 		}
+	}
+	if !found {
+		return false, nil
 	}
 
 	if err := c.DeleteScript(name); err != nil {
