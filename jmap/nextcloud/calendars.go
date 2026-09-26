@@ -257,13 +257,63 @@ func (b *CalendarsBackend) CanAccessSharedAccount(principalAccountID, targetAcco
 	return false, known
 }
 
-// CalendarState
+// CalendarState returns a content-addressed state for the account's calendars:
+// the set of resolved Calendar objects and their fingerprints. It is stateless
+// (the client carries the vector) and stable across process restarts, unlike the
+// in-memory change tracker, which is retained only as a fallback for legacy
+// state strings.
 func (b *CalendarsBackend) CalendarState(ctx context.Context) string {
-	return b.getCalTracker(b.user(ctx)).State()
+	u := b.user(ctx)
+	cals, _, err := b.GetCalendars(ctx, nil)
+	if err != nil {
+		return b.getCalTracker(u).State()
+	}
+	return encodeCalendarState(calendarStateMap(cals))
 }
 
 func (b *CalendarsBackend) CalendarChanges(ctx context.Context, sinceState string) (created, updated, destroyed []jmapcore.Id, newState string, hasMoreChanges bool) {
-	return b.getCalTracker(b.user(ctx)).Changes(sinceState)
+	u := b.user(ctx)
+	if !strings.HasPrefix(sinceState, "cal-v1:") {
+		return b.getCalTracker(u).Changes(sinceState)
+	}
+	old, err := decodeCalendarState(sinceState)
+	if err != nil {
+		return nil, nil, nil, "", false
+	}
+	cals, _, err := b.GetCalendars(ctx, nil)
+	if err != nil {
+		return nil, nil, nil, "", false
+	}
+	cur := calendarStateMap(cals)
+	newState = encodeCalendarState(cur)
+
+	for idStr, fp := range cur {
+		id := jmapcore.Id(idStr)
+		oldFp, ok := old[idStr]
+		if !ok {
+			created = append(created, id)
+		} else if oldFp != fp {
+			updated = append(updated, id)
+		}
+	}
+	for idStr := range old {
+		if _, ok := cur[idStr]; !ok {
+			destroyed = append(destroyed, jmapcore.Id(idStr))
+		}
+	}
+	sort.Slice(created, func(i, j int) bool { return created[i] < created[j] })
+	sort.Slice(updated, func(i, j int) bool { return updated[i] < updated[j] })
+	sort.Slice(destroyed, func(i, j int) bool { return destroyed[i] < destroyed[j] })
+	if created == nil {
+		created = []jmapcore.Id{}
+	}
+	if updated == nil {
+		updated = []jmapcore.Id{}
+	}
+	if destroyed == nil {
+		destroyed = []jmapcore.Id{}
+	}
+	return created, updated, destroyed, newState, false
 }
 
 func (b *CalendarsBackend) GetAllCalendars(ctx context.Context) ([]*jmapcalendar.Calendar, error) {
@@ -553,15 +603,14 @@ func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmapcore.Id) 
 	b.calsFingerprint[u] = newFp
 	b.cache.SetCals(u, list)
 	needEmit := false
-	var st string
 	if oldFp != "" && oldFp != newFp {
-		st = b.getCalTracker(u).Record("external-sync", "update")
+		b.getCalTracker(u).Record("external-sync", "update")
 		needEmit = true
 	}
 	b.mu.Unlock()
 
 	if needEmit {
-		b.emitStateChange(u, "Calendar", st)
+		b.emitStateChange(u, "Calendar", encodeCalendarState(calendarStateMap(list)))
 	}
 
 	callerUser := ""
@@ -642,10 +691,13 @@ func (b *CalendarsBackend) CreateCalendar(ctx context.Context, cal *jmapcalendar
 	calCopy := *cal
 	b.calProps[u][cal.ID] = &calCopy
 	b.cache.AppendCal(u, cal)
-	st := b.getCalTracker(u).Record(cal.ID, "create")
+	b.getCalTracker(u).Record(cal.ID, "create")
 	b.mu.Unlock()
 
-	b.emitStateChange(u, "Calendar", st)
+	// Recompute the calendar state (and emit a StateChange) from the refreshed
+	// list rather than the in-memory tracker, so the pushed state matches
+	// Calendar/get and Calendar/changes.
+	_, _, _ = b.GetCalendars(ctx, nil)
 	return cal, nil
 }
 
@@ -782,7 +834,7 @@ func (b *CalendarsBackend) UpdateCalendar(ctx context.Context, id jmapcore.Id, p
 	}
 
 	b.cache.ClearCals(u)
-	st := b.getCalTracker(u).Record(id, "update")
+	b.getCalTracker(u).Record(id, "update")
 
 	var shareNotifs []struct {
 		user  string
@@ -820,7 +872,6 @@ func (b *CalendarsBackend) UpdateCalendar(ctx context.Context, id jmapcore.Id, p
 	}
 	b.mu.Unlock()
 
-	b.emitStateChange(u, "Calendar", st)
 	for _, sn := range shareNotifs {
 		b.emitStateChange(sn.user, "ShareNotification", sn.state)
 	}
@@ -854,10 +905,12 @@ func (b *CalendarsBackend) DeleteCalendar(ctx context.Context, id jmapcore.Id) (
 
 	b.cache.DeleteCal(u, id)
 	b.mu.Lock()
-	st := b.getCalTracker(u).Record(id, "destroy")
+	b.getCalTracker(u).Record(id, "destroy")
 	b.mu.Unlock()
 
-	b.emitStateChange(u, "Calendar", st)
+	// Recompute the calendar state (and emit a StateChange) from the refreshed
+	// list rather than the in-memory tracker.
+	_, _, _ = b.GetCalendars(ctx, nil)
 	return true, nil
 }
 
@@ -955,6 +1008,66 @@ func decodeSyncState(state string) (map[string]syncToken, error) {
 		return tokens, nil
 	}
 	return nil, errors.New("not a sync state")
+}
+
+// calendarStateFingerprint hashes the externally visible state of a resolved
+// Calendar object (metadata + membership). Calendar objects do not change when
+// their events change, so this is sufficient to detect Calendar/changes, and it
+// captures proxy-local metadata (colour, time zone, sharing, ...) that CalDAV
+// CTags do not.
+func calendarStateFingerprint(c *jmapcalendar.Calendar) string {
+	if c == nil {
+		return ""
+	}
+	data, err := json.Marshal(c)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func calendarStateMap(cals []*jmapcalendar.Calendar) map[string]string {
+	fps := make(map[string]string, len(cals))
+	for _, c := range cals {
+		if c != nil {
+			fps[string(c.ID)] = calendarStateFingerprint(c)
+		}
+	}
+	return fps
+}
+
+// encodeCalendarState serializes a content-addressed calendar state vector. The
+// encoding is canonical (encoding/json sorts map keys), so the same set of
+// calendars always yields the same opaque JMAP state string, across restarts.
+func encodeCalendarState(fps map[string]string) string {
+	if len(fps) == 0 {
+		return "cal-v1:empty"
+	}
+	data, err := json.Marshal(fps)
+	if err != nil {
+		return "cal-v1:empty"
+	}
+	return "cal-v1:" + base64.RawURLEncoding.EncodeToString(data)
+}
+
+func decodeCalendarState(state string) (map[string]string, error) {
+	if !strings.HasPrefix(state, "cal-v1:") {
+		return nil, errors.New("not a cal-v1 state")
+	}
+	raw := strings.TrimPrefix(state, "cal-v1:")
+	if raw == "empty" || raw == "" {
+		return make(map[string]string), nil
+	}
+	data, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return nil, err
+	}
+	var fps map[string]string
+	if err := json.Unmarshal(data, &fps); err != nil {
+		return nil, err
+	}
+	return fps, nil
 }
 
 // syncTokensFromStatuses builds the canonical state vector for a set of

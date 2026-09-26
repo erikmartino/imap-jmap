@@ -78,13 +78,15 @@ Make every `state`/`sinceState` a pure, reversible function of upstream CalDAV (
 - [x] **3.2 Correct `/changes` fallback when only a CTag/ETag is available**
   - `CalendarEventChanges` only replays `sync-token` values; a changed CTag-only collection fails closed (empty `newState` → `cannotCalculateChanges`) instead of issuing a doomed `sync-collection` REPORT.
   - New calendars are still enumerated from body-less ETags (`ListCalendarObjectETags`); malformed/legacy states surface as `cannotCalculateChanges` (handler maps empty `newState` at `jmap/jmapcalendar/calendar_event_handlers.go:227`).
-- [ ] **3.3 Convert `Calendar` collection state to the upstream token vector**
-  - Reimplement `CalendarState`/`CalendarChanges` (`calendars.go:261-267`) from the home-set PROPFIND CTags/sync-tokens (`getCalendarCollections`, `client.go:766-912`): added/removed calendar ids → `created`/`destroyed`, CTag change → `updated`.
-  - Caveat: a CalDAV CTag may not bump for metadata-only changes, so retain the tracker as the authoritative source for JMAP-local `Calendar` metadata edits and use the token vector only for membership/collection-content detection; demote `getCalTracker` accordingly.
-- [ ] **3.4 Guard invariants**
-  - Never derive `state` from a windowed/partial fetch (already enforced at `calendars.go:1343-1347`; add regression coverage).
-  - Keep `state` scoped per user/account so a multi-account request cannot reuse another account's token vector.
+- [x] **3.3 Convert `Calendar` collection state to a content-addressed vector**
+  - `CalendarState`/`CalendarChanges` now fingerprint the resolved Calendar objects (`cal-v1:` + canonical JSON of `{calID: sha256(calendar)}`); added/removed ids → `created`/`destroyed`, fingerprint change → `updated`. Calendar mutations and `GetCalendars` emit the same content-addressed state, so pushed states match `Calendar/get` and remain usable as `ifInState`/`sinceState` across restarts (the in-memory tracker is now only a fallback for legacy state strings).
+  - Caveat: proxy-local Calendar metadata (colour, availability, alerts) is held in memory, so after a process restart the visible Calendar genuinely changes and its fingerprint changes with it (correct) until standard properties are upstream-derived.
+- [x] **3.4 Guard invariants**
+  - Never derive `state` from a windowed/partial fetch: `TestCalendarEventStateUnaffectedByWindowedFetch`.
+  - Keep `state` scoped per user/account: `TestCalendarEventStateUserIsolation`.
   - Keep `queryState` unmapped (no CalDAV query cursor): local tracker / `cannotCalculateChanges` only.
+- [ ] **3.7 Upstream-derive standard Calendar properties**
+  - Request `calendar-color` / `calendar-order` (and supported-calendar-component-set) in `getCalendarCollections` so the resolved Calendar is upstream-derived, reducing the proxy-local metadata that makes Calendar state restart-sensitive.
 - [x] **3.5 Hermetic tests (embedded Nextcloud backend)**
   - `jmap/nextcloud/state_handling_test.go`: v2 round-trip determinism + `sync-v1:` decode, malformed/unknown state → `cannotCalculateChanges`, empty vector, kind selection.
   - `CalendarEvent/changes` lifecycle (create/update/destroy), calculable from every previously returned state, multi-calendar deltas, membership add (ETag discovery), membership remove (fail closed), CTag-only changed (fail closed) / unchanged (no-op), tracker fallback, and cross-account isolation.

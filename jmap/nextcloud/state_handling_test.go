@@ -479,7 +479,133 @@ func TestCalendarEventStateUnaffectedByWindowedFetch(t *testing.T) {
 	}
 }
 
-// --- Calendar collection state (in-memory tracker path) ----------------------
+// --- Calendar collection state (content-addressed) ---------------------------
+
+func TestCalendarStateIsContentAddressed(t *testing.T) {
+	client, be, _, _, _, cleanup := NewEmbeddedBackend("user@example.com")
+	defer cleanup()
+	ctx := stateTestCtx("user@example.com")
+
+	s1 := be.CalendarState(ctx)
+	if !strings.HasPrefix(s1, "cal-v1:") {
+		t.Fatalf("expected cal-v1 state, got %q", s1)
+	}
+	if s2 := be.CalendarState(ctx); s2 != s1 {
+		t.Errorf("CalendarState not deterministic: %q vs %q", s1, s2)
+	}
+	// For calendars with no proxy-local metadata overrides, the state is derived
+	// entirely from upstream data, so a fresh backend over the same store
+	// (simulating a process restart) yields the identical state.
+	be2 := NewCalendarsBackend(client)
+	if s3 := be2.CalendarState(ctx); s3 != s1 {
+		t.Errorf("CalendarState is not stable across instances: %q vs %q", s1, s3)
+	}
+	// A created calendar's membership is content-addressed and survives a new
+	// backend; only proxy-local metadata overrides (kept in memory) can differ.
+	if _, err := be.CreateCalendar(ctx, &jmapcalendar.Calendar{Name: "Content Addressed"}); err != nil {
+		t.Fatalf("CreateCalendar: %v", err)
+	}
+	s4 := be.CalendarState(ctx)
+	be3 := NewCalendarsBackend(client)
+	if s5 := be3.CalendarState(ctx); s5 == s1 {
+		t.Errorf("a new calendar must appear in the state vector")
+	}
+	created, _, _, _, _ := be.CalendarChanges(ctx, s1)
+	if len(created) != 1 {
+		t.Errorf("expected the new calendar in Calendar/changes created, got %v", created)
+	}
+	_ = s4
+}
+
+// TestCalendarStateUnaffectedByEventChanges guards the design: Calendar objects
+// do not change when events are added, so Calendar state must not change.
+func TestCalendarStateUnaffectedByEventChanges(t *testing.T) {
+	be, ctx, cleanup := newStateTestBackend(t, "user@example.com")
+	defer cleanup()
+
+	cals, _ := be.GetAllCalendars(ctx)
+	before := be.CalendarState(ctx)
+	if _, err := be.CreateCalendarEvent(ctx, &jmapcalendar.CalendarEvent{
+		Title:       "Does not affect Calendar",
+		Start:       "2027-08-08T10:00:00Z",
+		Duration:    "PT30M",
+		CalendarIDs: map[jmapcore.Id]bool{cals[0].ID: true},
+	}); err != nil {
+		t.Fatalf("CreateCalendarEvent: %v", err)
+	}
+	if after := be.CalendarState(ctx); after != before {
+		t.Errorf("adding an event must not change Calendar state: %q -> %q", before, after)
+	}
+}
+
+func TestCalendarStateChangesMetadata(t *testing.T) {
+	be, ctx, cleanup := newStateTestBackend(t, "user@example.com")
+	defer cleanup()
+
+	cals, _ := be.GetAllCalendars(ctx)
+	id := cals[0].ID
+	s0 := be.CalendarState(ctx)
+
+	if _, err := be.UpdateCalendar(ctx, id, map[string]any{"color": "#ff0000"}); err != nil {
+		t.Fatalf("UpdateCalendar: %v", err)
+	}
+	s1 := be.CalendarState(ctx)
+	if s1 == s0 {
+		t.Fatalf("metadata change must change Calendar state")
+	}
+	created, updated, destroyed, newState, hasMore := be.CalendarChanges(ctx, s0)
+	if hasMore {
+		t.Errorf("hasMore should be false")
+	}
+	if !idsContain(updated, id) || len(created) != 0 || len(destroyed) != 0 {
+		t.Errorf("metadata delta = created=%v updated=%v destroyed=%v", created, updated, destroyed)
+	}
+	if newState != s1 {
+		t.Errorf("newState %q != CalendarState %q", newState, s1)
+	}
+}
+
+func TestCalendarStateChangesAnyPriorState(t *testing.T) {
+	be, ctx, cleanup := newStateTestBackend(t, "user@example.com")
+	defer cleanup()
+
+	states := []string{be.CalendarState(ctx)}
+	var ids []jmapcore.Id
+	for i := 0; i < 3; i++ {
+		cal, err := be.CreateCalendar(ctx, &jmapcalendar.Calendar{Name: "Prior Cal"})
+		if err != nil {
+			t.Fatalf("CreateCalendar: %v", err)
+		}
+		ids = append(ids, cal.ID)
+		states = append(states, be.CalendarState(ctx))
+	}
+	for i, from := range states {
+		created, _, _, newState, _ := be.CalendarChanges(ctx, from)
+		if newState != states[len(states)-1] {
+			t.Errorf("state[%d]: newState=%q want %q", i, newState, states[len(states)-1])
+		}
+		for j := i; j < len(ids); j++ {
+			if !idsContain(created, ids[j]) {
+				t.Errorf("state[%d]: expected %s in created, got %v", i, ids[j], created)
+			}
+		}
+	}
+}
+
+func TestCalendarStateMalformedAndLegacy(t *testing.T) {
+	be, ctx, cleanup := newStateTestBackend(t, "user@example.com")
+	defer cleanup()
+
+	if _, _, _, newState, _ := be.CalendarChanges(ctx, "cal-v1:!!!not-base64!!!"); newState != "" {
+		t.Errorf("malformed cal-v1 state should fail closed, got %q", newState)
+	}
+	// A non-cal-v1 state is delegated to the in-memory tracker fallback.
+	if _, _, _, newState, _ := be.CalendarChanges(ctx, "~0"); newState == "" {
+		t.Errorf("legacy tracker state should fall back, got empty newState")
+	}
+}
+
+// --- Calendar collection state lifecycle -------------------------------------
 
 func TestCalendarStateChangesLifecycle(t *testing.T) {
 	be, ctx, cleanup := newStateTestBackend(t, "user@example.com")
