@@ -68,6 +68,8 @@ Close the `SHOULD`/`SHOULD NOT` gaps in the generated core and mail matrices.
 - [ ] **2.4 RFC 8621 remaining SHOULDs**: search semantics, preview truncation, changes ordering, `Email/import` over-quota, submission RCPT/DATA stage reporting, and client-only clauses.
   - [x] Search: quoted **phrase search** (double-quoted sequences with `\` escapes), **case-insensitive** matching, and **whitespace tokenisation** (`searchTerms`/`containsAllTerms`, `jmap/jmapmail/query.go`); `spectest` citations + matrix entries added.
   - [x] Search: **RFC 2047** header decoding (parsed/decoded fields feed the index) and **HTML markup ignored** with `alt`/`title` considered, by extracting user-visible text with `golang.org/x/net/html` (`htmlSearchText`); matrix entries added.
+  - [x] Preview truncation: `maxBodyValueBytes` backs the cut off to the opening `<` of an unterminated HTML tag (`ApplyMaxBodyValueBytes`); matrix entry added.
+  - [x] `Email/import` **over-quota** rejection with `overQuota` (storage and message-count limits); matrix entry added.
 
 ---
 

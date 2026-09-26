@@ -339,6 +339,14 @@ func ApplyMaxBodyValueBytes(bv EmailBodyValue, maxBytes uint64) EmailBodyValue {
 	for len(b) > 0 && !utf8.Valid(b) {
 		b = b[:len(b)-1]
 	}
+	// RFC 8621 Section 4.2: the truncation MUST result in valid UTF-8 and, for a
+	// text/html part, SHOULD NOT occur inside an HTML tag (e.g. in the middle of
+	// `<a href="...">`). If the cut leaves an unterminated tag, back off to its
+	// opening `<`.
+	s := string(b)
+	if open := strings.LastIndexByte(s, '<'); open >= 0 && !strings.ContainsRune(s[open:], '>') {
+		b = b[:open]
+	}
 	return EmailBodyValue{
 		Value:             string(b),
 		IsTruncated:       true,

@@ -18,7 +18,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [jscontact](#jscontact) | RFC9553, RFC9554, RFC9555 | 6 | 0 | 0 | 6 | 100.0% |
 | [smtp](#smtp) | RFC4954, RFC5228, RFC5232, RFC5321, RFC5429, RFC5546, RFC6047, RFC6376, RFC6409, RFC7208, RFC7489, RFC8601 | 46 | 0 | 0 | 46 | 100.0% |
 | [rfc8620-core](#rfc8620-core) | RFC8620 | 188 | 206 | 0 | 394 | 47.7% |
-| [rfc8621-mail](#rfc8621-mail) | RFC8621 | 156 | 262 | 0 | 418 | 37.3% |
+| [rfc8621-mail](#rfc8621-mail) | RFC8621 | 158 | 260 | 0 | 418 | 37.8% |
 | [rfc8887-websockets](#rfc8887-websockets) | RFC8887 | 0 | 40 | 0 | 40 | 0.0% |
 | [rfc9007-mdn](#rfc9007-mdn) | RFC9007 | 0 | 24 | 0 | 24 | 0.0% |
 | [rfc9219-smime](#rfc9219-smime) | RFC9219 | 0 | 24 | 0 | 24 | 0.0% |
@@ -29,7 +29,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [rfc9670-sharing](#rfc9670-sharing) | RFC9670 | 0 | 76 | 0 | 76 | 0.0% |
 | [rfc9698-jmapaccess](#rfc9698-jmapaccess) | RFC9698 | 0 | 14 | 0 | 14 | 0.0% |
 | [rfc9749-vapid](#rfc9749-vapid) | RFC9749 | 0 | 24 | 0 | 24 | 0.0% |
-| **Total** | | **511** | **881** | **0** | **1392** | **36.7%** |
+| **Total** | | **513** | **879** | **0** | **1392** | **36.9%** |
 
 ---
 
@@ -667,7 +667,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 ## rfc8621-mail
 
 * **Test Suite Directory**: [`jmap/`](../jmap/)
-* **Conformance**: 156 / 418 (37.3%)
+* **Conformance**: 158 / 418 (37.8%)
 
 | Spec | Section | Level | Requirement | Status | Tests | Note |
 | :--- | :---: | :---: | :--- | :---: | :--- | :--- |
@@ -846,7 +846,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8621 | [4.1.4](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.1.4) | `MUST` | // Must be one of the allowed body types | ✅ Covered | `TestRFC8621_Section4_EmailPropertiesAndGet` | Extracted by specextract from RFC8621 §4.1.4 [p16] |
 | RFC8621 | [4.2](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.2) | `MUST` | object returned in "bodyValues" MUST be truncated if necessary so | ✅ Covered | `TestRFC8621_Section4_EmailPropertiesAndGet` | Extracted by specextract from RFC8621 §4.2 [p1] |
 | RFC8621 | [4.2](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.2) | `MUST` | The server MUST ensure the truncation results in valid UTF-8 and | ✅ Covered | `TestRFC8621_Section4_EmailPropertiesAndGet` | Extracted by specextract from RFC8621 §4.2 [p2] |
-| RFC8621 | [4.2](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.2) | `SHOULD` | the server SHOULD NOT truncate inside an HTML tag, e | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.2 [p3] |
+| RFC8621 | [4.2](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.2) | `SHOULD` | the server SHOULD NOT truncate inside an HTML tag, e | ✅ Covered | `TestRFC8621_MaxBodyValueBytesDoesNotSplitHTMLTag` | Extracted by specextract from RFC8621 §4.2 [p3] |
 | RFC8621 | [4.2](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.2) | `MAY` | HTML (indeed, the original source may well be neither of these | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.2 [p4] |
 | RFC8621 | [4.2](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.2) | `MUST` | following default MUST be used instead of "all" properties: | ✅ Covered | `TestRFC8621_Section4_EmailPropertiesAndGet` | Extracted by specextract from RFC8621 §4.2 [p5] |
 | RFC8621 | [4.2](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.2) | `SHOULD` | Clients SHOULD take care when fetching any other properties, as there | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.2 [p6] |
@@ -933,7 +933,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MUST` | An "existingId" property of type "Id" MUST be included on | ✅ Covered | `TestRFC8621_Section4_EmailSetImportCopy` | Extracted by specextract from RFC8621 §4.8 [p8] |
 | RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MUST` | are allowed, the newly created Email object MUST have a separate id | ✅ Covered | `TestRFC8621_Section4_EmailSetImportCopy` | Extracted by specextract from RFC8621 §4.8 [p9] |
 | RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MUST` | , missing, wrong type, id not found), the server MUST reject the | ✅ Covered | `TestRFC8621_Section4_EmailSetImportCopy` | Extracted by specextract from RFC8621 §4.8 [p10] |
-| RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `SHOULD` | over quota, the import should be rejected with an "overQuota" | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.8 [p11] |
+| RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `SHOULD` | over quota, the import should be rejected with an "overQuota" | ✅ Covered | `TestRFC8621_EmailImportOverQuota` | Extracted by specextract from RFC8621 §4.8 [p11] |
 | RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MAY` | MAY modify the message to fix errors (such as removing NUL octets or | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.8 [p12] |
 | RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MUST` | response MUST represent the new representation and therefore be | ✅ Covered | `TestRFC8621_Section4_EmailSetImportCopy` | Extracted by specextract from RFC8621 §4.8 [p13] |
 | RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MAY` | the server MAY reject the import with an "invalidEmail" SetError | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.8 [p14] |

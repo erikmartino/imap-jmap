@@ -1582,8 +1582,8 @@ var RFC8621Requirements = []Requirement{
 		Section: "4.2",
 		Level:   Level("SHOULD"),
 		Text:    "the server SHOULD NOT truncate inside an HTML tag, e",
-		Tests:   []string{},
-		Status:  Gap,
+		Tests:   []string{"TestRFC8621_MaxBodyValueBytesDoesNotSplitHTMLTag"},
+		Status:  Covered,
 		Note:    "Extracted by specextract from RFC8621 §4.2 [p3]",
 	},
 	{
@@ -2365,8 +2365,8 @@ var RFC8621Requirements = []Requirement{
 		Section: "4.8",
 		Level:   Level("SHOULD"),
 		Text:    "over quota, the import should be rejected with an \"overQuota\"",
-		Tests:   []string{},
-		Status:  Gap,
+		Tests:   []string{"TestRFC8621_EmailImportOverQuota"},
+		Status:  Covered,
 		Note:    "Extracted by specextract from RFC8621 §4.8 [p11]",
 	},
 	{
