@@ -54,19 +54,28 @@ type memSyncRecord struct {
 	Token   int
 }
 
+// memCalendarProps holds the Apple/Nextcloud display properties of a calendar
+// collection (not modelled by go-webdav's caldav.Calendar).
+type memCalendarProps struct {
+	Color string
+	Order string
+}
+
 // memCalDAVBackend implements caldav.Backend in memory per user.
 type memCalDAVBackend struct {
-	mu           sync.RWMutex
-	calendars    map[string]map[string]*caldav.Calendar
-	objects      map[string]map[string]*caldav.CalendarObject
-	calendarSync map[string]map[string]*memCalendarSync
+	mu            sync.RWMutex
+	calendars     map[string]map[string]*caldav.Calendar
+	objects       map[string]map[string]*caldav.CalendarObject
+	calendarSync  map[string]map[string]*memCalendarSync
+	calendarProps map[string]map[string]memCalendarProps
 }
 
 func newMemCalDAVBackend() *memCalDAVBackend {
 	return &memCalDAVBackend{
-		calendars:    make(map[string]map[string]*caldav.Calendar),
-		objects:      make(map[string]map[string]*caldav.CalendarObject),
-		calendarSync: make(map[string]map[string]*memCalendarSync),
+		calendars:     make(map[string]map[string]*caldav.Calendar),
+		objects:       make(map[string]map[string]*caldav.CalendarObject),
+		calendarSync:  make(map[string]map[string]*memCalendarSync),
+		calendarProps: make(map[string]map[string]memCalendarProps),
 	}
 }
 
@@ -83,6 +92,7 @@ func (b *memCalDAVBackend) ensureUserCalendarsLocked(u string) {
 		b.calendars[u] = make(map[string]*caldav.Calendar)
 		b.objects[u] = make(map[string]*caldav.CalendarObject)
 		b.calendarSync[u] = make(map[string]*memCalendarSync)
+		b.calendarProps[u] = make(map[string]memCalendarProps)
 		defaultPath := "/remote.php/dav/calendars/" + u + "/personal/"
 		b.calendars[u][defaultPath] = &caldav.Calendar{
 			Path:                  defaultPath,
@@ -91,6 +101,7 @@ func (b *memCalDAVBackend) ensureUserCalendarsLocked(u string) {
 			SupportedComponentSet: []string{"VEVENT", "VTODO", "VJOURNAL"},
 		}
 		b.calendarSync[u][defaultPath] = &memCalendarSync{syncToken: 1}
+		b.calendarProps[u][defaultPath] = memCalendarProps{Color: "#3a87adFF", Order: "1"}
 	}
 	if b.calendarSync[u] == nil {
 		b.calendarSync[u] = make(map[string]*memCalendarSync)
@@ -133,6 +144,10 @@ func (b *memCalDAVBackend) CreateCalendar(ctx context.Context, calendar *caldav.
 	calendar.Path = cleanPath
 	b.calendars[u][cleanPath] = calendar
 	b.calendarSync[u][cleanPath] = &memCalendarSync{syncToken: 1}
+	if b.calendarProps[u] == nil {
+		b.calendarProps[u] = make(map[string]memCalendarProps)
+	}
+	b.calendarProps[u][cleanPath] = memCalendarProps{Color: "#ff9500FF", Order: "0"}
 	return nil
 }
 
@@ -145,6 +160,7 @@ func (b *memCalDAVBackend) DeleteCalendar(ctx context.Context, p string) error {
 	cleanPath := strings.TrimRight(p, "/") + "/"
 	delete(b.calendars[u], cleanPath)
 	delete(b.calendarSync[u], cleanPath)
+	delete(b.calendarProps[u], cleanPath)
 	for objPath := range b.objects[u] {
 		if strings.HasPrefix(objPath, cleanPath) {
 			delete(b.objects[u], objPath)
@@ -812,9 +828,11 @@ func NewEmbeddedServer(usernames ...string) (*httptest.Server, *Client, func()) 
 						Collection *struct{} `xml:"DAV: collection"`
 						Calendar   *struct{} `xml:"urn:ietf:params:xml:ns:caldav calendar"`
 					} `xml:"DAV: resourcetype"`
-					DisplayName string `xml:"DAV: displayname,omitempty"`
-					GetCTag     string `xml:"http://calendarserver.org/ns/ getctag,omitempty"`
-					SyncToken   string `xml:"DAV: sync-token,omitempty"`
+					DisplayName   string `xml:"DAV: displayname,omitempty"`
+					GetCTag       string `xml:"http://calendarserver.org/ns/ getctag,omitempty"`
+					SyncToken     string `xml:"DAV: sync-token,omitempty"`
+					CalendarColor string `xml:"http://apple.com/ns/ical/ calendar-color,omitempty"`
+					CalendarOrder string `xml:"http://apple.com/ns/ical/ calendar-order,omitempty"`
 				}
 				type embeddedPropstat struct {
 					Prop   embeddedProp `xml:"DAV: prop"`
@@ -854,10 +872,13 @@ func NewEmbeddedServer(usernames ...string) (*httptest.Server, *Client, func()) 
 						token = s.syncToken
 					}
 					syncTokStr := fmt.Sprintf("http://sabre.io/ns/sync/%d", token)
+					props := calMem.calendarProps[u][cPath]
 					calProp := embeddedProp{
-						DisplayName: cal.Name,
-						GetCTag:     syncTokStr,
-						SyncToken:   syncTokStr,
+						DisplayName:   cal.Name,
+						GetCTag:       syncTokStr,
+						SyncToken:     syncTokStr,
+						CalendarColor: props.Color,
+						CalendarOrder: props.Order,
 					}
 					calProp.ResourceType.Collection = &struct{}{}
 					calProp.ResourceType.Calendar = &struct{}{}

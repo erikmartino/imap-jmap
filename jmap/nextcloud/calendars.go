@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -566,6 +567,15 @@ func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmapcore.Id) 
 			IncludeInAvailability: incAvail,
 			MyRights:              jmapcalendar.FullCalendarRights(),
 		}
+		// Prefer upstream CalDAV display properties so the resolved Calendar is
+		// derived from the server rather than solely proxy-local metadata.
+		if c.Color != "" {
+			col := c.Color
+			cal.Color = &col
+		}
+		if n, err := strconv.ParseUint(strings.TrimSpace(c.Order), 10, 64); err == nil {
+			cal.SortOrder = n
+		}
 		b.mu.RLock()
 		if b.calProps[u] != nil && b.calProps[u][cid] != nil {
 			cp := b.calProps[u][cid]
@@ -573,9 +583,13 @@ func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmapcore.Id) 
 				cal.Name = cp.Name
 			}
 			cal.Description = cp.Description
-			cal.Color = cp.Color
+			if cp.Color != nil {
+				cal.Color = cp.Color
+			}
 			cal.TimeZone = cp.TimeZone
-			cal.SortOrder = cp.SortOrder
+			if cp.SortOrder != 0 {
+				cal.SortOrder = cp.SortOrder
+			}
 			cal.IsSubscribed = cp.IsSubscribed
 			cal.IsVisible = cp.IsVisible
 			if cp.IncludeInAvailability != "" {

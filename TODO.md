@@ -92,14 +92,61 @@ Make every `state`/`sinceState` a pure, reversible function of upstream CalDAV (
   - Never derive `state` from a windowed/partial fetch: `TestCalendarEventStateUnaffectedByWindowedFetch`.
   - Keep `state` scoped per user/account: `TestCalendarEventStateUserIsolation`.
   - Keep `queryState` unmapped (no CalDAV query cursor): local tracker / `cannotCalculateChanges` only.
-- [ ] **3.7 Upstream-derive standard Calendar properties**
-  - Request `calendar-color` / `calendar-order` (and supported-calendar-component-set) in `getCalendarCollections` so the resolved Calendar is upstream-derived, reducing the proxy-local metadata that makes Calendar state restart-sensitive.
+- [x] **3.7 Upstream-derive standard Calendar properties**
+  - `getCalendarCollections` now requests `calendar-color` / `calendar-order`; `ListCalendars` carries them and `GetCalendars` uses them as the default `Color`/`SortOrder` (proxy-local overrides still win). The embedded CalDAV server returns these properties. Test: `TestUpstreamDerivedCalendarProperties`.
 - [x] **3.5 Hermetic tests (embedded Nextcloud backend)**
   - `jmap/nextcloud/state_handling_test.go`: v2 round-trip determinism + `sync-v1:` decode, malformed/unknown state → `cannotCalculateChanges`, empty vector, kind selection.
   - `CalendarEvent/changes` lifecycle (create/update/destroy), calculable from every previously returned state, multi-calendar deltas, membership add (ETag discovery), membership remove (fail closed), CTag-only changed (fail closed) / unchanged (no-op), tracker fallback, and cross-account isolation.
   - `Calendar/changes` tracker lifecycle (create/update/destroy).
   - Fixed gaps the tests exposed: `ListCalendarObjectETags` now uses a targeted `getetag` PROPFIND (go-webdav `ReadDir` requested `getcontentlength` and failed against servers omitting it); embedded server now routes `DELETE` on a calendar collection to the backend; removed collections fail closed instead of silently dropping their events.
 - [ ] **3.6 Follow-on (optional)**: apply the same pattern to CardDAV `ContactCard`/`AddressBook` (ETag/CTag) and to IMAP `Email`/`Mailbox` (CONDSTORE/QRESYNC `HIGHESTMODSEQ` + `UIDVALIDITY`), replacing in-memory trackers where the upstream cursor is available.
+
+---
+
+### Priority 4: Zero Proxy-Local Authoritative Data
+Per `AGENTS.md` §1 ("Stateless Proxy & Zero Local Filesystem Sync"), the proxy must hold **no authoritative user data in process memory**. Every persistent JMAP object/field must live upstream, written with the end-user's own credentials via a standard protocol, or be derived deterministically from upstream data. In-memory maps are tolerated only as **non-authoritative, rebuildable caches** with bounded TTL/invalidation, never as the source of truth.
+
+**Inventory → upstream home** (authoritative fields today held in memory):
+
+| Local field (backend) | JMAP data | Upstream home |
+| :--- | :--- | :--- |
+| `calProps` : Color/SortOrder (`nextcloud/calendars.go`) | Calendar color/sortOrder | CalDAV `calendar-color`/`calendar-order` via `PROPPATCH` (read done in 3.7) |
+| `calProps` : Name/Description | Calendar name/description | CalDAV `displayname`/`calendar-description` (`PROPPATCH`) |
+| `calProps` : TimeZone | Calendar timeZone | CalDAV `calendar-timezone` (RFC 4791 §5.2.2, `PROPPATCH`) |
+| `calProps` : IsSubscribed/IsVisible/IncludeInAvailability/DefaultAlerts* | Calendar prefs | Namespaced CalDAV custom property on the collection (`PROPPATCH`, RFC 4918 §4.2) |
+| `defaultCalendars`, `userCalOverrides` | isDefault, per-sharee overrides | RFC 6638 `schedule-default-calendar-URL` / per-principal custom property |
+| `defaultAddressBooks`, AddressBook metadata | isDefault, color/description | CardDAV custom property on the addressbook / home set (`PROPPATCH`) or Nextcloud OCS |
+| `identity/notification/shareNotification caches`, `notifSeq` | ParticipantIdentity, CalendarEventNotification, ShareNotification | **JMAP extension store** (below) |
+| `identities`, `submissions`, `vacationResponses`, `pushSubscriptions` (`imapsmtp`) | Identity, EmailSubmission, VacationResponse, PushSubscription | VacationResponse → Sieve script (RFC 9661 §4); Identity/submission/push → JMAP extension store |
+| `mailboxSortOrders`, `mailboxParentOverrides`, `mailboxMovedIDs`, `mailboxSubscribed` (`imapsmtp`) | Mailbox sortOrder/isSubscribed | `isSubscribed` → IMAP `SUBSCRIBE`/`LSUB`; the rest → IMAP METADATA (RFC 5464) or JMAP extension store |
+| `pathToID`/`idToPath`/`nextID` (`nextcloud/filenode.go`) | FileNode ids | Derive the id deterministically from the WebDAV path (e.g. raw-url-base64 of the path); drop the counter |
+| `nameToID`/`idToName`/`idCounter` (`managesieve`) | SieveScript id | Derive the id from the script name (names are unique per RFC 9661 §2.1) |
+| `*Trackers`, `*Fingerprint` | `state`/`sinceState` | Upstream tokens / content addresses (Priority 3; extend to contacts, filenode, identities) |
+| `absCache`/`cardsCache`/`homeSets`/`principalsCache`/`directoryCache`/discovery | — | Derivable caches only; keep bounded TTL + explicit invalidation, never authoritative |
+
+**JMAP extension store** (shared building block): a per-account upstream store for JMAP-native data with no protocol home (identities, submissions, participant identities, calendar notifications, share notifications, push subscriptions, calendar/addressbook preferences). Options, in preference order:
+1. **IMAP METADATA** (RFC 5464): per-account/private entries under a JMAP namespace, read/written with the user's IMAP credentials.
+2. **WebDAV/Nextcloud file** at a fixed per-user path (e.g. `.jmap/state.json`), read/written with the user's credentials, with ETag-based CAS to avoid lost updates.
+3. Never a host-local file or process-global map.
+
+- [ ] **4.1 Calendar metadata via CalDAV `PROPPATCH`** (`nextcloud/client.go`, `nextcloud/calendars.go`)
+  - Read and write `displayname`, `calendar-description`, `calendar-color`, `calendar-order`, `calendar-timezone`; store JMAP-only prefs (visibility/availability/alerts/`isSubscribed`) as namespaced custom WebDAV properties. Remove the authoritative role of `calProps` (keep it only as a request cache).
+- [ ] **4.2 AddressBook metadata via CardDAV/OCS** (`nextcloud/contacts.go`)
+  - Persist `defaultAddressBooks`, color/description, and `isDefault` upstream (custom property on the addressbook home set; `shareWith`/`myRights` via OCS/ACLs, see Phase 5).
+- [ ] **4.3 Deterministic FileNode ids** (`nextcloud/filenode.go`)
+  - Replace `pathToID`/`idToPath`/`nextID` with an id derived from the WebDAV path; delete the local counter and maps.
+- [ ] **4.4 Deterministic SieveScript ids** (`managesieve/backend.go`)
+  - Use the script name (or a stable hash of it) as the id; drop `nameToID`/`idToName`/`idCounter`.
+- [ ] **4.5 IMAP mailbox state** (`imapsmtp/backend.go`)
+  - Derive/apply `isSubscribed` via `SUBSCRIBE`/`LSUB`; move `sortOrder`/parent/identity metadata to IMAP METADATA or the extension store; rely on IMAP `RENAME` for moves.
+- [ ] **4.6 JMAP extension store** (new `jmap/*` + `imapsmtp`/`nextcloud` adapters)
+  - Implement the per-account upstream store and migrate `Identity`, `EmailSubmission`, `VacationResponse` (or Sieve-backed), `ParticipantIdentity`, `CalendarEventNotification`, `ShareNotification`, and `PushSubscription` onto it.
+- [ ] **4.7 Upstream change tokens everywhere** (extends Priority 3)
+  - Replace the remaining in-memory `ChangeTracker`s (contacts, filenode, identities, notifications) with CardDAV/WebDAV ETag/CTag vectors or content-addressed states.
+- [ ] **4.8 Demote caches** (`nextcloud`, `imapsmtp`, `managesieve`)
+  - Any map kept must be explicitly a cache: bounded size/TTL, invalidated on write, and rebuilt from upstream; add an `AGENTS.md`-aligned comment and a guard test that no backend constructor seeds authoritative data.
+- [ ] **4.9 Invariant gate**
+  - A test/lint that no backend package writes authoritative user data to disk and that a fresh process (new backend over the same upstream) returns the same `*/get` payloads and `state`s.
 
 ---
 

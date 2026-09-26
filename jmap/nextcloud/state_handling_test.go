@@ -625,6 +625,48 @@ func TestCalendarEventStateUnaffectedByWindowedFetch(t *testing.T) {
 	}
 }
 
+// TestUpstreamDerivedCalendarProperties verifies that Color/SortOrder are taken
+// from the CalDAV calendar-color/calendar-order properties when set upstream,
+// and that a proxy-local override still wins.
+func TestUpstreamDerivedCalendarProperties(t *testing.T) {
+	be, ctx, cleanup := newStateTestBackend(t, "user@example.com")
+	defer cleanup()
+
+	cals, _, err := be.GetCalendars(ctx, nil)
+	if err != nil {
+		t.Fatalf("GetCalendars: %v", err)
+	}
+	var personal *jmapcalendar.Calendar
+	for _, c := range cals {
+		if c.ID == "personal" {
+			personal = c
+			break
+		}
+	}
+	if personal == nil {
+		t.Fatalf("seeded personal calendar not found in %v", cals)
+	}
+	if personal.Color == nil || *personal.Color != "#3a87adFF" {
+		t.Errorf("expected upstream calendar-color #3a87adFF, got %v", personal.Color)
+	}
+	if personal.SortOrder != 1 {
+		t.Errorf("expected upstream calendar-order 1, got %d", personal.SortOrder)
+	}
+
+	// A proxy-local override must still win over the upstream value.
+	if _, err := be.UpdateCalendar(ctx, personal.ID, map[string]any{"color": "#000000"}); err != nil {
+		t.Fatalf("UpdateCalendar: %v", err)
+	}
+	cals, _, _ = be.GetCalendars(ctx, nil)
+	for _, c := range cals {
+		if c.ID == "personal" {
+			if c.Color == nil || *c.Color != "#000000" {
+				t.Errorf("proxy-local color override should win, got %v", c.Color)
+			}
+		}
+	}
+}
+
 // --- Calendar collection state (content-addressed) ---------------------------
 
 func TestCalendarStateIsContentAddressed(t *testing.T) {

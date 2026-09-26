@@ -279,6 +279,9 @@ type propfindCalendarProp struct {
 	CalendarDescription struct{} `xml:"urn:ietf:params:xml:ns:caldav calendar-description"`
 	GetCTag             struct{} `xml:"http://calendarserver.org/ns/ getctag"`
 	SyncToken           struct{} `xml:"sync-token"`
+	// Apple/Nextcloud calendar display properties.
+	CalendarColor struct{} `xml:"http://apple.com/ns/ical/ calendar-color"`
+	CalendarOrder struct{} `xml:"http://apple.com/ns/ical/ calendar-order"`
 }
 
 // FindScheduleDefaultCalendar finds the default calendar collection for scheduling
@@ -362,6 +365,8 @@ type CalendarInfo struct {
 	Name        string
 	Description string
 	IsDefault   bool
+	Color       string
+	Order       string
 }
 
 // CalendarObjectInfo represents a calendar object (event/todo) retrieved from Nextcloud.
@@ -484,6 +489,8 @@ func (c *Client) ListCalendars(ctx context.Context) ([]*CalendarInfo, string, er
 			Name:        name,
 			Description: cal.Description,
 			IsDefault:   isDefault,
+			Color:       cal.Color,
+			Order:       cal.Order,
 		})
 	}
 	c.storeCalendarList(u, list)
@@ -732,6 +739,10 @@ type CalendarSyncStatus struct {
 	Description string
 	CTag        string
 	SyncToken   string
+	// Color and Order are the Apple/Nextcloud display properties, when the
+	// upstream server exposes them.
+	Color string
+	Order string
 }
 
 // calendarCollections is the result of the home-set PROPFIND: the calendar collections
@@ -832,10 +843,12 @@ func (c *Client) getCalendarCollections(ctx context.Context) (*calendarCollectio
 					ResourceType struct {
 						InnerXML []byte `xml:",innerxml"`
 					} `xml:"resourcetype"`
-					DisplayName string `xml:"displayname"`
-					Description string `xml:"urn:ietf:params:xml:ns:caldav calendar-description"`
-					GetCTag     string `xml:"getctag"`
-					SyncToken   string `xml:"sync-token"`
+					DisplayName   string `xml:"displayname"`
+					Description   string `xml:"urn:ietf:params:xml:ns:caldav calendar-description"`
+					GetCTag       string `xml:"getctag"`
+					SyncToken     string `xml:"sync-token"`
+					CalendarColor string `xml:"http://apple.com/ns/ical/ calendar-color"`
+					CalendarOrder string `xml:"http://apple.com/ns/ical/ calendar-order"`
 				} `xml:"prop"`
 				Status string `xml:"status"`
 			} `xml:"propstat"`
@@ -862,7 +875,7 @@ func (c *Client) getCalendarCollections(ctx context.Context) (*calendarCollectio
 			continue
 		}
 
-		var dispName, description, ctag, syncToken string
+		var dispName, description, ctag, syncToken, color, order string
 		isCalendar := false
 
 		for _, ps := range r.Propstat {
@@ -882,6 +895,12 @@ func (c *Client) getCalendarCollections(ctx context.Context) (*calendarCollectio
 				if ps.Prop.SyncToken != "" {
 					syncToken = ps.Prop.SyncToken
 				}
+				if ps.Prop.CalendarColor != "" {
+					color = ps.Prop.CalendarColor
+				}
+				if ps.Prop.CalendarOrder != "" {
+					order = ps.Prop.CalendarOrder
+				}
 			}
 		}
 
@@ -898,6 +917,8 @@ func (c *Client) getCalendarCollections(ctx context.Context) (*calendarCollectio
 			Description: description,
 			CTag:        ctag,
 			SyncToken:   syncToken,
+			Color:       color,
+			Order:       order,
 		}
 		res[calID] = st
 		ordered = append(ordered, st)
