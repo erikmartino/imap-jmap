@@ -18,7 +18,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [jscontact](#jscontact) | RFC9553, RFC9554, RFC9555 | 6 | 0 | 0 | 6 | 100.0% |
 | [smtp](#smtp) | RFC4954, RFC5228, RFC5232, RFC5321, RFC5429, RFC5546, RFC6047, RFC6376, RFC6409, RFC7208, RFC7489, RFC8601 | 46 | 0 | 0 | 46 | 100.0% |
 | [rfc8620-core](#rfc8620-core) | RFC8620 | 176 | 218 | 0 | 394 | 44.7% |
-| [rfc8621-mail](#rfc8621-mail) | RFC8621 | 16 | 402 | 0 | 418 | 3.8% |
+| [rfc8621-mail](#rfc8621-mail) | RFC8621 | 52 | 366 | 0 | 418 | 12.4% |
 | [rfc8887-websockets](#rfc8887-websockets) | RFC8887 | 0 | 40 | 0 | 40 | 0.0% |
 | [rfc9007-mdn](#rfc9007-mdn) | RFC9007 | 0 | 24 | 0 | 24 | 0.0% |
 | [rfc9219-smime](#rfc9219-smime) | RFC9219 | 0 | 24 | 0 | 24 | 0.0% |
@@ -29,7 +29,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [rfc9670-sharing](#rfc9670-sharing) | RFC9670 | 0 | 76 | 0 | 76 | 0.0% |
 | [rfc9698-jmapaccess](#rfc9698-jmapaccess) | RFC9698 | 0 | 14 | 0 | 14 | 0.0% |
 | [rfc9749-vapid](#rfc9749-vapid) | RFC9749 | 0 | 24 | 0 | 24 | 0.0% |
-| **Total** | | **359** | **1033** | **0** | **1392** | **25.8%** |
+| **Total** | | **395** | **997** | **0** | **1392** | **28.4%** |
 
 ---
 
@@ -667,32 +667,32 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 ## rfc8621-mail
 
 * **Test Suite Directory**: [`jmap/`](../jmap/)
-* **Conformance**: 16 / 418 (3.8%)
+* **Conformance**: 52 / 418 (12.4%)
 
 | Spec | Section | Level | Requirement | Status | Tests | Note |
 | :--- | :---: | :---: | :--- | :---: | :--- | :--- |
 | RFC8621 | [](https://www.rfc-editor.org/rfc/rfc8621.html#section-) | `MAY` | and how to provide feedback on it may be obtained at | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 § [p1] |
-| RFC8621 | [](https://www.rfc-editor.org/rfc/rfc8621.html#section-) | `MUST` | Code Components extracted from this document must | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 § [p2] |
-| RFC8621 | [1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1) | `MUST` | IMAP, a message must belong to a mailbox; however, in JMAP, its id | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1 [p1] |
+| RFC8621 | [](https://www.rfc-editor.org/rfc/rfc8621.html#section-) | `MUST` | Code Components extracted from this document must | ✅ Covered | `TestRFC8621_Section1_CapabilitiesAndPush` | Extracted by specextract from RFC8621 § [p2] |
+| RFC8621 | [1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1) | `MUST` | IMAP, a message must belong to a mailbox; however, in JMAP, its id | ✅ Covered | `TestRFC8621_Section1_CapabilitiesAndPush` | Extracted by specextract from RFC8621 §1 [p1] |
 | RFC8621 | [1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1) | `MAY` | does not change if you move it between mailboxes, and the server may | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1 [p2] |
 | RFC8621 | [1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1) | `MAY` | As in IMAP, messages may also be assigned zero or more keywords: | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1 [p3] |
 | RFC8621 | [1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1) | `MAY` | Clients may fetch the list of messages with a particular Thread | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1 [p4] |
 | RFC8621 | [1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1) | `MAY` | Servers may give the user restricted permissions for certain | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1 [p5] |
 | RFC8621 | [1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1) | `MAY` | characters MAY also be replaced with an HTML entity form | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1 [p1] |
-| RFC8621 | [1.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.1) | `MUST` | The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.1 [p1] |
+| RFC8621 | [1.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.1) | `MUST` | The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", | ✅ Covered | `TestRFC8621_Section1_CapabilitiesAndPush` | Extracted by specextract from RFC8621 §1.1 [p1] |
 | RFC8621 | [1.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.1) | `SHOULD` | "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.1 [p2] |
 | RFC8621 | [1.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.1) | `MAY` | "OPTIONAL" in this document are to be interpreted as described in | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.1 [p3] |
-| RFC8621 | [1.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.1) | `MUST` | Servers MUST support all properties specified for the new data types | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.1 [p4] |
-| RFC8621 | [1.3.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.3.1) | `MUST` | property is an object that MUST contain the following information on | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.3.1 [p1] |
-| RFC8621 | [1.3.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.3.1) | `MUST` | This MUST be | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.3.1 [p2] |
+| RFC8621 | [1.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.1) | `MUST` | Servers MUST support all properties specified for the new data types | ✅ Covered | `TestRFC8621_Section1_CapabilitiesAndPush` | Extracted by specextract from RFC8621 §1.1 [p4] |
+| RFC8621 | [1.3.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.3.1) | `MUST` | property is an object that MUST contain the following information on | ✅ Covered | `TestRFC8621_Section1_CapabilitiesAndPush` | Extracted by specextract from RFC8621 §1.3.1 [p1] |
+| RFC8621 | [1.3.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.3.1) | `MUST` | This MUST be | ✅ Covered | `TestRFC8621_Section1_CapabilitiesAndPush` | Extracted by specextract from RFC8621 §1.3.1 [p2] |
 | RFC8621 | [1.3.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.3.1) | `MAY` | the maximum number of ancestors a Mailbox may have), or null for | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.3.1 [p3] |
-| RFC8621 | [1.3.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.3.1) | `MUST` | This MUST be at least 100, although it is recommended | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.3.1 [p4] |
+| RFC8621 | [1.3.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.3.1) | `MUST` | This MUST be at least 100, although it is recommended | ✅ Covered | `TestRFC8621_Section1_CapabilitiesAndPush` | Extracted by specextract from RFC8621 §1.3.1 [p4] |
 | RFC8621 | [1.3.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.3.1) | `MAY` | A server MAY still reject the import or | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.3.1 [p5] |
 | RFC8621 | [1.3.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.3.1) | `SHOULD` | , nor should they need to be, so marketing and help materials | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.3.1 [p6] |
 | RFC8621 | [1.3.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.3.1) | `MAY` | The server may separately have a limit for the total size of the | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.3.1 [p7] |
 | RFC8621 | [1.3.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.3.1) | `MAY` | The enforced server limit may be for a message | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.3.1 [p8] |
 | RFC8621 | [1.3.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.3.1) | `MAY` | This MAY include properties the client does not | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.3.1 [p9] |
-| RFC8621 | [1.3.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.3.1) | `MUST` | Clients MUST ignore any unknown properties in the | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.3.1 [p10] |
+| RFC8621 | [1.3.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.3.1) | `MUST` | Clients MUST ignore any unknown properties in the | ✅ Covered | `TestRFC8621_Section1_CapabilitiesAndPush` | Extracted by specextract from RFC8621 §1.3.1 [p10] |
 | RFC8621 | [1.3.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.3.1) | `MAY` | o mayCreateTopLevelMailbox: "Boolean" | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.3.1 [p11] |
 | RFC8621 | [1.3.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.3.1) | `MAY` | If true, the user may create a Mailbox (see Section 2) in this | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.3.1 [p12] |
 | RFC8621 | [1.3.2](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.3.2) | `MAY` | which the client may use when creating an EmailSubmission object | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.3.2 [p2] |
@@ -700,31 +700,31 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8621 | [1.3.2](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.3.2) | `MAY` | to modify the set of submission EHLO capabilities it may expose on | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.3.2 [p4] |
 | RFC8621 | [1.3.2](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.3.2) | `SHOULD` | JMAP server should hide EHLO capabilities that have to do with the | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.3.2 [p5] |
 | RFC8621 | [1.3.2](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.3.2) | `MAY` | A JMAP server MAY advertise an extension and implement the | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.3.2 [p6] |
-| RFC8621 | [1.4](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.4) | `MUST` | The server MUST include the appropriate capability strings as keys in | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.4 [p1] |
+| RFC8621 | [1.4](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.4) | `MUST` | The server MUST include the appropriate capability strings as keys in | ✅ Covered | `TestRFC8621_Section1_CapabilitiesAndPush` | Extracted by specextract from RFC8621 §1.4 [p1] |
 | RFC8621 | [1.4](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.4) | `MAY` | may use the data types represented by that URI | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.4 [p2] |
 | RFC8621 | [1.4](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.4) | `MAY` | may differ between accounts the user has access to | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.4 [p3] |
 | RFC8621 | [1.4](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.4) | `MAY` | the user's personal account, they may have access to all three sets | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.4 [p4] |
 | RFC8621 | [1.4](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.4) | `MAY` | of data, but in a shared account, they may only have data for | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.4 [p5] |
-| RFC8621 | [1.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.5) | `MUST` | Servers MUST support the JMAP push mechanisms, as specified in | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.5 [p1] |
-| RFC8621 | [1.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.5) | `MUST` | capability MUST support pushing state changes for a type called | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.5 [p2] |
-| RFC8621 | [1.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.5) | `MUST` | The state string for this MUST | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.5 [p3] |
+| RFC8621 | [1.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.5) | `MUST` | Servers MUST support the JMAP push mechanisms, as specified in | ✅ Covered | `TestRFC8621_Section1_CapabilitiesAndPush` | Extracted by specextract from RFC8621 §1.5 [p1] |
+| RFC8621 | [1.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.5) | `MUST` | capability MUST support pushing state changes for a type called | ✅ Covered | `TestRFC8621_Section1_CapabilitiesAndPush` | Extracted by specextract from RFC8621 §1.5 [p2] |
+| RFC8621 | [1.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.5) | `MUST` | The state string for this MUST | ✅ Covered | `TestRFC8621_Section1_CapabilitiesAndPush` | Extracted by specextract from RFC8621 §1.5 [p3] |
 | RFC8621 | [1.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.5) | `SHOULD` | change whenever a new Email is added to the store, but it SHOULD NOT | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.5 [p4] |
 | RFC8621 | [1.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.5) | `MAY` | Clients in battery-constrained environments may wish to delay | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.5 [p5] |
 | RFC8621 | [1.5.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.5.1) | `MAY` | The client may then resync to fetch the new Email | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.5.1 [p1] |
 | RFC8621 | [1.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.6) | `SHOULD` | SHOULD be the same for Mailbox, Thread, and Email objects in JMAP | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §1.6 [p1] |
 | RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MAY` | A Mailbox may | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p1] |
-| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | For compatibility with IMAP, an Email MUST belong to one or more | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p2] |
-| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | This MUST be a | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p3] |
-| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | MUST NOT be two sibling Mailboxes with both the same parent and | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p4] |
+| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | For compatibility with IMAP, an Email MUST belong to one or more | ✅ Covered | `TestRFC8621_Section2_MailboxPropertiesAndConstraints` | Extracted by specextract from RFC8621 §2 [p2] |
+| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | This MUST be a | ✅ Covered | `TestRFC8621_Section2_MailboxPropertiesAndConstraints` | Extracted by specextract from RFC8621 §2 [p3] |
+| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | MUST NOT be two sibling Mailboxes with both the same parent and | ✅ Covered | `TestRFC8621_Section2_MailboxPropertiesAndConstraints` | Extracted by specextract from RFC8621 §2 [p4] |
 | RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MAY` | Servers MAY reject names that violate server | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p5] |
-| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | MUST NOT be a loop | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p6] |
+| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | MUST NOT be a loop | ✅ Covered | `TestRFC8621_Section2_MailboxPropertiesAndConstraints` | Extracted by specextract from RFC8621 §2 [p6] |
 | RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MAY` | the "inbox"), regardless of the "name" property (which may be | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p7] |
-| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | However, unlike in IMAP, a Mailbox MUST | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p8] |
-| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | only have a single role, and there MUST NOT be two Mailboxes in | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p9] |
-| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | The value MUST be one of the Mailbox attribute names listed in the | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p10] |
+| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | However, unlike in IMAP, a Mailbox MUST | ✅ Covered | `TestRFC8621_Section2_MailboxPropertiesAndConstraints` | Extracted by specextract from RFC8621 §2 [p8] |
+| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | only have a single role, and there MUST NOT be two Mailboxes in | ✅ Covered | `TestRFC8621_Section2_MailboxPropertiesAndConstraints` | Extracted by specextract from RFC8621 §2 [p9] |
+| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | The value MUST be one of the Mailbox attribute names listed in the | ✅ Covered | `TestRFC8621_Section2_MailboxPropertiesAndConstraints` | Extracted by specextract from RFC8621 §2 [p10] |
 | RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MAY` | may be established here in the future | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p11] |
-| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | An account is not required to have Mailboxes with any particular | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p12] |
-| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | The number MUST be an | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p13] |
+| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | An account is not required to have Mailboxes with any particular | ✅ Covered | `TestRFC8621_Section2_MailboxPropertiesAndConstraints` | Extracted by specextract from RFC8621 §2 [p12] |
+| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | The number MUST be an | ✅ Covered | `TestRFC8621_Section2_MailboxPropertiesAndConstraints` | Extracted by specextract from RFC8621 §2 [p13] |
 | RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `SHOULD` | A Mailbox with a lower order should be displayed before a Mailbox | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p14] |
 | RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `SHOULD` | Mailboxes with equal order SHOULD be | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p15] |
 | RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `SHOULD` | The sorting should take | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p16] |
@@ -734,12 +734,12 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MAY` | an "Email/query" call, and the Mailbox may be included in the | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p3] |
 | RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MAY` | Email objects may be | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p4] |
 | RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MAY` | Mailbox, this may be false | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p5] |
-| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | mapping from IMAP, both are required for this to be true) | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p6] |
+| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | mapping from IMAP, both are required for this to be true) | ✅ Covered | `TestRFC8621_Section2_MailboxPropertiesAndConstraints` | Extracted by specextract from RFC8621 §2 [p6] |
 | RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MAY` | * mayAddItems: "Boolean" | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p7] |
 | RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MAY` | The user may add mail to this Mailbox (by either creating a new | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p8] |
 | RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MAY` | * mayRemoveItems: "Boolean" | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p9] |
 | RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MAY` | The user may remove mail from this Mailbox (by either changing | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p10] |
-| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | required for this to be true) | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p11] |
+| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | required for this to be true) | ✅ Covered | `TestRFC8621_Section2_MailboxPropertiesAndConstraints` | Extracted by specextract from RFC8621 §2 [p11] |
 | RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MAY` | * maySetSeen: "Boolean" | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p12] |
 | RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MAY` | The user may add or remove the "$seen" keyword to/from an | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p13] |
 | RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MAY` | If an Email belongs to multiple Mailboxes, the user may | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p14] |
@@ -755,7 +755,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MAY` | * maySubmit: "Boolean" | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p24] |
 | RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MAY` | Messages may be submitted directly to this Mailbox | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p25] |
 | RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `SHOULD` | This SHOULD default to false for Mailboxes in shared | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p26] |
-| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | This MUST be stored separately per | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p27] |
+| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | This MUST be stored separately per | ✅ Covered | `TestRFC8621_Section2_MailboxPropertiesAndConstraints` | Extracted by specextract from RFC8621 §2 [p27] |
 | RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MAY` | A user may have permission to access a large number of shared | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p28] |
 | RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MAY` | may choose to only display Mailboxes where the "isSubscribed" | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p29] |
 | RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MAY` | However, clients MAY choose to ignore this property, either | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p30] |
@@ -763,21 +763,21 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `SHOULD` | , when emptying the trash, the client should just remove it from | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p32] |
 | RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MAY` | If messages are delivered out of order for some reason, a user may | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p1] |
 | RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MAY` | The arrival of a third Email may provide the | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p2] |
-| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | to merge the Threads, it MUST handle this by deleting and reinserting | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p3] |
-| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | date, the sort is server dependent but MUST be stable (sorting by | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p4] |
+| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | to merge the Threads, it MUST handle this by deleting and reinserting | ✅ Covered | `TestRFC8621_Section3_ThreadAndSnippets` | Extracted by specextract from RFC8621 §2 [p3] |
+| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | date, the sort is server dependent but MUST be stable (sorting by | ✅ Covered | `TestRFC8621_Section3_ThreadAndSnippets` | Extracted by specextract from RFC8621 §2 [p4] |
 | RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `SHOULD` | id is recommended) | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p5] |
-| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | It MUST NOT be bigger than 255 octets in size | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p1] |
-| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | If the server is unable to determine search snippets, it MUST return | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2 [p2] |
+| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | It MUST NOT be bigger than 255 octets in size | ✅ Covered | `TestRFC8621_Section3_ThreadAndSnippets` | Extracted by specextract from RFC8621 §2 [p1] |
+| RFC8621 | [2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2) | `MUST` | If the server is unable to determine search snippets, it MUST return | ✅ Covered | `TestRFC8621_Section3_ThreadAndSnippets` | Extracted by specextract from RFC8621 §2 [p2] |
 | RFC8621 | [2.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-2.1) | `MAY` | The "ids" argument may be "null" to fetch all at once | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2.1 [p1] |
 | RFC8621 | [2.2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2.2) | `MAY` | state, this will be the list of properties that may have changed | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2.2 [p1] |
-| RFC8621 | [2.2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2.2) | `MUST` | MUST just be null | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2.2 [p2] |
+| RFC8621 | [2.2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2.2) | `MUST` | MUST just be null | ✅ Covered | `TestRFC8621_Section2_MailboxPropertiesAndConstraints` | Extracted by specextract from RFC8621 §2.2 [p2] |
 | RFC8621 | [2.2](https://www.rfc-editor.org/rfc/rfc8621.html#section-2.2) | `MAY` | The "updatedProperties" array may be used | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2.2 [p3] |
 | RFC8621 | [2.3](https://www.rfc-editor.org/rfc/rfc8621.html#section-2.3) | `MAY` | may be omitted: | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2.3 [p1] |
-| RFC8621 | [2.3](https://www.rfc-editor.org/rfc/rfc8621.html#section-2.3) | `MUST` | The Mailbox "parentId" property must match the given value | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2.3 [p2] |
-| RFC8621 | [2.3](https://www.rfc-editor.org/rfc/rfc8621.html#section-2.3) | `MUST` | The Mailbox "role" property must match the given value exactly | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2.3 [p3] |
-| RFC8621 | [2.3](https://www.rfc-editor.org/rfc/rfc8621.html#section-2.3) | `MUST` | The "isSubscribed" property of the Mailbox must be identical to | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2.3 [p4] |
-| RFC8621 | [2.3](https://www.rfc-editor.org/rfc/rfc8621.html#section-2.3) | `MUST` | The following Mailbox properties MUST be supported for sorting: | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2.3 [p5] |
-| RFC8621 | [2.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-2.5) | `MUST` | The client MUST remove these before it can delete the | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2.5 [p1] |
+| RFC8621 | [2.3](https://www.rfc-editor.org/rfc/rfc8621.html#section-2.3) | `MUST` | The Mailbox "parentId" property must match the given value | ✅ Covered | `TestRFC8621_Section2_MailboxPropertiesAndConstraints` | Extracted by specextract from RFC8621 §2.3 [p2] |
+| RFC8621 | [2.3](https://www.rfc-editor.org/rfc/rfc8621.html#section-2.3) | `MUST` | The Mailbox "role" property must match the given value exactly | ✅ Covered | `TestRFC8621_Section2_MailboxPropertiesAndConstraints` | Extracted by specextract from RFC8621 §2.3 [p3] |
+| RFC8621 | [2.3](https://www.rfc-editor.org/rfc/rfc8621.html#section-2.3) | `MUST` | The "isSubscribed" property of the Mailbox must be identical to | ✅ Covered | `TestRFC8621_Section2_MailboxPropertiesAndConstraints` | Extracted by specextract from RFC8621 §2.3 [p4] |
+| RFC8621 | [2.3](https://www.rfc-editor.org/rfc/rfc8621.html#section-2.3) | `MUST` | The following Mailbox properties MUST be supported for sorting: | ✅ Covered | `TestRFC8621_Section2_MailboxPropertiesAndConstraints` | Extracted by specextract from RFC8621 §2.3 [p5] |
+| RFC8621 | [2.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-2.5) | `MUST` | The client MUST remove these before it can delete the | ✅ Covered | `TestRFC8621_Section2_MailboxPropertiesAndConstraints` | Extracted by specextract from RFC8621 §2.5 [p1] |
 | RFC8621 | [2.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-2.6) | `MAY` | "mayAddItems": true, | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2.6 [p1] |
 | RFC8621 | [2.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-2.6) | `MAY` | "mayRename": false, | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2.6 [p2] |
 | RFC8621 | [2.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-2.6) | `MAY` | "maySubmit": true, | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2.6 [p3] |
@@ -789,9 +789,9 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8621 | [2.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-2.6) | `MAY` | "mayReadItems": true | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2.6 [p9] |
 | RFC8621 | [2.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-2.6) | `MAY` | The response may look | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2.6 [p10] |
 | RFC8621 | [2.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-2.6) | `MAY` | "name": "Maybe important mail" | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §2.6 [p11] |
-| RFC8621 | [3](https://www.rfc-editor.org/rfc/rfc8621.html#section-3) | `MUST` | Every Email MUST belong to a Thread, even if it is the only | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §3 [p1] |
+| RFC8621 | [3](https://www.rfc-editor.org/rfc/rfc8621.html#section-3) | `MUST` | Every Email MUST belong to a Thread, even if it is the only | ✅ Covered | `TestRFC8621_Section3_ThreadAndSnippets` | Extracted by specextract from RFC8621 §3 [p1] |
 | RFC8621 | [3](https://www.rfc-editor.org/rfc/rfc8621.html#section-3) | `SHOULD` | following the "addr-spec", the value of this SHOULD be used | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §3 [p1] |
-| RFC8621 | [3](https://www.rfc-editor.org/rfc/rfc8621.html#section-3) | `MUST` | encoding MUST be decoded, following the same rules as for the Text | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §3 [p2] |
+| RFC8621 | [3](https://www.rfc-editor.org/rfc/rfc8621.html#section-3) | `MUST` | encoding MUST be decoded, following the same rules as for the Text | ✅ Covered | `TestRFC8621_Section3_ThreadAndSnippets` | Extracted by specextract from RFC8621 §3 [p2] |
 | RFC8621 | [3](https://www.rfc-editor.org/rfc/rfc8621.html#section-3) | `SHOULD` | Parsing SHOULD be best effort in the face of invalid structure to | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §3 [p3] |
 | RFC8621 | [3](https://www.rfc-editor.org/rfc/rfc8621.html#section-3) | `MAY` | objects MAY have an "email" property that does not conform to the | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §3 [p4] |
 | RFC8621 | [3](https://www.rfc-editor.org/rfc/rfc8621.html#section-3) | `MAY` | "addr-spec" form (for example, may not contain an @ symbol) | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §3 [p5] |

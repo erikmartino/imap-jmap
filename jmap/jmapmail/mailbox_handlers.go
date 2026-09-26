@@ -3,8 +3,8 @@ package jmapmail
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sort"
+	"strings"
 
 	"imap-jmap/jmap/jmapcopy"
 	"imap-jmap/jmap/jmapcore"
@@ -170,6 +170,15 @@ func HandleMailboxSet(backend MailBackend) jmaphandler.MethodHandler {
 						invalidProps = append(invalidProps, "myRights")
 					}
 				}
+				if soVal, has := m["sortOrder"]; has {
+					if so, ok := soVal.(float64); !ok || so < 0 || so >= (1<<31) || so != float64(int64(so)) {
+						invalidProps = append(invalidProps, "sortOrder")
+					}
+				}
+				name, _ := m["name"].(string)
+				if name == "" {
+					invalidProps = append(invalidProps, "name")
+				}
 				if len(invalidProps) > 0 {
 					return "", jmapcore.SetError{
 						Type:       "invalidProperties",
@@ -177,18 +186,48 @@ func HandleMailboxSet(backend MailBackend) jmaphandler.MethodHandler {
 					}
 				}
 
-				name, _ := m["name"].(string)
-				if name == "" {
-					return "", fmt.Errorf("name is required")
+				allMBs, _ := backend.GetAllMailboxes(ctx)
+				if roleVal, has := m["role"]; has && roleVal != nil {
+					if roleStr, ok := roleVal.(string); !ok || roleStr == "" {
+						return "", jmapcore.SetError{
+							Type:       "invalidProperties",
+							Properties: []string{"role"},
+						}
+					} else {
+						for _, emb := range allMBs {
+							if emb.Role != nil && strings.EqualFold(*emb.Role, roleStr) {
+								return "", jmapcore.SetError{
+									Type:        "invalidProperties",
+									Properties:  []string{"role"},
+									Description: "an account cannot have two mailboxes with the same role",
+								}
+							}
+						}
+					}
 				}
+
+				var parentIDPtr *jmapcore.Id
+				if pid, ok := m["parentId"].(string); ok && pid != "" {
+					p := jmapcore.Id(pid)
+					parentIDPtr = &p
+				}
+				for _, emb := range allMBs {
+					sameParent := (emb.ParentID == nil && parentIDPtr == nil) ||
+						(emb.ParentID != nil && parentIDPtr != nil && *emb.ParentID == *parentIDPtr)
+					if sameParent && strings.EqualFold(emb.Name, name) {
+						return "", jmapcore.SetError{
+							Type:        "alreadyExists",
+							Properties:  []string{"name"},
+							Description: "two sibling mailboxes cannot have the same name and parent",
+						}
+					}
+				}
+
 				mb := &Mailbox{
 					Name:         name,
 					SortOrder:    10,
 					IsSubscribed: false,
-				}
-				if pid, ok := m["parentId"].(string); ok && pid != "" {
-					p := jmapcore.Id(pid)
-					mb.ParentID = &p
+					ParentID:     parentIDPtr,
 				}
 				if role, ok := m["role"].(string); ok && role != "" {
 					mb.Role = &role
@@ -214,6 +253,18 @@ func HandleMailboxSet(backend MailBackend) jmaphandler.MethodHandler {
 				rawPatch, _ := patchRaw.(map[string]any)
 				patch := jmaphandler.ResolvePatchCreationRefs(rawPatch, creationRefs)
 				resolvedID := jmaphandler.ResolveCreationID(idStr, creationRefs)
+				if pIDVal, hasPID := patch["parentId"]; hasPID && pIDVal != nil {
+					if pIDStr, ok := pIDVal.(string); ok && pIDStr != "" {
+						if pIDStr == string(resolvedID) {
+							notUpdated[string(resolvedID)] = jmapcore.SetError{
+								Type:        "invalidProperties",
+								Properties:  []string{"parentId"},
+								Description: "mailbox parentId cannot form a loop",
+							}
+							continue
+						}
+					}
+				}
 				_, err := backend.UpdateMailbox(ctx, jmapcore.Id(resolvedID), patch)
 				if err != nil {
 					if errors.Is(err, jmapcore.ErrNotFound) {

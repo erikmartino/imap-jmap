@@ -446,6 +446,9 @@ func HandleSearchSnippetGet(backend MailBackend) jmaphandler.MethodHandler {
 				if idxP >= 0 {
 					matchedText := em.Preview[idxP : idxP+len(filterText)]
 					p := em.Preview[:idxP] + "<mark>" + matchedText + "</mark>" + em.Preview[idxP+len(filterText):]
+					if len(p) > 255 {
+						p = p[:255]
+					}
 					prevPtr = &p
 				}
 			}
