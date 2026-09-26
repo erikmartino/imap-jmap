@@ -124,11 +124,6 @@ type BlobCapability struct {
 	SupportedDigestAlgorithms []string `json:"supportedDigestAlgorithms"`
 }
 
-// QuotaCapability defines the capability object for "urn:ietf:params:jmap:quota" per RFC 9425 Section 2.
-type QuotaCapability struct {
-	MaxQuotaResources uint64 `json:"maxQuotaResources"`
-}
-
 // MdnCapability defines the capability object for "urn:ietf:params:jmap:mdn" per RFC 9007 Section 2.
 type MdnCapability struct{}
 
@@ -277,10 +272,9 @@ func sessionFor(baseURL, username, accountID string) *Session {
 				SmimeVerificationSupported: true,
 			},
 			BlobCapabilityURI: struct{}{},
-			QuotaCapabilityURI: QuotaCapability{
-				MaxQuotaResources: 10,
-			},
-			MdnCapabilityURI: MdnCapability{},
+			// RFC 9425 Section 2.1: the quota capability value is an empty object.
+			QuotaCapabilityURI: struct{}{},
+			MdnCapabilityURI:   MdnCapability{},
 			// RFC 8621 Section 8: vacation-response auto-reply capability (empty object).
 			VacationResponseCapabilityURI: struct{}{},
 			// RFC 9749: Advertise VAPID public key for Web Push authentication.

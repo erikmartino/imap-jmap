@@ -2,11 +2,44 @@ package jmapmail
 
 import (
 	"context"
+	"sort"
 	"strings"
 
 	"imap-jmap/jmap/jmapcore"
 	"imap-jmap/jmap/jmaphandler"
 )
+
+// quotaSortableProperties are the Quota properties that MUST be supported for
+// sorting (RFC 9425 Section 4.4).
+var quotaSortableProperties = map[string]bool{"name": true, "used": true}
+
+// sortQuotas applies the (already validated) comparators in order.
+func sortQuotas(list []*Quota, comparators []jmapcore.Comparator) {
+	if len(comparators) == 0 {
+		return
+	}
+	sort.SliceStable(list, func(i, j int) bool {
+		for _, c := range comparators {
+			var less, greater bool
+			switch c.Property {
+			case "name":
+				less = list[i].Name < list[j].Name
+				greater = list[i].Name > list[j].Name
+			case "used":
+				less = list[i].Used < list[j].Used
+				greater = list[i].Used > list[j].Used
+			}
+			if !less && !greater {
+				continue
+			}
+			if c.IsAscending {
+				return less
+			}
+			return greater
+		}
+		return false
+	})
+}
 
 // RegisterQuotaHandlers registers RFC 9425 Quota method handlers into MethodRegistry.
 func RegisterQuotaHandlers(r *jmaphandler.MethodRegistry, backend MailBackend) {
@@ -85,6 +118,9 @@ func HandleQuotaChanges(backend MailBackend) jmaphandler.MethodHandler {
 			"created":        created,
 			"updated":        updated,
 			"destroyed":      destroyed,
+			// A usage-only change cannot be distinguished from a metadata change,
+			// so per RFC 9425 Section 4.3 updatedProperties MUST be null.
+			"updatedProperties": nil,
 		}
 	}
 }
@@ -124,10 +160,9 @@ func HandleQuotaQuery(backend MailBackend) jmaphandler.MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
 		accountID, _ := args["accountId"].(string)
 
-		if sortVal, exists := args["sort"]; exists && sortVal != nil {
-			if sortList, ok := sortVal.([]any); ok && len(sortList) > 0 {
-				return "error", jmapcore.MethodErrorArgs("unsupportedSort", "sort is not supported for Quota/query")
-			}
+		comparators := jmapcore.ParseComparators(args)
+		if errType, errMsg := jmapcore.ValidateComparators(comparators, quotaSortableProperties); errType != "" {
+			return "error", jmapcore.MethodErrorArgs(errType, errMsg)
 		}
 
 		all, _ := backend.GetAllQuotas(ctx)
@@ -145,6 +180,8 @@ func HandleQuotaQuery(backend MailBackend) jmaphandler.MethodHandler {
 			}
 			all = filtered
 		}
+
+		sortQuotas(all, comparators)
 
 		position, posErr := jmapcore.ParseQueryPosition(args)
 		if posErr != "" {

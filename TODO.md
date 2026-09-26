@@ -111,8 +111,10 @@ Drive all remaining JMAP RFC requirement matrices in `spec/` to 100% MUST/MUST N
   - MDN data model, `MDN/send` and `MDN/parse` method handlers, disposition headers, and S/MIME compatibility.
 - [ ] **1.3 RFC 9404 (JMAP Blob Management)**:
   - `Blob/copy`, `Blob/lookup` handlers, blob upload/download streaming, Digest verification.
-- [ ] **1.4 RFC 9425 (JMAP Quotas)**:
-  - `Quota/get`, `Quota/changes`, `Quota/query` handlers for mail and storage resource types.
+- [~] **1.4 RFC 9425 (JMAP Quotas)**:
+  - Handlers already implemented (`Quota/get`, `/changes`, `/query`, `/queryChanges`).
+  - [x] Capability value is an empty object in session + account capabilities; `name`/`used` sortable (`Quota/query`), unsupported sort rejected; `Quota/changes` returns `updatedProperties: null`. Matrix 0 → 6 covered.
+  - [ ] Remaining: filter out `types` the client did not request a capability for (and omit quotas with no recognized types); UTF-8 `description`; push coverage.
 - [ ] **1.5 RFC 9610 (JMAP for Contacts / JSContact RFC 9553)**:
   - `Card/get`, `set`, `query`, `AddressBook/get`, `set` handlers, CardDAV round-trip translation.
 - [ ] **1.6 RFC 9661 (JMAP for Sieve Scripts)**:

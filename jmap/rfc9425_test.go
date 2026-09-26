@@ -7,10 +7,14 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
+	"imap-jmap/jmap/spectest"
 )
 
 // TestRFC9425_Section2_Capability tests urn:ietf:params:jmap:quota capability discovery per RFC 9425 Section 2.
 func TestRFC9425_Section2_Capability(t *testing.T) {
+	spectest.Require(t, "RFC9425", "2.1", "MUST",
+		"Servers supporting this specification MUST add a property")
+
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -30,13 +34,20 @@ func TestRFC9425_Section2_Capability(t *testing.T) {
 	if !ok {
 		t.Fatalf("Capability %q missing in Session", jmap.QuotaCapabilityURI)
 	}
+	if m, ok := capRaw.(map[string]any); !ok || len(m) != 0 {
+		t.Errorf("session capability %q must be an empty object, got %v", jmap.QuotaCapabilityURI, capRaw)
+	}
 
-	capBytes, _ := json.Marshal(capRaw)
-	var quotaCap jmap.QuotaCapability
-	_ = json.Unmarshal(capBytes, &quotaCap)
-
-	if quotaCap.MaxQuotaResources == 0 {
-		t.Error("Expected maxQuotaResources > 0")
+	acc, ok := session.Accounts[jmap.AccountIDForSubject(testUsername)]
+	if !ok {
+		t.Fatalf("primary account missing from session")
+	}
+	accCap, ok := acc.AccountCapabilities[jmap.QuotaCapabilityURI]
+	if !ok {
+		t.Fatalf("accountCapabilities missing %q", jmap.QuotaCapabilityURI)
+	}
+	if m, ok := accCap.(map[string]any); !ok || len(m) != 0 {
+		t.Errorf("accountCapabilities %q must be an empty object, got %v", jmap.QuotaCapabilityURI, accCap)
 	}
 }
 

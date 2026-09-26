@@ -356,19 +356,34 @@ func TestRFC9425_QuotaQuery_FiltersAndUnsupportedSort(t *testing.T) {
 		t.Errorf("Expected 1 quota for dataTypes:Email AND resourceType:octets, got %d", len(ids3))
 	}
 
-	// 2. Query with unsupported sort argument
+	spectest.Require(t, "RFC9425", "4.4", "MUST", "The Quota _scope_ property must match the given value exactly.")
+	spectest.Require(t, "RFC9425", "4.4", "MUST", "The Quota _resourceType_ property must match the given value")
+	spectest.Require(t, "RFC9425", "4.4", "MUST", "The following Quota properties MUST be supported for sorting:")
+
+	// 2. name and used MUST be sortable.
 	sortRes := postJMAP(t, ts.URL, using, []any{
 		[]any{"Quota/query", map[string]any{
 			"accountId": "primary",
-			"sort":      []any{map[string]any{"property": "name"}},
+			"sort":      []any{map[string]any{"property": "name", "isAscending": false}},
 		}, "c4"},
+		[]any{"Quota/query", map[string]any{
+			"accountId": "primary",
+			"sort":      []any{map[string]any{"property": "used", "isAscending": true}},
+		}, "c5"},
+		// An unsupported sort property is still rejected.
+		[]any{"Quota/query", map[string]any{
+			"accountId": "primary",
+			"sort":      []any{map[string]any{"property": "description"}},
+		}, "c6"},
 	})
-	if sortRes.MethodResponses[0].Name != "error" {
-		t.Errorf("Expected error method response for Quota/query sort, got %s", sortRes.MethodResponses[0].Name)
+	if sortRes.MethodResponses[0].Name != "Quota/query" {
+		t.Errorf("sort by name should be supported, got %v", sortRes.MethodResponses[0])
 	}
-	errType := sortRes.MethodResponses[0].Args["type"]
-	if errType != "unsupportedSort" {
-		t.Errorf("Expected 'unsupportedSort' error, got %v", errType)
+	if sortRes.MethodResponses[1].Name != "Quota/query" {
+		t.Errorf("sort by used should be supported, got %v", sortRes.MethodResponses[1])
+	}
+	if sortRes.MethodResponses[2].Name != "error" || sortRes.MethodResponses[2].Args["type"] != "unsupportedSort" {
+		t.Errorf("expected unsupportedSort for an unknown sort property, got %v", sortRes.MethodResponses[2])
 	}
 }
 
@@ -417,5 +432,15 @@ func TestRFC9425_QuotaChanges(t *testing.T) {
 	updated, ok := args["updated"].([]any)
 	if !ok || len(updated) == 0 {
 		t.Errorf("Expected updated quotas in Quota/changes, got %v", args["updated"])
+	}
+	// RFC 9425 Section 4.3: when the server cannot tell whether only "used"
+	// changed, updatedProperties MUST be null. The key must be present.
+	spectest.Require(t, "RFC9425", "4.3", "MUST", "is unable to tell if only \"used\" has changed, it MUST be null")
+	val, present := args["updatedProperties"]
+	if !present {
+		t.Errorf("Quota/changes response must include updatedProperties")
+	}
+	if val != nil {
+		t.Errorf("updatedProperties must be null when only used cannot be distinguished, got %v", val)
 	}
 }

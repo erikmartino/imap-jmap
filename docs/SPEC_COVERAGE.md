@@ -23,13 +23,13 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [rfc9007-mdn](#rfc9007-mdn) | RFC9007 | 0 | 24 | 0 | 24 | 0.0% |
 | [rfc9219-smime](#rfc9219-smime) | RFC9219 | 0 | 24 | 0 | 24 | 0.0% |
 | [rfc9404-blobs](#rfc9404-blobs) | RFC9404 | 0 | 52 | 0 | 52 | 0.0% |
-| [rfc9425-quotas](#rfc9425-quotas) | RFC9425 | 0 | 30 | 0 | 30 | 0.0% |
+| [rfc9425-quotas](#rfc9425-quotas) | RFC9425 | 6 | 24 | 0 | 30 | 20.0% |
 | [rfc9610-contacts](#rfc9610-contacts) | RFC9610 | 0 | 84 | 0 | 84 | 0.0% |
 | [rfc9661-sieve](#rfc9661-sieve) | RFC9661 | 0 | 45 | 0 | 45 | 0.0% |
 | [rfc9670-sharing](#rfc9670-sharing) | RFC9670 | 0 | 76 | 0 | 76 | 0.0% |
 | [rfc9698-jmapaccess](#rfc9698-jmapaccess) | RFC9698 | 0 | 14 | 0 | 14 | 0.0% |
 | [rfc9749-vapid](#rfc9749-vapid) | RFC9749 | 0 | 24 | 0 | 24 | 0.0% |
-| **Total** | | **515** | **877** | **0** | **1392** | **37.0%** |
+| **Total** | | **521** | **871** | **0** | **1392** | **37.4%** |
 
 ---
 
@@ -1275,7 +1275,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 ## rfc9425-quotas
 
 * **Test Suite Directory**: [`jmap/`](../jmap/)
-* **Conformance**: 0 / 30 (0.0%)
+* **Conformance**: 6 / 30 (20.0%)
 
 | Spec | Section | Level | Requirement | Status | Tests | Note |
 | :--- | :---: | :---: | :--- | :---: | :--- | :--- |
@@ -1285,8 +1285,8 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC9425 | [1.1](https://www.rfc-editor.org/rfc/rfc9425.html#section-1.1) | `MUST` | The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", | ⚠️ **Gap** | — | Extracted by specextract from RFC9425 §1.1 [p1] |
 | RFC9425 | [1.1](https://www.rfc-editor.org/rfc/rfc9425.html#section-1.1) | `SHOULD` | "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and | ⚠️ **Gap** | — | Extracted by specextract from RFC9425 §1.1 [p2] |
 | RFC9425 | [1.1](https://www.rfc-editor.org/rfc/rfc9425.html#section-1.1) | `MAY` | "OPTIONAL" in this document are to be interpreted as described in | ⚠️ **Gap** | — | Extracted by specextract from RFC9425 §1.1 [p3] |
-| RFC9425 | [2.1](https://www.rfc-editor.org/rfc/rfc9425.html#section-2.1) | `MUST` | Servers supporting this specification MUST add a property | ⚠️ **Gap** | — | Extracted by specextract from RFC9425 §2.1 [p1] |
-| RFC9425 | [4.1](https://www.rfc-editor.org/rfc/rfc9425.html#section-4.1) | `MUST` | The Quota object MUST contain the following fields: | ⚠️ **Gap** | — | Extracted by specextract from RFC9425 §4.1 [p1] |
+| RFC9425 | [2.1](https://www.rfc-editor.org/rfc/rfc9425.html#section-2.1) | `MUST` | Servers supporting this specification MUST add a property | ✅ Covered | `TestRFC9425_Section2_Capability` | Extracted by specextract from RFC9425 §2.1 [p1] |
+| RFC9425 | [4.1](https://www.rfc-editor.org/rfc/rfc9425.html#section-4.1) | `MUST` | The Quota object MUST contain the following fields: | ✅ Covered | `TestRFC9425_Section4_1_Quota_DataTypesAndProperties` | Extracted by specextract from RFC9425 §4.1 [p1] |
 | RFC9425 | [4.1](https://www.rfc-editor.org/rfc/rfc9425.html#section-4.1) | `MAY` | Objects in scope may not be created or | ⚠️ **Gap** | — | Extracted by specextract from RFC9425 §4.1 [p2] |
 | RFC9425 | [4.1](https://www.rfc-editor.org/rfc/rfc9425.html#section-4.1) | `MUST` | The server MUST filter out any types for which the client did not | ⚠️ **Gap** | — | Extracted by specextract from RFC9425 §4.1 [p3] |
 | RFC9425 | [4.1](https://www.rfc-editor.org/rfc/rfc9425.html#section-4.1) | `MUST` | Further, the server MUST NOT return Quota objects for | ⚠️ **Gap** | — | Extracted by specextract from RFC9425 §4.1 [p4] |
@@ -1295,13 +1295,13 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC9425 | [4.1](https://www.rfc-editor.org/rfc/rfc9425.html#section-4.1) | `SHOULD` | If set, it SHOULD be higher | ⚠️ **Gap** | — | Extracted by specextract from RFC9425 §4.1 [p7] |
 | RFC9425 | [4.1](https://www.rfc-editor.org/rfc/rfc9425.html#section-4.1) | `MUST` | description MUST be encoded in UTF-8 [RFC3629] as described in | ⚠️ **Gap** | — | Extracted by specextract from RFC9425 §4.1 [p8] |
 | RFC9425 | [4.2](https://www.rfc-editor.org/rfc/rfc9425.html#section-4.2) | `MAY` | _id_'s argument may be "null" to fetch all quotas of the account at | ⚠️ **Gap** | — | Extracted by specextract from RFC9425 §4.2 [p1] |
-| RFC9425 | [4.3](https://www.rfc-editor.org/rfc/rfc9425.html#section-4.3) | `MUST` | is unable to tell if only "used" has changed, it MUST be null | ⚠️ **Gap** | — | Extracted by specextract from RFC9425 §4.3 [p1] |
+| RFC9425 | [4.3](https://www.rfc-editor.org/rfc/rfc9425.html#section-4.3) | `MUST` | is unable to tell if only "used" has changed, it MUST be null | ✅ Covered | `TestRFC9425_QuotaChanges` | Extracted by specextract from RFC9425 §4.3 [p1] |
 | RFC9425 | [4.3](https://www.rfc-editor.org/rfc/rfc9425.html#section-4.3) | `MAY` | The updatedProperties array may be used | ⚠️ **Gap** | — | Extracted by specextract from RFC9425 §4.3 [p2] |
 | RFC9425 | [4.3](https://www.rfc-editor.org/rfc/rfc9425.html#section-4.3) | `MAY` | Servers MAY decide to add other properties to the list that they | ⚠️ **Gap** | — | Extracted by specextract from RFC9425 §4.3 [p3] |
 | RFC9425 | [4.4](https://www.rfc-editor.org/rfc/rfc9425.html#section-4.4) | `MAY` | may be included or omitted: | ⚠️ **Gap** | — | Extracted by specextract from RFC9425 §4.4 [p1] |
-| RFC9425 | [4.4](https://www.rfc-editor.org/rfc/rfc9425.html#section-4.4) | `MUST` | The Quota _scope_ property must match the given value exactly | ⚠️ **Gap** | — | Extracted by specextract from RFC9425 §4.4 [p2] |
-| RFC9425 | [4.4](https://www.rfc-editor.org/rfc/rfc9425.html#section-4.4) | `MUST` | The Quota _resourceType_ property must match the given value | ⚠️ **Gap** | — | Extracted by specextract from RFC9425 §4.4 [p3] |
-| RFC9425 | [4.4](https://www.rfc-editor.org/rfc/rfc9425.html#section-4.4) | `MUST` | The following Quota properties MUST be supported for sorting: | ⚠️ **Gap** | — | Extracted by specextract from RFC9425 §4.4 [p4] |
+| RFC9425 | [4.4](https://www.rfc-editor.org/rfc/rfc9425.html#section-4.4) | `MUST` | The Quota _scope_ property must match the given value exactly | ✅ Covered | `TestRFC9425_QuotaQuery_FiltersAndUnsupportedSort` | Extracted by specextract from RFC9425 §4.4 [p2] |
+| RFC9425 | [4.4](https://www.rfc-editor.org/rfc/rfc9425.html#section-4.4) | `MUST` | The Quota _resourceType_ property must match the given value | ✅ Covered | `TestRFC9425_QuotaQuery_FiltersAndUnsupportedSort` | Extracted by specextract from RFC9425 §4.4 [p3] |
+| RFC9425 | [4.4](https://www.rfc-editor.org/rfc/rfc9425.html#section-4.4) | `MUST` | The following Quota properties MUST be supported for sorting: | ✅ Covered | `TestRFC9425_QuotaQuery_FiltersAndUnsupportedSort` | Extracted by specextract from RFC9425 §4.4 [p4] |
 | RFC9425 | [6](https://www.rfc-editor.org/rfc/rfc9425.html#section-6) | `MUST` | Servers MUST support the JMAP push mechanisms, as specified in | ⚠️ **Gap** | — | Extracted by specextract from RFC9425 §6 [p1] |
 | RFC9425 | [8](https://www.rfc-editor.org/rfc/rfc9425.html#section-8) | `SHOULD` | Implementors should be careful to make sure the implementation of the | ⚠️ **Gap** | — | Extracted by specextract from RFC9425 §8 [p1] |
 | RFC9425 | [8](https://www.rfc-editor.org/rfc/rfc9425.html#section-8) | `SHOULD` | considered confidential information and should not be divulged to | ⚠️ **Gap** | — | Extracted by specextract from RFC9425 §8 [p2] |
