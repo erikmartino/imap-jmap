@@ -133,3 +133,55 @@ func EnsureValidMessageID(data []byte, domainOrAddress string) []byte {
 	buf.Write(bodyBytes)
 	return buf.Bytes()
 }
+
+// StripBCCHeader removes any Bcc header field from raw message bytes during transmission
+// per RFC 8621 Section 7.5.
+func StripBCCHeader(data []byte) []byte {
+	if len(data) == 0 {
+		return data
+	}
+
+	headerEnd := bytes.Index(data, []byte("\r\n\r\n"))
+	delimLen := 4
+	if headerEnd == -1 {
+		headerEnd = bytes.Index(data, []byte("\n\n"))
+		delimLen = 2
+	}
+
+	var headerBytes []byte
+	var bodyBytes []byte
+	if headerEnd != -1 {
+		headerBytes = data[:headerEnd]
+		bodyBytes = data[headerEnd+delimLen:]
+	} else {
+		headerBytes = data
+	}
+
+	lines := strings.Split(string(headerBytes), "\n")
+	var filteredHeader strings.Builder
+	inBCC := false
+
+	for _, rawLine := range lines {
+		trimmedLine := strings.TrimRight(rawLine, "\r")
+		if strings.HasPrefix(strings.ToLower(trimmedLine), "bcc:") {
+			inBCC = true
+			continue
+		}
+		if inBCC {
+			if strings.HasPrefix(trimmedLine, " ") || strings.HasPrefix(trimmedLine, "\t") {
+				continue
+			}
+			inBCC = false
+		}
+		filteredHeader.WriteString(trimmedLine)
+		filteredHeader.WriteString("\r\n")
+	}
+
+	var buf bytes.Buffer
+	buf.WriteString(filteredHeader.String())
+	if headerEnd != -1 {
+		buf.WriteString("\r\n")
+		buf.Write(bodyBytes)
+	}
+	return buf.Bytes()
+}

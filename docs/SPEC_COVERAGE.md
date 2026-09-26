@@ -18,7 +18,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [jscontact](#jscontact) | RFC9553, RFC9554, RFC9555 | 6 | 0 | 0 | 6 | 100.0% |
 | [smtp](#smtp) | RFC4954, RFC5228, RFC5232, RFC5321, RFC5429, RFC5546, RFC6047, RFC6376, RFC6409, RFC7208, RFC7489, RFC8601 | 46 | 0 | 0 | 46 | 100.0% |
 | [rfc8620-core](#rfc8620-core) | RFC8620 | 176 | 218 | 0 | 394 | 44.7% |
-| [rfc8621-mail](#rfc8621-mail) | RFC8621 | 109 | 309 | 0 | 418 | 26.1% |
+| [rfc8621-mail](#rfc8621-mail) | RFC8621 | 134 | 284 | 0 | 418 | 32.1% |
 | [rfc8887-websockets](#rfc8887-websockets) | RFC8887 | 0 | 40 | 0 | 40 | 0.0% |
 | [rfc9007-mdn](#rfc9007-mdn) | RFC9007 | 0 | 24 | 0 | 24 | 0.0% |
 | [rfc9219-smime](#rfc9219-smime) | RFC9219 | 0 | 24 | 0 | 24 | 0.0% |
@@ -29,7 +29,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [rfc9670-sharing](#rfc9670-sharing) | RFC9670 | 0 | 76 | 0 | 76 | 0.0% |
 | [rfc9698-jmapaccess](#rfc9698-jmapaccess) | RFC9698 | 0 | 14 | 0 | 14 | 0.0% |
 | [rfc9749-vapid](#rfc9749-vapid) | RFC9749 | 0 | 24 | 0 | 24 | 0.0% |
-| **Total** | | **452** | **940** | **0** | **1392** | **32.5%** |
+| **Total** | | **477** | **915** | **0** | **1392** | **34.3%** |
 
 ---
 
@@ -667,7 +667,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 ## rfc8621-mail
 
 * **Test Suite Directory**: [`jmap/`](../jmap/)
-* **Conformance**: 109 / 418 (26.1%)
+* **Conformance**: 134 / 418 (32.1%)
 
 | Spec | Section | Level | Requirement | Status | Tests | Note |
 | :--- | :---: | :---: | :--- | :---: | :--- | :--- |
@@ -952,14 +952,14 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8621 | [5.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-5.1) | `MAY` | snippets a second time MAY return a different result | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §5.1 [p2] |
 | RFC8621 | [6](https://www.rfc-editor.org/rfc/rfc8621.html#section-6) | `MAY` | domain the user may send from | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §6 [p1] |
 | RFC8621 | [6](https://www.rfc-editor.org/rfc/rfc8621.html#section-6) | `SHOULD` | The "From" name the client SHOULD use when creating a new Email | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §6 [p2] |
-| RFC8621 | [6](https://www.rfc-editor.org/rfc/rfc8621.html#section-6) | `MUST` | The "From" email address the client MUST use when creating a new | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §6 [p3] |
+| RFC8621 | [6](https://www.rfc-editor.org/rfc/rfc8621.html#section-6) | `MUST` | The "From" email address the client MUST use when creating a new | ✅ Covered | `TestRFC8621_Section6_Identity` | Extracted by specextract from RFC8621 §6 [p3] |
 | RFC8621 | [6](https://www.rfc-editor.org/rfc/rfc8621.html#section-6) | `MAY` | com"), the client may use any valid address ending in | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §6 [p4] |
 | RFC8621 | [6](https://www.rfc-editor.org/rfc/rfc8621.html#section-6) | `SHOULD` | The Reply-To value the client SHOULD set when creating a new Email | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §6 [p5] |
 | RFC8621 | [6](https://www.rfc-editor.org/rfc/rfc8621.html#section-6) | `SHOULD` | The Bcc value the client SHOULD set when creating a new Email from | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §6 [p6] |
 | RFC8621 | [6](https://www.rfc-editor.org/rfc/rfc8621.html#section-6) | `SHOULD` | A signature the client SHOULD insert into new plaintext messages | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §6 [p7] |
 | RFC8621 | [6](https://www.rfc-editor.org/rfc/rfc8621.html#section-6) | `MAY` | Clients MAY ignore this | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §6 [p8] |
 | RFC8621 | [6](https://www.rfc-editor.org/rfc/rfc8621.html#section-6) | `SHOULD` | A signature the client SHOULD insert into new HTML messages that | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §6 [p9] |
-| RFC8621 | [6](https://www.rfc-editor.org/rfc/rfc8621.html#section-6) | `MUST` | This text MUST be an HTML | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §6 [p10] |
+| RFC8621 | [6](https://www.rfc-editor.org/rfc/rfc8621.html#section-6) | `MUST` | This text MUST be an HTML | ✅ Covered | `TestRFC8621_Section6_Identity` | Extracted by specextract from RFC8621 §6 [p10] |
 | RFC8621 | [6](https://www.rfc-editor.org/rfc/rfc8621.html#section-6) | `MAY` | Clients MAY ignore this and/or combine this with a client- | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §6 [p11] |
 | RFC8621 | [6](https://www.rfc-editor.org/rfc/rfc8621.html#section-6) | `MAY` | o mayDelete: "Boolean" (server-set) | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §6 [p12] |
 | RFC8621 | [6](https://www.rfc-editor.org/rfc/rfc8621.html#section-6) | `MAY` | Servers may wish to | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §6 [p13] |
@@ -971,14 +971,14 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `MAY` | The JMAP server MAY allow the address to be the empty | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7 [p1] |
 | RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `MAY` | When a JMAP server performs an SMTP message submission, it MAY | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7 [p2] |
 | RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `MAY` | Servers that do this MAY | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7 [p3] |
-| RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `MUST` | server MUST generate this from the referenced Email as follows: | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7 [p4] |
+| RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `MUST` | server MUST generate this from the referenced Email as follows: | ✅ Covered | `TestRFC8621_Section7_EmailSubmission` | Extracted by specextract from RFC8621 §7 [p4] |
 | RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `SHOULD` | server SHOULD reject the EmailSubmission as invalid; otherwise, | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7 [p5] |
-| RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `MUST` | it MUST take the first address in the last Sender/From header | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7 [p6] |
-| RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `MUST` | Identity MUST be used instead | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7 [p7] |
-| RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `MUST` | submission, this MUST be the time when the server will release the | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7 [p8] |
-| RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `MUST` | message; otherwise, it MUST be the time the EmailSubmission was | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7 [p9] |
+| RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `MUST` | it MUST take the first address in the last Sender/From header | ✅ Covered | `TestRFC8621_Section7_EmailSubmission` | Extracted by specextract from RFC8621 §7 [p6] |
+| RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `MUST` | Identity MUST be used instead | ✅ Covered | `TestRFC8621_Section7_EmailSubmission` | Extracted by specextract from RFC8621 §7 [p7] |
+| RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `MUST` | submission, this MUST be the time when the server will release the | ✅ Covered | `TestRFC8621_Section7_EmailSubmission` | Extracted by specextract from RFC8621 §7 [p8] |
+| RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `MUST` | message; otherwise, it MUST be the time the EmailSubmission was | ✅ Covered | `TestRFC8621_Section7_EmailSubmission` | Extracted by specextract from RFC8621 §7 [p9] |
 | RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `MAY` | This represents whether the submission may be canceled | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7 [p10] |
-| RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `MUST` | server set on create and MUST be one of the following values: | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7 [p11] |
+| RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `MUST` | server set on create and MUST be one of the following values: | ✅ Covered | `TestRFC8621_Section7_EmailSubmission` | Extracted by specextract from RFC8621 §7 [p11] |
 | RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `MAY` | * "pending": It may be possible to cancel this submission | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7 [p12] |
 | RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `MAY` | canceling submission, it will start as "pending" and MAY | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7 [p13] |
 | RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `MAY` | recall the message, but it MAY just remain "pending" | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7 [p14] |
@@ -987,29 +987,29 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `SHOULD` | This SHOULD be the response to the RCPT TO stage, | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7 [p17] |
 | RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `SHOULD` | stage reply SHOULD be used instead | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7 [p18] |
 | RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `SHOULD` | Multi-line SMTP responses should be concatenated to a single | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7 [p19] |
-| RFC8621 | [7.3](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.3) | `MUST` | The EmailSubmission "identityId" property must be in this list to | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7.3 [p2] |
-| RFC8621 | [7.3](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.3) | `MUST` | The EmailSubmission "emailId" property must be in this list to | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7.3 [p3] |
-| RFC8621 | [7.3](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.3) | `MUST` | The EmailSubmission "threadId" property must be in this list to | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7.3 [p4] |
-| RFC8621 | [7.3](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.3) | `MUST` | The EmailSubmission "undoStatus" property must be identical to the | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7.3 [p5] |
-| RFC8621 | [7.3](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.3) | `MUST` | The "sendAt" property of the EmailSubmission object must be before | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7.3 [p6] |
-| RFC8621 | [7.3](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.3) | `MUST` | The "sendAt" property of the EmailSubmission object must be the | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7.3 [p7] |
-| RFC8621 | [7.3](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.3) | `MUST` | The following EmailSubmission properties MUST be supported for | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7.3 [p8] |
+| RFC8621 | [7.3](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.3) | `MUST` | The EmailSubmission "identityId" property must be in this list to | ✅ Covered | `TestRFC8621_Section7_EmailSubmission` | Extracted by specextract from RFC8621 §7.3 [p2] |
+| RFC8621 | [7.3](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.3) | `MUST` | The EmailSubmission "emailId" property must be in this list to | ✅ Covered | `TestRFC8621_Section7_EmailSubmission` | Extracted by specextract from RFC8621 §7.3 [p3] |
+| RFC8621 | [7.3](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.3) | `MUST` | The EmailSubmission "threadId" property must be in this list to | ✅ Covered | `TestRFC8621_Section7_EmailSubmission` | Extracted by specextract from RFC8621 §7.3 [p4] |
+| RFC8621 | [7.3](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.3) | `MUST` | The EmailSubmission "undoStatus" property must be identical to the | ✅ Covered | `TestRFC8621_Section7_EmailSubmission` | Extracted by specextract from RFC8621 §7.3 [p5] |
+| RFC8621 | [7.3](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.3) | `MUST` | The "sendAt" property of the EmailSubmission object must be before | ✅ Covered | `TestRFC8621_Section7_EmailSubmission` | Extracted by specextract from RFC8621 §7.3 [p6] |
+| RFC8621 | [7.3](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.3) | `MUST` | The "sendAt" property of the EmailSubmission object must be the | ✅ Covered | `TestRFC8621_Section7_EmailSubmission` | Extracted by specextract from RFC8621 §7.3 [p7] |
+| RFC8621 | [7.3](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.3) | `MUST` | The following EmailSubmission properties MUST be supported for | ✅ Covered | `TestRFC8621_Section7_EmailSubmission` | Extracted by specextract from RFC8621 §7.3 [p8] |
 | RFC8621 | [7.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5) | `SHOULD` | corresponding "emailId" should be destroyed if the create/update/ | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7.5 [p1] |
-| RFC8621 | [7.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5) | `MUST` | MUST be made to perform any changes requested in these two arguments | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7.5 [p2] |
-| RFC8621 | [7.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5) | `MUST` | The response to this MUST be returned after the "EmailSubmission/set" | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7.5 [p3] |
-| RFC8621 | [7.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5) | `MUST` | processing each create, the server must check that the message is | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7.5 [p4] |
-| RFC8621 | [7.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5) | `MUST` | The server MUST remove any Bcc | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7.5 [p5] |
+| RFC8621 | [7.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5) | `MUST` | MUST be made to perform any changes requested in these two arguments | ✅ Covered | `TestRFC8621_Section7_EmailSubmission` | Extracted by specextract from RFC8621 §7.5 [p2] |
+| RFC8621 | [7.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5) | `MUST` | The response to this MUST be returned after the "EmailSubmission/set" | ✅ Covered | `TestRFC8621_Section7_EmailSubmission` | Extracted by specextract from RFC8621 §7.5 [p3] |
+| RFC8621 | [7.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5) | `MUST` | processing each create, the server must check that the message is | ✅ Covered | `TestRFC8621_Section7_EmailSubmission` | Extracted by specextract from RFC8621 §7.5 [p4] |
+| RFC8621 | [7.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5) | `MUST` | The server MUST remove any Bcc | ✅ Covered | `TestRFC8621_Section7_EmailSubmission` | Extracted by specextract from RFC8621 §7.5 [p5] |
 | RFC8621 | [7.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5) | `MAY` | The server MAY | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7.5 [p6] |
-| RFC8621 | [7.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5) | `MUST` | EmailSubmission object is created, this MUST NOT change the behaviour | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7.5 [p7] |
-| RFC8621 | [7.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5) | `MUST` | Similarly, destroying an EmailSubmission object MUST NOT affect the | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7.5 [p8] |
+| RFC8621 | [7.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5) | `MUST` | EmailSubmission object is created, this MUST NOT change the behaviour | ✅ Covered | `TestRFC8621_Section7_EmailSubmission` | Extracted by specextract from RFC8621 §7.5 [p7] |
+| RFC8621 | [7.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5) | `MUST` | Similarly, destroying an EmailSubmission object MUST NOT affect the | ✅ Covered | `TestRFC8621_Section7_EmailSubmission` | Extracted by specextract from RFC8621 §7.5 [p8] |
 | RFC8621 | [7.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5) | `MAY` | The server MAY automatically destroy EmailSubmission | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7.5 [p9] |
 | RFC8621 | [7.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5) | `MAY` | objects after some time or in response to other triggers, and MAY | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7.5 [p10] |
-| RFC8621 | [7.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5) | `MUST` | a standard "tooLarge" SetError MUST be returned | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7.5 [p11] |
-| RFC8621 | [7.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5) | `MUST` | "UnsignedInt" property MUST be present on the SetError specifying the | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7.5 [p12] |
+| RFC8621 | [7.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5) | `MUST` | a standard "tooLarge" SetError MUST be returned | ✅ Covered | `TestRFC8621_Section7_EmailSubmission` | Extracted by specextract from RFC8621 §7.5 [p11] |
+| RFC8621 | [7.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5) | `MUST` | "UnsignedInt" property MUST be present on the SetError specifying the | ✅ Covered | `TestRFC8621_Section7_EmailSubmission` | Extracted by specextract from RFC8621 §7.5 [p12] |
 | RFC8621 | [7.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5) | `MAY` | maximum size of a message that may be sent, in octets | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7.5 [p13] |
 | RFC8621 | [7.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5) | `SHOULD` | SetError SHOULD contain a property called "properties" of type | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7.5 [p14] |
-| RFC8621 | [7.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5) | `MUST` | "UnsignedInt" property MUST also be present on the SetError | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7.5 [p15] |
-| RFC8621 | [7.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5) | `MUST` | "invalidRecipients" "String[]" property MUST also be present on | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7.5 [p16] |
+| RFC8621 | [7.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5) | `MUST` | "UnsignedInt" property MUST also be present on the SetError | ✅ Covered | `TestRFC8621_Section7_EmailSubmission` | Extracted by specextract from RFC8621 §7.5 [p15] |
+| RFC8621 | [7.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5) | `MUST` | "invalidRecipients" "String[]" property MUST also be present on | ✅ Covered | `TestRFC8621_Section7_EmailSubmission` | Extracted by specextract from RFC8621 §7.5 [p16] |
 | RFC8621 | [7.5](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5) | `MAY` | MAY be present on the SetError object to display to the user why | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7.5 [p17] |
 | RFC8621 | [7.5.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5.1) | `SHOULD` | user, so it should be localised appropriately | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7.5.1 [p1] |
 | RFC8621 | [7.5.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.5.1) | `SHOULD` | The server should attempt to choose the best localisation from those | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7.5.1 [p2] |

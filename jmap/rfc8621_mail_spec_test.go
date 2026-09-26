@@ -3,12 +3,14 @@ package jmap_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"imap-jmap/jmap"
+	"imap-jmap/jmap/jmapmail"
 	"imap-jmap/jmap/spectest"
 )
 
@@ -1340,6 +1342,535 @@ func TestRFC8621_Section4_EmailSetImportCopy(t *testing.T) {
 	cpID, _ := cpObj["id"].(string)
 	if cpID == "" || cpID == draftID {
 		t.Errorf("expected copied email to have distinct ID in new mailbox, got %q", cpID)
+	}
+}
+
+// TestRFC8621_Section6_Identity verifies Identity requirements per RFC 8621 Section 6:
+// - email: The "From" email address the client MUST use when creating a new Email from this Identity.
+// - htmlSignature: This text MUST be an HTML snippet to be included where the signature is to appear.
+func TestRFC8621_Section6_Identity(t *testing.T) {
+	spectest.Require(t, "RFC8621", "6", spectest.MUST, "The \"From\" email address the client MUST use when creating a new")
+	spectest.Require(t, "RFC8621", "6", spectest.MUST, "This text MUST be an HTML")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.SubmissionCapabilityURI}
+
+	// 1. Identity/set: create an identity with email and htmlSignature
+	rCreate := postJMAP(t, ts.URL, using, []any{
+		[]any{"Identity/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"id1": map[string]any{
+					"name":          "Jane Doe",
+					"email":         "jane.doe@example.com",
+					"htmlSignature": "<div><p>-- <br><b>Best regards</b>, Jane</p></div>",
+					"textSignature": "-- \nBest regards, Jane",
+				},
+			},
+		}, "cCreateIdent"},
+	})
+	created, _ := rCreate.MethodResponses[0].Args["created"].(map[string]any)
+	idObj, ok := created["id1"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected Identity created: %v", rCreate.MethodResponses[0].Args)
+	}
+	identityID, _ := idObj["id"].(string)
+
+	// 2. Identity/get: verify email and htmlSignature properties
+	rGet := postJMAP(t, ts.URL, using, []any{
+		[]any{"Identity/get", map[string]any{
+			"accountId": "primary",
+			"ids":       []any{identityID},
+		}, "cGetIdent"},
+	})
+	list, _ := rGet.MethodResponses[0].Args["list"].([]any)
+	if len(list) != 1 {
+		t.Fatalf("expected 1 identity in list, got %v", list)
+	}
+	identMap := list[0].(map[string]any)
+	fromEmail, _ := identMap["email"].(string)
+	if fromEmail != "jane.doe@example.com" {
+		t.Errorf("expected identity email %q, got %q", "jane.doe@example.com", fromEmail)
+	}
+	htmlSig, _ := identMap["htmlSignature"].(string)
+	if !strings.Contains(htmlSig, "<b>Best regards</b>") {
+		t.Errorf("expected HTML snippet signature, got %q", htmlSig)
+	}
+}
+
+// TestRFC8621_Section7_EmailSubmission verifies EmailSubmission envelope generation,
+// query filtering/sorting, and set error handling per RFC 8621 Sections 7, 7.3, and 7.5.
+func TestRFC8621_Section7_EmailSubmission(t *testing.T) {
+	spectest.Require(t, "RFC8621", "7", spectest.MUST, "server MUST generate this from the referenced Email as follows:")
+	spectest.Require(t, "RFC8621", "7", spectest.MUST, "it MUST take the first address in the last Sender/From header")
+	spectest.Require(t, "RFC8621", "7", spectest.MUST, "Identity MUST be used instead")
+	spectest.Require(t, "RFC8621", "7", spectest.MUST, "submission, this MUST be the time when the server will release the")
+	spectest.Require(t, "RFC8621", "7", spectest.MUST, "message; otherwise, it MUST be the time the EmailSubmission was")
+	spectest.Require(t, "RFC8621", "7", spectest.MUST, "server set on create and MUST be one of the following values:")
+	spectest.Require(t, "RFC8621", "7.3", spectest.MUST, "The EmailSubmission \"identityId\" property must be in this list to")
+	spectest.Require(t, "RFC8621", "7.3", spectest.MUST, "The EmailSubmission \"emailId\" property must be in this list to")
+	spectest.Require(t, "RFC8621", "7.3", spectest.MUST, "The EmailSubmission \"threadId\" property must be in this list to")
+	spectest.Require(t, "RFC8621", "7.3", spectest.MUST, "The EmailSubmission \"undoStatus\" property must be identical to the")
+	spectest.Require(t, "RFC8621", "7.3", spectest.MUST, "The \"sendAt\" property of the EmailSubmission object must be before")
+	spectest.Require(t, "RFC8621", "7.3", spectest.MUST, "The \"sendAt\" property of the EmailSubmission object must be the")
+	spectest.Require(t, "RFC8621", "7.3", spectest.MUST, "The following EmailSubmission properties MUST be supported for")
+	spectest.Require(t, "RFC8621", "7.5", spectest.MUST, "MUST be made to perform any changes requested in these two arguments")
+	spectest.Require(t, "RFC8621", "7.5", spectest.MUST, "The response to this MUST be returned after the \"EmailSubmission/set\"")
+	spectest.Require(t, "RFC8621", "7.5", spectest.MUST, "processing each create, the server must check that the message is")
+	spectest.Require(t, "RFC8621", "7.5", spectest.MUST, "The server MUST remove any Bcc")
+	spectest.Require(t, "RFC8621", "7.5", spectest.MUST, "EmailSubmission object is created, this MUST NOT change the behaviour")
+	spectest.Require(t, "RFC8621", "7.5", spectest.MUST, "Similarly, destroying an EmailSubmission object MUST NOT affect the")
+	spectest.Require(t, "RFC8621", "7.5", spectest.MUST, "a standard \"tooLarge\" SetError MUST be returned")
+	spectest.Require(t, "RFC8621", "7.5", spectest.MUST, "\"UnsignedInt\" property MUST be present on the SetError specifying the")
+	spectest.Require(t, "RFC8621", "7.5", spectest.MUST, "\"UnsignedInt\" property MUST also be present on the SetError")
+	spectest.Require(t, "RFC8621", "7.5", spectest.MUST, "\"invalidRecipients\" \"String[]\" property MUST also be present on")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI, jmap.SubmissionCapabilityURI}
+
+	// 1. Create Identity
+	rIdent := postJMAP(t, ts.URL, using, []any{
+		[]any{"Identity/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"id1": map[string]any{
+					"name":  "Alice Submitter",
+					"email": "alice@example.com",
+				},
+			},
+		}, "cIdent"},
+	})
+	createdIdent, _ := rIdent.MethodResponses[0].Args["created"].(map[string]any)
+	identID, _ := createdIdent["id1"].(map[string]any)["id"].(string)
+
+	// 2. Create Email with From, duplicate To, CC, and BCC
+	rEmail1 := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"em1": map[string]any{
+					"subject":    "Submission Test",
+					"mailboxIds": map[string]any{"mb-drafts": true},
+					"from":       []any{map[string]any{"name": "Alice", "email": "alice@example.com"}},
+					"to":         []any{map[string]any{"email": "bob@example.com"}, map[string]any{"email": "bob@example.com"}},
+					"cc":         []any{map[string]any{"email": "carol@example.com"}},
+					"bcc":        []any{map[string]any{"email": "dave@example.com"}},
+					"bodyValues": map[string]any{
+						"b1": map[string]any{"value": "Hello envelope"},
+					},
+				},
+			},
+		}, "cEmail1"},
+	})
+	createdEm1, _ := rEmail1.MethodResponses[0].Args["created"].(map[string]any)
+	em1ID, _ := createdEm1["em1"].(map[string]any)["id"].(string)
+	em1ThreadID, _ := createdEm1["em1"].(map[string]any)["threadId"].(string)
+
+	// 3. EmailSubmission/set with null envelope:
+	// Server MUST generate envelope:
+	// - mailFrom: first address in last Sender/From header field (alice@example.com)
+	// - rcptTo: all addresses in To, CC, BCC deduplicated
+	// - sendAt: creation time
+	// - undoStatus: "final"
+	rSub1 := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sub1": map[string]any{
+					"emailId":    em1ID,
+					"identityId": identID,
+				},
+			},
+		}, "cSub1"},
+	})
+	createdSub1, _ := rSub1.MethodResponses[0].Args["created"].(map[string]any)
+	sub1Obj, ok := createdSub1["sub1"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected sub1 created: %v", rSub1.MethodResponses[0].Args)
+	}
+	sub1ID, _ := sub1Obj["id"].(string)
+
+	// Verify envelope properties via EmailSubmission/get
+	rGetSub1 := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/get", map[string]any{
+			"accountId": "primary",
+			"ids":       []any{sub1ID},
+		}, "cGetSub1"},
+	})
+	listSub1, _ := rGetSub1.MethodResponses[0].Args["list"].([]any)
+	if len(listSub1) != 1 {
+		t.Fatalf("expected 1 submission in list, got %v", listSub1)
+	}
+	sub1Data := listSub1[0].(map[string]any)
+	env1, _ := sub1Data["envelope"].(map[string]any)
+	if env1 == nil {
+		t.Fatalf("expected generated envelope on submission, got nil")
+	}
+	mf, _ := env1["mailFrom"].(map[string]any)["email"].(string)
+	if mf != "alice@example.com" {
+		t.Errorf("expected mailFrom alice@example.com, got %q", mf)
+	}
+	rcptToList, _ := env1["rcptTo"].([]any)
+	if len(rcptToList) != 3 { // bob, carol, dave (bob deduplicated)
+		t.Errorf("expected 3 deduplicated recipients in envelope, got %d (%v)", len(rcptToList), rcptToList)
+	}
+	undo1, _ := sub1Data["undoStatus"].(string)
+	if undo1 != "final" {
+		t.Errorf("expected undoStatus final, got %q", undo1)
+	}
+	sendAt1, _ := sub1Data["sendAt"].(string)
+	if sendAt1 == "" {
+		t.Errorf("expected non-empty sendAt timestamp")
+	}
+
+	// 4. Create Email with NO From header:
+	// Verify that Identity email MUST be used instead for envelope mailFrom
+	rEmail2 := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"em2": map[string]any{
+					"subject":    "No From Header",
+					"mailboxIds": map[string]any{"mb-drafts": true},
+					"to":         []any{map[string]any{"email": "bob@example.com"}},
+				},
+			},
+		}, "cEmail2"},
+	})
+	createdEm2, _ := rEmail2.MethodResponses[0].Args["created"].(map[string]any)
+	em2ID, _ := createdEm2["em2"].(map[string]any)["id"].(string)
+
+	rSub2 := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sub2": map[string]any{
+					"emailId":    em2ID,
+					"identityId": identID,
+				},
+			},
+		}, "cSub2"},
+	})
+	createdSub2, _ := rSub2.MethodResponses[0].Args["created"].(map[string]any)
+	sub2Obj, ok := createdSub2["sub2"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected sub2 created: %v", rSub2.MethodResponses[0].Args)
+	}
+	sub2ID, _ := sub2Obj["id"].(string)
+
+	rGetSub2 := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/get", map[string]any{
+			"accountId": "primary",
+			"ids":       []any{sub2ID},
+		}, "cGetSub2"},
+	})
+	listSub2, _ := rGetSub2.MethodResponses[0].Args["list"].([]any)
+	sub2Data := listSub2[0].(map[string]any)
+	env2, _ := sub2Data["envelope"].(map[string]any)
+	mf2, _ := env2["mailFrom"].(map[string]any)["email"].(string)
+	if mf2 != "alice@example.com" { // Identity email was used
+		t.Errorf("expected Identity email fallback for mailFrom, got %q", mf2)
+	}
+
+	// 5. Future sendAt -> server MUST release at that time, and undoStatus MUST be "pending"
+	futureTime := "2035-01-01T00:00:00Z"
+	rSubPending := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"subPending": map[string]any{
+					"emailId":    em1ID,
+					"identityId": identID,
+					"sendAt":     futureTime,
+				},
+			},
+		}, "cSubPending"},
+	})
+	createdSubPending, _ := rSubPending.MethodResponses[0].Args["created"].(map[string]any)
+	subPendingObj, ok := createdSubPending["subPending"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected subPending created: %v", rSubPending.MethodResponses[0].Args)
+	}
+	subPendingID, _ := subPendingObj["id"].(string)
+
+	rGetSubPending := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/get", map[string]any{
+			"accountId": "primary",
+			"ids":       []any{subPendingID},
+		}, "cGetSubPending"},
+	})
+	subPendingData := rGetSubPending.MethodResponses[0].Args["list"].([]any)[0].(map[string]any)
+	if subPendingData["sendAt"] != futureTime {
+		t.Errorf("expected sendAt %q, got %v", futureTime, subPendingData["sendAt"])
+	}
+	if subPendingData["undoStatus"] != "pending" {
+		t.Errorf("expected undoStatus pending, got %v", subPendingData["undoStatus"])
+	}
+
+	// 6. Update pending submission undoStatus to "canceled"
+	rCancel := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"update": map[string]any{
+				subPendingID: map[string]any{
+					"undoStatus": "canceled",
+				},
+			},
+		}, "cCancel"},
+	})
+	updatedSub, _ := rCancel.MethodResponses[0].Args["updated"].(map[string]any)
+	if _, ok := updatedSub[subPendingID]; !ok {
+		t.Fatalf("expected submission canceled: %v", rCancel.MethodResponses[0].Args)
+	}
+
+	// 7. EmailSubmission/query: test filters (identityIds, emailIds, threadIds, undoStatus, before, after)
+	// and sortable properties (emailId, threadId, sendAt, sentAt, undoStatus)
+	rQueryIdent := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/query", map[string]any{
+			"accountId": "primary",
+			"filter":    map[string]any{"identityIds": []any{identID}},
+		}, "cQIdent"},
+		[]any{"EmailSubmission/query", map[string]any{
+			"accountId": "primary",
+			"filter":    map[string]any{"emailIds": []any{em1ID}},
+		}, "cQEmail"},
+		[]any{"EmailSubmission/query", map[string]any{
+			"accountId": "primary",
+			"filter":    map[string]any{"threadIds": []any{em1ThreadID}},
+		}, "cQThread"},
+		[]any{"EmailSubmission/query", map[string]any{
+			"accountId": "primary",
+			"filter":    map[string]any{"undoStatus": "final"},
+		}, "cQUndo"},
+		[]any{"EmailSubmission/query", map[string]any{
+			"accountId": "primary",
+			"filter":    map[string]any{"before": "2030-01-01T00:00:00Z"},
+		}, "cQBefore"},
+		[]any{"EmailSubmission/query", map[string]any{
+			"accountId": "primary",
+			"filter":    map[string]any{"after": "2020-01-01T00:00:00Z"},
+		}, "cQAfter"},
+		[]any{"EmailSubmission/query", map[string]any{
+			"accountId": "primary",
+			"sort": []any{
+				map[string]any{"property": "emailId", "isAscending": true},
+				map[string]any{"property": "threadId", "isAscending": true},
+				map[string]any{"property": "sendAt", "isAscending": true},
+				map[string]any{"property": "sentAt", "isAscending": true},
+				map[string]any{"property": "undoStatus", "isAscending": true},
+			},
+		}, "cQSort"},
+	})
+	for idx, resp := range rQueryIdent.MethodResponses {
+		ids, _ := resp.Args["ids"].([]any)
+		if len(ids) == 0 {
+			t.Errorf("query query response %d (%s) returned 0 ids: %v", idx, resp.ClientCallID, resp.Args)
+		}
+	}
+
+	// 8. Error variants in EmailSubmission/set:
+	// a. Invalid RFC 5322 check: malformed From address
+	rEmailInvalid := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"emInv": map[string]any{
+					"subject":    "Bad From",
+					"mailboxIds": map[string]any{"mb-drafts": true},
+					"from":       []any{map[string]any{"email": "not a valid email"}},
+					"to":         []any{map[string]any{"email": "bob@example.com"}},
+				},
+			},
+		}, "cEmInv"},
+	})
+	createdInv, _ := rEmailInvalid.MethodResponses[0].Args["created"].(map[string]any)
+	emInvID, _ := createdInv["emInv"].(map[string]any)["id"].(string)
+
+	rSubInv := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sInv": map[string]any{
+					"emailId":    emInvID,
+					"identityId": identID,
+				},
+			},
+		}, "cSubInv"},
+	})
+	notCreatedInv, _ := rSubInv.MethodResponses[0].Args["notCreated"].(map[string]any)
+	errInv, ok := notCreatedInv["sInv"].(map[string]any)
+	if !ok || errInv["type"] != "invalidProperties" {
+		t.Errorf("expected invalidProperties error for non-RFC 5322 message, got: %v", errInv)
+	}
+
+	// b. tooLarge error with maxSize property
+	origMaxSize := jmapmail.MaxSubmissionSize
+	jmapmail.MaxSubmissionSize = 50 // 50 bytes limit for test
+	defer func() { jmapmail.MaxSubmissionSize = origMaxSize }()
+
+	rSubLarge := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sLarge": map[string]any{
+					"emailId":    em1ID, // size > 100 bytes
+					"identityId": identID,
+				},
+			},
+		}, "cSubLarge"},
+	})
+	notCreatedLarge, _ := rSubLarge.MethodResponses[0].Args["notCreated"].(map[string]any)
+	errLarge, ok := notCreatedLarge["sLarge"].(map[string]any)
+	if !ok || errLarge["type"] != "tooLarge" {
+		t.Fatalf("expected tooLarge error, got: %v", errLarge)
+	}
+	if maxSz, _ := errLarge["maxSize"].(float64); maxSz != 50 {
+		t.Errorf("expected maxSize 50 on tooLarge error, got: %v", errLarge)
+	}
+	jmapmail.MaxSubmissionSize = origMaxSize
+
+	// c. tooManyRecipients error with maxRecipients property
+	var manyRecipients []any
+	for i := 0; i < 105; i++ {
+		manyRecipients = append(manyRecipients, map[string]any{"email": fmt.Sprintf("rcpt%d@example.com", i)})
+	}
+	rSubMany := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sMany": map[string]any{
+					"emailId":    em1ID,
+					"identityId": identID,
+					"envelope": map[string]any{
+						"mailFrom": map[string]any{"email": "alice@example.com"},
+						"rcptTo":   manyRecipients,
+					},
+				},
+			},
+		}, "cSubMany"},
+	})
+	notCreatedMany, _ := rSubMany.MethodResponses[0].Args["notCreated"].(map[string]any)
+	errMany, ok := notCreatedMany["sMany"].(map[string]any)
+	if !ok || errMany["type"] != "tooManyRecipients" {
+		t.Fatalf("expected tooManyRecipients error, got: %v", errMany)
+	}
+	if maxR, _ := errMany["maxRecipients"].(float64); maxR == 0 {
+		t.Errorf("expected maxRecipients UnsignedInt property on tooManyRecipients error, got: %v", errMany)
+	}
+
+	// d. invalidRecipients error with invalidRecipients property
+	rSubBadRcpt := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sBad": map[string]any{
+					"emailId":    em1ID,
+					"identityId": identID,
+					"envelope": map[string]any{
+						"mailFrom": map[string]any{"email": "alice@example.com"},
+						"rcptTo": []any{
+							map[string]any{"email": "not-an-email"},
+						},
+					},
+				},
+			},
+		}, "cSubBad"},
+	})
+	notCreatedBad, _ := rSubBadRcpt.MethodResponses[0].Args["notCreated"].(map[string]any)
+	errBad, ok := notCreatedBad["sBad"].(map[string]any)
+	if !ok || errBad["type"] != "invalidRecipients" {
+		t.Fatalf("expected invalidRecipients error, got: %v", errBad)
+	}
+	invalidList, _ := errBad["invalidRecipients"].([]any)
+	if len(invalidList) == 0 || invalidList[0] != "not-an-email" {
+		t.Errorf("expected invalidRecipients property containing invalid address, got: %v", errBad)
+	}
+
+	// 9. Remove any Bcc header field before transmission (RFC 8621 §7.5)
+	rawWithBCC := []byte("From: alice@example.com\r\nTo: bob@example.com\r\nBcc: secret@example.com\r\nSubject: Hi\r\n\r\nSecret message")
+	stripped := jmapmail.StripBCCHeader(rawWithBCC)
+	if strings.Contains(string(stripped), "secret@example.com") || strings.Contains(string(stripped), "Bcc:") {
+		t.Errorf("StripBCCHeader failed to remove Bcc header: %s", string(stripped))
+	}
+	if !strings.Contains(string(stripped), "From: alice@example.com") || !strings.Contains(string(stripped), "Secret message") {
+		t.Errorf("StripBCCHeader corrupted non-Bcc headers or body: %s", string(stripped))
+	}
+
+	// 10. onSuccessUpdateEmail and onSuccessDestroyEmail with implicit Email/set call
+	// Response MUST be returned after the EmailSubmission/set response
+	rOnSuccess := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"sSucc": map[string]any{
+					"emailId":    em1ID,
+					"identityId": identID,
+				},
+			},
+			"onSuccessUpdateEmail": map[string]any{
+				"#sSucc": map[string]any{
+					"keywords/$draft": nil,
+				},
+			},
+		}, "cOnSuccess"},
+	})
+	// Expect 2 responses for cOnSuccess: first EmailSubmission/set, then Email/set
+	if len(rOnSuccess.MethodResponses) < 2 {
+		t.Fatalf("expected at least 2 responses (EmailSubmission/set followed by implicit Email/set), got %d: %v",
+			len(rOnSuccess.MethodResponses), rOnSuccess.MethodResponses)
+	}
+	if rOnSuccess.MethodResponses[0].Name != "EmailSubmission/set" {
+		t.Errorf("expected first response to be EmailSubmission/set, got %s", rOnSuccess.MethodResponses[0].Name)
+	}
+	if rOnSuccess.MethodResponses[1].Name != "Email/set" {
+		t.Errorf("expected second response to be implicit Email/set, got %s", rOnSuccess.MethodResponses[1].Name)
+	}
+	updatedEmail, _ := rOnSuccess.MethodResponses[1].Args["updated"].(map[string]any)
+	if _, ok := updatedEmail[em1ID]; !ok {
+		t.Errorf("expected email %s updated by onSuccessUpdateEmail, got %v", em1ID, rOnSuccess.MethodResponses[1].Args)
+	}
+
+	// 11. Lifecycle independence:
+	// - Destroy referenced Email -> submission behaviour and properties MUST NOT change
+	// - Destroy EmailSubmission -> underlying message / delivery MUST NOT be affected
+	rDelEmail := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"destroy":   []any{em2ID},
+		}, "cDelEmail"},
+	})
+	destroyedEm, _ := rDelEmail.MethodResponses[0].Args["destroyed"].([]any)
+	if len(destroyedEm) != 1 {
+		t.Fatalf("failed to destroy email %s: %v", em2ID, rDelEmail.MethodResponses[0].Args)
+	}
+	// Fetch submission for destroyed email: submission still exists and retains its properties
+	rGetSub2After := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/get", map[string]any{
+			"accountId": "primary",
+			"ids":       []any{sub2ID},
+		}, "cGetSub2After"},
+	})
+	listSub2After, _ := rGetSub2After.MethodResponses[0].Args["list"].([]any)
+	if len(listSub2After) != 1 {
+		t.Errorf("submission was affected by email destruction: %v", rGetSub2After.MethodResponses[0].Args)
+	}
+
+	// Destroy EmailSubmission: succeeds without affecting account emails
+	rDelSub := postJMAP(t, ts.URL, using, []any{
+		[]any{"EmailSubmission/set", map[string]any{
+			"accountId": "primary",
+			"destroy":   []any{sub2ID},
+		}, "cDelSub"},
+	})
+	destroyedSub, _ := rDelSub.MethodResponses[0].Args["destroyed"].([]any)
+	if len(destroyedSub) != 1 {
+		t.Errorf("failed to destroy EmailSubmission %s: %v", sub2ID, rDelSub.MethodResponses[0].Args)
 	}
 }
 

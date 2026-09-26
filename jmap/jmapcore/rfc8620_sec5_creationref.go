@@ -104,11 +104,14 @@ func ResolveCreationID(id string, resolved map[string]Id) string {
 // SetError defines an error object for /set methods per RFC 8620 Section 5.3.
 // @spec RFC8620#5.3-p7-MUST
 type SetError struct {
-	Type        string   `json:"type"`
-	Description string   `json:"description,omitempty"`
-	Properties  []string `json:"properties,omitempty"`
-	NotFound    []string `json:"notFound,omitempty"`
-	ExistingID  Id       `json:"existingId,omitempty"`
+	Type              string   `json:"type"`
+	Description       string   `json:"description,omitempty"`
+	Properties        []string `json:"properties,omitempty"`
+	NotFound          []string `json:"notFound,omitempty"`
+	ExistingID        Id       `json:"existingId,omitempty"`
+	MaxSize           *uint64  `json:"maxSize,omitempty"`
+	MaxRecipients     *uint64  `json:"maxRecipients,omitempty"`
+	InvalidRecipients []string `json:"invalidRecipients,omitempty"`
 }
 
 func (e SetError) Error() string {

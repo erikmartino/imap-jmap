@@ -149,20 +149,27 @@ func (b *IMAPSMTPBackend) CreateSubmission(ctx context.Context, sub *jmapmail.Em
 	}
 	from = strings.Trim(from, "<>")
 
+	if sub.Envelope == nil {
+		mailFrom := from
+		var rcptList []jmapmail.SubmissionAddress
+		seen := make(map[string]bool)
+		for _, addr := range append(append(em.To, em.CC...), em.BCC...) {
+			clean := strings.TrimSpace(addr.Email)
+			if clean != "" && !seen[strings.ToLower(clean)] {
+				seen[strings.ToLower(clean)] = true
+				rcptList = append(rcptList, jmapmail.SubmissionAddress{Email: clean})
+			}
+		}
+		sub.Envelope = &jmapmail.SubmissionEnvelope{
+			MailFrom: jmapmail.SubmissionAddress{Email: mailFrom},
+			RcptTo:   rcptList,
+		}
+	}
+
 	var recipients []string
 	if sub.Envelope != nil && len(sub.Envelope.RcptTo) > 0 {
 		for _, rcpt := range sub.Envelope.RcptTo {
 			recipients = append(recipients, rcpt.Email)
-		}
-	} else {
-		for _, addr := range em.To {
-			recipients = append(recipients, addr.Email)
-		}
-		for _, addr := range em.CC {
-			recipients = append(recipients, addr.Email)
-		}
-		for _, addr := range em.BCC {
-			recipients = append(recipients, addr.Email)
 		}
 	}
 
@@ -184,6 +191,7 @@ func (b *IMAPSMTPBackend) CreateSubmission(ctx context.Context, sub *jmapmail.Em
 	// Dispatch over SMTP if configured and recipients exist
 	if b.smtpHost != "" && len(toSend) > 0 {
 		rawBytes = jmapmail.EnsureValidMessageID(rawBytes, from)
+		rawBytes = jmapmail.StripBCCHeader(rawBytes)
 		if err := b.pool.SendMail(ctx, from, toSend, rawBytes); err != nil {
 			return nil, fmt.Errorf("failed to send outbound email via SMTP: %w", err)
 		}

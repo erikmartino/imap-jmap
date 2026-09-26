@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/mail"
 	"strings"
 	"time"
 
@@ -63,6 +64,9 @@ func MailboxIDByName(ctx context.Context, backend MailBackend, name string) jmap
 var submissionSortableProperties = map[string]bool{
 	"emailId": true, "threadId": true, "sendAt": true, "sentAt": true, "undoStatus": true,
 }
+
+// MaxSubmissionSize is the maximum size in octets of an email the server will submit per RFC 8621 Section 7.5.
+var MaxSubmissionSize uint64 = 50 * 1024 * 1024
 
 func HandleEmailSubmissionGet(backend MailBackend) jmaphandler.MethodHandler {
 	return func(ctx context.Context, args map[string]any, clientCallID string) (string, map[string]any) {
@@ -226,8 +230,7 @@ func HandleEmailSubmissionSet(backend MailBackend, blobBackend jmapblob.BlobBack
 					}
 				}
 
-				log.Printf("EmailSubmission/set: creating submission for account %s (email %s, identity %s, sendAt %q)",
-					accountID, emailID, identityID, sendAt)
+				accountEmail, _ := jmapauth.SubjectForAccountID(accountID)
 
 				// Load referenced email to read headers if envelope rcptTo is missing
 				var targetEmail *Email
@@ -237,6 +240,80 @@ func HandleEmailSubmissionSet(backend MailBackend, blobBackend jmapblob.BlobBack
 				}
 				targetEmail = emails[0]
 
+				// RFC 8621 Section 7.5: validate that message is valid RFC 5322
+				for _, hdr := range targetEmail.Headers {
+					if strings.EqualFold(hdr.Name, "From") || strings.EqualFold(hdr.Name, "Sender") {
+						if _, err := mail.ParseAddressList(hdr.Value); err != nil {
+							return "", jmapcore.SetError{Type: "invalidProperties", Description: "message is not valid RFC 5322: invalid " + hdr.Name + " header"}
+						}
+					}
+				}
+				for _, f := range targetEmail.From {
+					if f.Email != "" {
+						if _, err := mail.ParseAddress(f.Email); err != nil {
+							return "", jmapcore.SetError{Type: "invalidProperties", Description: "invalid From address: not valid RFC 5322"}
+						}
+					}
+				}
+
+				// RFC 8621 Section 7.5: tooLarge error with maxSize
+				maxSz := MaxSubmissionSize
+				if maxSz == 0 {
+					maxSz = 50 * 1024 * 1024
+				}
+				if uint64(targetEmail.Size) > maxSz {
+					return "", jmapcore.SetError{
+						Type:        "tooLarge",
+						Description: "message exceeds maximum allowed size",
+						MaxSize:     &maxSz,
+					}
+				}
+
+				// RFC 8621 Section 7: Generate envelope if null
+				if env == nil {
+					mailFrom := ""
+					if len(targetEmail.Sender) > 0 && targetEmail.Sender[0].Email != "" {
+						mailFrom = targetEmail.Sender[0].Email
+					} else if len(targetEmail.From) > 0 && targetEmail.From[0].Email != "" {
+						mailFrom = targetEmail.From[0].Email
+					} else {
+						for _, ident := range identities {
+							if ident.ID == jmapcore.Id(identityID) {
+								mailFrom = ident.Email
+								break
+							}
+						}
+						if mailFrom == "" {
+							mailFrom = accountEmail
+						}
+					}
+					if mailFrom == "" {
+						return "", jmapcore.SetError{Type: "invalidProperties", Description: "message is not valid RFC 5322: no From or Identity email address"}
+					}
+					var rcptList []SubmissionAddress
+					seen := make(map[string]bool)
+					addRcpt := func(addr EmailAddress) {
+						clean := strings.TrimSpace(addr.Email)
+						if clean != "" && !seen[strings.ToLower(clean)] {
+							seen[strings.ToLower(clean)] = true
+							rcptList = append(rcptList, SubmissionAddress{Email: clean})
+						}
+					}
+					for _, addr := range targetEmail.To {
+						addRcpt(addr)
+					}
+					for _, addr := range targetEmail.CC {
+						addRcpt(addr)
+					}
+					for _, addr := range targetEmail.BCC {
+						addRcpt(addr)
+					}
+					env = &SubmissionEnvelope{
+						MailFrom: SubmissionAddress{Email: mailFrom},
+						RcptTo:   rcptList,
+					}
+				}
+
 				// Collect recipient email addresses
 				var recipients []string
 				if env != nil && len(env.RcptTo) > 0 {
@@ -245,26 +322,38 @@ func HandleEmailSubmissionSet(backend MailBackend, blobBackend jmapblob.BlobBack
 							recipients = append(recipients, sa.Email)
 						}
 					}
-				} else if targetEmail != nil {
-					for _, addr := range targetEmail.To {
-						if addr.Email != "" {
-							recipients = append(recipients, addr.Email)
-						}
-					}
-					for _, addr := range targetEmail.CC {
-						if addr.Email != "" {
-							recipients = append(recipients, addr.Email)
-						}
-					}
-					for _, addr := range targetEmail.BCC {
-						if addr.Email != "" {
-							recipients = append(recipients, addr.Email)
-						}
-					}
 				}
 
 				if len(recipients) == 0 {
 					return "", jmapcore.SetError{Type: "noRecipients", Description: "email and envelope have no recipients"}
+				}
+
+				// RFC 8621 Section 7.5: tooManyRecipients error with maxRecipients
+				const maxRecipientsLimit = 100
+				if len(recipients) > maxRecipientsLimit {
+					maxRcpt := uint64(maxRecipientsLimit)
+					return "", jmapcore.SetError{
+						Type:          "tooManyRecipients",
+						Description:   "too many recipients",
+						MaxRecipients: &maxRcpt,
+					}
+				}
+
+				// RFC 8621 Section 7.5: invalidRecipients error with invalidRecipients list
+				var invalidRecipients []string
+				for _, rcpt := range recipients {
+					clean := strings.TrimSpace(rcpt)
+					addr, err := mail.ParseAddress(clean)
+					if err != nil || !strings.Contains(addr.Address, "@") || strings.ContainsAny(addr.Address, "<> \t\r\n") {
+						invalidRecipients = append(invalidRecipients, rcpt)
+					}
+				}
+				if len(invalidRecipients) > 0 {
+					return "", jmapcore.SetError{
+						Type:              "invalidRecipients",
+						Description:       "one or more recipient email addresses are invalid",
+						InvalidRecipients: invalidRecipients,
+					}
 				}
 
 				deliveryStatus := make(map[string]DeliveryStatus)
@@ -276,7 +365,6 @@ func HandleEmailSubmissionSet(backend MailBackend, blobBackend jmapblob.BlobBack
 					activeResolver = jmapauth.PrimaryDomainResolver{PrimaryDomain: "example.com"}
 				}
 
-				accountEmail, _ := jmapauth.SubjectForAccountID(accountID)
 				hasSMTPServer := false
 				if smtpBe, ok := backend.(SMTPAvailableBackend); ok && smtpBe.HasSMTPServer() {
 					hasSMTPServer = true
@@ -432,6 +520,7 @@ func HandleEmailSubmissionSet(backend MailBackend, blobBackend jmapblob.BlobBack
 								mailFrom = targetEmail.From[0].Email
 							}
 							rawBytes = EnsureValidMessageID(rawBytes, mailFrom)
+							rawBytes = StripBCCHeader(rawBytes)
 							results := outbound.SendMail(ctx, mailFrom, externalRecipients, rawBytes)
 							for _, rcpt := range externalRecipients {
 								res, ok := results[rcpt]
