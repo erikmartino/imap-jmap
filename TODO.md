@@ -43,9 +43,13 @@ Audit and convert all ad-hoc serializers, manual string concatenations, and brit
   - `addressDomain` / `emailAddressMatches` / outbound recipient routing use `go-emailaddress` instead of `strings.LastIndex`/`strings.Cut` on `@`.
   - `organizationalDomain` uses `golang.org/x/net/publicsuffix` (eTLD+1) instead of the last-two-labels heuristic.
   - TLS `ServerName` derived with `net.SplitHostPort` instead of `strings.LastIndex(host, ":")`.
-- [ ] **1.8 vCard serialization (`jmap/vcardconv/encode.go`)**
-  - Migrate the hand-rolled vCard folding/escaping encoder to `github.com/emersion/go-vcard`.
-- [ ] **1.9 Remaining audit**: `jmap/imapsmtp/blob.go` (MIME by `Sprintf`), `jmap/managesieve/client.go`, `imap/convert.go`, `jmap/jmapmail/email_get_helper.go`, and `cmd/`/`tools/` utilities.
+- [~] **1.8 vCard serialization (`jmap/vcardconv/encode.go`) — PUSH BACK (documented exception)**
+  - Keep the purpose-built serializer: `github.com/emersion/go-vcard`'s encoder cannot express RFC 9555 `JSCOMPS` quoting (it emits `JSCOMPS=s\,X;1;0` instead of `"s,X;1;0"`), does no RFC 6350 §3.2 line folding, no RFC 6868 caret encoding, and sorts properties alphabetically (losing RFC 9555 order). Migrating would regress conformance; the custom encoder is covered by `jmap/vcardconv/vectors_test.go` and `smoke_test.go`.
+- [x] **1.9a `jmap/imapsmtp/blob.go`**: blob-staging message now built with `go-message/mail` (`Header` + `CreateSingleInlineWriter`, writer-applied base64), replacing the `fmt.Sprintf` header and manual encoder.
+- [~] **1.9b `jmap/managesieve/client.go` — PUSH BACK**: ManageSieve (RFC 5804) framing/quoted-string handling has no canonical Go protocol client in the dependency set (`go-sieve` is a language parser/interpreter, not the wire protocol), so the minimal client is retained.
+- [~] **1.9c `imap/convert.go` — PUSH BACK**: `EmailIDFor`/`ParseEmailID` encode an internal composite id (`<base64url mailbox>-<uid>`), not a standard wire format; the `LastIndex` split is deliberate because base64url may contain `-`. No standard parser applies.
+- [x] **1.9d `jmap/jmapmail/email_get_helper.go`**: removed manual `"group:"`-stripping in `decodeHeaderAddresses` and rely on `net/mail.ParseAddressList`, which handles RFC 5322 group syntax (and no longer corrupts display names containing `:`); regression test added.
+- [ ] **1.9e Remaining audit**: `cmd/`/`tools/` utilities.
 - [x] **1.10 Regression tests for the parser/serializer conversion**
   - `jmap/jmapmail`: `StripBCCHeader` (incl. folded continuation), `EnsureValidMessageID` edge cases (empty/malformed/LF-only), `domainFromMailboxOrDomain`, `ensureCharsetUTF8`, `extractDomainFromAddress`.
   - `jmap/jmapauth`: `PrimaryDomainResolver.ResolveAccountID` (case-insensitive domain, foreign/invalid/default-domain cases).
@@ -59,6 +63,30 @@ Close the `SHOULD`/`SHOULD NOT` gaps in the generated core and mail matrices.
 - [x] **2.2 RFC 8621 mail batch 1**: vacation-response default subject and default body generation (RFC 8621 §8).
 - [ ] **2.3 RFC 8620 remaining SHOULDs**: localisation (`Accept-Language`), push event-id/state encoding, blob quota, subscription id hashing, authentication/TLS clauses, and client-only clauses (triage as non-goal where the server has no obligation).
 - [ ] **2.4 RFC 8621 remaining SHOULDs**: search semantics (RFC 2047 decoding, HTML markup stripping, quoted phrase search, token tokenisation), preview truncation, changes ordering, `Email/import` over-quota, submission RCPT/DATA stage reporting, and client-only clauses.
+
+---
+
+### Priority 3: Stateless JMAP State ↔ Upstream Change Tokens
+Make every `state`/`sinceState` a pure, reversible function of upstream CalDAV (and later CardDAV/IMAP) change tokens so the proxy holds no authoritative change-tracking state: the client carries the token vector and the server recomputes changes on demand (RFC 8620 §5.2/§5.3). `CalendarEvent` already does this via `encodeSyncState`/`decodeSyncState` (`jmap/nextcloud/calendars.go:889-917`); `Calendar` still uses an in-memory `ChangeTracker`.
+
+- [ ] **3.1 Token-kind-aware, versioned state encoding (`jmap/nextcloud/calendars.go`)**
+  - Tag each collection token with its kind (`sync-token` | `ctag`) and bump the encoding version (`sync-v2:`), keeping `sync-v1:` decode compatibility.
+  - Keep the encoding canonical (JSON already sorts map keys) and cap the per-state size.
+- [ ] **3.2 Correct `/changes` fallback when only a CTag/ETag is available**
+  - Only feed `sync-token` values to `SyncCalendarCollection` (`calendars.go:1016`); a CTag there is rejected upstream.
+  - For CTag-only collections, either carry a compact per-resource ETag snapshot in the state and diff it via `ListCalendarObjectETags` (`jmap/nextcloud/client.go:928-947`), or fail closed with `cannotCalculateChanges`.
+  - Ensure malformed/expired tokens surface as `cannotCalculateChanges` (the handler maps empty `newState` at `jmap/jmapcalendar/calendar_event_handlers.go:227`), and cover it with a test.
+- [ ] **3.3 Convert `Calendar` collection state to the upstream token vector**
+  - Reimplement `CalendarState`/`CalendarChanges` (`calendars.go:261-267`) from the home-set PROPFIND CTags/sync-tokens (`getCalendarCollections`, `client.go:766-912`): added/removed calendar ids → `created`/`destroyed`, CTag change → `updated`.
+  - Demote `getCalTracker` to a non-authoritative fallback used only when upstream tokens are unavailable.
+- [ ] **3.4 Guard invariants**
+  - Never derive `state` from a windowed/partial fetch (already enforced at `calendars.go:1343-1347`; add regression coverage).
+  - Keep `state` scoped per user/account so a multi-account request cannot reuse another account's token vector.
+  - Keep `queryState` unmapped (no CalDAV query cursor): local tracker / `cannotCalculateChanges` only.
+- [ ] **3.5 Hermetic tests (embedded Nextcloud backend)**
+  - `state → tokens → state` round-trip determinism; `sync-v1:` decode; malformed/expired token → `cannotCalculateChanges`.
+  - CTag-only collection change path; calendar added/removed between states; cross-account isolation.
+- [ ] **3.6 Follow-on (optional)**: apply the same pattern to CardDAV `ContactCard`/`AddressBook` (ETag/CTag) and to IMAP `Email`/`Mailbox` (CONDSTORE/QRESYNC `HIGHESTMODSEQ` + `UIDVALIDITY`), replacing in-memory trackers where the upstream cursor is available.
 
 ---
 

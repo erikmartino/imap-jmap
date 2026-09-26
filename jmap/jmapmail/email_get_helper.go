@@ -103,7 +103,6 @@ func ParseHeaderProperty(prop string) (*ParsedHeaderProperty, error) {
 	}, nil
 }
 
-
 func isValidHeaderForm(f HeaderForm) bool {
 	switch f {
 	case HeaderFormRaw, HeaderFormText, HeaderFormAddresses, HeaderFormGroupedAddresses, HeaderFormMessageIDs, HeaderFormDate, HeaderFormURLs:
@@ -191,16 +190,12 @@ func decodeHeaderText(raw string) string {
 	return norm.NFC.String(decoded)
 }
 
-
 func decodeHeaderAddresses(raw string) any {
 	unfolded := unfoldHeader(raw)
 
-	if idx := strings.Index(unfolded, ":"); idx >= 0 {
-		sub := unfolded[idx+1:]
-		sub = strings.TrimSuffix(strings.TrimSpace(sub), ";")
-		unfolded = sub
-	}
-
+	// net/mail.ParseAddressList understands RFC 5322 group syntax and returns
+	// the addresses inside groups, so no manual "group:" stripping is needed
+	// (and doing so would corrupt display names containing a colon).
 	addrs, err := mail.ParseAddressList(unfolded)
 	if err != nil {
 		return nil

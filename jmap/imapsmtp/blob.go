@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"time"
+
+	"github.com/emersion/go-message/mail"
 
 	"imap-jmap/imap"
 	"imap-jmap/jmap/jmapauth"
@@ -70,18 +71,26 @@ func (b *IMAPSMTPBackend) PutBlob(ctx context.Context, accountID, contentType st
 	if err == nil {
 		defer b.pool.ReleaseClient(ctx, client)
 
-		var bodyBuf bytes.Buffer
-		b64w := base64.NewEncoder(base64.StdEncoding, &bodyBuf)
-		_, _ = b64w.Write(data)
-		_ = b64w.Close()
+		// Wrap the upload in an RFC 822 message with go-message. The body is
+		// written raw and the writer applies the base64 transfer encoding (with
+		// RFC 2045 line folding). The wrapper advertises application/octet-stream
+		// and carries the real media type in X-JMAP-Content-Type.
+		var stagingHeader mail.Header
+		stagingHeader.SetSubject(fmt.Sprintf("%s %s]", blobStagingMarker, blobID))
+		stagingHeader.SetContentType("application/octet-stream", nil)
+		stagingHeader.Set("Content-Transfer-Encoding", "base64")
+		stagingHeader.Set("X-JMAP-Blob", blobID)
+		stagingHeader.Set("X-JMAP-Content-Type", contentType)
 
-		msgHeader := fmt.Sprintf("Subject: %s %s]\r\nContent-Type: %s\r\nContent-Transfer-Encoding: base64\r\nX-JMAP-Blob: %s\r\nX-JMAP-Content-Type: %s\r\n\r\n",
-			blobStagingMarker, blobID, contentType, blobID, contentType)
-		rawMsg := append([]byte(msgHeader), bodyBuf.Bytes()...)
+		var rawMsg bytes.Buffer
+		if w, wErr := mail.CreateSingleInlineWriter(&rawMsg, stagingHeader); wErr == nil {
+			_, _ = w.Write(data)
+			_ = w.Close()
+		}
 
-		if errApp := client.Append("Trash", rawMsg, []string{"\\Seen"}, time.Now()); errApp != nil {
+		if errApp := client.Append("Trash", rawMsg.Bytes(), []string{"\\Seen"}, time.Now()); errApp != nil {
 			if errCreate := client.Create("Trash"); errCreate == nil {
-				_ = client.Append("Trash", rawMsg, []string{"\\Seen"}, time.Now())
+				_ = client.Append("Trash", rawMsg.Bytes(), []string{"\\Seen"}, time.Now())
 			}
 		}
 	}
