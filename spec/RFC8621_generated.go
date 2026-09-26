@@ -1852,8 +1852,8 @@ var RFC8621Requirements = []Requirement{
 		Section: "4.4.1",
 		Level:   Level("SHOULD"),
 		Text:    "fields with a known encoding SHOULD be decoded before attempting",
-		Tests:   []string{},
-		Status:  Gap,
+		Tests:   []string{"TestRFC8621_EmailQueryTextSearchWildcard"},
+		Status:  Covered,
 		Note:    "Extracted by specextract from RFC8621 §4.4.1 [p23]",
 	},
 	{
@@ -1861,8 +1861,8 @@ var RFC8621Requirements = []Requirement{
 		Section: "4.4.1",
 		Level:   Level("SHOULD"),
 		Text:    "markup rather than content SHOULD be ignored, including HTML tags",
-		Tests:   []string{},
-		Status:  Gap,
+		Tests:   []string{"TestRFC8621_EmailQueryTextSearchIgnoresHTMLMarkup"},
+		Status:  Covered,
 		Note:    "Extracted by specextract from RFC8621 §4.4.1 [p24]",
 	},
 	{
@@ -1870,8 +1870,8 @@ var RFC8621Requirements = []Requirement{
 		Section: "4.4.1",
 		Level:   Level("SHOULD"),
 		Text:    "for presentation to the user such as \"alt\" and \"title\" SHOULD be",
-		Tests:   []string{},
-		Status:  Gap,
+		Tests:   []string{"TestRFC8621_EmailQueryTextSearchIgnoresHTMLMarkup"},
+		Status:  Covered,
 		Note:    "Extracted by specextract from RFC8621 §4.4.1 [p25]",
 	},
 	{

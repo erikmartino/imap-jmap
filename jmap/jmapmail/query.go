@@ -5,6 +5,8 @@ import (
 	"strings"
 	"unicode"
 
+	"golang.org/x/net/html"
+
 	"imap-jmap/jmap/jmapcore"
 )
 
@@ -346,6 +348,9 @@ func containsAllTerms(haystack string, terms []string) bool {
 }
 
 // emailSearchText concatenates the human-readable fields searched by the "text" filter.
+// HTML body parts are reduced to their visible text plus presentation attributes
+// (alt/title) so markup such as tag and attribute names is not matched
+// (RFC 8621 Section 4.4.1).
 func emailSearchText(em *Email) string {
 	var sb strings.Builder
 	sb.WriteString(em.Subject)
@@ -360,11 +365,68 @@ func emailSearchText(em *Email) string {
 			sb.WriteByte(' ')
 		}
 	}
-	for _, v := range em.BodyValues {
-		sb.WriteString(v.Value)
+	htmlIDs := emailHTMLPartIDs(em)
+	for partID, v := range em.BodyValues {
+		if htmlIDs[partID] {
+			sb.WriteString(htmlSearchText(v.Value))
+		} else {
+			sb.WriteString(v.Value)
+		}
 		sb.WriteByte(' ')
 	}
 	return sb.String()
+}
+
+// emailHTMLPartIDs collects the part ids of every HTML body part (including
+// nested sub-parts).
+func emailHTMLPartIDs(em *Email) map[string]bool {
+	ids := make(map[string]bool)
+	var add func(parts []EmailBodyPart)
+	add = func(parts []EmailBodyPart) {
+		for _, p := range parts {
+			if p.PartID != nil && *p.PartID != "" {
+				ids[*p.PartID] = true
+			}
+			add(p.SubParts)
+		}
+	}
+	add(em.HTMLBody)
+	return ids
+}
+
+// htmlSearchText extracts the text an end user would see from an HTML body part:
+// text nodes and the alt/title attribute values, excluding markup, <head>,
+// <style> and <script> content (RFC 8621 Section 4.4.1).
+func htmlSearchText(s string) string {
+	doc, err := html.Parse(strings.NewReader(s))
+	if err != nil {
+		return s
+	}
+	var b strings.Builder
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode {
+			switch n.Data {
+			case "script", "style", "head":
+				return
+			}
+			for _, a := range n.Attr {
+				if (a.Key == "alt" || a.Key == "title") && a.Val != "" {
+					b.WriteString(a.Val)
+					b.WriteByte(' ')
+				}
+			}
+		}
+		if n.Type == html.TextNode {
+			b.WriteString(n.Data)
+			b.WriteByte(' ')
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(doc)
+	return b.String()
 }
 
 // CleanQueryTerm strips leading/trailing whitespace, wildcards (*), and quotes from a search term.

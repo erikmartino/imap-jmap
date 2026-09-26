@@ -2,8 +2,45 @@ package jmapmail
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
+
+func strptr(s string) *string { return &s }
+
+func TestHTMLSearchText(t *testing.T) {
+	in := `<html><head><title>Hidden Head Title</title><style>.x{color:red}</style></head>` +
+		`<body><p>Visible text</p><img alt="A cat" src="x"><a title="link title">click</a>` +
+		`<script>var z = 1</script></body></html>`
+	got := htmlSearchText(in)
+	for _, want := range []string{"Visible text", "A cat", "link title", "click"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("htmlSearchText missing %q in %q", want, got)
+		}
+	}
+	for _, unwanted := range []string{"Hidden Head Title", "script", "var z", "color:red", "<p>"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("htmlSearchText should ignore markup/head/script, found %q in %q", unwanted, got)
+		}
+	}
+}
+
+func TestEmailSearchTextIgnoresMarkup(t *testing.T) {
+	em := &Email{
+		Subject:  "hi",
+		HTMLBody: []EmailBodyPart{{PartID: strptr("h"), Type: "text/html"}},
+		BodyValues: map[string]EmailBodyValue{
+			"h": {Value: `<div class="hiddenmarker">visibleword</div><img alt="altword">`},
+		},
+	}
+	got := emailSearchText(em)
+	if !strings.Contains(got, "visibleword") || !strings.Contains(got, "altword") {
+		t.Errorf("expected visible text and alt attribute in search text, got %q", got)
+	}
+	if strings.Contains(got, "hiddenmarker") {
+		t.Errorf("markup attribute names must not be searched, got %q", got)
+	}
+}
 
 func TestSearchTerms(t *testing.T) {
 	tests := []struct {

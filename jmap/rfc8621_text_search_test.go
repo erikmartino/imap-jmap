@@ -94,3 +94,61 @@ func TestRFC8621_EmailQueryTextSearchWildcard(t *testing.T) {
 		t.Errorf(`text:"core quarterly" must not match out of order`)
 	}
 }
+
+// TestRFC8621_EmailQueryTextSearchIgnoresHTMLMarkup verifies that searching a
+// text/html body matches visible content (and alt/title presentation attributes)
+// but not markup such as tag and attribute names (RFC 8621 Section 4.4.1).
+func TestRFC8621_EmailQueryTextSearchIgnoresHTMLMarkup(t *testing.T) {
+	spectest.Require(t, "RFC8621", "4.4.1", spectest.SHOULD,
+		"markup rather than content SHOULD be ignored, including HTML tags")
+	spectest.Require(t, "RFC8621", "4.4.1", spectest.SHOULD,
+		"for presentation to the user such as \"alt\" and \"title\" SHOULD be")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}
+
+	create := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"h": map[string]any{
+					"mailboxIds": map[string]any{"mb-inbox": true},
+					"subject":    "HTML body",
+					"bodyValues": map[string]any{
+						"h": map[string]any{"value": `<div class="hiddenmarker">visibleword</div><img alt="altword" src="x">`},
+					},
+					"htmlBody": []any{map[string]any{"partId": "h", "type": "text/html"}},
+				},
+			},
+		}, "c1"},
+	})
+	id, _ := create.MethodResponses[0].Args["created"].(map[string]any)["h"].(map[string]any)["id"].(string)
+	if id == "" {
+		t.Fatalf("seed HTML email failed: %+v", create.MethodResponses[0].Args)
+	}
+
+	has := func(term string) bool {
+		resp := postJMAP(t, ts.URL, using, []any{
+			[]any{"Email/query", map[string]any{"accountId": "primary", "filter": map[string]any{"text": term}}, "q"},
+		})
+		ids, _ := resp.MethodResponses[0].Args["ids"].([]any)
+		for _, x := range ids {
+			if x == id {
+				return true
+			}
+		}
+		return false
+	}
+
+	if !has("visibleword") {
+		t.Errorf("visible HTML text should match")
+	}
+	if !has("altword") {
+		t.Errorf("alt attribute text should be searchable")
+	}
+	if has("hiddenmarker") {
+		t.Errorf("HTML attribute/tag names must not be matched")
+	}
+}

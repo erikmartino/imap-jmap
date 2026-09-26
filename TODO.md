@@ -67,7 +67,7 @@ Close the `SHOULD`/`SHOULD NOT` gaps in the generated core and mail matrices.
 - [ ] **2.3 RFC 8620 remaining SHOULDs**: localisation (`Accept-Language`), push event-id/state encoding, blob quota, subscription id hashing, authentication/TLS clauses, and client-only clauses (triage as non-goal where the server has no obligation).
 - [ ] **2.4 RFC 8621 remaining SHOULDs**: search semantics, preview truncation, changes ordering, `Email/import` over-quota, submission RCPT/DATA stage reporting, and client-only clauses.
   - [x] Search: quoted **phrase search** (double-quoted sequences with `\` escapes), **case-insensitive** matching, and **whitespace tokenisation** (`searchTerms`/`containsAllTerms`, `jmap/jmapmail/query.go`); `spectest` citations + matrix entries added.
-  - [ ] Remaining search SHOULDs: RFC 2047 header decoding before matching, and ignoring HTML markup (`alt`/`title` considered).
+  - [x] Search: **RFC 2047** header decoding (parsed/decoded fields feed the index) and **HTML markup ignored** with `alt`/`title` considered, by extracting user-visible text with `golang.org/x/net/html` (`htmlSearchText`); matrix entries added.
 
 ---
 
