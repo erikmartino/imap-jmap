@@ -369,6 +369,9 @@ func HandleEmailChanges(backend MailBackend) jmaphandler.MethodHandler {
 		}
 
 		created, updated, destroyed, newState, hasMore := backend.EmailChanges(ctx, sinceState, maxChanges)
+		if newState == "" {
+			return "error", jmapcore.MethodErrorArgs("cannotCalculateChanges", "cannot calculate changes from sinceState")
+		}
 		if created == nil {
 			created = []jmapcore.Id{}
 		}

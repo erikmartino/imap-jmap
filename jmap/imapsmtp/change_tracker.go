@@ -324,7 +324,12 @@ func (b *IMAPSMTPBackend) EmailChanges(ctx context.Context, sinceState string, m
 	if maxChanges != nil && *maxChanges > 0 {
 		total := uint64(len(created) + len(updated) + len(destroyed))
 		if total > *maxChanges {
-			return nil, nil, nil, newState, true
+			// The IMAP change source cannot reconstruct a consistent intermediate
+			// state for a large delta (folder UID/UIDNext snapshots are not kept),
+			// so fail closed: an empty newState signals cannotCalculateChanges
+			// (RFC 8620 Section 5.2). Returning the current state with no ids would
+			// silently drop changes.
+			return nil, nil, nil, "", true
 		}
 	}
 

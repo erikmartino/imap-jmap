@@ -70,6 +70,8 @@ Close the `SHOULD`/`SHOULD NOT` gaps in the generated core and mail matrices.
   - [x] Search: **RFC 2047** header decoding (parsed/decoded fields feed the index) and **HTML markup ignored** with `alt`/`title` considered, by extracting user-visible text with `golang.org/x/net/html` (`htmlSearchText`); matrix entries added.
   - [x] Preview truncation: `maxBodyValueBytes` backs the cut off to the opening `<` of an unterminated HTML tag (`ApplyMaxBodyValueBytes`); matrix entry added.
   - [x] `Email/import` **over-quota** rejection with `overQuota` (storage and message-count limits); matrix entry added.
+  - [x] `Email/changes` **maxChanges** now fails closed with `cannotCalculateChanges` instead of returning the current state with no ids (silent data loss); `HandleEmailChanges` maps empty `newState` accordingly. Matrix MUST clause linked.
+  - [ ] `Email/changes` **intermediate states** (RFC 8621 §4.3 / RFC 8620 §5.2 SHOULD): return newer changes first across paginated `/changes`; requires folder snapshots at intermediate states.
 
 ---
 

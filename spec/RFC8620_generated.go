@@ -1735,7 +1735,7 @@ var RFC8620Requirements = []Requirement{
 		Section: "5.2",
 		Level:   Level("MUST"),
 		Text:    "calculate an intermediate state, it MUST return a",
-		Tests:   []string{"TestRFC8620_Section5_6_QueryChangesOrderAndCannotCalculate"},
+		Tests:   []string{"TestRFC8620_EmailChangesMaxChangesFailsClosed", "TestRFC8620_Section5_6_QueryChangesOrderAndCannotCalculate"},
 		Status:  Covered,
 		Note:    "Extracted by specextract from RFC8620 §5.2 [p12]",
 	},
