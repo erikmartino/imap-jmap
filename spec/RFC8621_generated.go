@@ -2824,8 +2824,8 @@ var RFC8621Requirements = []Requirement{
 		Section: "7",
 		Level:   Level("SHOULD"),
 		Text:    "This SHOULD be the response to the RCPT TO stage,",
-		Tests:   []string{},
-		Status:  Gap,
+		Tests:   []string{"TestRFC8621_EmailSubmissionSMTPReplyIsRCPTStage"},
+		Status:  Covered,
 		Note:    "Extracted by specextract from RFC8621 §7 [p17]",
 	},
 	{
@@ -2842,8 +2842,8 @@ var RFC8621Requirements = []Requirement{
 		Section: "7",
 		Level:   Level("SHOULD"),
 		Text:    "Multi-line SMTP responses should be concatenated to a single",
-		Tests:   []string{},
-		Status:  Gap,
+		Tests:   []string{"TestRFC8621_EmailSubmissionSMTPReplyIsRCPTStage"},
+		Status:  Covered,
 		Note:    "Extracted by specextract from RFC8621 §7 [p19]",
 	},
 	{

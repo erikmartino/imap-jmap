@@ -213,7 +213,7 @@ func (s *MXOutboundSender) tryHost(ctx context.Context, host, from string, recip
 	code, msg, err = sess.cmd(250, "MAIL FROM:%s", mailFrom)
 	if err != nil {
 		// MAIL rejected: permanent failure for everyone, transient for retry.
-		reply := fmt.Sprintf("%d %s", code, msg)
+		reply := flattenSMTPReply(code, msg)
 		if code >= 500 && code < 600 {
 			for _, rcpt := range recipients {
 				final[rcpt] = jmapmail.OutboundDeliveryResult{Delivered: false, SmtpReply: reply}
@@ -224,6 +224,9 @@ func (s *MXOutboundSender) tryHost(ctx context.Context, host, from string, recip
 	}
 
 	var accepted []string
+	// rcptReply holds each accepted recipient's RCPT TO stage reply, which the
+	// EmailSubmission smtpReply property should reflect (RFC 8621 Section 7).
+	rcptReply := make(map[string]string, len(recipients))
 	for _, rcpt := range recipients {
 		sess.setTimeout()
 		rcptClean := strings.TrimSpace(rcpt)
@@ -232,9 +235,10 @@ func (s *MXOutboundSender) tryHost(ctx context.Context, host, from string, recip
 		code, msg, err = sess.cmd(250, "RCPT TO:<%s>", sanitizeEnvelope(rcptClean, "invalid"))
 		if err == nil {
 			accepted = append(accepted, rcpt)
+			rcptReply[rcpt] = flattenSMTPReply(code, msg)
 			continue
 		}
-		reply := fmt.Sprintf("%d %s", code, msg)
+		reply := flattenSMTPReply(code, msg)
 		if code >= 500 && code < 600 {
 			log.Printf("SMTP outbound [%s] S: %s (permanent rejection)", host, reply)
 			final[rcpt] = jmapmail.OutboundDeliveryResult{Delivered: false, SmtpReply: reply}
@@ -265,11 +269,13 @@ func (s *MXOutboundSender) tryHost(ctx context.Context, host, from string, recip
 	}
 	sess.setTimeout()
 	code, msg, err = sess.readReply(250)
-	reply := fmt.Sprintf("%d %s", code, msg)
+	// The DATA stage reply is only used when the message is rejected there;
+	// otherwise smtpReply reflects the RCPT TO stage reply.
+	reply := flattenSMTPReply(code, msg)
 	if err == nil {
 		for _, rcpt := range accepted {
-			final[rcpt] = jmapmail.OutboundDeliveryResult{Delivered: true, SmtpReply: reply}
-			log.Printf("[SMTP RELAY SUCCESS] Host: %s Recipient: <%s> From: <%s> Reply: %q", host, rcpt, mailFrom, reply)
+			final[rcpt] = jmapmail.OutboundDeliveryResult{Delivered: true, SmtpReply: rcptReply[rcpt]}
+			log.Printf("[SMTP RELAY SUCCESS] Host: %s Recipient: <%s> From: <%s> Reply: %q", host, rcpt, mailFrom, rcptReply[rcpt])
 		}
 		return final, retry, true
 	}
@@ -313,6 +319,17 @@ func (m *mxSession) readReply(expect int) (int, string, error) {
 	code, msg, err := m.tp.ReadResponse(expect)
 	m.s.logS(m.host, fmt.Sprintf("%d %s", code, msg))
 	return code, msg, err
+}
+
+// flattenSMTPReply renders an SMTP reply as a single line: net/textproto returns
+// continuation lines joined by newlines, and RFC 8621 Section 7 requires
+// multi-line replies be concatenated to a single string for EmailSubmission's
+// smtpReply (the code prefix is already stripped from continuation lines).
+func flattenSMTPReply(code int, msg string) string {
+	if !strings.Contains(msg, "\n") {
+		return fmt.Sprintf("%d %s", code, msg)
+	}
+	return fmt.Sprintf("%d %s", code, strings.Join(strings.Split(msg, "\n"), " "))
 }
 
 func (s *MXOutboundSender) logC(host, line string) {

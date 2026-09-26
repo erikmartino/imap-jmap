@@ -18,7 +18,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [jscontact](#jscontact) | RFC9553, RFC9554, RFC9555 | 6 | 0 | 0 | 6 | 100.0% |
 | [smtp](#smtp) | RFC4954, RFC5228, RFC5232, RFC5321, RFC5429, RFC5546, RFC6047, RFC6376, RFC6409, RFC7208, RFC7489, RFC8601 | 46 | 0 | 0 | 46 | 100.0% |
 | [rfc8620-core](#rfc8620-core) | RFC8620 | 188 | 206 | 0 | 394 | 47.7% |
-| [rfc8621-mail](#rfc8621-mail) | RFC8621 | 158 | 260 | 0 | 418 | 37.8% |
+| [rfc8621-mail](#rfc8621-mail) | RFC8621 | 160 | 258 | 0 | 418 | 38.3% |
 | [rfc8887-websockets](#rfc8887-websockets) | RFC8887 | 0 | 40 | 0 | 40 | 0.0% |
 | [rfc9007-mdn](#rfc9007-mdn) | RFC9007 | 0 | 24 | 0 | 24 | 0.0% |
 | [rfc9219-smime](#rfc9219-smime) | RFC9219 | 0 | 24 | 0 | 24 | 0.0% |
@@ -29,7 +29,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [rfc9670-sharing](#rfc9670-sharing) | RFC9670 | 0 | 76 | 0 | 76 | 0.0% |
 | [rfc9698-jmapaccess](#rfc9698-jmapaccess) | RFC9698 | 0 | 14 | 0 | 14 | 0.0% |
 | [rfc9749-vapid](#rfc9749-vapid) | RFC9749 | 0 | 24 | 0 | 24 | 0.0% |
-| **Total** | | **513** | **879** | **0** | **1392** | **36.9%** |
+| **Total** | | **515** | **877** | **0** | **1392** | **37.0%** |
 
 ---
 
@@ -667,7 +667,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 ## rfc8621-mail
 
 * **Test Suite Directory**: [`jmap/`](../jmap/)
-* **Conformance**: 158 / 418 (37.8%)
+* **Conformance**: 160 / 418 (38.3%)
 
 | Spec | Section | Level | Requirement | Status | Tests | Note |
 | :--- | :---: | :---: | :--- | :---: | :--- | :--- |
@@ -984,9 +984,9 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `MAY` | recall the message, but it MAY just remain "pending" | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7 [p14] |
 | RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `MAY` | This property MAY not be supported by all | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7 [p15] |
 | RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `SHOULD` | it SHOULD update the EmailSubmission object each time the status | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7 [p16] |
-| RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `SHOULD` | This SHOULD be the response to the RCPT TO stage, | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7 [p17] |
+| RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `SHOULD` | This SHOULD be the response to the RCPT TO stage, | ✅ Covered | `TestRFC8621_EmailSubmissionSMTPReplyIsRCPTStage` | Extracted by specextract from RFC8621 §7 [p17] |
 | RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `SHOULD` | stage reply SHOULD be used instead | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7 [p18] |
-| RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `SHOULD` | Multi-line SMTP responses should be concatenated to a single | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §7 [p19] |
+| RFC8621 | [7](https://www.rfc-editor.org/rfc/rfc8621.html#section-7) | `SHOULD` | Multi-line SMTP responses should be concatenated to a single | ✅ Covered | `TestRFC8621_EmailSubmissionSMTPReplyIsRCPTStage` | Extracted by specextract from RFC8621 §7 [p19] |
 | RFC8621 | [7.3](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.3) | `MUST` | The EmailSubmission "identityId" property must be in this list to | ✅ Covered | `TestRFC8621_Section7_EmailSubmission` | Extracted by specextract from RFC8621 §7.3 [p2] |
 | RFC8621 | [7.3](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.3) | `MUST` | The EmailSubmission "emailId" property must be in this list to | ✅ Covered | `TestRFC8621_Section7_EmailSubmission` | Extracted by specextract from RFC8621 §7.3 [p3] |
 | RFC8621 | [7.3](https://www.rfc-editor.org/rfc/rfc8621.html#section-7.3) | `MUST` | The EmailSubmission "threadId" property must be in this list to | ✅ Covered | `TestRFC8621_Section7_EmailSubmission` | Extracted by specextract from RFC8621 §7.3 [p4] |

@@ -236,7 +236,7 @@ func TestMXOutboundSender_FallbackToNextMX(t *testing.T) {
 			case strings.HasPrefix(upper, "MAIL FROM"):
 				tp.PrintfLine("250 OK")
 			case strings.HasPrefix(upper, "RCPT TO"):
-				tp.PrintfLine("250 OK")
+				tp.PrintfLine("250 2.1.5 Accepted on backup MX")
 			case strings.HasPrefix(upper, "DATA"):
 				tp.PrintfLine("354 Go ahead")
 				r := tp.DotReader()
@@ -247,7 +247,7 @@ func TestMXOutboundSender_FallbackToNextMX(t *testing.T) {
 						break
 					}
 				}
-				tp.PrintfLine("250 2.0.0 Accepted on backup MX")
+				tp.PrintfLine("250 2.0.0 Message accepted")
 			case strings.HasPrefix(upper, "QUIT"):
 				tp.PrintfLine("221 Bye")
 				return
@@ -295,5 +295,72 @@ func TestMXOutboundSender_InvalidRecipientAddress(t *testing.T) {
 	}
 	if !strings.Contains(res.SmtpReply, "554") {
 		t.Errorf("Expected 554 for invalid recipient address, got %q", res.SmtpReply)
+	}
+}
+
+// TestMXOutboundSender_RCPTStageReplyAndMultiline verifies that EmailSubmission's
+// smtpReply is the RCPT TO stage reply (flattened to one line) rather than the
+// DATA stage reply, per RFC 8621 Section 7.
+func TestMXOutboundSender_RCPTStageReplyAndMultiline(t *testing.T) {
+	ln, cleanup := startMockSMTPServer(t, func(tp *textproto.Conn) {
+		tp.PrintfLine("220 mock.remote.mx ESMTP Service Ready")
+		for {
+			line, err := tp.ReadLine()
+			if err != nil {
+				return
+			}
+			upper := strings.ToUpper(line)
+			switch {
+			case strings.HasPrefix(upper, "EHLO") || strings.HasPrefix(upper, "HELO"):
+				tp.PrintfLine("250 mock.remote.mx")
+			case strings.HasPrefix(upper, "MAIL FROM"):
+				tp.PrintfLine("250 2.1.0 Sender OK")
+			case strings.HasPrefix(upper, "RCPT TO"):
+				tp.PrintfLine("250-2.1.5 first line\n250 2.1.5 second line")
+			case strings.HasPrefix(upper, "DATA"):
+				tp.PrintfLine("354 Start mail input; end with <CRLF>.<CRLF>")
+				r := tp.DotReader()
+				buf := make([]byte, 1024)
+				for {
+					if _, err := r.Read(buf); err != nil {
+						break
+					}
+				}
+				tp.PrintfLine("250 2.0.0 Message accepted")
+			case strings.HasPrefix(upper, "QUIT"):
+				tp.PrintfLine("221 2.0.0 Bye")
+				return
+			default:
+				tp.PrintfLine("500 5.5.1 Command unrecognized")
+			}
+		}
+	})
+	defer cleanup()
+
+	hostPort := ln.Addr().String()
+	host, port, _ := net.SplitHostPort(hostPort)
+	sender := smtp.NewMXOutboundSender()
+	sender.LookupMX = func(domain string) ([]*net.MX, error) {
+		return []*net.MX{{Host: host, Pref: 10}}, nil
+	}
+	sender.Dial = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return net.Dial(network, net.JoinHostPort(host, port))
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	results := sender.SendMail(ctx, "sender@example.com", []string{"alice@remote.org"}, []byte("Subject: Hi\r\n\r\nbody\r\n"))
+	res := results["alice@remote.org"]
+	if !res.Delivered {
+		t.Fatalf("expected delivered, got %+v", res)
+	}
+	if strings.Contains(res.SmtpReply, "\n") {
+		t.Errorf("smtpReply must be a single line, got %q", res.SmtpReply)
+	}
+	if res.SmtpReply != "250 2.1.5 first line 2.1.5 second line" {
+		t.Errorf("smtpReply should be the flattened RCPT reply, got %q", res.SmtpReply)
+	}
+	if strings.Contains(res.SmtpReply, "Message accepted") {
+		t.Errorf("smtpReply must not be the DATA reply, got %q", res.SmtpReply)
 	}
 }
