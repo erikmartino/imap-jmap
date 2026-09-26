@@ -129,8 +129,11 @@ Per `AGENTS.md` §1 ("Stateless Proxy & Zero Local Filesystem Sync"), the proxy 
 2. **WebDAV/Nextcloud file** at a fixed per-user path (e.g. `.jmap/state.json`), read/written with the user's credentials, with ETag-based CAS to avoid lost updates.
 3. Never a host-local file or process-global map.
 
-- [ ] **4.1 Calendar metadata via CalDAV `PROPPATCH`** (`nextcloud/client.go`, `nextcloud/calendars.go`)
-  - Read and write `displayname`, `calendar-description`, `calendar-color`, `calendar-order`, `calendar-timezone`; store JMAP-only prefs (visibility/availability/alerts/`isSubscribed`) as namespaced custom WebDAV properties. Remove the authoritative role of `calProps` (keep it only as a request cache).
+- [x] **4.1 Calendar metadata via CalDAV `PROPPATCH`** (`nextcloud/client.go`, `nextcloud/calendars.go`)
+  - `PatchCalendarProperties` writes `displayname`, `calendar-description`, `calendar-color`, `calendar-order`, `calendar-timezone` with one WebDAV `PROPPATCH` (`encoding/xml`); `getCalendarCollections` reads them back and `GetCalendars` uses them as the defaults.
+  - JMAP-only prefs (`isVisible`, `isSubscribed`, `includeInAvailability`, default alerts) are stored as a single JSON custom property in the `urn:ietf:params:jmap:calendar` namespace, read back and applied; the embedded server stores/serves all of them.
+  - `calProps` is no longer the source of truth (upstream wins, overrides only applied when set); it currently remains as a same-request cache. Test: `TestCalendarMetadataPersistedUpstream` (fresh backend with no `calProps` sees the values).
+  - Follow-up: delete `calProps` entirely once every field is upstream-derived.
 - [ ] **4.2 AddressBook metadata via CardDAV/OCS** (`nextcloud/contacts.go`)
   - Persist `defaultAddressBooks`, color/description, and `isDefault` upstream (custom property on the addressbook home set; `shareWith`/`myRights` via OCS/ACLs, see Phase 5).
 - [ ] **4.3 Deterministic FileNode ids** (`nextcloud/filenode.go`)

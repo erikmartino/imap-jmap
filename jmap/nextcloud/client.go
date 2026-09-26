@@ -279,9 +279,12 @@ type propfindCalendarProp struct {
 	CalendarDescription struct{} `xml:"urn:ietf:params:xml:ns:caldav calendar-description"`
 	GetCTag             struct{} `xml:"http://calendarserver.org/ns/ getctag"`
 	SyncToken           struct{} `xml:"sync-token"`
+	CalendarTimezone    struct{} `xml:"urn:ietf:params:xml:ns:caldav calendar-timezone"`
 	// Apple/Nextcloud calendar display properties.
 	CalendarColor struct{} `xml:"http://apple.com/ns/ical/ calendar-color"`
 	CalendarOrder struct{} `xml:"http://apple.com/ns/ical/ calendar-order"`
+	// JMAP-only calendar preferences, stored as a single JSON custom property.
+	JMAPPrefs struct{} `xml:"urn:ietf:params:jmap:calendar prefs"`
 }
 
 // FindScheduleDefaultCalendar finds the default calendar collection for scheduling
@@ -367,6 +370,8 @@ type CalendarInfo struct {
 	IsDefault   bool
 	Color       string
 	Order       string
+	TimeZone    string
+	PrefsJSON   string
 }
 
 // CalendarObjectInfo represents a calendar object (event/todo) retrieved from Nextcloud.
@@ -491,6 +496,8 @@ func (c *Client) ListCalendars(ctx context.Context) ([]*CalendarInfo, string, er
 			IsDefault:   isDefault,
 			Color:       cal.Color,
 			Order:       cal.Order,
+			TimeZone:    cal.TimeZone,
+			PrefsJSON:   cal.PrefsJSON,
 		})
 	}
 	c.storeCalendarList(u, list)
@@ -721,6 +728,94 @@ func (c *Client) DeleteCalendarObject(ctx context.Context, calID, eventID string
 	return err
 }
 
+// CalendarProperty is a single CalDAV/WebDAV property to write on a calendar
+// collection via PROPPATCH. Name carries the XML namespace and local name.
+type CalendarProperty struct {
+	Name  xml.Name
+	Value string
+}
+
+// CalDAV/WebDAV property namespaces used for calendar metadata.
+const (
+	nsDAV     = "DAV:"
+	nsCalDAV  = "urn:ietf:params:xml:ns:caldav"
+	nsApple   = "http://apple.com/ns/ical/"
+	nsJMAPCal = "urn:ietf:params:jmap:calendar"
+)
+
+type propPatchProp struct {
+	XMLName xml.Name
+	Value   string `xml:",chardata"`
+}
+type propPatchSet struct {
+	Prop struct {
+		Props []propPatchProp `xml:",any"`
+	} `xml:"DAV: prop"`
+}
+type propPatchRemove struct {
+	Prop struct {
+		Props []propPatchProp `xml:",any"`
+	} `xml:"DAV: prop"`
+}
+type propPatchReq struct {
+	XMLName xml.Name         `xml:"DAV: propertyupdate"`
+	Set     propPatchSet     `xml:"DAV: set"`
+	Remove  *propPatchRemove `xml:"DAV: remove,omitempty"`
+}
+
+// PatchCalendarProperties writes/removes calendar collection properties with a
+// single WebDAV PROPPATCH (RFC 4918 Section 9.2), so calendar metadata is stored
+// upstream rather than proxy-locally.
+func (c *Client) PatchCalendarProperties(ctx context.Context, calID string, set []CalendarProperty, remove []xml.Name) error {
+	if len(set) == 0 && len(remove) == 0 {
+		return nil
+	}
+	calClient, u, err := c.CalDAV(ctx)
+	if err != nil {
+		return err
+	}
+	calPath := c.getCalPath(ctx, calClient, u, calID)
+
+	var req propPatchReq
+	for _, p := range set {
+		req.Set.Prop.Props = append(req.Set.Prop.Props, propPatchProp{XMLName: p.Name, Value: p.Value})
+	}
+	if len(remove) > 0 {
+		rm := &propPatchRemove{}
+		for _, n := range remove {
+			rm.Prop.Props = append(rm.Prop.Props, propPatchProp{XMLName: n})
+		}
+		req.Remove = rm
+	}
+
+	reqBody, err := xml.Marshal(&req)
+	if err != nil {
+		return err
+	}
+	reqBody = append([]byte(xml.Header), reqBody...)
+
+	urlStr := c.buildURL(calPath)
+	httpReq, err := http.NewRequestWithContext(ctx, "PROPPATCH", urlStr, bytes.NewReader(reqBody))
+	if err != nil {
+		return err
+	}
+	user, pass := c.getUserAndPass(ctx)
+	httpReq.SetBasicAuth(user, pass)
+	httpReq.Header.Set("Content-Type", "application/xml; charset=utf-8")
+
+	resp, err := c.HTTPClient.Do(httpReq)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("caldav: PROPPATCH failed with status %d", resp.StatusCode)
+	}
+	invalidateRequestCalendarCollections(ctx, u)
+	c.invalidateCalendarList(u)
+	return nil
+}
+
 func (c *Client) buildURL(endpoint string) string {
 	if strings.HasPrefix(endpoint, "http://") || strings.HasPrefix(endpoint, "https://") {
 		return endpoint
@@ -739,10 +834,12 @@ type CalendarSyncStatus struct {
 	Description string
 	CTag        string
 	SyncToken   string
-	// Color and Order are the Apple/Nextcloud display properties, when the
-	// upstream server exposes them.
-	Color string
-	Order string
+	// Color, Order and TimeZone are the CalDAV display/timezone properties, when
+	// the upstream server exposes them.
+	Color     string
+	Order     string
+	TimeZone  string
+	PrefsJSON string
 }
 
 // calendarCollections is the result of the home-set PROPFIND: the calendar collections
@@ -843,12 +940,14 @@ func (c *Client) getCalendarCollections(ctx context.Context) (*calendarCollectio
 					ResourceType struct {
 						InnerXML []byte `xml:",innerxml"`
 					} `xml:"resourcetype"`
-					DisplayName   string `xml:"displayname"`
-					Description   string `xml:"urn:ietf:params:xml:ns:caldav calendar-description"`
-					GetCTag       string `xml:"getctag"`
-					SyncToken     string `xml:"sync-token"`
-					CalendarColor string `xml:"http://apple.com/ns/ical/ calendar-color"`
-					CalendarOrder string `xml:"http://apple.com/ns/ical/ calendar-order"`
+					DisplayName      string `xml:"displayname"`
+					Description      string `xml:"urn:ietf:params:xml:ns:caldav calendar-description"`
+					GetCTag          string `xml:"getctag"`
+					SyncToken        string `xml:"sync-token"`
+					CalendarTimezone string `xml:"urn:ietf:params:xml:ns:caldav calendar-timezone"`
+					CalendarColor    string `xml:"http://apple.com/ns/ical/ calendar-color"`
+					CalendarOrder    string `xml:"http://apple.com/ns/ical/ calendar-order"`
+					JMAPPrefs        string `xml:"urn:ietf:params:jmap:calendar prefs"`
 				} `xml:"prop"`
 				Status string `xml:"status"`
 			} `xml:"propstat"`
@@ -875,7 +974,7 @@ func (c *Client) getCalendarCollections(ctx context.Context) (*calendarCollectio
 			continue
 		}
 
-		var dispName, description, ctag, syncToken, color, order string
+		var dispName, description, ctag, syncToken, color, order, timeZone, prefs string
 		isCalendar := false
 
 		for _, ps := range r.Propstat {
@@ -901,6 +1000,12 @@ func (c *Client) getCalendarCollections(ctx context.Context) (*calendarCollectio
 				if ps.Prop.CalendarOrder != "" {
 					order = ps.Prop.CalendarOrder
 				}
+				if ps.Prop.CalendarTimezone != "" {
+					timeZone = ps.Prop.CalendarTimezone
+				}
+				if ps.Prop.JMAPPrefs != "" {
+					prefs = ps.Prop.JMAPPrefs
+				}
 			}
 		}
 
@@ -919,6 +1024,8 @@ func (c *Client) getCalendarCollections(ctx context.Context) (*calendarCollectio
 			SyncToken:   syncToken,
 			Color:       color,
 			Order:       order,
+			TimeZone:    timeZone,
+			PrefsJSON:   prefs,
 		}
 		res[calID] = st
 		ordered = append(ordered, st)

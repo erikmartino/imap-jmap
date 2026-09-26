@@ -667,6 +667,54 @@ func TestUpstreamDerivedCalendarProperties(t *testing.T) {
 	}
 }
 
+// TestCalendarMetadataPersistedUpstream verifies that Calendar metadata updates
+// are written to the upstream CalDAV server (PROPPATCH) and are visible to a
+// fresh backend that holds no proxy-local state.
+func TestCalendarMetadataPersistedUpstream(t *testing.T) {
+	client, be, _, _, _, cleanup := NewEmbeddedBackend("user@example.com")
+	defer cleanup()
+	ctx := stateTestCtx("user@example.com")
+
+	cal, err := be.CreateCalendar(ctx, &jmapcalendar.Calendar{Name: "Original"})
+	if err != nil {
+		t.Fatalf("CreateCalendar: %v", err)
+	}
+	if _, err := be.UpdateCalendar(ctx, cal.ID, map[string]any{
+		"name":                  "Renamed",
+		"color":                 "#123456",
+		"isSubscribed":          true,
+		"includeInAvailability": "attending",
+	}); err != nil {
+		t.Fatalf("UpdateCalendar: %v", err)
+	}
+
+	// A fresh backend has no calProps; it must read the metadata from upstream.
+	be2 := NewCalendarsBackend(client)
+	cals, _, err := be2.GetCalendars(ctx, nil)
+	if err != nil {
+		t.Fatalf("GetCalendars: %v", err)
+	}
+	for _, c := range cals {
+		if c.ID != cal.ID {
+			continue
+		}
+		if c.Name != "Renamed" {
+			t.Errorf("expected upstream name Renamed, got %q", c.Name)
+		}
+		if c.Color == nil || *c.Color != "#123456" {
+			t.Errorf("expected upstream color #123456, got %v", c.Color)
+		}
+		if !c.IsSubscribed {
+			t.Errorf("expected upstream isSubscribed=true")
+		}
+		if c.IncludeInAvailability != "attending" {
+			t.Errorf("expected upstream includeInAvailability=attending, got %q", c.IncludeInAvailability)
+		}
+		return
+	}
+	t.Fatalf("calendar %s not found in fresh backend", cal.ID)
+}
+
 // --- Calendar collection state (content-addressed) ---------------------------
 
 func TestCalendarStateIsContentAddressed(t *testing.T) {

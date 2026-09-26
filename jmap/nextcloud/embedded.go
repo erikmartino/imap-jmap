@@ -54,11 +54,15 @@ type memSyncRecord struct {
 	Token   int
 }
 
-// memCalendarProps holds the Apple/Nextcloud display properties of a calendar
-// collection (not modelled by go-webdav's caldav.Calendar).
+// memCalendarProps holds the WebDAV display properties of a calendar collection
+// (not modelled by go-webdav's caldav.Calendar), stored from PROPPATCH.
 type memCalendarProps struct {
-	Color string
-	Order string
+	DisplayName string
+	Description string
+	Color       string
+	Order       string
+	TimeZone    string
+	Prefs       string
 }
 
 // memCalDAVBackend implements caldav.Backend in memory per user.
@@ -77,6 +81,66 @@ func newMemCalDAVBackend() *memCalDAVBackend {
 		calendarSync:  make(map[string]map[string]*memCalendarSync),
 		calendarProps: make(map[string]map[string]memCalendarProps),
 	}
+}
+
+// applyCalendarPropPatch parses a WebDAV propertyupdate body and stores the
+// recognised calendar display properties for the collection.
+func applyCalendarPropPatch(b *memCalDAVBackend, u, reqPath string, body []byte) {
+	type propValue struct {
+		XMLName xml.Name
+		Value   string `xml:",chardata"`
+	}
+	type propUpdate struct {
+		XMLName xml.Name `xml:"DAV: propertyupdate"`
+		Set     struct {
+			Prop struct {
+				Props []propValue `xml:",any"`
+			} `xml:"DAV: prop"`
+		} `xml:"DAV: set"`
+		Remove struct {
+			Prop struct {
+				Props []propValue `xml:",any"`
+			} `xml:"DAV: prop"`
+		} `xml:"DAV: remove"`
+	}
+	var pu propUpdate
+	if err := xml.Unmarshal(body, &pu); err != nil {
+		return
+	}
+	cleanPath := strings.TrimRight(reqPath, "/") + "/"
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.ensureUserCalendarsLocked(u)
+	if b.calendarProps[u] == nil {
+		b.calendarProps[u] = make(map[string]memCalendarProps)
+	}
+	p := b.calendarProps[u][cleanPath]
+	known := []struct {
+		space, local string
+		field        *string
+	}{
+		{"DAV:", "displayname", &p.DisplayName},
+		{"urn:ietf:params:xml:ns:caldav", "calendar-description", &p.Description},
+		{"urn:ietf:params:xml:ns:caldav", "calendar-timezone", &p.TimeZone},
+		{"http://apple.com/ns/ical/", "calendar-color", &p.Color},
+		{"http://apple.com/ns/ical/", "calendar-order", &p.Order},
+		{"urn:ietf:params:jmap:calendar", "prefs", &p.Prefs},
+	}
+	for _, v := range pu.Set.Prop.Props {
+		for _, k := range known {
+			if v.XMLName.Space == k.space && v.XMLName.Local == k.local {
+				*k.field = v.Value
+			}
+		}
+	}
+	for _, v := range pu.Remove.Prop.Props {
+		for _, k := range known {
+			if v.XMLName.Space == k.space && v.XMLName.Local == k.local {
+				*k.field = ""
+			}
+		}
+	}
+	b.calendarProps[u][cleanPath] = p
 }
 
 func (b *memCalDAVBackend) CurrentUserPrincipal(ctx context.Context) (string, error) {
@@ -828,11 +892,14 @@ func NewEmbeddedServer(usernames ...string) (*httptest.Server, *Client, func()) 
 						Collection *struct{} `xml:"DAV: collection"`
 						Calendar   *struct{} `xml:"urn:ietf:params:xml:ns:caldav calendar"`
 					} `xml:"DAV: resourcetype"`
-					DisplayName   string `xml:"DAV: displayname,omitempty"`
-					GetCTag       string `xml:"http://calendarserver.org/ns/ getctag,omitempty"`
-					SyncToken     string `xml:"DAV: sync-token,omitempty"`
-					CalendarColor string `xml:"http://apple.com/ns/ical/ calendar-color,omitempty"`
-					CalendarOrder string `xml:"http://apple.com/ns/ical/ calendar-order,omitempty"`
+					DisplayName         string `xml:"DAV: displayname,omitempty"`
+					CalendarDescription string `xml:"urn:ietf:params:xml:ns:caldav calendar-description,omitempty"`
+					GetCTag             string `xml:"http://calendarserver.org/ns/ getctag,omitempty"`
+					SyncToken           string `xml:"DAV: sync-token,omitempty"`
+					CalendarColor       string `xml:"http://apple.com/ns/ical/ calendar-color,omitempty"`
+					CalendarOrder       string `xml:"http://apple.com/ns/ical/ calendar-order,omitempty"`
+					CalendarTimezone    string `xml:"urn:ietf:params:xml:ns:caldav calendar-timezone,omitempty"`
+					JMAPPrefs           string `xml:"urn:ietf:params:jmap:calendar prefs,omitempty"`
 				}
 				type embeddedPropstat struct {
 					Prop   embeddedProp `xml:"DAV: prop"`
@@ -873,12 +940,22 @@ func NewEmbeddedServer(usernames ...string) (*httptest.Server, *Client, func()) 
 					}
 					syncTokStr := fmt.Sprintf("http://sabre.io/ns/sync/%d", token)
 					props := calMem.calendarProps[u][cPath]
+					dispName, desc := cal.Name, cal.Description
+					if props.DisplayName != "" {
+						dispName = props.DisplayName
+					}
+					if props.Description != "" {
+						desc = props.Description
+					}
 					calProp := embeddedProp{
-						DisplayName:   cal.Name,
-						GetCTag:       syncTokStr,
-						SyncToken:     syncTokStr,
-						CalendarColor: props.Color,
-						CalendarOrder: props.Order,
+						DisplayName:         dispName,
+						CalendarDescription: desc,
+						GetCTag:             syncTokStr,
+						SyncToken:           syncTokStr,
+						CalendarColor:       props.Color,
+						CalendarOrder:       props.Order,
+						CalendarTimezone:    props.TimeZone,
+						JMAPPrefs:           props.Prefs,
 					}
 					calProp.ResourceType.Collection = &struct{}{}
 					calProp.ResourceType.Calendar = &struct{}{}
@@ -1030,6 +1107,20 @@ func NewEmbeddedServer(usernames ...string) (*httptest.Server, *Client, func()) 
 						w.WriteHeader(http.StatusNoContent)
 						return
 					}
+				}
+			}
+
+			// PROPPATCH on a calendar collection stores its WebDAV display
+			// properties (displayname, calendar-description, calendar-color,
+			// calendar-order, calendar-timezone).
+			if r.Method == "PROPPATCH" {
+				home := strings.TrimRight("/remote.php/dav/calendars/"+u, "/") + "/"
+				if rel := strings.TrimPrefix(reqPath, home); rel != reqPath && rel != "" && !strings.Contains(strings.Trim(rel, "/"), "/") {
+					bodyBytes, _ := io.ReadAll(r.Body)
+					applyCalendarPropPatch(calMem, u, reqPath, bodyBytes)
+					w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+					w.WriteHeader(http.StatusMultiStatus)
+					return
 				}
 			}
 

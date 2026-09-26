@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"sort"
@@ -27,6 +28,50 @@ import (
 // parallel for a single JMAP request, so a slow upstream cannot be flooded while
 // still collapsing the per-collection round-trips into one latency window.
 const maxConcurrentCalDAVQueries = 10
+
+// standardCalendarProperties maps the standard (CalDAV) display properties of a
+// resolved Calendar to upstream PROPPATCH fields so they are stored server-side.
+func standardCalendarProperties(cal *jmapcalendar.Calendar) []CalendarProperty {
+	if cal == nil {
+		return nil
+	}
+	var set []CalendarProperty
+	if cal.Name != "" {
+		set = append(set, CalendarProperty{Name: xml.Name{Space: nsDAV, Local: "displayname"}, Value: cal.Name})
+	}
+	if cal.Description != nil {
+		set = append(set, CalendarProperty{Name: xml.Name{Space: nsCalDAV, Local: "calendar-description"}, Value: *cal.Description})
+	}
+	if cal.Color != nil {
+		set = append(set, CalendarProperty{Name: xml.Name{Space: nsApple, Local: "calendar-color"}, Value: *cal.Color})
+	}
+	set = append(set, CalendarProperty{Name: xml.Name{Space: nsApple, Local: "calendar-order"}, Value: strconv.FormatUint(cal.SortOrder, 10)})
+	if cal.TimeZone != "" {
+		set = append(set, CalendarProperty{Name: xml.Name{Space: nsCalDAV, Local: "calendar-timezone"}, Value: cal.TimeZone})
+	}
+	// JMAP-only preferences, stored as one JSON custom property upstream.
+	prefs := jmapCalendarPrefs{
+		IsVisible:                &cal.IsVisible,
+		IsSubscribed:             &cal.IsSubscribed,
+		IncludeInAvailability:    cal.IncludeInAvailability,
+		DefaultAlertsWithTime:    cal.DefaultAlertsWithTime,
+		DefaultAlertsWithoutTime: cal.DefaultAlertsWithoutTime,
+	}
+	if data, err := json.Marshal(prefs); err == nil {
+		set = append(set, CalendarProperty{Name: xml.Name{Space: nsJMAPCal, Local: "prefs"}, Value: string(data)})
+	}
+	return set
+}
+
+// jmapCalendarPrefs is the JSON payload of the JMAP-only calendar preference
+// custom property, covering fields CalDAV cannot express natively.
+type jmapCalendarPrefs struct {
+	IsVisible                *bool                                    `json:"isVisible,omitempty"`
+	IsSubscribed             *bool                                    `json:"isSubscribed,omitempty"`
+	IncludeInAvailability    string                                   `json:"includeInAvailability,omitempty"`
+	DefaultAlertsWithTime    map[string]*jmapcalendar.JSCalendarAlert `json:"defaultAlertsWithTime,omitempty"`
+	DefaultAlertsWithoutTime map[string]*jmapcalendar.JSCalendarAlert `json:"defaultAlertsWithoutTime,omitempty"`
+}
 
 // CalendarsBackend implements jmapcalendar.CalendarsBackend backed by Nextcloud.
 type CalendarsBackend struct {
@@ -576,6 +621,27 @@ func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmapcore.Id) 
 		if n, err := strconv.ParseUint(strings.TrimSpace(c.Order), 10, 64); err == nil {
 			cal.SortOrder = n
 		}
+		cal.TimeZone = c.TimeZone
+		if c.PrefsJSON != "" {
+			var prefs jmapCalendarPrefs
+			if json.Unmarshal([]byte(c.PrefsJSON), &prefs) == nil {
+				if prefs.IsVisible != nil {
+					cal.IsVisible = *prefs.IsVisible
+				}
+				if prefs.IsSubscribed != nil {
+					cal.IsSubscribed = *prefs.IsSubscribed
+				}
+				if prefs.IncludeInAvailability != "" {
+					cal.IncludeInAvailability = prefs.IncludeInAvailability
+				}
+				if prefs.DefaultAlertsWithTime != nil {
+					cal.DefaultAlertsWithTime = prefs.DefaultAlertsWithTime
+				}
+				if prefs.DefaultAlertsWithoutTime != nil {
+					cal.DefaultAlertsWithoutTime = prefs.DefaultAlertsWithoutTime
+				}
+			}
+		}
 		b.mu.RLock()
 		if b.calProps[u] != nil && b.calProps[u][cid] != nil {
 			cp := b.calProps[u][cid]
@@ -586,7 +652,9 @@ func (b *CalendarsBackend) GetCalendars(ctx context.Context, ids []jmapcore.Id) 
 			if cp.Color != nil {
 				cal.Color = cp.Color
 			}
-			cal.TimeZone = cp.TimeZone
+			if cp.TimeZone != "" {
+				cal.TimeZone = cp.TimeZone
+			}
 			if cp.SortOrder != 0 {
 				cal.SortOrder = cp.SortOrder
 			}
@@ -702,6 +770,7 @@ func (b *CalendarsBackend) CreateCalendar(ctx context.Context, cal *jmapcalendar
 	cal.MyRights = jmapcalendar.FullCalendarRights()
 
 	_ = b.client.CreateCalendar(ctx, string(cal.ID))
+	_ = b.client.PatchCalendarProperties(ctx, string(cal.ID), standardCalendarProperties(cal), nil)
 
 	b.mu.Lock()
 	if b.calProps[u] == nil {
@@ -795,6 +864,12 @@ func (b *CalendarsBackend) UpdateCalendar(ctx context.Context, id jmapcore.Id, p
 	}
 
 	_ = applyCalendarPatch(cp, patch)
+
+	// Persist the standard display properties upstream (CalDAV PROPPATCH) so the
+	// metadata is not solely proxy-local.
+	if patchErr := b.client.PatchCalendarProperties(ctx, string(id), standardCalendarProperties(cp), nil); patchErr != nil {
+		return nil, patchErr
+	}
 
 	if cp.ShareWith != nil {
 		for k, v := range cp.ShareWith {
