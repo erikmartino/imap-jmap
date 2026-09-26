@@ -111,16 +111,25 @@ func (b *Broadcaster) Unsubscribe(ch chan *StateChange) {
 
 // PublishStateChange broadcasts a StateChange event to all active subscribers.
 func (b *Broadcaster) PublishStateChange(accountID string, typeName string, newState string) {
+	b.PublishStateChanges(accountID, map[string]string{typeName: newState})
+}
+
+// PublishStateChanges broadcasts a single StateChange event carrying several
+// changed data types in one atomic notification. Publishing the types of one
+// logical change together (e.g. Email+Mailbox+Thread for a delivery) prevents a
+// subscriber from observing a partial event: a client that closes the stream
+// after the first state event, or that attaches mid-sequence, would otherwise
+// miss the other types.
+func (b *Broadcaster) PublishStateChanges(accountID string, changes map[string]string) {
+	if len(changes) == 0 {
+		return
+	}
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
 	event := &StateChange{
-		Type: "StateChange",
-		Changed: map[string]map[string]string{
-			accountID: {
-				typeName: newState,
-			},
-		},
+		Type:    "StateChange",
+		Changed: map[string]map[string]string{accountID: changes},
 	}
 
 	for ch := range b.subscribers {
@@ -132,7 +141,9 @@ func (b *Broadcaster) PublishStateChange(accountID string, typeName string, newS
 	}
 
 	for _, l := range b.listeners {
-		go l(accountID, typeName, newState)
+		for typeName, newState := range changes {
+			go l(accountID, typeName, newState)
+		}
 	}
 }
 

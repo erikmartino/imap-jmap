@@ -141,9 +141,11 @@ func (b *IMAPSMTPBackend) runIdleLoop(idleCtx context.Context, accountID string,
 
 				slog.Info("IMAP IDLE change event detected -> broadcasting JMAP StateChange", "accountID", accountID, "newState", token)
 				if b.broadcaster != nil {
-					b.broadcaster.PublishStateChange(accountID, "Email", token)
-					b.broadcaster.PublishStateChange(accountID, "Mailbox", token)
-					b.broadcaster.PublishStateChange(accountID, "Thread", token)
+					b.broadcaster.PublishStateChanges(accountID, map[string]string{
+						"Email":   token,
+						"Mailbox": token,
+						"Thread":  token,
+					})
 				}
 			}
 

@@ -67,11 +67,11 @@ type IMAPSMTPBackend struct {
 	blobsMu            sync.RWMutex
 	blobs              map[string]*jmapblob.Blob
 	blobRefs           map[string]map[string]map[jmapcore.Id]bool
-	accountQuotasMu  sync.RWMutex
-	accountQuotas    map[string]*accountQuota
-	emailMutationsMu sync.RWMutex
-	emailSeq         map[string]uint64
-	emailMutations   map[string][]itemChangeEntry
+	accountQuotasMu    sync.RWMutex
+	accountQuotas      map[string]*accountQuota
+	emailMutationsMu   sync.RWMutex
+	emailSeq           map[string]uint64
+	emailMutations     map[string][]itemChangeEntry
 }
 
 var _ jmapmail.MailBackend = (*IMAPSMTPBackend)(nil)
@@ -350,10 +350,14 @@ func (b *IMAPSMTPBackend) publishStateChange(ctx context.Context) {
 	}
 	b.RecordAccount(ctx)
 	state := b.State(ctx)
-	b.broadcaster.PublishStateChange(accountID, "Email", state)
-	b.broadcaster.PublishStateChange(accountID, "Mailbox", state)
-	b.broadcaster.PublishStateChange(accountID, "Thread", state)
-	b.broadcaster.PublishStateChange(accountID, "Quota", b.QuotaState(ctx))
+	// Publish one atomic event so a subscriber cannot observe (and a
+	// closeafter=state client cannot close on) a partial change set.
+	b.broadcaster.PublishStateChanges(accountID, map[string]string{
+		"Email":   state,
+		"Mailbox": state,
+		"Thread":  state,
+		"Quota":   b.QuotaState(ctx),
+	})
 }
 
 // Pool returns the underlying ClientPool.
