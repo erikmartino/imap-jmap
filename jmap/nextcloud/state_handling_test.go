@@ -1,9 +1,14 @@
 package nextcloud
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"io"
+	"net/http"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -11,6 +16,147 @@ import (
 	"imap-jmap/jmap/jmapcalendar"
 	"imap-jmap/jmap/jmapcore"
 )
+
+// concurrencyTrackingTransport records the maximum number of in-flight CalDAV
+// requests; a serial implementation peaks at 1.
+type concurrencyTrackingTransport struct {
+	base http.RoundTripper
+	cur  int32
+	max  int32
+}
+
+func (t *concurrencyTrackingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	c := atomic.AddInt32(&t.cur, 1)
+	for {
+		m := atomic.LoadInt32(&t.max)
+		if c <= m || atomic.CompareAndSwapInt32(&t.max, m, c) {
+			break
+		}
+	}
+	time.Sleep(15 * time.Millisecond)
+	resp, err := t.base.RoundTrip(req)
+	atomic.AddInt32(&t.cur, -1)
+	return resp, err
+}
+
+// TestCalendarEventChangesRunConcurrently verifies that per-collection CalDAV
+// sync/ETag requests for a single JMAP changes call overlap rather than running
+// serially.
+func TestCalendarEventChangesRunConcurrently(t *testing.T) {
+	client, be, _, _, _, cleanup := NewEmbeddedBackend("user@example.com")
+	defer cleanup()
+	ctx := stateTestCtx("user@example.com")
+
+	// Create several calendars each with an event so changes fans out.
+	state0 := be.CalendarEventState(ctx)
+	for i := 0; i < 3; i++ {
+		cal, err := be.CreateCalendar(ctx, &jmapcalendar.Calendar{Name: "Perf"})
+		if err != nil {
+			t.Fatalf("CreateCalendar: %v", err)
+		}
+		if _, err := be.CreateCalendarEvent(ctx, &jmapcalendar.CalendarEvent{
+			Title:       "Perf Event",
+			Start:       "2027-09-09T10:00:00Z",
+			Duration:    "PT30M",
+			CalendarIDs: map[jmapcore.Id]bool{cal.ID: true},
+		}); err != nil {
+			t.Fatalf("CreateCalendarEvent: %v", err)
+		}
+	}
+
+	tracker := &concurrencyTrackingTransport{base: client.HTTPClient.Transport}
+	client.HTTPClient.Transport = tracker
+	// Force each collection to be a distinct new calendar to the state.
+	_, _, _, newState, _ := be.CalendarEventChanges(ctx, state0)
+	if newState == "" {
+		t.Fatalf("expected a valid new state")
+	}
+	if got := atomic.LoadInt32(&tracker.max); got < 2 {
+		t.Errorf("expected concurrent CalDAV requests (max>1), got max=%d", got)
+	}
+}
+
+// bodyCapturingTransport records the bodies of REPORT requests.
+type bodyCapturingTransport struct {
+	base   http.RoundTripper
+	mu     sync.Mutex
+	bodies []string
+}
+
+func (t *bodyCapturingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Method == "REPORT" && req.Body != nil {
+		b, _ := io.ReadAll(req.Body)
+		req.Body = io.NopCloser(bytes.NewReader(b))
+		t.mu.Lock()
+		t.bodies = append(t.bodies, string(b))
+		t.mu.Unlock()
+	}
+	return t.base.RoundTrip(req)
+}
+
+// TestQueryExpandRecurrencesPushesTimeRange verifies that an expandRecurrences
+// query without an explicit before bound still pushes a time-range down to
+// CalDAV instead of scanning the whole collection.
+func TestQueryExpandRecurrencesPushesTimeRange(t *testing.T) {
+	client, be, _, _, _, cleanup := NewEmbeddedBackend("user@example.com")
+	defer cleanup()
+	ctx := stateTestCtx("user@example.com")
+
+	tracker := &bodyCapturingTransport{base: client.HTTPClient.Transport}
+	client.HTTPClient.Transport = tracker
+	if _, _, err := be.QueryCalendarEvents(ctx, nil, nil, 0, nil, true); err != nil {
+		t.Fatalf("QueryCalendarEvents: %v", err)
+	}
+	found := false
+	for _, b := range tracker.bodies {
+		if strings.Contains(b, "time-range") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected a REPORT with a time-range filter, got %d bodies", len(tracker.bodies))
+	}
+}
+
+// TestTargetedGetRunsConcurrently verifies that a targeted CalendarEvent/get
+// issues its per-calendar calendar-multiget REPORTs concurrently.
+func TestTargetedGetRunsConcurrently(t *testing.T) {
+	client, be, _, _, _, cleanup := NewEmbeddedBackend("user@example.com")
+	defer cleanup()
+	ctx := stateTestCtx("user@example.com")
+
+	var ids []jmapcore.Id
+	for i := 0; i < 3; i++ {
+		cal, err := be.CreateCalendar(ctx, &jmapcalendar.Calendar{Name: "Perf Get"})
+		if err != nil {
+			t.Fatalf("CreateCalendar: %v", err)
+		}
+		ev, err := be.CreateCalendarEvent(ctx, &jmapcalendar.CalendarEvent{
+			Title:       "Targeted",
+			Start:       "2027-10-10T10:00:00Z",
+			Duration:    "PT30M",
+			CalendarIDs: map[jmapcore.Id]bool{cal.ID: true},
+		})
+		if err != nil {
+			t.Fatalf("CreateCalendarEvent: %v", err)
+		}
+		ids = append(ids, ev.ID)
+	}
+
+	tracker := &concurrencyTrackingTransport{base: client.HTTPClient.Transport}
+	client.HTTPClient.Transport = tracker
+	events, notFound, err := be.GetCalendarEvents(ctx, ids)
+	if err != nil {
+		t.Fatalf("GetCalendarEvents: %v", err)
+	}
+	if len(events) != len(ids) || len(notFound) != 0 {
+		t.Fatalf("expected all %d events, got %d (notFound %v)", len(ids), len(events), notFound)
+	}
+	if got := atomic.LoadInt32(&tracker.max); got < 2 {
+		t.Errorf("expected concurrent multiget requests (max>1), got max=%d", got)
+	}
+}
 
 func stateTestCtx(user string) context.Context {
 	ctx := context.Background()

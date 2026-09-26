@@ -22,6 +22,11 @@ import (
 	"imap-jmap/jmap/jmappush"
 )
 
+// maxConcurrentCalDAVQueries bounds how many CalDAV requests are issued in
+// parallel for a single JMAP request, so a slow upstream cannot be flooded while
+// still collapsing the per-collection round-trips into one latency window.
+const maxConcurrentCalDAVQueries = 10
+
 // CalendarsBackend implements jmapcalendar.CalendarsBackend backed by Nextcloud.
 type CalendarsBackend struct {
 	client      *Client
@@ -1147,47 +1152,95 @@ func (b *CalendarsBackend) CalendarEventChanges(ctx context.Context, sinceState 
 		}
 	}
 
+	// Split the work into ETag discovery for calendars new to this state and
+	// RFC 6578 sync REPORTs for changed ones. CTag-only changes fail closed
+	// before any request is issued.
+	type syncCal struct {
+		calID string
+		token string
+	}
+	var etagCalIDs []string
+	var syncCals []syncCal
+	for calID, newTok := range newTokens {
+		oldTok, hadCal := oldTokens[calID]
+		if !hadCal {
+			etagCalIDs = append(etagCalIDs, calID)
+			continue
+		}
+		if oldTok.Token == newTok.Token {
+			continue
+		}
+		if oldTok.Kind == syncTokenKindCTag || newTok.Kind == syncTokenKindCTag {
+			return nil, nil, nil, "", false
+		}
+		syncCals = append(syncCals, syncCal{calID: calID, token: oldTok.Token})
+	}
+
+	type etagResult struct {
+		calID string
+		etags map[string]string
+	}
+	type syncResult struct {
+		calID   string
+		changes []SyncCollectionChange
+	}
+	sem := make(chan struct{}, maxConcurrentCalDAVQueries)
+	etagChan := make(chan etagResult, len(etagCalIDs))
+	syncChan := make(chan syncResult, len(syncCals))
+	var wg sync.WaitGroup
+	var failMu sync.Mutex
+	failClosed := false
+
+	for _, calID := range etagCalIDs {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(calID string) {
+			defer func() { <-sem }()
+			defer wg.Done()
+			if etags, err := b.client.ListCalendarObjectETags(ctx, calID); err == nil {
+				etagChan <- etagResult{calID: calID, etags: etags}
+			}
+		}(calID)
+	}
+	for _, sc := range syncCals {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(calID string, token string) {
+			defer func() { <-sem }()
+			defer wg.Done()
+			res, err := b.client.SyncCalendarCollection(ctx, calID, token)
+			if err != nil {
+				failMu.Lock()
+				failClosed = true
+				failMu.Unlock()
+				return
+			}
+			syncChan <- syncResult{calID: calID, changes: res.Changes}
+		}(sc.calID, sc.token)
+	}
+	wg.Wait()
+	close(etagChan)
+	close(syncChan)
+	if failClosed {
+		return nil, nil, nil, "", false
+	}
+
 	var createdList, updatedList, destroyedList []jmapcore.Id
 	seenCreated := make(map[jmapcore.Id]bool)
 	seenUpdated := make(map[jmapcore.Id]bool)
 	seenDestroyed := make(map[jmapcore.Id]bool)
 
-	for calID, newTok := range newTokens {
-		oldTok, hadCal := oldTokens[calID]
-		if !hadCal {
-			// The calendar is new to this state. Discover its resources from CalDAV
-			// ETags (a body-less PROPFIND) rather than downloading every event.
-			etags, err := b.client.ListCalendarObjectETags(ctx, calID)
-			if err == nil {
-				for eventID := range etags {
-					id := jmapcore.Id(eventID)
-					if !seenCreated[id] {
-						seenCreated[id] = true
-						createdList = append(createdList, id)
-					}
-				}
+	for res := range etagChan {
+		for eventID := range res.etags {
+			id := jmapcore.Id(eventID)
+			if !seenCreated[id] {
+				seenCreated[id] = true
+				createdList = append(createdList, id)
 			}
-			continue
 		}
-
-		if oldTok.Token == newTok.Token {
-			continue
-		}
-
-		// A CTag only signals that the collection changed; it cannot enumerate
-		// the delta. Fail closed (cannotCalculateChanges) rather than replaying
-		// a non-sync token or guessing, unless the calendar is new to this state
-		// (handled above via the ETag listing).
-		if oldTok.Kind == syncTokenKindCTag || newTok.Kind == syncTokenKindCTag {
-			return nil, nil, nil, "", false
-		}
-
-		res, err := b.client.SyncCalendarCollection(ctx, calID, oldTok.Token)
-		if err != nil {
-			return nil, nil, nil, "", false
-		}
-
-		for _, ch := range res.Changes {
+	}
+	for res := range syncChan {
+		for _, ch := range res.changes {
 			id := jmapcore.Id(ch.EventID)
 			if ch.Deleted {
 				delete(seenCreated, id)
@@ -1212,6 +1265,10 @@ func (b *CalendarsBackend) CalendarEventChanges(ctx context.Context, sinceState 
 			}
 		}
 	}
+
+	sort.Slice(createdList, func(i, j int) bool { return createdList[i] < createdList[j] })
+	sort.Slice(updatedList, func(i, j int) bool { return updatedList[i] < updatedList[j] })
+	sort.Slice(destroyedList, func(i, j int) bool { return destroyedList[i] < destroyedList[j] })
 
 	if createdList == nil {
 		createdList = []jmapcore.Id{}
@@ -1344,8 +1401,7 @@ func (b *CalendarsBackend) fetchEventsForCalendars(ctx context.Context, cals []*
 		calID jmapcore.Id
 		objs  []*CalendarObjectInfo
 	}
-	const maxConcurrentQueries = 10
-	sem := make(chan struct{}, maxConcurrentQueries)
+	sem := make(chan struct{}, maxConcurrentCalDAVQueries)
 	resChan := make(chan calResult, len(cals))
 	var wg sync.WaitGroup
 
@@ -1450,19 +1506,59 @@ func (b *CalendarsBackend) getCalendarEventsWindowed(ctx context.Context, ids []
 			}
 			masterSet[baseID] = true
 		}
-		masterIDs := make([]string, 0, len(masterSet))
-		for id := range masterSet {
-			masterIDs = append(masterIDs, string(id))
+		// Narrow candidate calendars using the backend cache where it knows which
+		// calendars hold an event; events with no cache entry are tried in every
+		// calendar. A stale narrowing cannot lose an event: an incomplete result
+		// falls through to the full collection fetch below.
+		calExists := make(map[jmapcore.Id]bool, len(cals))
+		for _, cal := range cals {
+			calExists[cal.ID] = true
 		}
+		candidates := make(map[jmapcore.Id][]string, len(cals))
+		for mID := range masterSet {
+			narrowed := false
+			for _, cid := range b.cache.GetCalIDsForEvent(u, mID) {
+				if calExists[cid] {
+					candidates[cid] = append(candidates[cid], string(mID))
+					narrowed = true
+				}
+			}
+			if !narrowed {
+				for _, cal := range cals {
+					candidates[cal.ID] = append(candidates[cal.ID], string(mID))
+				}
+			}
+		}
+
+		type calObjResult struct {
+			calID jmapcore.Id
+			objs  map[string]*CalendarObjectInfo
+		}
+		sem := make(chan struct{}, maxConcurrentCalDAVQueries)
+		resChan := make(chan calObjResult, len(candidates))
+		var wg sync.WaitGroup
+		for calID, idsForCal := range candidates {
+			if len(idsForCal) == 0 {
+				continue
+			}
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(calID jmapcore.Id, idsForCal []string) {
+				defer func() { <-sem }()
+				defer wg.Done()
+				objs, qErr := b.client.GetCalendarObjects(ctx, string(calID), idsForCal)
+				if qErr == nil {
+					resChan <- calObjResult{calID: calID, objs: objs}
+				}
+			}(calID, idsForCal)
+		}
+		wg.Wait()
+		close(resChan)
 
 		foundObjs := make(map[jmapcore.Id]*CalendarObjectInfo, len(masterSet))
 		foundCals := make(map[jmapcore.Id]map[jmapcore.Id]bool, len(masterSet))
-		for _, cal := range cals {
-			objs, qErr := b.client.GetCalendarObjects(ctx, string(cal.ID), masterIDs)
-			if qErr != nil {
-				continue
-			}
-			for name, obj := range objs {
+		for res := range resChan {
+			for name, obj := range res.objs {
 				mID := jmapcore.Id(name)
 				if foundObjs[mID] == nil {
 					foundObjs[mID] = obj
@@ -1470,7 +1566,7 @@ func (b *CalendarsBackend) getCalendarEventsWindowed(ctx context.Context, ids []
 				if foundCals[mID] == nil {
 					foundCals[mID] = make(map[jmapcore.Id]bool)
 				}
-				foundCals[mID][cal.ID] = true
+				foundCals[mID][res.calID] = true
 			}
 		}
 
@@ -2231,6 +2327,23 @@ func (b *CalendarsBackend) QueryCalendarEvents(ctx context.Context, filter map[s
 	// backend only transfers events overlapping the requested range.
 	windowStart, windowEnd := eventTimeWindow(filter, loc)
 
+	// When expanding recurrences the server caps expansion at a horizon. Push that
+	// horizon down as an upper time bound (unless the filter already bounds it more
+	// tightly) so CalDAV does not transfer far-future events that cannot contribute
+	// an instance before the horizon.
+	var horizon time.Time
+	if expandRecurrences {
+		horizon = time.Now().AddDate(2, 0, 0)
+		if beforeStr, _ := filter["before"].(string); beforeStr != "" {
+			if bt, ok := jmapcalendar.ParseLocalDateTimeBound(beforeStr, loc); ok && bt.After(horizon) {
+				horizon = bt.AddDate(0, 0, 1)
+			}
+		}
+		if windowEnd.IsZero() {
+			windowEnd = horizon
+		}
+	}
+
 	var events []*jmapcalendar.CalendarEvent
 	if len(targetCals) == len(cals) {
 		events, _, err = b.getCalendarEventsWindowed(ctx, nil, windowStart, windowEnd, cals)
@@ -2247,15 +2360,6 @@ func (b *CalendarsBackend) QueryCalendarEvents(ctx context.Context, filter map[s
 
 	var resultIDs []jmapcore.Id
 	if expandRecurrences {
-		horizon := time.Now().AddDate(2, 0, 0)
-		if beforeStr, _ := filter["before"].(string); beforeStr != "" {
-			if bt, ok := jmapcalendar.ParseLocalDateTimeBound(beforeStr, loc); ok {
-				if bt.After(horizon) {
-					horizon = bt.AddDate(0, 0, 1)
-				}
-			}
-		}
-
 		var expandedList []*jmapcalendar.CalendarEvent
 		for _, ev := range events {
 			hasRules := len(ev.RecurrenceRules) > 0 || len(ev.RecurrenceOverrides) > 0
