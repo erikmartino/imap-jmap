@@ -268,6 +268,19 @@ type propfindScheduleProp struct {
 	ScheduleInboxURL           *struct{} `xml:"urn:ietf:params:xml:ns:caldav schedule-inbox-URL,omitempty"`
 }
 
+type propfindCalendarReq struct {
+	XMLName xml.Name             `xml:"DAV: propfind"`
+	Prop    propfindCalendarProp `xml:"prop"`
+}
+
+type propfindCalendarProp struct {
+	ResourceType        struct{} `xml:"resourcetype"`
+	DisplayName         struct{} `xml:"displayname"`
+	CalendarDescription struct{} `xml:"urn:ietf:params:xml:ns:caldav calendar-description"`
+	GetCTag             struct{} `xml:"http://calendarserver.org/ns/ getctag"`
+	SyncToken           struct{} `xml:"sync-token"`
+}
+
 // FindScheduleDefaultCalendar finds the default calendar collection for scheduling
 // per RFC 6638 Section 9.2.1 by querying the user's principal resource or scheduling inbox.
 func (c *Client) FindScheduleDefaultCalendar(ctx context.Context, principal string) string {
@@ -770,18 +783,13 @@ func (c *Client) getCalendarCollections(ctx context.Context) (*calendarCollectio
 
 	urlStr := c.buildURL(homeSet)
 
-	reqXML := `<?xml version="1.0" encoding="utf-8" ?>
-<D:propfind xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav" xmlns:CS="http://calendarserver.org/ns/">
-  <D:prop>
-    <D:resourcetype/>
-    <D:displayname/>
-    <C:calendar-description/>
-    <CS:getctag/>
-    <D:sync-token/>
-  </D:prop>
-</D:propfind>`
+	reqData, err := xml.Marshal(&propfindCalendarReq{})
+	if err != nil {
+		return nil, err
+	}
+	reqData = append([]byte(xml.Header), reqData...)
 
-	req, err := http.NewRequestWithContext(ctx, "PROPFIND", urlStr, strings.NewReader(reqXML))
+	req, err := http.NewRequestWithContext(ctx, "PROPFIND", urlStr, bytes.NewReader(reqData))
 	if err != nil {
 		return nil, err
 	}

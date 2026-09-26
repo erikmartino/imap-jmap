@@ -884,10 +884,9 @@ func formatAddresses(list []any) string {
 		if m, ok := item.(map[string]any); ok {
 			email, _ := m["email"].(string)
 			name, _ := m["name"].(string)
-			if name != "" {
-				parts = append(parts, fmt.Sprintf("%q <%s>", name, email))
-			} else if email != "" {
-				parts = append(parts, fmt.Sprintf("<%s>", email))
+			if email != "" {
+				addr := &mail.Address{Name: name, Address: email}
+				parts = append(parts, addr.String())
 			}
 		}
 	}

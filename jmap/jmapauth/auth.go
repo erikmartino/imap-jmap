@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"strings"
+
+	"github.com/mcnijman/go-emailaddress"
 )
 
 // DecodeBase64OrRaw decodes standard base64 strings with or without padding.
@@ -162,18 +164,16 @@ type PrimaryDomainResolver struct {
 }
 
 func (r PrimaryDomainResolver) ResolveAccountID(_ context.Context, emailAddress string) (string, bool) {
-	emailAddress = strings.TrimSpace(emailAddress)
-	idx := strings.LastIndex(emailAddress, "@")
-	if idx < 0 {
+	email, err := emailaddress.Parse(strings.TrimSpace(emailAddress))
+	if err != nil {
 		return "", false
 	}
-	domain := strings.ToLower(emailAddress[idx+1:])
 	primary := strings.ToLower(r.PrimaryDomain)
 	if primary == "" {
 		primary = "example.com"
 	}
-	if domain == primary {
-		return AccountIDForSubject(emailAddress), true
+	if strings.EqualFold(email.Domain, primary) {
+		return AccountIDForSubject(email.String()), true
 	}
 	return "", false
 }

@@ -126,8 +126,8 @@ func TestAligned_StrictAndRelaxedModes(t *testing.T) {
 	}{
 		{"example.com", "example.com", dmarc.AlignmentStrict, true},
 		{"example.com", "example.com", dmarc.AlignmentRelaxed, true},
-		{"alerts@news.example.com", "example.com", dmarc.AlignmentRelaxed, true},
-		{"alerts@news.example.com", "example.com", dmarc.AlignmentStrict, false},
+		{"news.example.com", "example.com", dmarc.AlignmentRelaxed, true},
+		{"news.example.com", "example.com", dmarc.AlignmentStrict, false},
 		{"example.com", "evil.com", dmarc.AlignmentRelaxed, false},
 		{"example.com", "example.com.evil.com", dmarc.AlignmentRelaxed, false},
 		{"", "example.com", dmarc.AlignmentRelaxed, false},
@@ -140,16 +140,17 @@ func TestAligned_StrictAndRelaxedModes(t *testing.T) {
 	}
 }
 
-func TestOrganizationalDomain_Heuristic(t *testing.T) {
+func TestOrganizationalDomain_PublicSuffix(t *testing.T) {
 	spectest.Require(t, "RFC7489", "3.2", spectest.MUST,
-		"Organizational Domain heuristic: the registered domain is the last two DNS labels.")
+		"Organizational Domain: the registered domain (eTLD+1) is derived from the public suffix list.")
 	cases := map[string]string{
 		"example.com":          "example.com",
 		"a.b.c.d.example.com":  "example.com",
 		"example.com.":         "example.com",
 		"EXAMPLE.COM":          "example.com",
 		"sub.attacker.example": "attacker.example",
-		"example.co.uk":        "co.uk", // last-two-labels heuristic; a PSL-backed implementation may be substituted (RFC 7489 §3.2)
+		"example.co.uk":        "example.co.uk",
+		"foo.bar.co.uk":        "bar.co.uk",
 	}
 	for in, want := range cases {
 		if got := organizationalDomain(in); got != want {
@@ -243,4 +244,3 @@ func TestRFC8601_AuthenticationResultsHeader(t *testing.T) {
 		t.Errorf("Header missing header.from: %s", hdr)
 	}
 }
-

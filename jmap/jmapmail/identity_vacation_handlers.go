@@ -131,7 +131,7 @@ func HandleIdentitySet(backend MailBackend) jmaphandler.MethodHandler {
 					notCreated[creationID] = jmapcore.SetError{Type: "invalidProperties", Description: "email is required"}
 					continue
 				}
-				if _, err := mail.ParseAddress(identity.Email); err != nil || !strings.Contains(identity.Email, "@") {
+				if _, err := mail.ParseAddress(identity.Email); err != nil {
 					notCreated[creationID] = jmapcore.SetError{Type: "invalidProperties", Description: "invalid email address format"}
 					continue
 				}

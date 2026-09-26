@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mcnijman/go-emailaddress"
+
 	"imap-jmap/jmap/jmapauth"
 	"imap-jmap/jmap/jmapblob"
 	"imap-jmap/jmap/jmapcore"
@@ -15,6 +17,16 @@ import (
 )
 
 // EmailSubmission Handlers (RFC 8621 Section 7)
+
+// extractDomainFromAddress validates and extracts the lowercased domain part of an email address
+// using github.com/mcnijman/go-emailaddress. Returns empty string if invalid or if domain is missing.
+func extractDomainFromAddress(address string) string {
+	email, err := emailaddress.Parse(address)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(email.Domain)
+}
 
 // InboxMailboxID returns the id of the account's INBOX mailbox (role "inbox") as
 // reported by the backend, or "" when it cannot be determined. Backends use
@@ -316,7 +328,7 @@ func HandleEmailSubmissionSet(backend MailBackend, blobBackend jmapblob.BlobBack
 
 				// RFC 8621 Section 9.6: enforce appropriate restrictions on the MAIL FROM address
 				if env != nil && env.MailFrom.Email != "" {
-					if _, err := mail.ParseAddress(env.MailFrom.Email); err != nil || !strings.Contains(env.MailFrom.Email, "@") {
+					if _, err := emailaddress.Parse(env.MailFrom.Email); err != nil {
 						return "", jmapcore.SetError{Type: "invalidProperties", Description: "invalid envelope mailFrom address"}
 					}
 					if strings.Contains(strings.ToLower(env.MailFrom.Email), "forbidden") || strings.Contains(strings.ToLower(env.MailFrom.Email), "unauthorized") {
@@ -353,8 +365,7 @@ func HandleEmailSubmissionSet(backend MailBackend, blobBackend jmapblob.BlobBack
 				var invalidRecipients []string
 				for _, rcpt := range recipients {
 					clean := strings.TrimSpace(rcpt)
-					addr, err := mail.ParseAddress(clean)
-					if err != nil || !strings.Contains(addr.Address, "@") || strings.ContainsAny(addr.Address, "<> \t\r\n") {
+					if _, err := emailaddress.Parse(clean); err != nil {
 						invalidRecipients = append(invalidRecipients, rcpt)
 					}
 				}
@@ -391,10 +402,10 @@ func HandleEmailSubmissionSet(backend MailBackend, blobBackend jmapblob.BlobBack
 							continue
 						}
 						targetAccountID, local := activeResolver.ResolveAccountID(ctx, rcptClean)
-						if !local && accountEmail != "" && strings.Contains(accountEmail, "@") && strings.Contains(rcptClean, "@") {
-							senderParts := strings.Split(accountEmail, "@")
-							rcptParts := strings.Split(rcptClean, "@")
-							if len(senderParts) == 2 && len(rcptParts) == 2 && strings.EqualFold(senderParts[1], rcptParts[1]) {
+						if !local && accountEmail != "" {
+							senderEmail, err1 := emailaddress.Parse(accountEmail)
+							rcptEmail, err2 := emailaddress.Parse(rcptClean)
+							if err1 == nil && err2 == nil && strings.EqualFold(senderEmail.Domain, rcptEmail.Domain) {
 								targetAccountID = jmapauth.AccountIDForSubject(rcptClean)
 								local = true
 							}
@@ -426,10 +437,10 @@ func HandleEmailSubmissionSet(backend MailBackend, blobBackend jmapblob.BlobBack
 							continue
 						}
 						targetAccountID, local := activeResolver.ResolveAccountID(ctx, rcptClean)
-						if !local && accountEmail != "" && strings.Contains(accountEmail, "@") && strings.Contains(rcptClean, "@") {
-							senderParts := strings.Split(accountEmail, "@")
-							rcptParts := strings.Split(rcptClean, "@")
-							if len(senderParts) == 2 && len(rcptParts) == 2 && strings.EqualFold(senderParts[1], rcptParts[1]) {
+						if !local && accountEmail != "" {
+							senderEmail, err1 := emailaddress.Parse(accountEmail)
+							rcptEmail, err2 := emailaddress.Parse(rcptClean)
+							if err1 == nil && err2 == nil && strings.EqualFold(senderEmail.Domain, rcptEmail.Domain) {
 								targetAccountID = jmapauth.AccountIDForSubject(rcptClean)
 								local = true
 							}

@@ -14,6 +14,7 @@ require (
 	github.com/emersion/go-webdav v0.7.0
 	github.com/foxcpp/go-sieve v0.0.0-20260523221512-9ae51b269e52
 	github.com/lor00x/goldap v0.0.0-20180618054307-a546dffdd1a3
+	github.com/mcnijman/go-emailaddress v1.1.1
 	github.com/redsift/spf/v2 v2.5.0
 	github.com/teambition/rrule-go v1.8.2
 	github.com/vjeantet/ldapserver v1.0.1

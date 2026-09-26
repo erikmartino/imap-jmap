@@ -7,13 +7,18 @@ import (
 	"fmt"
 	"net"
 	"net/mail"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/emersion/go-message/textproto"
+	"github.com/emersion/go-msgauth/authres"
 	"github.com/emersion/go-msgauth/dkim"
 	"github.com/emersion/go-msgauth/dmarc"
+	"github.com/mcnijman/go-emailaddress"
 	"github.com/redsift/spf/v2"
+	"golang.org/x/net/publicsuffix"
 )
 
 // SenderAuthTimeout bounds the total time spent on SPF/DKIM/DMARC DNS
@@ -106,23 +111,28 @@ type SenderAuthResult struct {
 
 // AuthenticationResultsHeader formats an RFC 8601 Authentication-Results header.
 func (r *SenderAuthResult) AuthenticationResultsHeader(authServID string, fromDomain string) string {
-	var parts []string
+	var results []authres.Result
 	if r.SPF != "" {
-		parts = append(parts, "spf="+r.SPF)
+		results = append(results, &authres.SPFResult{Value: authres.ResultValue(r.SPF)})
 	}
 	if r.DKIM != "" {
-		parts = append(parts, "dkim="+r.DKIM)
+		results = append(results, &authres.DKIMResult{Value: authres.ResultValue(r.DKIM)})
 	}
 	if r.DMARC != "" {
-		parts = append(parts, "dmarc="+r.DMARC)
+		results = append(results, &authres.DMARCResult{Value: authres.ResultValue(r.DMARC), From: fromDomain})
 	}
-	if len(parts) == 0 {
-		return fmt.Sprintf("Authentication-Results: %s; none\r\n", authServID)
+
+	var h textproto.Header
+	h.Set("Authentication-Results", authres.Format(authServID, results))
+	fields := h.Fields()
+	if !fields.Next() {
+		return ""
 	}
-	if fromDomain != "" {
-		return fmt.Sprintf("Authentication-Results: %s; %s (header.from=%s)\r\n", authServID, strings.Join(parts, "; "), fromDomain)
+	raw, err := fields.Raw()
+	if err != nil {
+		return ""
 	}
-	return fmt.Sprintf("Authentication-Results: %s; %s\r\n", authServID, strings.Join(parts, "; "))
+	return string(raw)
 }
 
 // SPFDKIMDMARCVerifier implements SenderVerifier by combining SPF (RFC 7208),
@@ -317,23 +327,29 @@ func extractFromDomain(raw []byte) (string, error) {
 func addressDomain(addr string) string {
 	addr = strings.TrimSpace(strings.ToLower(addr))
 	addr = strings.TrimPrefix(addr, "mailto:")
-	at := strings.LastIndex(addr, "@")
-	if at < 0 || at == len(addr)-1 {
-		return ""
+	if email, err := emailaddress.Parse(addr); err == nil {
+		return email.Domain
 	}
-	return addr[at+1:]
+	// The HELO/EHLO argument is a bare domain rather than a mailbox, so it is
+	// accepted only when it parses as a host name.
+	if u, err := url.Parse("//" + addr); err == nil && addr != "" && u.User == nil && u.Port() == "" && u.Host == addr {
+		return addr
+	}
+	return ""
 }
 
-// organizationalDomain returns the last two DNS labels of the domain — the
-// RFC 7489 Section 3.2 Organizational Domain heuristic used when no public
-// suffix list is available. A PSL-backed implementation may be substituted.
+// organizationalDomain returns the RFC 7489 Section 3.2 Organizational Domain:
+// the registered domain (eTLD+1) derived from the public suffix list, falling
+// back to the input domain when no registrable domain can be determined.
 func organizationalDomain(domain string) string {
 	domain = strings.ToLower(strings.TrimSuffix(domain, "."))
-	labels := strings.Split(domain, ".")
-	if len(labels) <= 2 {
-		return domain
+	if domain == "" {
+		return ""
 	}
-	return strings.Join(labels[len(labels)-2:], ".")
+	if etld1, err := publicsuffix.EffectiveTLDPlusOne(domain); err == nil {
+		return etld1
+	}
+	return domain
 }
 
 // aligned reports RFC 7489 Section 3.1 identifier alignment between the

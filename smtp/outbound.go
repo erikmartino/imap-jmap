@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mcnijman/go-emailaddress"
+
 	"imap-jmap/jmap/jmapmail"
 )
 
@@ -55,13 +57,13 @@ func (s *MXOutboundSender) SendMail(ctx context.Context, from string, recipients
 	byDomain := make(map[string][]string)
 	for _, rcpt := range recipients {
 		rcpt = strings.TrimSpace(rcpt)
-		at := strings.LastIndex(rcpt, "@")
-		if at < 0 || at == len(rcpt)-1 {
+		addr, err := emailaddress.Parse(rcpt)
+		if err != nil || addr.Domain == "" {
 			log.Printf("SMTP outbound: invalid recipient address %q", rcpt)
 			results[rcpt] = jmapmail.OutboundDeliveryResult{Delivered: false, SmtpReply: "554 5.1.3 Invalid recipient address"}
 			continue
 		}
-		domain := strings.ToLower(rcpt[at+1:])
+		domain := strings.ToLower(addr.Domain)
 		byDomain[domain] = append(byDomain[domain], rcpt)
 	}
 
@@ -161,8 +163,12 @@ func (s *MXOutboundSender) tryHost(ctx context.Context, host, from string, recip
 	if _, ok := extensions["STARTTLS"]; ok {
 		code, msg, err = sess.cmd(220, "STARTTLS")
 		if err == nil {
+			serverName, _, splitErr := net.SplitHostPort(host)
+			if splitErr != nil {
+				serverName = host
+			}
 			tlsConn := tls.Client(conn, &tls.Config{
-				ServerName: host[:strings.LastIndex(host, ":")],
+				ServerName: serverName,
 				MinVersion: tls.VersionTLS12,
 			})
 			if err := tlsConn.HandshakeContext(ctx); err != nil {

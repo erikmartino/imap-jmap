@@ -20,7 +20,36 @@
 
 ## Active Roadmap
 
-### Phase 1: JMAP Standards RFC Conformance (Zero MUST Gaps Target)
+### Priority 1: Standard Parsers, Zero Custom Serialization & Robust Validation Conversion
+Audit and convert all ad-hoc serializers, manual string concatenations, and brittle hand-rolled validators across the codebase to canonical, battle-tested standard libraries per `AGENTS.md` Section 3:
+- [x] **1.0 Push-back rule codified**: `AGENTS.md` §3 now requires pushing back on any string concatenation / hand-rolled single-delimiter parsing and mandates a standard library instead.
+- [x] **1.1 MIME & Message Headers (`jmap/jmapmail/message_id.go`)**
+  - `StripBCCHeader` parses/strips headers via `github.com/emersion/go-message/textproto` (`ReadHeader`, `Header.Del("Bcc")`, `WriteHeader`).
+  - `EnsureValidMessageID` uses the standard MIME header parser/writer instead of line-splitting strings.
+  - `GenerateMessageID` derives the domain with `net/url`, `net/mail` and `github.com/mcnijman/go-emailaddress`; malformed input falls back to `localhost` (no more domain guessing).
+- [x] **1.2 CalDAV PROPFIND XML (`jmap/nextcloud/client.go`)**
+  - Raw XML string literal in `getCalendarCollections` replaced with `xml.Marshal(&propfindCalendarReq{})`.
+- [x] **1.3 CardDAV vCard Construction (`jmap/nextcloud/contacts.go`)**
+  - `fmt.Sprintf("BEGIN:VCARD...")` fallback replaced with a structured `vcard.Card` object.
+- [x] **1.4 SMTP Auto-Reply MIME Construction (`smtp/receiver.go`)**
+  - Vacation auto-reply built with `go-message/mail` `Header` + `CreateSingleInlineWriter`.
+- [x] **1.5 Address & Media Type Formatting (`jmap/jmapmail/email_set_handlers.go`, `email_parse.go`)**
+  - `fmt.Sprintf("%q <%s>", ...)` replaced with `(&net/mail.Address{...}).String()`.
+  - `mime.ParseMediaType`/`mime.FormatMediaType` replace manual `charset=` manipulation (`ensureCharsetUTF8`).
+- [x] **1.6 Robust Email and Domain Validation (`jmap/jmapmail/submission_handlers.go`, `jmap/nextcloud/principals.go`, `jmap/jmapauth/auth.go`)**
+  - Ad-hoc `strings.Split(email, "@")` / `strings.Contains(email, "@")` replaced with `github.com/mcnijman/go-emailaddress` domain extraction.
+- [x] **1.7 SMTP Sender Authentication (`smtp/sender_auth.go`, `smtp/receiver.go`, `smtp/outbound.go`)**
+  - `Authentication-Results` header formatted with `github.com/emersion/go-msgauth/authres` + `go-message/textproto`.
+  - `addressDomain` / `emailAddressMatches` / outbound recipient routing use `go-emailaddress` instead of `strings.LastIndex`/`strings.Cut` on `@`.
+  - `organizationalDomain` uses `golang.org/x/net/publicsuffix` (eTLD+1) instead of the last-two-labels heuristic.
+  - TLS `ServerName` derived with `net.SplitHostPort` instead of `strings.LastIndex(host, ":")`.
+- [ ] **1.8 vCard serialization (`jmap/vcardconv/encode.go`)**
+  - Migrate the hand-rolled vCard folding/escaping encoder to `github.com/emersion/go-vcard`.
+- [ ] **1.9 Remaining audit**: `jmap/imapsmtp/blob.go` (MIME by `Sprintf`), `jmap/managesieve/client.go`, `imap/convert.go`, `jmap/jmapmail/email_get_helper.go`, and `cmd/`/`tools/` utilities.
+
+---
+
+### Phase 2: JMAP Standards RFC Conformance (Zero MUST Gaps Target)
 Drive all remaining JMAP RFC requirement matrices in `spec/` to 100% MUST/MUST NOT coverage:
 - [ ] **1.1 RFC 8887 (JMAP over WebSocket)**:
   - WebSocket endpoint, subprotocol negotiation (`jmap`), request/response multiplexing, push notifications over WebSocket.

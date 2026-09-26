@@ -569,19 +569,24 @@ func (b *ContactsBackend) CreateCard(ctx context.Context, card *jmapcontacts.Car
 	var cardMap map[string]any
 	_ = json.Unmarshal(cardBytes, &cardMap)
 
+	var cardObj vcard.Card
 	vcfPayload, err := vcardconv.ToVCard(cardMap)
 	if err != nil {
 		name := ""
 		if card.Name != nil && card.Name.Full != "" {
 			name = card.Name.Full
 		}
-		vcfPayload = fmt.Sprintf("BEGIN:VCARD\r\nVERSION:3.0\r\nUID:%s\r\nFN:%s\r\nEND:VCARD\r\n", card.Uid, name)
-	}
-
-	dec := vcard.NewDecoder(strings.NewReader(vcfPayload))
-	cardObj, decErr := dec.Decode()
-	if decErr != nil {
-		return nil, fmt.Errorf("failed to decode vcard: %w", decErr)
+		cardObj = make(vcard.Card)
+		cardObj.SetValue(vcard.FieldVersion, "3.0")
+		cardObj.SetValue(vcard.FieldUID, card.Uid)
+		cardObj.SetValue(vcard.FieldFormattedName, name)
+	} else {
+		dec := vcard.NewDecoder(strings.NewReader(vcfPayload))
+		var decErr error
+		cardObj, decErr = dec.Decode()
+		if decErr != nil {
+			return nil, fmt.Errorf("failed to decode vcard: %w", decErr)
+		}
 	}
 
 	b.mu.RLock()

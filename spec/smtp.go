@@ -334,8 +334,8 @@ var SMTPRequirements = []Requirement{
 		Spec:    "RFC7489",
 		Section: "3.2",
 		Level:   Level("MUST"),
-		Text:    "Organizational Domain heuristic: the registered domain is the last two DNS labels.",
-		Tests:   []string{"TestOrganizationalDomain_Heuristic"},
+		Text:    "Organizational Domain: the registered domain (eTLD+1) is derived from the public suffix list.",
+		Tests:   []string{"TestOrganizationalDomain_PublicSuffix"},
 		Status:  Covered,
 	},
 	{

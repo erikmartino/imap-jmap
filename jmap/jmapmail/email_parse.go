@@ -765,6 +765,26 @@ func parseRFC822Simple(raw []byte) (*Email, error) {
 	return em, nil
 }
 
+func ensureCharsetUTF8(ct string) string {
+	if ct == "" {
+		return "text/plain; charset=utf-8"
+	}
+	mediaType, params, err := mime.ParseMediaType(ct)
+	if err != nil {
+		mediaType = ct
+		params = make(map[string]string)
+	}
+	if params == nil {
+		params = make(map[string]string)
+	}
+	if strings.HasPrefix(strings.ToLower(mediaType), "text/") {
+		if _, ok := params["charset"]; !ok {
+			params["charset"] = "utf-8"
+		}
+	}
+	return mime.FormatMediaType(mediaType, params)
+}
+
 // FormatEmailRFC822 serializes an Email object to raw RFC 5322 MIME message bytes.
 func FormatEmailRFC822(em *Email) []byte {
 	if em == nil {
@@ -936,24 +956,21 @@ func FormatEmailRFC822(em *Email) []byte {
 			contentType = "text/html; charset=utf-8"
 			bodyContent = htmlBody
 		} else if len(em.TextBody) > 0 && em.TextBody[0].Type != "" {
-			contentType = em.TextBody[0].Type
-			if !strings.Contains(contentType, "charset=") && strings.HasPrefix(contentType, "text/") {
-				contentType += "; charset=utf-8"
-			}
+			contentType = ensureCharsetUTF8(em.TextBody[0].Type)
 		} else if em.BodyStructure.Type != "" {
-			contentType = em.BodyStructure.Type
-			if !strings.Contains(contentType, "charset=") && strings.HasPrefix(contentType, "text/") {
-				contentType += "; charset=utf-8"
-			}
+			contentType = ensureCharsetUTF8(em.BodyStructure.Type)
 		}
-		h.Set("Content-Type", contentType)
-		fields := h.Fields()
-		for fields.Next() {
-			buf.WriteString(fmt.Sprintf("%s: %s\r\n", fields.Key(), fields.Value()))
+		mediaType, params, _ := mime.ParseMediaType(contentType)
+		if mediaType == "" {
+			mediaType = "text/plain"
 		}
-		buf.WriteString("\r\n")
-		buf.WriteString(bodyContent)
-		return buf.Bytes()
+		h.SetContentType(mediaType, params)
+		w, err := gomail.CreateSingleInlineWriter(&buf, h)
+		if err == nil {
+			_, _ = io.WriteString(w, bodyContent)
+			_ = w.Close()
+			return buf.Bytes()
+		}
 	}
 
 	mw, err := gomail.CreateWriter(&buf, h)
@@ -1003,15 +1020,9 @@ func FormatEmailRFC822(em *Email) []byte {
 	} else {
 		contentType := "text/plain; charset=utf-8"
 		if len(em.TextBody) > 0 && em.TextBody[0].Type != "" && !strings.EqualFold(em.TextBody[0].Type, "text/plain") {
-			contentType = em.TextBody[0].Type
-			if !strings.Contains(contentType, "charset=") {
-				contentType += "; charset=utf-8"
-			}
+			contentType = ensureCharsetUTF8(em.TextBody[0].Type)
 		} else if em.BodyStructure.Type != "" && !strings.EqualFold(em.BodyStructure.Type, "text/plain") {
-			contentType = em.BodyStructure.Type
-			if !strings.Contains(contentType, "charset=") {
-				contentType += "; charset=utf-8"
-			}
+			contentType = ensureCharsetUTF8(em.BodyStructure.Type)
 		}
 
 		mediaType, params, err := mime.ParseMediaType(contentType)

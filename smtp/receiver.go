@@ -12,10 +12,12 @@ import (
 	"strings"
 	"time"
 
+	gomail "github.com/emersion/go-message/mail"
 	"github.com/emersion/go-sasl"
 	"github.com/emersion/go-smtp"
 	"github.com/foxcpp/go-sieve"
 	"github.com/foxcpp/go-sieve/interp"
+	"github.com/mcnijman/go-emailaddress"
 
 	"imap-jmap/jmap/jmapauth"
 	"imap-jmap/jmap/jmapblob"
@@ -700,12 +702,15 @@ func emailAddressMatches(from, authenticatedAs string) bool {
 	if from == "" || authenticatedAs == "" {
 		return false
 	}
-	fromLocal, fromDomain, okFrom := strings.Cut(from, "@")
-	authLocal, authDomain, okAuth := strings.Cut(authenticatedAs, "@")
-	if !okFrom || !okAuth {
+	fromAddr, err := emailaddress.Parse(from)
+	if err != nil {
 		return false
 	}
-	return fromLocal == authLocal && strings.EqualFold(fromDomain, authDomain)
+	authAddr, err := emailaddress.Parse(authenticatedAs)
+	if err != nil {
+		return false
+	}
+	return fromAddr.LocalPart == authAddr.LocalPart && strings.EqualFold(fromAddr.Domain, authAddr.Domain)
 }
 
 // Reset clears transaction state (RSET command).
@@ -846,24 +851,52 @@ func (s *Session) handleVacationResponse(rcptCtx context.Context, senderAddr, rc
 	}
 
 	body := ""
+	isHTML := false
 	if vr.TextBody != nil && *vr.TextBody != "" {
 		body = *vr.TextBody
 	} else if vr.HTMLBody != nil && *vr.HTMLBody != "" {
 		body = *vr.HTMLBody
+		isHTML = true
 	}
 	if body == "" {
 		body = "I am currently away and will respond when I return."
 	}
 
-	var msgIDHeader string
-	if email != nil && len(email.MessageID) > 0 {
-		msgIDHeader = fmt.Sprintf("In-Reply-To: <%s>\r\nReferences: <%s>\r\n", email.MessageID[0], email.MessageID[0])
+	var h gomail.Header
+	if fromAddr, err := gomail.ParseAddress(rcptAddr); err == nil {
+		h.SetAddressList("From", []*gomail.Address{fromAddr})
+	} else {
+		h.SetAddressList("From", []*gomail.Address{{Address: rcptAddr}})
+	}
+	if toAddr, err := gomail.ParseAddress(senderAddr); err == nil {
+		h.SetAddressList("To", []*gomail.Address{toAddr})
+	} else {
+		h.SetAddressList("To", []*gomail.Address{{Address: senderAddr}})
+	}
+	h.SetSubject(subj)
+	h.SetDate(now)
+	h.Set("Auto-Submitted", "auto-replied")
+
+	if isHTML {
+		h.SetContentType("text/html", map[string]string{"charset": "utf-8"})
+	} else {
+		h.SetContentType("text/plain", map[string]string{"charset": "utf-8"})
 	}
 
-	rawReply := fmt.Sprintf("From: <%s>\r\nTo: <%s>\r\nSubject: %s\r\nDate: %s\r\nAuto-Submitted: auto-replied\r\n%sContent-Type: text/plain; charset=utf-8\r\n\r\n%s",
-		rcptAddr, senderAddr, subj, now.Format(time.RFC1123Z), msgIDHeader, body)
+	if email != nil && len(email.MessageID) > 0 && email.MessageID[0] != "" {
+		mid := strings.Trim(email.MessageID[0], "<>")
+		h.Set("In-Reply-To", "<"+mid+">")
+		h.Set("References", "<"+mid+">")
+	}
 
-	if s.backend.OutboundSender != nil {
-		_ = s.backend.OutboundSender.SendMail(context.Background(), rcptAddr, []string{senderAddr}, []byte(rawReply))
+	var buf bytes.Buffer
+	w, err := gomail.CreateSingleInlineWriter(&buf, h)
+	if err == nil {
+		_, _ = io.WriteString(w, body)
+		_ = w.Close()
+	}
+
+	if s.backend.OutboundSender != nil && buf.Len() > 0 {
+		_ = s.backend.OutboundSender.SendMail(context.Background(), rcptAddr, []string{senderAddr}, buf.Bytes())
 	}
 }

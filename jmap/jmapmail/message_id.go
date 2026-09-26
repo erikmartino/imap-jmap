@@ -1,33 +1,64 @@
 package jmapmail
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"net/mail"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/emersion/go-message/textproto"
+	"github.com/mcnijman/go-emailaddress"
 )
 
 // MsgIDRegex matches the RFC 5322 Section 3.6.4 msg-id ABNF (id-left "@" id-right
 // enclosed in angle brackets) without whitespace.
 var MsgIDRegex = regexp.MustCompile(`^<[^<>@\s]+@[^<>@\s]+>$`)
 
+// domainFromMailboxOrDomain derives a domain from a mailbox (optionally wrapped
+// in a mailto: URI or angle brackets) or a bare hostname. It parses the input
+// with the standard libraries and never guesses a domain from malformed input.
+func domainFromMailboxOrDomain(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	if u, err := url.Parse(s); err == nil && strings.EqualFold(u.Scheme, "mailto") {
+		if u.Opaque != "" {
+			s = u.Opaque
+		} else {
+			s = u.Path
+		}
+	}
+	s = strings.TrimSpace(strings.Trim(s, "<>"))
+	if addr, err := mail.ParseAddress(s); err == nil {
+		s = addr.Address
+	}
+	if email, err := emailaddress.Parse(s); err == nil && email.Domain != "" {
+		return email.Domain
+	}
+	// A bare host name (no local part) is accepted only when it parses as a
+	// URL host with no user-info or port.
+	if u, err := url.Parse("//" + s); err == nil && s != "" && u.User == nil && u.Port() == "" && u.Host == s {
+		return s
+	}
+	return ""
+}
+
 // GenerateMessageID creates an RFC 5322 Section 3.6.4 compliant Message-ID
 // value without enclosing angle brackets (in conformance with JMAP RFC 8621 Section 4.1.2).
 // The domain is extracted from the provided email address or domain string;
 // if none is provided or if it lacks a valid hostname, it falls back to "localhost".
 func GenerateMessageID(domainOrAddress string) string {
-	domain := ""
-	if idx := strings.LastIndex(domainOrAddress, "@"); idx != -1 && idx+1 < len(domainOrAddress) {
-		domain = domainOrAddress[idx+1:]
-	} else if domainOrAddress != "" && !strings.ContainsAny(domainOrAddress, "@ \t\r\n<>") {
-		domain = domainOrAddress
-	}
+	domain := domainFromMailboxOrDomain(domainOrAddress)
 	domain = strings.Trim(domain, "<> .")
 
 	// Sanitize domain to valid hostname characters (RFC 1123 / RFC 5322 dot-atom)
@@ -59,11 +90,12 @@ func HasValidMessageID(data []byte) bool {
 	if len(data) == 0 {
 		return false
 	}
-	msg, err := mail.ReadMessage(bytes.NewReader(data))
+	br := bufio.NewReader(bytes.NewReader(data))
+	hdr, err := textproto.ReadHeader(br)
 	if err != nil {
 		return false
 	}
-	v := strings.TrimSpace(msg.Header.Get("Message-ID"))
+	v := strings.TrimSpace(hdr.Get("Message-ID"))
 	return v != "" && MsgIDRegex.MatchString(v)
 }
 
@@ -76,61 +108,33 @@ func EnsureValidMessageID(data []byte, domainOrAddress string) []byte {
 	}
 
 	genID := GenerateMessageID(domainOrAddress)
-	newHeader := fmt.Sprintf("Message-ID: <%s>\r\n", genID)
+	msgIDVal := "<" + genID + ">"
 
 	if len(data) == 0 {
-		return []byte(newHeader + "\r\n")
+		var h textproto.Header
+		h.Set("Message-ID", msgIDVal)
+		var buf bytes.Buffer
+		_ = textproto.WriteHeader(&buf, h)
+		return buf.Bytes()
 	}
 
-	// In RFC 5322, the header block is separated from the body by \r\n\r\n (or \n\n).
-	headerEnd := bytes.Index(data, []byte("\r\n\r\n"))
-	delimLen := 4
-	if headerEnd == -1 {
-		headerEnd = bytes.Index(data, []byte("\n\n"))
-		delimLen = 2
+	br := bufio.NewReader(bytes.NewReader(data))
+	hdr, err := textproto.ReadHeader(br)
+	if err != nil {
+		var h textproto.Header
+		h.Set("Message-ID", msgIDVal)
+		var buf bytes.Buffer
+		_ = textproto.WriteHeader(&buf, h)
+		buf.Write(data)
+		return buf.Bytes()
 	}
 
-	if headerEnd == -1 {
-		// Bare headers without body separator
-		return append([]byte(newHeader), data...)
-	}
-
-	headerBytes := data[:headerEnd]
-	bodyBytes := data[headerEnd+delimLen:]
-
-	// Filter out any existing invalid Message-ID header lines (including folded continuation lines)
-	lines := strings.Split(string(headerBytes), "\n")
-	var filteredHeader strings.Builder
-	inInvalidMsgID := false
-	hasExistingMsgID := false
-
-	for _, rawLine := range lines {
-		trimmedLine := strings.TrimRight(rawLine, "\r")
-		if strings.HasPrefix(strings.ToLower(trimmedLine), "message-id:") {
-			hasExistingMsgID = true
-			inInvalidMsgID = true
-			continue
-		}
-		if inInvalidMsgID {
-			if strings.HasPrefix(trimmedLine, " ") || strings.HasPrefix(trimmedLine, "\t") {
-				continue
-			}
-			inInvalidMsgID = false
-		}
-		filteredHeader.WriteString(trimmedLine)
-		filteredHeader.WriteString("\r\n")
-	}
-
+	hdr.Set("Message-ID", msgIDVal)
 	var buf bytes.Buffer
-	buf.WriteString(newHeader)
-	if hasExistingMsgID {
-		buf.WriteString(filteredHeader.String())
-	} else {
-		buf.Write(headerBytes)
-		buf.WriteString("\r\n")
+	if err := textproto.WriteHeader(&buf, hdr); err != nil {
+		return data
 	}
-	buf.WriteString("\r\n")
-	buf.Write(bodyBytes)
+	_, _ = io.Copy(&buf, br)
 	return buf.Bytes()
 }
 
@@ -141,47 +145,21 @@ func StripBCCHeader(data []byte) []byte {
 		return data
 	}
 
-	headerEnd := bytes.Index(data, []byte("\r\n\r\n"))
-	delimLen := 4
-	if headerEnd == -1 {
-		headerEnd = bytes.Index(data, []byte("\n\n"))
-		delimLen = 2
+	br := bufio.NewReader(bytes.NewReader(data))
+	hdr, err := textproto.ReadHeader(br)
+	if err != nil {
+		return data
 	}
 
-	var headerBytes []byte
-	var bodyBytes []byte
-	if headerEnd != -1 {
-		headerBytes = data[:headerEnd]
-		bodyBytes = data[headerEnd+delimLen:]
-	} else {
-		headerBytes = data
+	if !hdr.Has("Bcc") {
+		return data
 	}
 
-	lines := strings.Split(string(headerBytes), "\n")
-	var filteredHeader strings.Builder
-	inBCC := false
-
-	for _, rawLine := range lines {
-		trimmedLine := strings.TrimRight(rawLine, "\r")
-		if strings.HasPrefix(strings.ToLower(trimmedLine), "bcc:") {
-			inBCC = true
-			continue
-		}
-		if inBCC {
-			if strings.HasPrefix(trimmedLine, " ") || strings.HasPrefix(trimmedLine, "\t") {
-				continue
-			}
-			inBCC = false
-		}
-		filteredHeader.WriteString(trimmedLine)
-		filteredHeader.WriteString("\r\n")
-	}
-
+	hdr.Del("Bcc")
 	var buf bytes.Buffer
-	buf.WriteString(filteredHeader.String())
-	if headerEnd != -1 {
-		buf.WriteString("\r\n")
-		buf.Write(bodyBytes)
+	if err := textproto.WriteHeader(&buf, hdr); err != nil {
+		return data
 	}
+	_, _ = io.Copy(&buf, br)
 	return buf.Bytes()
 }

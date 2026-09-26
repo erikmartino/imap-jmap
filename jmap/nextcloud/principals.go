@@ -3,12 +3,13 @@ package nextcloud
 import (
 	"context"
 	"fmt"
-	"net/mail"
 	"net/url"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/mcnijman/go-emailaddress"
 
 	"imap-jmap/jmap/jmapauth"
 	"imap-jmap/jmap/jmapcalendar"
@@ -202,19 +203,21 @@ func (b *PrincipalsBackend) ensureCurrentPrincipal(ctx context.Context) {
 func domainFromContext(ctx context.Context, client *Client) string {
 	if ctx != nil {
 		if subj, ok := jmapauth.SubjectFromContext(ctx); ok && subj != "" {
-			if parts := strings.Split(subj, "@"); len(parts) == 2 && parts[1] != "" {
-				return strings.ToLower(parts[1])
+			if email, err := emailaddress.Parse(subj); err == nil && email.Domain != "" {
+				return strings.ToLower(email.Domain)
 			}
 		}
 		if accID, ok := jmapauth.AccountIDFromContext(ctx); ok && accID != "" {
-			if subj, okSub := jmapauth.SubjectForAccountID(accID); okSub && strings.Contains(subj, "@") {
-				parts := strings.Split(subj, "@")
-				return strings.ToLower(parts[len(parts)-1])
+			if subj, okSub := jmapauth.SubjectForAccountID(accID); okSub && subj != "" {
+				if email, err := emailaddress.Parse(subj); err == nil && email.Domain != "" {
+					return strings.ToLower(email.Domain)
+				}
 			}
 		}
-		if creds, okCreds := jmapauth.CredentialsFromContext(ctx); okCreds && strings.Contains(creds.Username, "@") {
-			parts := strings.Split(creds.Username, "@")
-			return strings.ToLower(parts[len(parts)-1])
+		if creds, okCreds := jmapauth.CredentialsFromContext(ctx); okCreds && creds.Username != "" {
+			if email, err := emailaddress.Parse(creds.Username); err == nil && email.Domain != "" {
+				return strings.ToLower(email.Domain)
+			}
 		}
 	}
 	if client != nil && client.BaseURL != "" {
@@ -229,12 +232,10 @@ func domainFromContext(ctx context.Context, client *Client) string {
 }
 
 func safeGroupEmailAndCalendarAddress(ctx context.Context, client *Client, gid string) (string, string) {
-	// If gid is already an email address, validate it
-	if strings.Contains(gid, "@") {
-		if addr, err := mail.ParseAddress(gid); err == nil && addr != nil {
-			cleanAddr := strings.ReplaceAll(strings.ReplaceAll(addr.Address, "\r", ""), "\n", "")
-			return cleanAddr, "mailto:" + cleanAddr
-		}
+	// If gid is already a valid email address, validate and use it directly
+	if email, err := emailaddress.Parse(gid); err == nil {
+		cleanAddr := email.String()
+		return cleanAddr, "mailto:" + cleanAddr
 	}
 	// Discover domain dynamically from authenticated user / server context
 	domain := domainFromContext(ctx, client)
@@ -404,7 +405,7 @@ func (b *PrincipalsBackend) buildUserDirectory(ctx context.Context, subj string)
 		}
 		pid := jmapcore.Id("p-" + s.ID)
 		email := s.ID
-		if !strings.Contains(email, "@") && domain != "" {
+		if _, err := emailaddress.Parse(email); err != nil && domain != "" {
 			email = s.ID + "@" + domain
 		}
 		name := sanitizeDisplayName(s.Label)

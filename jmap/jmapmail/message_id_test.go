@@ -16,7 +16,7 @@ func TestGenerateMessageID(t *testing.T) {
 		{name: "angle bracket email", input: "<sender@my-domain.org>", wantDom: "my-domain.org"},
 		{name: "domain only", input: "custom-host.net", wantDom: "custom-host.net"},
 		{name: "empty string fallback", input: "", wantDom: "localhost"},
-		{name: "invalid chars stripped", input: "bad;user@dom ain!.com>", wantDom: "domain.com"},
+		{name: "malformed address falls back to localhost", input: "bad;user@dom ain!.com>", wantDom: "localhost"},
 	}
 
 	for _, tc := range tests {
