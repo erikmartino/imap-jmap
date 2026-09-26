@@ -7,10 +7,15 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
+	"imap-jmap/jmap/spectest"
 )
 
 // TestRFC8620_WellKnownJMAP_Get tests RFC 8620 Section 2.2 /.well-known/jmap GET session resource discovery.
 func TestRFC8620_WellKnownJMAP_Get(t *testing.T) {
+	spectest.Require(t, "RFC8620", "2", spectest.SHOULD,
+		`"urn:ietf:params:jmap:core" SHOULD NOT be present`)
+	spectest.Require(t, "RFC8620", "8.3", spectest.SHOULD,
+		"Servers SHOULD ensure this path resolves or")
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -43,8 +48,13 @@ func TestRFC8620_WellKnownJMAP_Get(t *testing.T) {
 		t.Errorf("Expected core capability URI %q in capabilities", jmap.CoreCapabilityURI)
 	}
 
-	if _, ok := session.PrimaryAccounts[jmap.CoreCapabilityURI]; !ok {
-		t.Errorf("Expected primary account for %q", jmap.CoreCapabilityURI)
+	// RFC 8620 Section 2: the core capability URI is the same for all accounts
+	// and SHOULD NOT be present in primaryAccounts.
+	if _, ok := session.PrimaryAccounts[jmap.CoreCapabilityURI]; ok {
+		t.Errorf("primaryAccounts SHOULD NOT contain %q", jmap.CoreCapabilityURI)
+	}
+	if session.PrimaryAccounts[jmap.MailCapabilityURI] == "" {
+		t.Errorf("Expected primary account for %q", jmap.MailCapabilityURI)
 	}
 }
 
@@ -173,4 +183,3 @@ func TestServerCacheDisabledByDefault(t *testing.T) {
 		t.Errorf("Expected Server.CacheDisabled to be false when WithCacheEnabled(true) is used")
 	}
 }
-

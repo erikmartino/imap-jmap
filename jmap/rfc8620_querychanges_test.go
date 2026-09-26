@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
+	"imap-jmap/jmap/spectest"
 )
 
 // postJMAP is defined in query_pagination_test.go.
@@ -101,6 +102,8 @@ func TestQueryChangesFilterReevaluation(t *testing.T) {
 // Section 5.6: when upToId exists in the results, added ids with a higher index than the
 // anchor are omitted, and the total is reported when calculateTotal is requested.
 func TestQueryChangesUpToId(t *testing.T) {
+	spectest.Require(t, "RFC8620", "5.6", spectest.SHOULD,
+		"were added but have a higher index than \"upToId\" SHOULD be")
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()

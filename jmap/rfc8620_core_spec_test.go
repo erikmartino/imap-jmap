@@ -137,6 +137,8 @@ func TestRFC8620_Section3_7_ResultReferenceResolutionAndErrors(t *testing.T) {
 	spectest.Require(t, "RFC8620", "3.7", spectest.MUST, "reference fails to resolve, the whole method MUST be rejected with an")
 	spectest.Require(t, "RFC8620", "3.7", spectest.MUST, "\"#foo\"), the method MUST return an \"invalidArguments\" error")
 	spectest.Require(t, "RFC8620", "3.7", spectest.MUST, "The required name of a response to that method call")
+	spectest.Require(t, "RFC8620", "3.7", spectest.SHOULD,
+		"result reference should be resolved and the value used as the \"real\"")
 
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
@@ -715,6 +717,8 @@ func TestRFC8620_Section6_BlobUploadAndDownload(t *testing.T) {
 	spectest.Require(t, "RFC8620", "6.1", spectest.MUST, "A successful request MUST return a single JSON object with the")
 	spectest.Require(t, "RFC8620", "6.2", spectest.MUST, "The URL MUST")
 	spectest.Require(t, "RFC8620", "6.2", spectest.MUST, "o \"name\": The name for the file; the server MUST return this as the")
+	spectest.Require(t, "RFC8620", "6.2", spectest.SHOULD,
+		`recommended to set long cache times and use the "immutable" Cache-`)
 
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
@@ -795,6 +799,12 @@ func TestRFC8620_Section6_BlobUploadAndDownload(t *testing.T) {
 	cd := dlResp.Header.Get("Content-Disposition")
 	if !strings.Contains(cd, `filename="greeting.txt"`) {
 		t.Errorf("expected Content-Disposition containing filename=\"greeting.txt\", got %q", cd)
+	}
+
+	// RFC 8620 Section 6.2 (SHOULD): blob downloads are immutable and should be
+	// cached for a long time.
+	if cc := dlResp.Header.Get("Cache-Control"); !strings.Contains(cc, "immutable") {
+		t.Errorf("blob download SHOULD use the immutable Cache-Control directive, got %q", cc)
 	}
 }
 
@@ -1801,4 +1811,3 @@ func TestRFC8620_Section5_QueryStateChanges(t *testing.T) {
 		t.Errorf("queryState MUST change when query results change, got identical state %q", qState1)
 	}
 }
-

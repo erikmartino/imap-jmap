@@ -3130,8 +3130,8 @@ var RFC8621Requirements = []Requirement{
 		Section: "8",
 		Level:   Level("SHOULD"),
 		Text:    "appropriate subject SHOULD be set by the server",
-		Tests:   []string{},
-		Status:  Gap,
+		Tests:   []string{"TestRFC8621_VacationResponse_DefaultsGenerated"},
+		Status:  Covered,
 		Note:    "Extracted by specextract from RFC8621 §8 [p6]",
 	},
 	{
@@ -3157,8 +3157,8 @@ var RFC8621Requirements = []Requirement{
 		Section: "8",
 		Level:   Level("SHOULD"),
 		Text:    "default body SHOULD be generated for responses by the server",
-		Tests:   []string{},
-		Status:  Gap,
+		Tests:   []string{"TestRFC8621_VacationResponse_DefaultsGenerated"},
+		Status:  Covered,
 		Note:    "Extracted by specextract from RFC8621 §8 [p9]",
 	},
 	{

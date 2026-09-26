@@ -17,8 +17,8 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [jmap-websockets](#jmap-websockets) | RFC8887 | 7 | 0 | 0 | 7 | 100.0% |
 | [jscontact](#jscontact) | RFC9553, RFC9554, RFC9555 | 6 | 0 | 0 | 6 | 100.0% |
 | [smtp](#smtp) | RFC4954, RFC5228, RFC5232, RFC5321, RFC5429, RFC5546, RFC6047, RFC6376, RFC6409, RFC7208, RFC7489, RFC8601 | 46 | 0 | 0 | 46 | 100.0% |
-| [rfc8620-core](#rfc8620-core) | RFC8620 | 176 | 218 | 0 | 394 | 44.7% |
-| [rfc8621-mail](#rfc8621-mail) | RFC8621 | 148 | 270 | 0 | 418 | 35.4% |
+| [rfc8620-core](#rfc8620-core) | RFC8620 | 188 | 206 | 0 | 394 | 47.7% |
+| [rfc8621-mail](#rfc8621-mail) | RFC8621 | 150 | 268 | 0 | 418 | 35.9% |
 | [rfc8887-websockets](#rfc8887-websockets) | RFC8887 | 0 | 40 | 0 | 40 | 0.0% |
 | [rfc9007-mdn](#rfc9007-mdn) | RFC9007 | 0 | 24 | 0 | 24 | 0.0% |
 | [rfc9219-smime](#rfc9219-smime) | RFC9219 | 0 | 24 | 0 | 24 | 0.0% |
@@ -29,7 +29,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [rfc9670-sharing](#rfc9670-sharing) | RFC9670 | 0 | 76 | 0 | 76 | 0.0% |
 | [rfc9698-jmapaccess](#rfc9698-jmapaccess) | RFC9698 | 0 | 14 | 0 | 14 | 0.0% |
 | [rfc9749-vapid](#rfc9749-vapid) | RFC9749 | 0 | 24 | 0 | 24 | 0.0% |
-| **Total** | | **491** | **901** | **0** | **1392** | **35.3%** |
+| **Total** | | **505** | **887** | **0** | **1392** | **36.3%** |
 
 ---
 
@@ -263,7 +263,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 ## rfc8620-core
 
 * **Test Suite Directory**: [`jmap/`](../jmap/)
-* **Conformance**: 176 / 394 (44.7%)
+* **Conformance**: 188 / 394 (47.7%)
 
 | Spec | Section | Level | Requirement | Status | Tests | Note |
 | :--- | :---: | :---: | :--- | :---: | :--- | :--- |
@@ -322,7 +322,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MUST` | It MUST NOT include it in the | ✅ Covered | `TestRFC8620_Section2_SessionResourceAndDiscovery` | Extracted by specextract from RFC8620 §2 [p13] |
 | RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MAY` | For example, you may have access to your own account with mail, | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2 [p14] |
 | RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MAY` | no appropriate way to determine a default account, there MAY be no | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2 [p15] |
-| RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `SHOULD` | "urn:ietf:params:jmap:core" SHOULD NOT be present | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2 [p16] |
+| RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `SHOULD` | "urn:ietf:params:jmap:core" SHOULD NOT be present | ✅ Covered | `TestRFC8620_WellKnownJMAP_Get` | Extracted by specextract from RFC8620 §2 [p16] |
 | RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MUST` | The URL MUST contain variables called | ✅ Covered | `TestRFC8620_Section2_SessionResourceAndDiscovery`<br/>`TestRFC8620_WellKnownJMAP_RequestBasedURLs` | Extracted by specextract from RFC8620 §2 [p17] |
 | RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `SHOULD` | issues with slashes in content types, it is RECOMMENDED to put the | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §2 [p18] |
 | RFC8620 | [2](https://www.rfc-editor.org/rfc/rfc8620.html#section-2) | `MUST` | The URL MUST contain a variable | ✅ Covered | `TestRFC8620_Section2_SessionResourceAndDiscovery`<br/>`TestRFC8620_WellKnownJMAP_RequestBasedURLs` | Extracted by specextract from RFC8620 §2 [p19] |
@@ -409,7 +409,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8620 | [3.6](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6) | `MAY` | When an API request is made, the request as a whole may be rejected | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.6 [p2] |
 | RFC8620 | [3.6](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6) | `MAY` | method may individually fail, for example, if invalid arguments are | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.6 [p3] |
 | RFC8620 | [3.6](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6) | `MAY` | change may be separately rejected with a SetError, as described in | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.6 [p4] |
-| RFC8620 | [3.6.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.1) | `SHOULD` | SHOULD return a JSON "problem details" object as the response body, | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.6.1 [p1] |
+| RFC8620 | [3.6.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.1) | `SHOULD` | SHOULD return a JSON "problem details" object as the response body, | ✅ Covered | `TestRFC8620_Section3_6_1_RequestErrors_NotJSON`<br/>`TestRFC8620_Section3_6_1_RequestErrors_UnknownCapability` | Extracted by specextract from RFC8620 §3.6.1 [p1] |
 | RFC8620 | [3.6.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.1) | `MUST` | "limit" property MUST also be present on the "problem details" | ✅ Covered | `TestRFC8620_Section3_6_1_MaxCallsInRequest`<br/>`TestRFC8620_Section3_6_1_MaxSizeRequest` | Extracted by specextract from RFC8620 §3.6.1 [p2] |
 | RFC8620 | [3.6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.2) | `MUST` | MUST be inserted at the current point in the "methodResponses" array | ✅ Covered | `TestRFC8620_Section3_6_2_MethodLevelErrors` | Extracted by specextract from RFC8620 §3.6.2 [p1] |
 | RFC8620 | [3.6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.2) | `MUST` | and, unless otherwise specified, further processing MUST NOT happen | ✅ Covered | `TestRFC8620_Section3_6_2_MethodLevelErrors` | Extracted by specextract from RFC8620 §3.6.2 [p2] |
@@ -427,7 +427,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8620 | [3.6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.2) | `SHOULD` | Should a | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.6.2 [p14] |
 | RFC8620 | [3.6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.2) | `MUST` | client receive an error type it does not understand, it MUST treat it | ✅ Covered | `TestRFC8620_Section5_StandardMethodsConventions` | Extracted by specextract from RFC8620 §3.6.2 [p15] |
 | RFC8620 | [3.7](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.7) | `MUST` | When processing a method call, the server MUST first check | ✅ Covered | `TestRFC8620_Section3_7_ResultReferenceResolutionAndErrors`<br/>`TestRFC8620_Section3_7_ResultReferences` | Extracted by specextract from RFC8620 §3.7 [p1] |
-| RFC8620 | [3.7](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.7) | `SHOULD` | result reference should be resolved and the value used as the "real" | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §3.7 [p2] |
+| RFC8620 | [3.7](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.7) | `SHOULD` | result reference should be resolved and the value used as the "real" | ✅ Covered | `TestRFC8620_Section3_7_ResultReferenceResolutionAndErrors` | Extracted by specextract from RFC8620 §3.7 [p2] |
 | RFC8620 | [3.7](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.7) | `MUST` | reference fails to resolve, the whole method MUST be rejected with an | ✅ Covered | `TestRFC8620_Section3_7_ResultReferenceResolutionAndErrors`<br/>`TestRFC8620_Section3_7_ResultReference_Errors` | Extracted by specextract from RFC8620 §3.7 [p3] |
 | RFC8620 | [3.7](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.7) | `MUST` | "#foo"), the method MUST return an "invalidArguments" error | ✅ Covered | `TestRFC8620_Section3_7_ResultReferenceResolutionAndErrors`<br/>`TestRFC8620_Section3_7_ResultReference_Errors` | Extracted by specextract from RFC8620 §3.7 [p4] |
 | RFC8620 | [3.7](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.7) | `MUST` | The required name of a response to that method call | ✅ Covered | `TestRFC8620_Section3_7_ResultReferenceResolutionAndErrors`<br/>`TestRFC8620_Section3_7_ResultReferences` | Extracted by specextract from RFC8620 §3.7 [p5] |
@@ -453,9 +453,9 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `MUST` | If supplied by the client, the value MUST be a | ✅ Covered | `TestRFC8620_Section5_2_MaxChangesValidationAndEnforcement` | Extracted by specextract from RFC8620 §5.2 [p3] |
 | RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `MUST` | is given, the server MUST reject the call with an | ✅ Covered | `TestRFC8620_Section5_2_MaxChangesValidationAndEnforcement` | Extracted by specextract from RFC8620 §5.2 [p4] |
 | RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `MAY` | If true, the client may call "Foo/changes" again with the | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.2 [p5] |
-| RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `SHOULD` | server SHOULD just return the id in the "created" list but MAY return | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.2 [p6] |
-| RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `SHOULD` | server SHOULD just return the id in the "destroyed" list but MAY | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.2 [p7] |
-| RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `SHOULD` | server SHOULD remove the id from the response entirely | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.2 [p8] |
+| RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `SHOULD` | server SHOULD just return the id in the "created" list but MAY return | ✅ Covered | `TestRFC8620_Should_ChangesCreatedUpdatedDestroyed` | Extracted by specextract from RFC8620 §5.2 [p6] |
+| RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `SHOULD` | server SHOULD just return the id in the "destroyed" list but MAY | ✅ Covered | `TestRFC8620_Should_ChangesCreatedUpdatedDestroyed` | Extracted by specextract from RFC8620 §5.2 [p7] |
+| RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `SHOULD` | server SHOULD remove the id from the response entirely | ✅ Covered | `TestRFC8620_Should_ChangesCreatedUpdatedDestroyed` | Extracted by specextract from RFC8620 §5.2 [p8] |
 | RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `MAY` | MAY include it in just the "destroyed" list or in both the | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.2 [p9] |
 | RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `MUST` | the server MUST ensure the number of ids returned across "created", | ✅ Covered | `TestRFC8620_Section5_2_MaxChangesValidationAndEnforcement` | Extracted by specextract from RFC8620 §5.2 [p10] |
 | RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `SHOULD` | server state, the server SHOULD generate an update to take the client | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.2 [p11] |
@@ -467,7 +467,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `MAY` | The server may have to coalesce multiple changes | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.2 [p17] |
 | RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `MAY` | The following additional errors may be returned instead of the "Foo/ | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.2 [p18] |
 | RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `MUST` | The client MUST invalidate its Foo cache | ✅ Covered | `TestRFC8620_Section5_6_QueryChangesOrderAndCannotCalculate` | Extracted by specextract from RFC8620 §5.2 [p19] |
-| RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `SHOULD` | SHOULD be able to calculate changes from any state string that was | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.2 [p20] |
+| RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `SHOULD` | SHOULD be able to calculate changes from any state string that was | ✅ Covered | `TestRFC8620_Should_ChangesCreatedUpdatedDestroyed` | Extracted by specextract from RFC8620 §5.2 [p20] |
 | RFC8620 | [5.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.2) | `MAY` | given to a client within the last 30 days (but of course may support | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.2 [p21] |
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MAY` | and dependencies that may exist if doing multiple operations at once | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p1] |
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | If supplied, the string must match the current state; | ✅ Covered | `TestRFC8620_Section5_3_SetErrors_StateMismatchAllHandlers` | Extracted by specextract from RFC8620 §5.3 [p2] |
@@ -489,7 +489,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | The final state MUST be valid after the "Foo/set" is finished; | ✅ Covered | `TestRFC8620_Section5_StandardMethodsConventions` | Extracted by specextract from RFC8620 §5.3 [p18] |
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MAY` | however, the server may have to transition through invalid | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p19] |
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | there is a "name" property that must be unique | ✅ Covered | `TestRFC8620_Section5_StandardMethodsConventions` | Extracted by specextract from RFC8620 §5.3 [p20] |
-| RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `SHOULD` | should be processed sequentially and accepted/rejected based on the | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p21] |
+| RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `SHOULD` | should be processed sequentially and accepted/rejected based on the | ✅ Covered | `TestRFC8620_Section5_3_BatchPartialSuccessAndNotCreatedUpdatedDestroyed` | Extracted by specextract from RFC8620 §5.3 [p21] |
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | MUST be added to the notCreated/notUpdated/notDestroyed property of | ✅ Covered | `TestRFC8620_Section5_3_BatchPartialSuccessAndNotCreatedUpdatedDestroyed` | Extracted by specextract from RFC8620 §5.3 [p22] |
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | the response, and the server MUST continue to the next create/update/ | ✅ Covered | `TestRFC8620_Section5_3_BatchPartialSuccessAndNotCreatedUpdatedDestroyed` | Extracted by specextract from RFC8620 §5.3 [p23] |
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | If an id given cannot be found, the update or destroy MUST be | ✅ Covered | `TestRFC8620_Section5_3_SetErrors_NotDestroyedAllHandlers`<br/>`TestRFC8620_Section5_3_SetErrors_NotUpdatedAllHandlers` | Extracted by specextract from RFC8620 §5.3 [p24] |
@@ -505,7 +505,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MAY` | The following SetError types are defined and may be returned for set | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p34] |
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MAY` | It may work if tried again later | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p35] |
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MAY` | * It contains a property that may only be set by the server | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p36] |
-| RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `SHOULD` | The SetError object SHOULD also have a property called | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p37] |
+| RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `SHOULD` | The SetError object SHOULD also have a property called | ✅ Covered | `TestRFC8621_EmailSetErrorPaths` | Extracted by specextract from RFC8620 §5.3 [p37] |
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MAY` | Individual methods MAY specify more specific errors for certain | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p38] |
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | If the condition of one of these is met, it MUST be | ✅ Covered | `TestRFC8620_Section5_4_CopyMethods` | Extracted by specextract from RFC8620 §5.3 [p39] |
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MAY` | Other possible SetError types MAY be given in specific method | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.3 [p40] |
@@ -529,7 +529,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8620 | [5.6](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.6) | `MUST` | MUST include all Foos in the current results for which this | ✅ Covered | `TestRFC8620_Section5_StandardMethodsConventions` | Extracted by specextract from RFC8620 §5.6 [p8] |
 | RFC8620 | [5.6](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.6) | `MAY` | property may have changed | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.6 [p9] |
 | RFC8620 | [5.6](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.6) | `MUST` | in the results, so they must be reinserted by the client to ensure | ✅ Covered | `TestRFC8620_Section5_StandardMethodsConventions` | Extracted by specextract from RFC8620 §5.6 [p10] |
-| RFC8620 | [5.6](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.6) | `SHOULD` | were added but have a higher index than "upToId" SHOULD be | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.6 [p11] |
+| RFC8620 | [5.6](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.6) | `SHOULD` | were added but have a higher index than "upToId" SHOULD be | ✅ Covered | `TestQueryChangesUpToId` | Extracted by specextract from RFC8620 §5.6 [p11] |
 | RFC8620 | [5.6](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.6) | `MUST` | The array MUST be sorted in order of index, with the lowest index | ✅ Covered | `TestRFC8620_Section5_6_QueryChangesOrderAndCannotCalculate` | Extracted by specextract from RFC8620 §5.6 [p12] |
 | RFC8620 | [5.6](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.6) | `MAY` | The client may retry with higher max | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §5.6 [p14] |
 | RFC8620 | [5.6](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.6) | `MUST` | The client MUST invalidate its cache | ✅ Covered | `TestRFC8620_Section5_6_QueryChangesOrderAndCannotCalculate` | Extracted by specextract from RFC8620 §5.6 [p15] |
@@ -560,7 +560,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8620 | [6.1](https://www.rfc-editor.org/rfc/rfc8620.html#section-6.1) | `MUST` | reference to a blob, unreferenced blobs MUST only be accessible to | ✅ Covered | `TestRFC8620_Section6_BlobManagementAndAccess` | Extracted by specextract from RFC8620 §6.1 [p9] |
 | RFC8620 | [6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-6.2) | `MUST` | The URL MUST | ✅ Covered | `TestRFC8620_Section6_BlobUploadAndDownload` | Extracted by specextract from RFC8620 §6.2 [p1] |
 | RFC8620 | [6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-6.2) | `MUST` | o "name": The name for the file; the server MUST return this as the | ✅ Covered | `TestRFC8620_Section6_BlobUploadAndDownload` | Extracted by specextract from RFC8620 §6.2 [p2] |
-| RFC8620 | [6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-6.2) | `SHOULD` | recommended to set long cache times and use the "immutable" Cache- | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §6.2 [p3] |
+| RFC8620 | [6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-6.2) | `SHOULD` | recommended to set long cache times and use the "immutable" Cache- | ✅ Covered | `TestRFC8620_Section6_BlobUploadAndDownload` | Extracted by specextract from RFC8620 §6.2 [p3] |
 | RFC8620 | [6.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-6.3) | `MAY` | Binary data may be copied *between* two different accounts using the | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §6.3 [p1] |
 | RFC8620 | [6.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-6.3) | `MAY` | The SetError may be any of the standard set errors that may be | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §6.3 [p2] |
 | RFC8620 | [6.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-6.3) | `MAY` | "notFound" SetError error may be returned if the blobId to be copied | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §6.3 [p3] |
@@ -611,7 +611,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8620 | [8.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.2) | `SHOULD` | Use of the Basic authentication scheme is NOT RECOMMENDED | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.2 [p2] |
 | RFC8620 | [8.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.2) | `SHOULD` | that choose to use it are strongly recommended to require generation | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.2 [p3] |
 | RFC8620 | [8.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.3) | `MAY` | The attacker may then intercept | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.3 [p1] |
-| RFC8620 | [8.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.3) | `SHOULD` | Servers SHOULD ensure this path resolves or | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.3 [p2] |
+| RFC8620 | [8.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.3) | `SHOULD` | Servers SHOULD ensure this path resolves or | ✅ Covered | `TestRFC8620_WellKnownJMAP_Get` | Extracted by specextract from RFC8620 §8.3 [p2] |
 | RFC8620 | [8.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.3) | `MUST` | If this is not feasible, servers MUST ensure this path cannot be | ✅ Covered | `TestRFC8620_Section8_SecurityLimitsAndTLS` | Extracted by specextract from RFC8620 §8.3 [p3] |
 | RFC8620 | [8.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.3) | `MAY` | controlled by an attacker, as again it may be used to steal | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.3 [p4] |
 | RFC8620 | [8.4](https://www.rfc-editor.org/rfc/rfc8620.html#section-8.4) | `MAY` | implementations may need to allocate storage to hold JSON string | ⚠️ **Gap** | — | Extracted by specextract from RFC8620 §8.4 [p1] |
@@ -667,7 +667,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 ## rfc8621-mail
 
 * **Test Suite Directory**: [`jmap/`](../jmap/)
-* **Conformance**: 148 / 418 (35.4%)
+* **Conformance**: 150 / 418 (35.9%)
 
 | Spec | Section | Level | Requirement | Status | Tests | Note |
 | :--- | :---: | :---: | :--- | :---: | :--- | :--- |
@@ -1018,10 +1018,10 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8621 | [8](https://www.rfc-editor.org/rfc/rfc8621.html#section-8) | `SHOULD` | Should a vacation response be sent if a message arrives between | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §8 [p3] |
 | RFC8621 | [8](https://www.rfc-editor.org/rfc/rfc8621.html#section-8) | `SHOULD` | date-time (but before the "toDate" if defined) should receive the | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §8 [p4] |
 | RFC8621 | [8](https://www.rfc-editor.org/rfc/rfc8621.html#section-8) | `SHOULD` | (but on or after the "fromDate" if defined) should receive the | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §8 [p5] |
-| RFC8621 | [8](https://www.rfc-editor.org/rfc/rfc8621.html#section-8) | `SHOULD` | appropriate subject SHOULD be set by the server | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §8 [p6] |
+| RFC8621 | [8](https://www.rfc-editor.org/rfc/rfc8621.html#section-8) | `SHOULD` | appropriate subject SHOULD be set by the server | ✅ Covered | `TestRFC8621_VacationResponse_DefaultsGenerated` | Extracted by specextract from RFC8621 §8 [p6] |
 | RFC8621 | [8](https://www.rfc-editor.org/rfc/rfc8621.html#section-8) | `SHOULD` | If this is null, the server SHOULD | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §8 [p7] |
 | RFC8621 | [8](https://www.rfc-editor.org/rfc/rfc8621.html#section-8) | `MAY` | vacation responses but MAY choose to send the response as HTML | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §8 [p8] |
-| RFC8621 | [8](https://www.rfc-editor.org/rfc/rfc8621.html#section-8) | `SHOULD` | default body SHOULD be generated for responses by the server | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §8 [p9] |
+| RFC8621 | [8](https://www.rfc-editor.org/rfc/rfc8621.html#section-8) | `SHOULD` | default body SHOULD be generated for responses by the server | ✅ Covered | `TestRFC8621_VacationResponse_DefaultsGenerated` | Extracted by specextract from RFC8621 §8 [p9] |
 | RFC8621 | [8](https://www.rfc-editor.org/rfc/rfc8621.html#section-8) | `MAY` | If this is null, the server MAY choose to | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §8 [p10] |
 | RFC8621 | [8](https://www.rfc-editor.org/rfc/rfc8621.html#section-8) | `MAY` | vacation responses or MAY choose to send the response as plaintext | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §8 [p11] |
 | RFC8621 | [8.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-8.1) | `MUST` | There MUST only be exactly one VacationResponse object in an account | ✅ Covered | `TestRFC8621_Section8_VacationResponse` | Extracted by specextract from RFC8621 §8.1 [p1] |

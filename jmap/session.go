@@ -326,7 +326,6 @@ func sessionFor(baseURL, username, accountID string) *Session {
 		},
 		Accounts: accounts,
 		PrimaryAccounts: map[string]string{
-			CoreCapabilityURI:             accountID,
 			MailCapabilityURI:             accountID,
 			SubmissionCapabilityURI:       accountID,
 			WebSocketCapabilityURI:        accountID,

@@ -181,6 +181,8 @@ func TestRFC8620_Section5_3_BatchPartialSuccessAndNotCreatedUpdatedDestroyed(t *
 		"MUST be added to the notCreated/notUpdated/notDestroyed property of")
 	spectest.Require(t, "RFC8620", "5.3", spectest.MUST,
 		"the response, and the server MUST continue to the next create/update/")
+	spectest.Require(t, "RFC8620", "5.3", spectest.SHOULD,
+		"should be processed sequentially and accepted/rejected based on the")
 
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())

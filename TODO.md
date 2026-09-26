@@ -53,6 +53,15 @@ Audit and convert all ad-hoc serializers, manual string concatenations, and brit
 
 ---
 
+### Priority 2: RFC 8620 / RFC 8621 SHOULD Coverage
+Close the `SHOULD`/`SHOULD NOT` gaps in the generated core and mail matrices.
+- [x] **2.1 RFC 8620 core batch 1**: `primaryAccounts` excludes `urn:ietf:params:jmap:core`; request-level `problem+json` bodies; result-reference resolution; `/changes` created/updated/destroyed semantics (incl. calculate from any prior state); `SetError.properties`; blob `Cache-Control: immutable`; `/.well-known/jmap` resolution; per-item sequential `/set` processing; `QueryChanges` `upToId` truncation.
+- [x] **2.2 RFC 8621 mail batch 1**: vacation-response default subject and default body generation (RFC 8621 §8).
+- [ ] **2.3 RFC 8620 remaining SHOULDs**: localisation (`Accept-Language`), push event-id/state encoding, blob quota, subscription id hashing, authentication/TLS clauses, and client-only clauses (triage as non-goal where the server has no obligation).
+- [ ] **2.4 RFC 8621 remaining SHOULDs**: search semantics (RFC 2047 decoding, HTML markup stripping, quoted phrase search, token tokenisation), preview truncation, changes ordering, `Email/import` over-quota, submission RCPT/DATA stage reporting, and client-only clauses.
+
+---
+
 ### Phase 2: JMAP Standards RFC Conformance (Zero MUST Gaps Target)
 Drive all remaining JMAP RFC requirement matrices in `spec/` to 100% MUST/MUST NOT coverage:
 - [ ] **1.1 RFC 8887 (JMAP over WebSocket)**:

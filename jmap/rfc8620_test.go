@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"imap-jmap/jmap"
+	"imap-jmap/jmap/spectest"
 )
 
 // TestRFC8620_Section1_6_ObjectIdentifiers tests Id validation per RFC 8620 Section 1.6 & 1.7.5.
@@ -231,6 +232,8 @@ func TestRFC8620_Section3_5_StructureOfAJMAPResponse(t *testing.T) {
 
 // TestRFC8620_Section3_6_1_RequestErrors_NotJSON tests notJSON error per RFC 8620 Section 3.6.1.
 func TestRFC8620_Section3_6_1_RequestErrors_NotJSON(t *testing.T) {
+	spectest.Require(t, "RFC8620", "3.6.1", spectest.SHOULD,
+		`SHOULD return a JSON "problem details" object as the response body,`)
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -257,6 +260,8 @@ func TestRFC8620_Section3_6_1_RequestErrors_NotJSON(t *testing.T) {
 
 // TestRFC8620_Section3_6_1_RequestErrors_UnknownCapability tests unknownCapability error per RFC 8620 Section 3.6.1.
 func TestRFC8620_Section3_6_1_RequestErrors_UnknownCapability(t *testing.T) {
+	spectest.Require(t, "RFC8620", "3.6.1", spectest.SHOULD,
+		`SHOULD return a JSON "problem details" object as the response body,`)
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -284,6 +289,15 @@ func TestRFC8620_Section3_6_1_RequestErrors_UnknownCapability(t *testing.T) {
 
 	if reqErr.Type != jmap.ErrorUnknownCapability {
 		t.Errorf("Expected error type %q, got %q", jmap.ErrorUnknownCapability, reqErr.Type)
+	}
+
+	// RFC 8620 Section 3.6.1 (SHOULD): request-level errors are returned as a
+	// JSON "problem details" object (RFC 7807).
+	if ct := resp.Header.Get("Content-Type"); ct != "application/problem+json" {
+		t.Errorf("expected Content-Type application/problem+json, got %q", ct)
+	}
+	if reqErr.Status != http.StatusBadRequest || reqErr.Detail == "" {
+		t.Errorf("problem details SHOULD include status and detail, got %+v", reqErr)
 	}
 }
 
@@ -370,6 +384,15 @@ func TestRFC9670_Section1_5_2_PrincipalsOwnerImpliedCapability(t *testing.T) {
 	}
 	if reqErr.Type != jmap.ErrorUnknownCapability {
 		t.Errorf("Expected error type %q, got %q", jmap.ErrorUnknownCapability, reqErr.Type)
+	}
+
+	// RFC 8620 Section 3.6.1 (SHOULD): request-level errors are returned as a
+	// JSON "problem details" object (RFC 7807).
+	if ct := resp2.Header.Get("Content-Type"); ct != "application/problem+json" {
+		t.Errorf("expected Content-Type application/problem+json, got %q", ct)
+	}
+	if reqErr.Status != http.StatusBadRequest || reqErr.Detail == "" {
+		t.Errorf("problem details SHOULD include status and detail, got %+v", reqErr)
 	}
 }
 

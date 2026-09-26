@@ -16,6 +16,8 @@ import (
 // notDestroyed (notFound) instead of being silently dropped. A valid create in the same
 // batch still succeeds (partial success).
 func TestRFC8621_EmailSetErrorPaths(t *testing.T) {
+	spectest.Require(t, "RFC8620", "5.3", spectest.SHOULD,
+		`The SetError object SHOULD also have a property called`)
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -70,6 +72,21 @@ func TestRFC8621_EmailSetErrorPaths(t *testing.T) {
 			t.Errorf("expected notCreated[%q].type=invalidProperties, got %v", key, errObj["type"])
 		}
 	}
+	// RFC 8620 Section 5.3 (SHOULD): an invalidProperties SetError lists *all*
+	// invalid properties in its "properties" array.
+	if errObj, ok := notCreated["nomb"].(map[string]any); ok {
+		props, _ := errObj["properties"].([]any)
+		found := false
+		for _, p := range props {
+			if p == "mailboxIds" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("notCreated[nomb] SHOULD list the invalid property in properties, got %v", errObj["properties"])
+		}
+	}
+
 	if len(notCreated) != 4 {
 		t.Errorf("expected exactly 4 notCreated entries, got %v", notCreated)
 	}
