@@ -13,6 +13,11 @@ type discoveryCache interface {
 	GetCalPath(user, calID string) (string, bool)
 	SetCalPath(user, calID, calPath string)
 	DeleteCal(user, calID string)
+	GetABHomeSet(user string) (string, bool)
+	SetABHomeSet(user, homeSet string)
+	GetABPath(user, abID string) (string, bool)
+	SetABPath(user, abID, abPath string)
+	DeleteAB(user, abID string)
 	Reset()
 }
 
@@ -28,6 +33,11 @@ func (d *dummyDiscoveryCache) SetHomeSet(user, homeSet string)                  
 func (d *dummyDiscoveryCache) GetCalPath(user, calID string) (string, bool)     { return "", false }
 func (d *dummyDiscoveryCache) SetCalPath(user, calID, calPath string)           {}
 func (d *dummyDiscoveryCache) DeleteCal(user, calID string)                     {}
+func (d *dummyDiscoveryCache) GetABHomeSet(user string) (string, bool)          { return "", false }
+func (d *dummyDiscoveryCache) SetABHomeSet(user, homeSet string)                {}
+func (d *dummyDiscoveryCache) GetABPath(user, abID string) (string, bool)       { return "", false }
+func (d *dummyDiscoveryCache) SetABPath(user, abID, abPath string)             {}
+func (d *dummyDiscoveryCache) DeleteAB(user, abID string)                       {}
 func (d *dummyDiscoveryCache) Reset()                                           {}
 
 // memDiscoveryCache holds thread-safe in-memory maps for discovered paths and endpoints.
@@ -36,7 +46,9 @@ type memDiscoveryCache struct {
 	principals          map[string]string
 	scheduleDefaultCals map[string]string
 	homeSets            map[string]string
+	abHomeSets          map[string]string
 	calPaths            map[string]map[string]string
+	abPaths             map[string]map[string]string
 }
 
 func newMemDiscoveryCache() *memDiscoveryCache {
@@ -44,7 +56,9 @@ func newMemDiscoveryCache() *memDiscoveryCache {
 		principals:          make(map[string]string),
 		scheduleDefaultCals: make(map[string]string),
 		homeSets:            make(map[string]string),
+		abHomeSets:          make(map[string]string),
 		calPaths:            make(map[string]map[string]string),
+		abPaths:             make(map[string]map[string]string),
 	}
 }
 
@@ -115,11 +129,53 @@ func (m *memDiscoveryCache) DeleteCal(user, calID string) {
 	delete(m.scheduleDefaultCals, user)
 }
 
+func (m *memDiscoveryCache) GetABHomeSet(user string) (string, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	h, ok := m.abHomeSets[user]
+	return h, ok && h != ""
+}
+
+func (m *memDiscoveryCache) SetABHomeSet(user, homeSet string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.abHomeSets[user] = homeSet
+}
+
+func (m *memDiscoveryCache) GetABPath(user, abID string) (string, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.abPaths[user] == nil {
+		return "", false
+	}
+	p, ok := m.abPaths[user][abID]
+	return p, ok && p != ""
+}
+
+func (m *memDiscoveryCache) SetABPath(user, abID, abPath string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.abPaths[user] == nil {
+		m.abPaths[user] = make(map[string]string)
+	}
+	m.abPaths[user][abID] = abPath
+}
+
+func (m *memDiscoveryCache) DeleteAB(user, abID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.abPaths[user] != nil {
+		delete(m.abPaths[user], abID)
+	}
+}
+
 func (m *memDiscoveryCache) Reset() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.principals = make(map[string]string)
 	m.scheduleDefaultCals = make(map[string]string)
 	m.homeSets = make(map[string]string)
+	m.abHomeSets = make(map[string]string)
 	m.calPaths = make(map[string]map[string]string)
+	m.abPaths = make(map[string]map[string]string)
 }

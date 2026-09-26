@@ -29,6 +29,14 @@ func TestDummyCacheAlwaysShowsEmpty(t *testing.T) {
 	if cp, ok := dc.GetCalPath("user", "cal-1"); ok || cp != "" {
 		t.Fatalf("expected dummy discovery cache to return empty, false, got %q, %v", cp, ok)
 	}
+	dc.SetABHomeSet("user", "abhomeset")
+	if hs, ok := dc.GetABHomeSet("user"); ok || hs != "" {
+		t.Fatalf("expected dummy discovery cache to return empty, false, got %q, %v", hs, ok)
+	}
+	dc.SetABPath("user", "ab-1", "/abpath/")
+	if ap, ok := dc.GetABPath("user", "ab-1"); ok || ap != "" {
+		t.Fatalf("expected dummy discovery cache to return empty, false, got %q, %v", ap, ok)
+	}
 
 	// 3. backendCache dummy
 	var bc backendCache = &dummyBackendCache{}
@@ -59,6 +67,14 @@ func TestMemCacheStoresAndRetrieves(t *testing.T) {
 	dc.SetCalPath("user", "cal-1", "/path/")
 	if cp, ok := dc.GetCalPath("user", "cal-1"); !ok || cp != "/path/" {
 		t.Fatalf("expected calPath to be found, got %q, %v", cp, ok)
+	}
+	dc.SetABHomeSet("user", "abhomeset")
+	if hs, ok := dc.GetABHomeSet("user"); !ok || hs != "abhomeset" {
+		t.Fatalf("expected abHomeSet to be found, got %q, %v", hs, ok)
+	}
+	dc.SetABPath("user", "ab-1", "/abpath/")
+	if ap, ok := dc.GetABPath("user", "ab-1"); !ok || ap != "/abpath/" {
+		t.Fatalf("expected abPath to be found, got %q, %v", ap, ok)
 	}
 
 	// 2. backendCache mem

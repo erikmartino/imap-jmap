@@ -215,6 +215,18 @@ func invalidateRequestCalendarCollections(ctx context.Context, u string) {
 	}
 }
 
+// addressBookSyncStatusesKey is the request-scope key for the memoized home-set
+// PROPFIND result for address books.
+type addressBookSyncStatusesKey struct {
+	user string
+}
+
+func invalidateRequestAddressBookCollections(ctx context.Context, u string) {
+	if rs := jmapcore.RequestScopeFrom(ctx); rs != nil {
+		rs.Delete(addressBookSyncStatusesKey{user: u})
+	}
+}
+
 func (c *Client) getUserAndPass(ctx context.Context) (string, string) {
 	accountID, hasAccount := jmapauth.AccountIDFromContext(ctx)
 	creds, hasCreds := jmapauth.CredentialsFromContext(ctx)
@@ -814,6 +826,370 @@ func (c *Client) PatchCalendarProperties(ctx context.Context, calID string, set 
 	invalidateRequestCalendarCollections(ctx, u)
 	c.invalidateCalendarList(u)
 	return nil
+}
+
+// AddressBookProperty is a single CardDAV/WebDAV property to write on an address
+// book collection or home set via PROPPATCH. Name carries the XML namespace and local name.
+type AddressBookProperty struct {
+	Name  xml.Name
+	Value string
+}
+
+// CardDAV/WebDAV property namespaces used for address book metadata.
+const (
+	nsCardDAV  = "urn:ietf:params:xml:ns:carddav"
+	nsJMAPCont = "urn:ietf:params:jmap:contacts"
+)
+
+func (c *Client) getAddressBookHomeSet(ctx context.Context, cardClient *carddav.Client, u string) string {
+	disc := c.discoveryFor(ctx)
+	if hs, ok := disc.GetABHomeSet(u); ok {
+		return hs
+	}
+	if cardClient != nil {
+		principal, err := cardClient.FindCurrentUserPrincipal(ctx)
+		if err == nil && principal != "" {
+			homeSet, err := cardClient.FindAddressBookHomeSet(ctx, principal)
+			if err == nil && homeSet != "" {
+				disc.SetABHomeSet(u, homeSet)
+				return homeSet
+			}
+		}
+	}
+	defaultHS := "/remote.php/dav/addressbooks/users/" + u + "/"
+	disc.SetABHomeSet(u, defaultHS)
+	return defaultHS
+}
+
+func (c *Client) getABPath(ctx context.Context, cardClient *carddav.Client, u, abID string) string {
+	disc := c.discoveryFor(ctx)
+	if p, ok := disc.GetABPath(u, abID); ok {
+		return p
+	}
+	homeSet := c.getAddressBookHomeSet(ctx, cardClient, u)
+	var abPath string
+	if homeSet != "" {
+		abPath = strings.TrimRight(homeSet, "/") + "/" + abID + "/"
+	} else {
+		abPath = "/remote.php/dav/addressbooks/users/" + u + "/" + abID + "/"
+	}
+	disc.SetABPath(u, abID, abPath)
+	return abPath
+}
+
+// PatchAddressBookProperties writes/removes address book collection or home-set properties
+// with a single WebDAV PROPPATCH (RFC 4918 Section 9.2). If abPathOrID does not contain a '/',
+// it is treated as an address book ID and resolved to its collection path.
+func (c *Client) PatchAddressBookProperties(ctx context.Context, abPathOrID string, set []AddressBookProperty, remove []xml.Name) error {
+	if len(set) == 0 && len(remove) == 0 {
+		return nil
+	}
+	cardClient, u, err := c.CardDAV(ctx)
+	if err != nil {
+		return err
+	}
+	abPath := abPathOrID
+	if !strings.Contains(abPathOrID, "/") {
+		abPath = c.getABPath(ctx, cardClient, u, abPathOrID)
+	}
+
+	var req propPatchReq
+	for _, p := range set {
+		req.Set.Prop.Props = append(req.Set.Prop.Props, propPatchProp{XMLName: p.Name, Value: p.Value})
+	}
+	if len(remove) > 0 {
+		rm := &propPatchRemove{}
+		for _, n := range remove {
+			rm.Prop.Props = append(rm.Prop.Props, propPatchProp{XMLName: n})
+		}
+		req.Remove = rm
+	}
+
+	reqBody, err := xml.Marshal(&req)
+	if err != nil {
+		return err
+	}
+	reqBody = append([]byte(xml.Header), reqBody...)
+
+	urlStr := c.buildURL(abPath)
+	httpReq, err := http.NewRequestWithContext(ctx, "PROPPATCH", urlStr, bytes.NewReader(reqBody))
+	if err != nil {
+		return err
+	}
+	user, pass := c.getUserAndPass(ctx)
+	httpReq.SetBasicAuth(user, pass)
+	httpReq.Header.Set("Content-Type", "application/xml; charset=utf-8")
+
+	resp, err := c.HTTPClient.Do(httpReq)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("carddav: PROPPATCH failed with status %d", resp.StatusCode)
+	}
+	invalidateRequestAddressBookCollections(ctx, u)
+	return nil
+}
+
+// SetDefaultAddressBookUpstream writes the default address book ID to the user's
+// address book home set via PROPPATCH.
+func (c *Client) SetDefaultAddressBookUpstream(ctx context.Context, abID string) error {
+	cardClient, u, err := c.CardDAV(ctx)
+	if err != nil {
+		return err
+	}
+	homeSet := c.getAddressBookHomeSet(ctx, cardClient, u)
+	return c.PatchAddressBookProperties(ctx, homeSet, []AddressBookProperty{
+		{Name: xml.Name{Space: nsJMAPCont, Local: "default-addressbook"}, Value: abID},
+	}, nil)
+}
+
+// CreateAddressBook creates a new CardDAV address book collection.
+func (c *Client) CreateAddressBook(ctx context.Context, abID string) error {
+	cardClient, u, err := c.CardDAV(ctx)
+	if err != nil {
+		return err
+	}
+	abPath := c.getABPath(ctx, cardClient, u, abID)
+	err = cardClient.Mkdir(ctx, abPath)
+	invalidateRequestAddressBookCollections(ctx, u)
+	return err
+}
+
+// DeleteAddressBook removes an address book collection in Nextcloud.
+func (c *Client) DeleteAddressBook(ctx context.Context, abID string) error {
+	cardClient, u, err := c.CardDAV(ctx)
+	if err != nil {
+		return err
+	}
+	abPath := c.getABPath(ctx, cardClient, u, abID)
+	c.discoveryFor(ctx).DeleteAB(u, abID)
+	err = cardClient.RemoveAll(ctx, abPath)
+	invalidateRequestAddressBookCollections(ctx, u)
+	return err
+}
+
+type propfindAddressBookProp struct {
+	ResourceType struct{} `xml:"DAV: resourcetype"`
+	DisplayName  struct{} `xml:"DAV: displayname"`
+	Description  struct{} `xml:"urn:ietf:params:xml:ns:carddav addressbook-description"`
+	GetCTag      struct{} `xml:"http://calendarserver.org/ns/ getctag"`
+	SyncToken    struct{} `xml:"sync-token"`
+	Color        struct{} `xml:"http://apple.com/ns/ical/ addressbook-color"`
+	CalColor     struct{} `xml:"http://apple.com/ns/ical/ calendar-color"`
+	Order        struct{} `xml:"http://apple.com/ns/ical/ addressbook-order"`
+	CalOrder     struct{} `xml:"http://apple.com/ns/ical/ calendar-order"`
+	JMAPPrefs    struct{} `xml:"urn:ietf:params:jmap:contacts prefs"`
+	DefaultAB    struct{} `xml:"urn:ietf:params:jmap:contacts default-addressbook"`
+}
+
+type propfindAddressBookReq struct {
+	XMLName xml.Name                `xml:"DAV: propfind"`
+	Prop    propfindAddressBookProp `xml:"DAV: prop"`
+}
+
+// AddressBookSyncStatus represents the state and display properties of a single
+// address book collection discovered from the home set PROPFIND.
+type AddressBookSyncStatus struct {
+	ID          string
+	Path        string
+	Name        string
+	Description string
+	CTag        string
+	SyncToken   string
+	Color       string
+	Order       string
+	PrefsJSON   string
+}
+
+// addressBookCollections is the result of the home-set PROPFIND: the address book
+// collections in document order plus the default address book id from the home set property.
+type addressBookCollections struct {
+	ordered            []*AddressBookSyncStatus
+	byID               map[string]*AddressBookSyncStatus
+	defaultAddressBook string
+}
+
+func (c *Client) getAddressBookCollections(ctx context.Context) (*addressBookCollections, error) {
+	cardClient, u, err := c.CardDAV(ctx)
+	if err != nil {
+		return nil, err
+	}
+	key := addressBookSyncStatusesKey{user: u}
+	if rs := jmapcore.RequestScopeFrom(ctx); rs != nil {
+		if v, ok := rs.Load(key); ok {
+			if ac, ok := v.(*addressBookCollections); ok {
+				return ac, nil
+			}
+		}
+	}
+	homeSet := c.getAddressBookHomeSet(ctx, cardClient, u)
+	if homeSet == "" {
+		return nil, fmt.Errorf("carddav: could not find address book home set for %s", u)
+	}
+
+	urlStr := c.buildURL(homeSet)
+
+	reqData, err := xml.Marshal(&propfindAddressBookReq{})
+	if err != nil {
+		return nil, err
+	}
+	reqData = append([]byte(xml.Header), reqData...)
+
+	req, err := http.NewRequestWithContext(ctx, "PROPFIND", urlStr, bytes.NewReader(reqData))
+	if err != nil {
+		return nil, err
+	}
+	user, pass := c.getUserAndPass(ctx)
+	req.SetBasicAuth(user, pass)
+	req.Header.Set("Depth", "1")
+	req.Header.Set("Content-Type", "application/xml; charset=utf-8")
+
+	start := time.Now()
+	resp, err := c.HTTPClient.Do(req)
+	duration := time.Since(start)
+	statusCode := 0
+	if resp != nil {
+		statusCode = resp.StatusCode
+	}
+	slog.Info("Nextcloud/DAV request",
+		"user", user,
+		"method", req.Method,
+		"path", req.URL.Path,
+		"status", statusCode,
+		"duration_ms", duration.Milliseconds(),
+		"attempt", 1,
+		"error", err,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("carddav: PROPFIND failed with status %d", resp.StatusCode)
+	}
+
+	type propfindMultiStatus struct {
+		XMLName   xml.Name `xml:"multistatus"`
+		Responses []struct {
+			Href     string `xml:"href"`
+			Propstat []struct {
+				Prop struct {
+					ResourceType struct {
+						InnerXML []byte `xml:",innerxml"`
+					} `xml:"resourcetype"`
+					DisplayName            string `xml:"displayname"`
+					AddressBookDescription string `xml:"urn:ietf:params:xml:ns:carddav addressbook-description"`
+					GetCTag                string `xml:"getctag"`
+					SyncToken              string `xml:"sync-token"`
+					AddressBookColor       string `xml:"http://apple.com/ns/ical/ addressbook-color"`
+					CalendarColor          string `xml:"http://apple.com/ns/ical/ calendar-color"`
+					AddressBookOrder       string `xml:"http://apple.com/ns/ical/ addressbook-order"`
+					CalendarOrder          string `xml:"http://apple.com/ns/ical/ calendar-order"`
+					JMAPPrefs              string `xml:"urn:ietf:params:jmap:contacts prefs"`
+					DefaultAddressBook     string `xml:"urn:ietf:params:jmap:contacts default-addressbook"`
+				} `xml:"prop"`
+				Status string `xml:"status"`
+			} `xml:"propstat"`
+		} `xml:"response"`
+	}
+
+	var ms propfindMultiStatus
+	if err := xml.NewDecoder(resp.Body).Decode(&ms); err != nil {
+		return nil, fmt.Errorf("carddav: failed to decode PROPFIND response: %w", err)
+	}
+
+	cleanHome := strings.TrimRight(homeSet, "/") + "/"
+	res := make(map[string]*AddressBookSyncStatus)
+	var ordered []*AddressBookSyncStatus
+	var defaultAB string
+
+	for _, r := range ms.Responses {
+		cleanHref := strings.TrimRight(r.Href, "/") + "/"
+		if cleanHref == cleanHome || strings.HasSuffix(cleanHome, cleanHref) || strings.HasSuffix(cleanHref, cleanHome) {
+			for _, ps := range r.Propstat {
+				if strings.Contains(ps.Status, "200") && ps.Prop.DefaultAddressBook != "" {
+					defVal := ps.Prop.DefaultAddressBook
+					if strings.Contains(defVal, "/") {
+						defVal = path.Base(strings.TrimRight(defVal, "/"))
+					}
+					defaultAB = defVal
+				}
+			}
+			continue
+		}
+
+		abID := path.Base(strings.TrimRight(r.Href, "/"))
+		if abID == "" || abID == "." || abID == "/" {
+			continue
+		}
+
+		var dispName, description, ctag, syncToken, color, order, prefs string
+		isAddressBook := false
+
+		for _, ps := range r.Propstat {
+			if strings.Contains(ps.Status, "200") {
+				if bytes.Contains(ps.Prop.ResourceType.InnerXML, []byte("addressbook")) {
+					isAddressBook = true
+				}
+				if ps.Prop.DisplayName != "" {
+					dispName = ps.Prop.DisplayName
+				}
+				if ps.Prop.AddressBookDescription != "" {
+					description = ps.Prop.AddressBookDescription
+				}
+				if ps.Prop.GetCTag != "" {
+					ctag = ps.Prop.GetCTag
+				}
+				if ps.Prop.SyncToken != "" {
+					syncToken = ps.Prop.SyncToken
+				}
+				if ps.Prop.AddressBookColor != "" {
+					color = ps.Prop.AddressBookColor
+				} else if ps.Prop.CalendarColor != "" {
+					color = ps.Prop.CalendarColor
+				}
+				if ps.Prop.AddressBookOrder != "" {
+					order = ps.Prop.AddressBookOrder
+				} else if ps.Prop.CalendarOrder != "" {
+					order = ps.Prop.CalendarOrder
+				}
+				if ps.Prop.JMAPPrefs != "" {
+					prefs = ps.Prop.JMAPPrefs
+				}
+			}
+		}
+
+		if !isAddressBook {
+			continue
+		}
+
+		st := &AddressBookSyncStatus{
+			ID:          abID,
+			Path:        cleanHref,
+			Name:        dispName,
+			Description: description,
+			CTag:        ctag,
+			SyncToken:   syncToken,
+			Color:       color,
+			Order:       order,
+			PrefsJSON:   prefs,
+		}
+		res[abID] = st
+		ordered = append(ordered, st)
+	}
+
+	collections := &addressBookCollections{
+		ordered:            ordered,
+		byID:               res,
+		defaultAddressBook: defaultAB,
+	}
+	if rs := jmapcore.RequestScopeFrom(ctx); rs != nil {
+		rs.Store(key, collections)
+	}
+	return collections, nil
 }
 
 func (c *Client) buildURL(endpoint string) string {

@@ -13,3 +13,5 @@ type (
 	JSContactEmailAddress  = jmapcontacts.JSContactEmailAddress
 	Card                   = jmapcontacts.Card
 )
+
+var FullAddressBookRights = jmapcontacts.FullAddressBookRights

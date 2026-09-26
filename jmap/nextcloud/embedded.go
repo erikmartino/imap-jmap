@@ -327,17 +327,127 @@ func (b *memCalDAVBackend) DeleteCalendarObject(ctx context.Context, p string) e
 	return nil
 }
 
+// memAddressBookProps holds the WebDAV display properties of an address book collection,
+// stored from PROPPATCH.
+type memAddressBookProps struct {
+	DisplayName string
+	Description string
+	Color       string
+	Order       string
+	Prefs       string
+}
+
+// memHomeSetProps holds custom properties on an address book home set,
+// stored from PROPPATCH.
+type memHomeSetProps struct {
+	DefaultAddressBook string
+}
+
 // memCardDAVBackend implements carddav.Backend in memory per user.
 type memCardDAVBackend struct {
-	mu           sync.RWMutex
-	addressBooks map[string]map[string]*carddav.AddressBook
-	objects      map[string]map[string]*carddav.AddressObject
+	mu               sync.RWMutex
+	addressBooks     map[string]map[string]*carddav.AddressBook
+	objects          map[string]map[string]*carddav.AddressObject
+	addressBookProps map[string]map[string]memAddressBookProps
+	homeSetProps     map[string]memHomeSetProps
 }
 
 func newMemCardDAVBackend() *memCardDAVBackend {
 	return &memCardDAVBackend{
-		addressBooks: make(map[string]map[string]*carddav.AddressBook),
-		objects:      make(map[string]map[string]*carddav.AddressObject),
+		addressBooks:     make(map[string]map[string]*carddav.AddressBook),
+		objects:          make(map[string]map[string]*carddav.AddressObject),
+		addressBookProps: make(map[string]map[string]memAddressBookProps),
+		homeSetProps:     make(map[string]memHomeSetProps),
+	}
+}
+
+// applyAddressBookPropPatch parses a WebDAV propertyupdate body and stores the
+// recognised address book display properties or home-set properties.
+func applyAddressBookPropPatch(b *memCardDAVBackend, u, reqPath string, body []byte) {
+	type propValue struct {
+		XMLName xml.Name
+		Value   string `xml:",chardata"`
+	}
+	type propUpdate struct {
+		XMLName xml.Name `xml:"DAV: propertyupdate"`
+		Set     struct {
+			Prop struct {
+				Props []propValue `xml:",any"`
+			} `xml:"DAV: prop"`
+		} `xml:"DAV: set"`
+		Remove struct {
+			Prop struct {
+				Props []propValue `xml:",any"`
+			} `xml:"DAV: prop"`
+		} `xml:"DAV: remove"`
+	}
+	var pu propUpdate
+	if err := xml.Unmarshal(body, &pu); err != nil {
+		return
+	}
+	cleanPath := strings.TrimRight(reqPath, "/") + "/"
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.ensureUserAddressBooksLocked(u)
+
+	home := "/remote.php/dav/addressbooks/users/" + u + "/"
+	if cleanPath == home || strings.HasSuffix(strings.TrimRight(reqPath, "/"), "/addressbooks/users/"+u) {
+		if b.homeSetProps == nil {
+			b.homeSetProps = make(map[string]memHomeSetProps)
+		}
+		hs := b.homeSetProps[u]
+		for _, v := range pu.Set.Prop.Props {
+			if v.XMLName.Space == nsJMAPCont && v.XMLName.Local == "default-addressbook" {
+				hs.DefaultAddressBook = v.Value
+			}
+		}
+		for _, v := range pu.Remove.Prop.Props {
+			if v.XMLName.Space == nsJMAPCont && v.XMLName.Local == "default-addressbook" {
+				hs.DefaultAddressBook = ""
+			}
+		}
+		b.homeSetProps[u] = hs
+		return
+	}
+
+	if b.addressBookProps[u] == nil {
+		b.addressBookProps[u] = make(map[string]memAddressBookProps)
+	}
+	p := b.addressBookProps[u][cleanPath]
+	known := []struct {
+		space, local string
+		field        *string
+	}{
+		{"DAV:", "displayname", &p.DisplayName},
+		{"urn:ietf:params:xml:ns:carddav", "addressbook-description", &p.Description},
+		{"http://apple.com/ns/ical/", "addressbook-color", &p.Color},
+		{"http://apple.com/ns/ical/", "calendar-color", &p.Color},
+		{"http://apple.com/ns/ical/", "addressbook-order", &p.Order},
+		{"http://apple.com/ns/ical/", "calendar-order", &p.Order},
+		{"urn:ietf:params:jmap:contacts", "prefs", &p.Prefs},
+	}
+	for _, v := range pu.Set.Prop.Props {
+		for _, k := range known {
+			if v.XMLName.Space == k.space && v.XMLName.Local == k.local {
+				*k.field = v.Value
+			}
+		}
+	}
+	for _, v := range pu.Remove.Prop.Props {
+		for _, k := range known {
+			if v.XMLName.Space == k.space && v.XMLName.Local == k.local {
+				*k.field = ""
+			}
+		}
+	}
+	b.addressBookProps[u][cleanPath] = p
+	if ab, ok := b.addressBooks[u][cleanPath]; ok {
+		if p.DisplayName != "" {
+			ab.Name = p.DisplayName
+		}
+		if p.Description != "" {
+			ab.Description = p.Description
+		}
 	}
 }
 
@@ -408,6 +518,9 @@ func (b *memCardDAVBackend) DeleteAddressBook(ctx context.Context, p string) err
 
 	cleanPath := strings.TrimRight(p, "/") + "/"
 	delete(b.addressBooks[u], cleanPath)
+	if b.addressBookProps[u] != nil {
+		delete(b.addressBookProps[u], cleanPath)
+	}
 	for objPath := range b.objects[u] {
 		if strings.HasPrefix(objPath, cleanPath) {
 			delete(b.objects[u], objPath)
@@ -1130,6 +1243,141 @@ func NewEmbeddedServer(usernames ...string) (*httptest.Server, *Client, func()) 
 
 		// CardDAV Routing
 		if strings.HasPrefix(reqPath, "/remote.php/dav/addressbooks") {
+			home := strings.TrimRight("/remote.php/dav/addressbooks/users/"+u, "/") + "/"
+			isHome := strings.HasSuffix(strings.TrimRight(reqPath, "/"), "/addressbooks/users/"+u)
+
+			// AddressBook Home-Set PROPFIND: returns display properties, JMAP prefs, and default-addressbook
+			if r.Method == "PROPFIND" && isHome {
+				cardMem.mu.Lock()
+				cardMem.ensureUserAddressBooksLocked(u)
+				type embeddedProp struct {
+					ResourceType struct {
+						Collection  *struct{} `xml:"DAV: collection"`
+						AddressBook *struct{} `xml:"urn:ietf:params:xml:ns:carddav addressbook"`
+					} `xml:"DAV: resourcetype"`
+					DisplayName            string `xml:"DAV: displayname,omitempty"`
+					AddressBookDescription string `xml:"urn:ietf:params:xml:ns:carddav addressbook-description,omitempty"`
+					GetCTag                string `xml:"http://calendarserver.org/ns/ getctag,omitempty"`
+					SyncToken              string `xml:"DAV: sync-token,omitempty"`
+					AddressBookColor       string `xml:"http://apple.com/ns/ical/ addressbook-color,omitempty"`
+					AddressBookOrder       string `xml:"http://apple.com/ns/ical/ addressbook-order,omitempty"`
+					JMAPPrefs              string `xml:"urn:ietf:params:jmap:contacts prefs,omitempty"`
+					DefaultAddressBook     string `xml:"urn:ietf:params:jmap:contacts default-addressbook,omitempty"`
+				}
+				type embeddedPropstat struct {
+					Prop   embeddedProp `xml:"DAV: prop"`
+					Status string       `xml:"DAV: status"`
+				}
+				type embeddedResponse struct {
+					Href     string             `xml:"DAV: href"`
+					Propstat []embeddedPropstat `xml:"DAV: propstat"`
+				}
+				type embeddedMultistatus struct {
+					XMLName   xml.Name           `xml:"DAV: multistatus"`
+					Responses []embeddedResponse `xml:"DAV: response"`
+				}
+
+				homeProp := embeddedProp{
+					DisplayName:        u,
+					DefaultAddressBook: cardMem.homeSetProps[u].DefaultAddressBook,
+				}
+				homeProp.ResourceType.Collection = &struct{}{}
+
+				ms := embeddedMultistatus{
+					Responses: []embeddedResponse{
+						{
+							Href: reqPath,
+							Propstat: []embeddedPropstat{
+								{Prop: homeProp, Status: "HTTP/1.1 200 OK"},
+							},
+						},
+					},
+				}
+
+				for cPath, ab := range cardMem.addressBooks[u] {
+					var props memAddressBookProps
+					if cardMem.addressBookProps[u] != nil {
+						props = cardMem.addressBookProps[u][cPath]
+					}
+					dispName, desc := ab.Name, ab.Description
+					if props.DisplayName != "" {
+						dispName = props.DisplayName
+					}
+					if props.Description != "" {
+						desc = props.Description
+					}
+					abProp := embeddedProp{
+						DisplayName:            dispName,
+						AddressBookDescription: desc,
+						GetCTag:                "http://sabre.io/ns/sync/1",
+						SyncToken:              "http://sabre.io/ns/sync/1",
+						AddressBookColor:       props.Color,
+						AddressBookOrder:       props.Order,
+						JMAPPrefs:              props.Prefs,
+					}
+					abProp.ResourceType.Collection = &struct{}{}
+					abProp.ResourceType.AddressBook = &struct{}{}
+					ms.Responses = append(ms.Responses, embeddedResponse{
+						Href: cPath,
+						Propstat: []embeddedPropstat{
+							{Prop: abProp, Status: "HTTP/1.1 200 OK"},
+						},
+					})
+				}
+				cardMem.mu.Unlock()
+
+				w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+				w.WriteHeader(http.StatusMultiStatus)
+				_ = xml.NewEncoder(w).Encode(ms)
+				return
+			}
+
+			// MKCOL on an address book collection
+			if r.Method == "MKCOL" {
+				if rel := strings.TrimPrefix(reqPath, home); rel != reqPath && rel != "" && !strings.Contains(strings.Trim(rel, "/"), "/") {
+					cleanPath := strings.TrimRight(reqPath, "/") + "/"
+					cardMem.mu.Lock()
+					cardMem.ensureUserAddressBooksLocked(u)
+					abID := path.Base(strings.TrimRight(reqPath, "/"))
+					cardMem.addressBooks[u][cleanPath] = &carddav.AddressBook{
+						Path: cleanPath,
+						Name: abID,
+					}
+					cardMem.mu.Unlock()
+					w.WriteHeader(http.StatusCreated)
+					return
+				}
+			}
+
+			// DELETE on an address book collection
+			if r.Method == http.MethodDelete {
+				if rel := strings.TrimPrefix(reqPath, home); rel != reqPath && rel != "" && !strings.Contains(strings.Trim(rel, "/"), "/") {
+					cleanPath := strings.TrimRight(reqPath, "/") + "/"
+					if err := cardMem.DeleteAddressBook(r.Context(), cleanPath); err == nil {
+						w.WriteHeader(http.StatusNoContent)
+						return
+					}
+				}
+			}
+
+			// PROPPATCH on address book home-set or collection
+			if r.Method == "PROPPATCH" {
+				if isHome {
+					bodyBytes, _ := io.ReadAll(r.Body)
+					applyAddressBookPropPatch(cardMem, u, reqPath, bodyBytes)
+					w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+					w.WriteHeader(http.StatusMultiStatus)
+					return
+				}
+				if rel := strings.TrimPrefix(reqPath, home); rel != reqPath && rel != "" && !strings.Contains(strings.Trim(rel, "/"), "/") {
+					bodyBytes, _ := io.ReadAll(r.Body)
+					applyAddressBookPropPatch(cardMem, u, reqPath, bodyBytes)
+					w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+					w.WriteHeader(http.StatusMultiStatus)
+					return
+				}
+			}
+
 			cardH.ServeHTTP(w, r)
 			return
 		}

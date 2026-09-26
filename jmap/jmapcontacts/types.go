@@ -21,6 +21,16 @@ type AddressBookRights struct {
 	MayDelete bool `json:"mayDelete"`
 }
 
+// FullAddressBookRights returns full owner rights for an AddressBook.
+func FullAddressBookRights() AddressBookRights {
+	return AddressBookRights{
+		MayRead:   true,
+		MayWrite:  true,
+		MayShare:  true,
+		MayDelete: true,
+	}
+}
+
 // AddressBook represents an AddressBook object per RFC 9610 Section 2.
 type AddressBook struct {
 	ID           jmapcore.Id                   `json:"id"`

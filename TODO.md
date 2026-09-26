@@ -134,8 +134,12 @@ Per `AGENTS.md` §1 ("Stateless Proxy & Zero Local Filesystem Sync"), the proxy 
   - JMAP-only prefs (`isVisible`, `isSubscribed`, `includeInAvailability`, default alerts) are stored as a single JSON custom property in the `urn:ietf:params:jmap:calendar` namespace, read back and applied; the embedded server stores/serves all of them.
   - `calProps` is no longer the source of truth (upstream wins, overrides only applied when set); it currently remains as a same-request cache. Test: `TestCalendarMetadataPersistedUpstream` (fresh backend with no `calProps` sees the values).
   - Follow-up: delete `calProps` entirely once every field is upstream-derived.
-- [ ] **4.2 AddressBook metadata via CardDAV/OCS** (`nextcloud/contacts.go`)
-  - Persist `defaultAddressBooks`, color/description, and `isDefault` upstream (custom property on the addressbook home set; `shareWith`/`myRights` via OCS/ACLs, see Phase 5).
+- [x] **4.2 AddressBook metadata via CardDAV/OCS** (`nextcloud/contacts.go`)
+  - Persisted `defaultAddressBooks`, color/description, and `isDefault` upstream.
+  - Implemented `PatchAddressBookProperties` (PROPPATCH) for displayname, description, color, order, and `urn:ietf:params:jmap:contacts` prefs (`isDefault`).
+  - Home-set PROPPATCH persists `urn:ietf:params:jmap:contacts default-addressbook` for default address book resolution across instances.
+  - Embedded mock CardDAV server intercepts collection/homeset PROPFIND, PROPPATCH, MKCOL, and DELETE.
+  - Removed authoritative in-memory maps (`defaultAddressBooks`, `absCache`, `homeSets`). Tested via `TestAddressBookMetadataPersistedUpstream`.
 - [ ] **4.3 Deterministic FileNode ids** (`nextcloud/filenode.go`)
   - Replace `pathToID`/`idToPath`/`nextID` with an id derived from the WebDAV path; delete the local counter and maps.
 - [ ] **4.4 Deterministic SieveScript ids** (`managesieve/backend.go`)

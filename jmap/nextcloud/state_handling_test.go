@@ -14,6 +14,7 @@ import (
 
 	"imap-jmap/jmap/jmapauth"
 	"imap-jmap/jmap/jmapcalendar"
+	"imap-jmap/jmap/jmapcontacts"
 	"imap-jmap/jmap/jmapcore"
 )
 
@@ -714,6 +715,103 @@ func TestCalendarMetadataPersistedUpstream(t *testing.T) {
 	}
 	t.Fatalf("calendar %s not found in fresh backend", cal.ID)
 }
+
+// TestAddressBookMetadataPersistedUpstream verifies that AddressBook metadata updates
+// and default address book selections are written to the upstream CardDAV server (PROPPATCH)
+// and are visible to a fresh backend that holds no proxy-local state.
+func TestAddressBookMetadataPersistedUpstream(t *testing.T) {
+	client, _, be, _, _, cleanup := NewEmbeddedBackend("user@example.com")
+	defer cleanup()
+	ctx := stateTestCtx("user@example.com")
+
+	desc := "Work team contacts"
+	ab, err := be.CreateAddressBook(ctx, &jmapcontacts.AddressBook{
+		Name:         "Team",
+		Description:  &desc,
+		SortOrder:    50,
+		IsSubscribed: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateAddressBook: %v", err)
+	}
+
+	// Set as default address book.
+	if err := be.SetDefaultAddressBook(ctx, ab.ID); err != nil {
+		t.Fatalf("SetDefaultAddressBook: %v", err)
+	}
+
+	// Update metadata via patch.
+	newDesc := "Updated team contacts"
+	if _, err := be.UpdateAddressBook(ctx, ab.ID, map[string]any{
+		"name":         "Engineering Team",
+		"description":  newDesc,
+		"sortOrder":    float64(20),
+		"isSubscribed": false,
+	}); err != nil {
+		t.Fatalf("UpdateAddressBook: %v", err)
+	}
+
+	// A fresh backend has no local state; it must read the metadata from upstream.
+	be2 := NewContactsBackend(client)
+	abs, _, err := be2.GetAddressBooks(ctx, nil)
+	if err != nil {
+		t.Fatalf("GetAddressBooks on fresh backend: %v", err)
+	}
+
+	found := false
+	for _, a := range abs {
+		if a.ID != ab.ID {
+			continue
+		}
+		found = true
+		if a.Name != "Engineering Team" {
+			t.Errorf("expected name %q, got %q", "Engineering Team", a.Name)
+		}
+		if a.Description == nil || *a.Description != newDesc {
+			t.Errorf("expected description %q, got %v", newDesc, a.Description)
+		}
+		if a.SortOrder != 20 {
+			t.Errorf("expected sortOrder 20, got %d", a.SortOrder)
+		}
+		if a.IsSubscribed != false {
+			t.Errorf("expected isSubscribed false, got %v", a.IsSubscribed)
+		}
+		if !a.IsDefault {
+			t.Errorf("expected isDefault true on default address book")
+		}
+	}
+	if !found {
+		t.Fatalf("address book %s not found in fresh backend", ab.ID)
+	}
+
+	// Verify the other address book (default "contacts") is not marked default.
+	for _, a := range abs {
+		if a.ID == "contacts" && a.IsDefault {
+			t.Errorf("contacts address book should not be default when another default is set")
+		}
+	}
+
+	// Delete the default address book.
+	if _, err := be2.DeleteAddressBook(ctx, ab.ID, false); err != nil {
+		t.Fatalf("DeleteAddressBook: %v", err)
+	}
+
+	// Fresh backend 3: verifies deleted address book is gone and default is restored.
+	be3 := NewContactsBackend(client)
+	abs3, _, err := be3.GetAddressBooks(ctx, nil)
+	if err != nil {
+		t.Fatalf("GetAddressBooks on third backend: %v", err)
+	}
+	for _, a := range abs3 {
+		if a.ID == ab.ID {
+			t.Errorf("deleted address book %s still present in fresh backend", ab.ID)
+		}
+		if a.ID == "contacts" && !a.IsDefault {
+			t.Errorf("contacts address book should be promoted to default after default book is deleted")
+		}
+	}
+}
+
 
 // --- Calendar collection state (content-addressed) ---------------------------
 

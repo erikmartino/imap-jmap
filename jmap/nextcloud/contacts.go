@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +22,38 @@ import (
 	"imap-jmap/jmap/vcardconv"
 )
 
+// standardAddressBookProperties maps the standard (CardDAV) display properties of an
+// AddressBook to upstream PROPPATCH fields so they are stored server-side.
+func standardAddressBookProperties(ab *jmapcontacts.AddressBook) []AddressBookProperty {
+	if ab == nil {
+		return nil
+	}
+	var set []AddressBookProperty
+	if ab.Name != "" {
+		set = append(set, AddressBookProperty{Name: xml.Name{Space: nsDAV, Local: "displayname"}, Value: ab.Name})
+	}
+	if ab.Description != nil {
+		set = append(set, AddressBookProperty{Name: xml.Name{Space: nsCardDAV, Local: "addressbook-description"}, Value: *ab.Description})
+	}
+	if ab.SortOrder != 0 {
+		set = append(set, AddressBookProperty{Name: xml.Name{Space: nsApple, Local: "addressbook-order"}, Value: strconv.FormatUint(ab.SortOrder, 10)})
+	}
+	// JMAP-only preferences, stored as one JSON custom property upstream.
+	prefs := jmapAddressBookPrefs{
+		SortOrder:    &ab.SortOrder,
+		IsSubscribed: &ab.IsSubscribed,
+	}
+	if data, err := json.Marshal(prefs); err == nil {
+		set = append(set, AddressBookProperty{Name: xml.Name{Space: nsJMAPCont, Local: "prefs"}, Value: string(data)})
+	}
+	return set
+}
+
+type jmapAddressBookPrefs struct {
+	SortOrder    *uint64 `json:"sortOrder,omitempty"`
+	IsSubscribed *bool   `json:"isSubscribed,omitempty"`
+}
+
 // ContactsBackend implements jmapcontacts.ContactsBackend backed by Nextcloud CardDAV via github.com/emersion/go-webdav/carddav.
 type ContactsBackend struct {
 	client      *Client
@@ -27,14 +61,11 @@ type ContactsBackend struct {
 	trackersMu  sync.Mutex
 	broadcaster *jmappush.Broadcaster
 
-	abTrackers          map[string]*jmappush.ChangeTracker
-	cardTrackers        map[string]*jmappush.ChangeTracker
-	abPaths             map[string]map[jmapcore.Id]string
-	cardPaths           map[string]map[jmapcore.Id]string
-	homeSets            map[string]string
-	defaultAddressBooks map[string]jmapcore.Id
-	absCache            map[string][]*jmapcontacts.AddressBook
-	cardsCache          map[string]map[jmapcore.Id]*jmapcontacts.Card
+	abTrackers   map[string]*jmappush.ChangeTracker
+	cardTrackers map[string]*jmappush.ChangeTracker
+	abPaths      map[string]map[jmapcore.Id]string
+	cardPaths    map[string]map[jmapcore.Id]string
+	cardsCache   map[string]map[jmapcore.Id]*jmapcontacts.Card
 }
 
 var _ jmapcontacts.ContactsBackend = (*ContactsBackend)(nil)
@@ -42,17 +73,15 @@ var _ jmapcontacts.ContactsBackend = (*ContactsBackend)(nil)
 // NewContactsBackend initializes a new Nextcloud-backed ContactsBackend.
 func NewContactsBackend(client *Client) *ContactsBackend {
 	return &ContactsBackend{
-		client:              client,
-		abTrackers:          make(map[string]*jmappush.ChangeTracker),
-		cardTrackers:        make(map[string]*jmappush.ChangeTracker),
-		abPaths:             make(map[string]map[jmapcore.Id]string),
-		cardPaths:           make(map[string]map[jmapcore.Id]string),
-		homeSets:            make(map[string]string),
-		defaultAddressBooks: make(map[string]jmapcore.Id),
-		absCache:            make(map[string][]*jmapcontacts.AddressBook),
-		cardsCache:          make(map[string]map[jmapcore.Id]*jmapcontacts.Card),
+		client:       client,
+		abTrackers:   make(map[string]*jmappush.ChangeTracker),
+		cardTrackers: make(map[string]*jmappush.ChangeTracker),
+		abPaths:      make(map[string]map[jmapcore.Id]string),
+		cardPaths:    make(map[string]map[jmapcore.Id]string),
+		cardsCache:   make(map[string]map[jmapcore.Id]*jmapcontacts.Card),
 	}
 }
+
 
 func (b *ContactsBackend) SetBroadcaster(bc *jmappush.Broadcaster) {
 	b.mu.Lock()
@@ -119,120 +148,103 @@ func (b *ContactsBackend) GetAllAddressBooks(ctx context.Context) ([]*jmapcontac
 }
 
 func (b *ContactsBackend) getAddressBookHomeSet(ctx context.Context, cardClient *carddav.Client, u string) string {
-	b.mu.RLock()
-	if hs, ok := b.homeSets[u]; ok && hs != "" {
-		b.mu.RUnlock()
-		return hs
-	}
-	b.mu.RUnlock()
-
-	principal, err := cardClient.FindCurrentUserPrincipal(ctx)
-	if err == nil && principal != "" {
-		homeSet, err := cardClient.FindAddressBookHomeSet(ctx, principal)
-		if err == nil && homeSet != "" {
-			b.mu.Lock()
-			b.homeSets[u] = homeSet
-			b.mu.Unlock()
-			return homeSet
-		}
-	}
-	defaultHS := "addressbooks/users/" + u + "/"
-	b.mu.Lock()
-	b.homeSets[u] = defaultHS
-	b.mu.Unlock()
-	return defaultHS
+	return b.client.getAddressBookHomeSet(ctx, cardClient, u)
 }
 
 func (b *ContactsBackend) getABPath(u string, abID jmapcore.Id, homeSet string) string {
 	b.mu.RLock()
-	defer b.mu.RUnlock()
 	if b.abPaths[u] != nil {
 		if p, ok := b.abPaths[u][abID]; ok && p != "" {
+			b.mu.RUnlock()
 			return p
 		}
 	}
+	b.mu.RUnlock()
 	if homeSet != "" {
 		return strings.TrimRight(homeSet, "/") + "/" + string(abID) + "/"
 	}
-	return "addressbooks/users/" + u + "/" + string(abID) + "/"
+	return "/remote.php/dav/addressbooks/users/" + u + "/" + string(abID) + "/"
 }
 
 func (b *ContactsBackend) GetAddressBooks(ctx context.Context, ids []jmapcore.Id) ([]*jmapcontacts.AddressBook, []jmapcore.Id, error) {
-	cardClient, u, err := b.client.CardDAV(ctx)
+	collections, err := b.client.getAddressBookCollections(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
+	u := b.user(ctx)
+	defID := collections.defaultAddressBook
 
-	b.mu.RLock()
-	defID := b.defaultAddressBooks[u]
-	b.mu.RUnlock()
-
-	homeSet := b.getAddressBookHomeSet(ctx, cardClient, u)
-	abList, _ := cardClient.FindAddressBooks(ctx, homeSet)
-
-	var list []*jmapcontacts.AddressBook
-	pathMap := make(map[jmapcore.Id]string)
 	idMap := make(map[jmapcore.Id]bool)
 	for _, id := range ids {
 		idMap[id] = true
 	}
 
-	if abList != nil {
-		for _, ab := range abList {
-			abID := path.Base(strings.TrimRight(ab.Path, "/"))
-			if strings.HasPrefix(abID, "z-") {
+	var list []*jmapcontacts.AddressBook
+	pathMap := make(map[jmapcore.Id]string)
+
+	for _, c := range collections.ordered {
+		aid := jmapcore.Id(c.ID)
+		pathMap[aid] = c.Path
+
+		if len(ids) > 0 && !idMap[aid] {
+			if !(aid == "contacts" && idMap["ab-default"]) {
 				continue
 			}
-
-			aid := jmapcore.Id(abID)
-			pathMap[aid] = ab.Path
-
-			if len(ids) > 0 && !idMap[aid] {
-				continue
-			}
-
-			name := ab.Name
-			if name == "" {
-				name = abID
-			}
-
-			list = append(list, &jmapcontacts.AddressBook{
-				ID:   aid,
-				Name: name,
-			})
 		}
-	}
 
-	b.mu.Lock()
-	if b.absCache[u] != nil {
-		for _, cachedAB := range b.absCache[u] {
-			found := false
-			for _, existing := range list {
-				if existing.ID == cachedAB.ID {
-					found = true
-					break
+		name := c.Name
+		if name == "" {
+			name = c.ID
+		}
+
+		ab := &jmapcontacts.AddressBook{
+			ID:           aid,
+			Name:         name,
+			IsSubscribed: true,
+			MyRights:     jmapcontacts.FullAddressBookRights(),
+		}
+		if c.Description != "" {
+			desc := c.Description
+			ab.Description = &desc
+		}
+		if c.Order != "" {
+			if n, parseErr := strconv.ParseUint(strings.TrimSpace(c.Order), 10, 64); parseErr == nil {
+				ab.SortOrder = n
+			}
+		}
+		if c.PrefsJSON != "" {
+			var prefs jmapAddressBookPrefs
+			if json.Unmarshal([]byte(c.PrefsJSON), &prefs) == nil {
+				if prefs.SortOrder != nil {
+					ab.SortOrder = *prefs.SortOrder
+				}
+				if prefs.IsSubscribed != nil {
+					ab.IsSubscribed = *prefs.IsSubscribed
 				}
 			}
-			if !found && (len(ids) == 0 || idMap[cachedAB.ID]) {
-				copyAB := *cachedAB
-				list = append(list, &copyAB)
-			}
 		}
+		list = append(list, ab)
 	}
-	b.mu.Unlock()
 
 	if len(list) == 0 && (len(ids) == 0 || idMap["contacts"] || idMap["ab-default"]) {
+		cardClient, _, cardErr := b.client.CardDAV(ctx)
+		homeSet := ""
+		if cardErr == nil {
+			homeSet = b.client.getAddressBookHomeSet(ctx, cardClient, u)
+		}
 		aid := jmapcore.Id("contacts")
 		pathMap[aid] = strings.TrimRight(homeSet, "/") + "/contacts/"
 		list = append(list, &jmapcontacts.AddressBook{
-			ID:   aid,
-			Name: "Contacts",
+			ID:           aid,
+			Name:         "Contacts",
+			IsSubscribed: true,
+			MyRights:     jmapcontacts.FullAddressBookRights(),
 		})
 	}
 
 	for _, ab := range list {
 		if defID != "" {
-			ab.IsDefault = (ab.ID == defID || (defID == "ab-default" && ab.ID == "contacts"))
+			ab.IsDefault = (string(ab.ID) == defID || (defID == "ab-default" && ab.ID == "contacts"))
 		} else {
 			ab.IsDefault = (ab.ID == "contacts" || ab.ID == "ab-default" || strings.EqualFold(ab.Name, "Contacts"))
 		}
@@ -291,21 +303,23 @@ func (b *ContactsBackend) CreateAddressBook(ctx context.Context, ab *jmapcontact
 	if ab.ID == "" {
 		ab.ID = jmapcore.Id(fmt.Sprintf("ab-%d", time.Now().UnixNano()))
 	}
+	ab.MyRights = jmapcontacts.FullAddressBookRights()
 
-	homeSet := b.getAddressBookHomeSet(ctx, cardClient, u)
+	homeSet := b.client.getAddressBookHomeSet(ctx, cardClient, u)
 	abPath := strings.TrimRight(homeSet, "/") + "/" + string(ab.ID) + "/"
-	_ = cardClient.Mkdir(ctx, abPath)
+
+	if err := b.client.CreateAddressBook(ctx, string(ab.ID)); err != nil {
+		return nil, err
+	}
+	if err := b.client.PatchAddressBookProperties(ctx, string(ab.ID), standardAddressBookProperties(ab), nil); err != nil {
+		return nil, err
+	}
 
 	b.mu.Lock()
 	if b.abPaths[u] == nil {
 		b.abPaths[u] = make(map[jmapcore.Id]string)
 	}
 	b.abPaths[u][ab.ID] = abPath
-	if b.absCache[u] == nil {
-		b.absCache[u] = make([]*jmapcontacts.AddressBook, 0)
-	}
-	abCopy := *ab
-	b.absCache[u] = append(b.absCache[u], &abCopy)
 	st := b.getABTracker(u).Record(ab.ID, "create")
 	b.mu.Unlock()
 
@@ -322,9 +336,34 @@ func (b *ContactsBackend) UpdateAddressBook(ctx context.Context, id jmapcore.Id,
 		return nil, jmapcore.ErrNotFound
 	}
 	ab := abs[0]
+	var remove []xml.Name
+
 	if name, ok := patch["name"].(string); ok && name != "" {
 		ab.Name = name
 	}
+	if descVal, ok := patch["description"]; ok {
+		if descVal == nil {
+			ab.Description = nil
+			remove = append(remove, xml.Name{Space: nsCardDAV, Local: "addressbook-description"})
+		} else if descStr, ok := descVal.(string); ok {
+			ab.Description = &descStr
+		}
+	}
+	if so, ok := patch["sortOrder"].(float64); ok {
+		ab.SortOrder = uint64(so)
+	} else if soInt, ok := patch["sortOrder"].(uint64); ok {
+		ab.SortOrder = soInt
+	} else if soInt2, ok := patch["sortOrder"].(int); ok && soInt2 >= 0 {
+		ab.SortOrder = uint64(soInt2)
+	}
+	if sub, ok := patch["isSubscribed"].(bool); ok {
+		ab.IsSubscribed = sub
+	}
+
+	if err := b.client.PatchAddressBookProperties(ctx, string(id), standardAddressBookProperties(ab), remove); err != nil {
+		return nil, err
+	}
+
 	u := b.user(ctx)
 	b.mu.Lock()
 	st := b.getABTracker(u).Record(id, "update")
@@ -360,22 +399,20 @@ func (b *ContactsBackend) DeleteAddressBook(ctx context.Context, id jmapcore.Id,
 		}
 	}
 
-	homeSet := b.getAddressBookHomeSet(ctx, cardClient, u)
-	abPath := b.getABPath(u, id, homeSet)
-	_ = cardClient.RemoveAll(ctx, abPath)
+	if err := b.client.DeleteAddressBook(ctx, string(id)); err != nil {
+		return false, err
+	}
+
+	// If the deleted address book was the default, remove the home-set default-addressbook property.
+	collections, _ := b.client.getAddressBookCollections(ctx)
+	if collections != nil && collections.defaultAddressBook == string(id) {
+		homeSet := b.client.getAddressBookHomeSet(ctx, cardClient, u)
+		_ = b.client.PatchAddressBookProperties(ctx, homeSet, nil, []xml.Name{{Space: nsJMAPCont, Local: "default-addressbook"}})
+	}
 
 	b.mu.Lock()
 	if b.abPaths[u] != nil {
 		delete(b.abPaths[u], id)
-	}
-	if b.absCache[u] != nil {
-		var filtered []*jmapcontacts.AddressBook
-		for _, a := range b.absCache[u] {
-			if a.ID != id {
-				filtered = append(filtered, a)
-			}
-		}
-		b.absCache[u] = filtered
 	}
 	st := b.getABTracker(u).Record(id, "destroy")
 	b.mu.Unlock()
@@ -391,15 +428,12 @@ func (b *ContactsBackend) SetDefaultAddressBook(ctx context.Context, id jmapcore
 	if err != nil || len(abs) == 0 {
 		return nil
 	}
-	u := b.user(ctx)
-	b.mu.Lock()
-	if b.defaultAddressBooks == nil {
-		b.defaultAddressBooks = make(map[string]jmapcore.Id)
+	if err := b.client.SetDefaultAddressBookUpstream(ctx, string(id)); err != nil {
+		return err
 	}
-	b.defaultAddressBooks[u] = id
-	b.mu.Unlock()
 	return nil
 }
+
 
 func (b *ContactsBackend) AddressBookHasContents(ctx context.Context, id jmapcore.Id) (bool, error) {
 	cards, _, err := b.GetCards(ctx, nil)
