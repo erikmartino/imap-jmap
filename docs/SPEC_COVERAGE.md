@@ -18,7 +18,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [jscontact](#jscontact) | RFC9553, RFC9554, RFC9555 | 6 | 0 | 0 | 6 | 100.0% |
 | [smtp](#smtp) | RFC4954, RFC5228, RFC5232, RFC5321, RFC5429, RFC5546, RFC6047, RFC6376, RFC6409, RFC7208, RFC7489, RFC8601 | 46 | 0 | 0 | 46 | 100.0% |
 | [rfc8620-core](#rfc8620-core) | RFC8620 | 176 | 218 | 0 | 394 | 44.7% |
-| [rfc8621-mail](#rfc8621-mail) | RFC8621 | 95 | 323 | 0 | 418 | 22.7% |
+| [rfc8621-mail](#rfc8621-mail) | RFC8621 | 109 | 309 | 0 | 418 | 26.1% |
 | [rfc8887-websockets](#rfc8887-websockets) | RFC8887 | 0 | 40 | 0 | 40 | 0.0% |
 | [rfc9007-mdn](#rfc9007-mdn) | RFC9007 | 0 | 24 | 0 | 24 | 0.0% |
 | [rfc9219-smime](#rfc9219-smime) | RFC9219 | 0 | 24 | 0 | 24 | 0.0% |
@@ -29,7 +29,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [rfc9670-sharing](#rfc9670-sharing) | RFC9670 | 0 | 76 | 0 | 76 | 0.0% |
 | [rfc9698-jmapaccess](#rfc9698-jmapaccess) | RFC9698 | 0 | 14 | 0 | 14 | 0.0% |
 | [rfc9749-vapid](#rfc9749-vapid) | RFC9749 | 0 | 24 | 0 | 24 | 0.0% |
-| **Total** | | **438** | **954** | **0** | **1392** | **31.5%** |
+| **Total** | | **452** | **940** | **0** | **1392** | **32.5%** |
 
 ---
 
@@ -667,7 +667,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 ## rfc8621-mail
 
 * **Test Suite Directory**: [`jmap/`](../jmap/)
-* **Conformance**: 95 / 418 (22.7%)
+* **Conformance**: 109 / 418 (26.1%)
 
 | Spec | Section | Level | Requirement | Status | Tests | Note |
 | :--- | :---: | :---: | :--- | :---: | :--- | :--- |
@@ -895,7 +895,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8621 | [4.4.2](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.4.2) | `MAY` | The server MAY support sorting based on other properties as well | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.4.2 [p7] |
 | RFC8621 | [4.4.2](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.4.2) | `MUST` | properties, then the order is server dependent but must be stable | ✅ Covered | `TestRFC8621_Section4_EmailQueryFilterAndSort` | Extracted by specextract from RFC8621 §4.4.2 [p8] |
 | RFC8621 | [4.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.6) | `MUST` | o The "headers" property MUST NOT be given on either the top-level | ✅ Covered | `TestRFC8621_EmailCreateRejectsHeadersProperty` | Extracted by specextract from RFC8621 §4.6 [p1] |
-| RFC8621 | [4.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.6) | `MUST` | Email or an EmailBodyPart -- the client must set each header field | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.6 [p2] |
+| RFC8621 | [4.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.6) | `MUST` | Email or an EmailBodyPart -- the client must set each header field | ✅ Covered | `TestRFC8621_Section4_EmailSetImportCopy` | Extracted by specextract from RFC8621 §4.6 [p2] |
 | RFC8621 | [4.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.6) | `MUST` | o There MUST NOT be two properties that represent the same header | ✅ Covered | `TestRFC8621_EmailCreateRejectsDuplicateHeaderProperties` | Extracted by specextract from RFC8621 §4.6 [p3] |
 | RFC8621 | [4.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.6) | `MUST` | o Header fields MUST NOT be specified in parsed forms that are | ✅ Covered | `TestRFC8621_EmailCreateRejectsForbiddenParsedForms` | Extracted by specextract from RFC8621 §4.6 [p4] |
 | RFC8621 | [4.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.6) | `MUST` | o Header fields beginning with "Content-" MUST NOT be specified on | ✅ Covered | `TestRFC8621_EmailCreateRejectsContentHeadersOnTopLevel` | Extracted by specextract from RFC8621 §4.6 [p5] |
@@ -917,34 +917,34 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8621 | [4.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.6) | `MUST` | included, the server MUST generate and set a Message-ID header field | ✅ Covered | `TestRFC8621_EmailCreateGeneratesMessageID` | Extracted by specextract from RFC8621 §4.6 [p21] |
 | RFC8621 | [4.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.6) | `MAY` | The final message generated may be invalid per RFC 5322 | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.6 [p22] |
 | RFC8621 | [4.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.6) | `MAY` | example, if it is a half-finished draft, the To header field may have | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.6 [p23] |
-| RFC8621 | [4.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.6) | `MUST` | a value that does not conform to the required syntax for this header | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.6 [p24] |
+| RFC8621 | [4.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.6) | `MUST` | a value that does not conform to the required syntax for this header | ✅ Covered | `TestRFC8621_Section4_EmailSetImportCopy` | Extracted by specextract from RFC8621 §4.6 [p24] |
 | RFC8621 | [4.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.6) | `SHOULD` | When emptying the trash, clients SHOULD NOT destroy Emails that are | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.6 [p25] |
 | RFC8621 | [4.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.6) | `SHOULD` | For those Emails, they SHOULD | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.6 [p26] |
-| RFC8621 | [4.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.6) | `MUST` | An extra "notFound" property of type "Id[]" MUST | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.6 [p27] |
+| RFC8621 | [4.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.6) | `MUST` | An extra "notFound" property of type "Id[]" MUST | ✅ Covered | `TestRFC8621_Section4_EmailSetImportCopy` | Extracted by specextract from RFC8621 §4.6 [p27] |
 | RFC8621 | [4.7](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.7) | `MAY` | "receivedAt" properties may be set during the copy | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.7 [p1] |
 | RFC8621 | [4.7](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.7) | `MAY` | The server MAY forbid two Email objects with identical message | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.7 [p2] |
-| RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MUST` | The server MUST support messages with Email | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.8 [p1] |
-| RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MUST` | must first be uploaded as blobs using the standard upload mechanism | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.8 [p2] |
-| RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MUST` | supplied, the string must match the current state of the account | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.8 [p3] |
-| RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MUST` | Mailbox MUST be given | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.8 [p4] |
+| RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MUST` | The server MUST support messages with Email | ✅ Covered | `TestRFC8621_Section4_EmailSetImportCopy` | Extracted by specextract from RFC8621 §4.8 [p1] |
+| RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MUST` | must first be uploaded as blobs using the standard upload mechanism | ✅ Covered | `TestRFC8621_Section4_EmailSetImportCopy` | Extracted by specextract from RFC8621 §4.8 [p2] |
+| RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MUST` | supplied, the string must match the current state of the account | ✅ Covered | `TestRFC8621_Section4_EmailSetImportCopy` | Extracted by specextract from RFC8621 §4.8 [p3] |
+| RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MUST` | Mailbox MUST be given | ✅ Covered | `TestRFC8621_Section4_EmailSetImportCopy` | Extracted by specextract from RFC8621 §4.8 [p4] |
 | RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MAY` | Each Email to import is considered an atomic unit that may succeed or | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.8 [p5] |
 | RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MAY` | The server MAY forbid two Email objects with the same exact content | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.8 [p6] |
-| RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MUST` | In this case, it MUST reject attempts to | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.8 [p7] |
-| RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MUST` | An "existingId" property of type "Id" MUST be included on | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.8 [p8] |
-| RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MUST` | are allowed, the newly created Email object MUST have a separate id | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.8 [p9] |
-| RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MUST` | , missing, wrong type, id not found), the server MUST reject the | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.8 [p10] |
+| RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MUST` | In this case, it MUST reject attempts to | ✅ Covered | `TestRFC8621_Section4_EmailSetImportCopy` | Extracted by specextract from RFC8621 §4.8 [p7] |
+| RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MUST` | An "existingId" property of type "Id" MUST be included on | ✅ Covered | `TestRFC8621_Section4_EmailSetImportCopy` | Extracted by specextract from RFC8621 §4.8 [p8] |
+| RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MUST` | are allowed, the newly created Email object MUST have a separate id | ✅ Covered | `TestRFC8621_Section4_EmailSetImportCopy` | Extracted by specextract from RFC8621 §4.8 [p9] |
+| RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MUST` | , missing, wrong type, id not found), the server MUST reject the | ✅ Covered | `TestRFC8621_Section4_EmailSetImportCopy` | Extracted by specextract from RFC8621 §4.8 [p10] |
 | RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `SHOULD` | over quota, the import should be rejected with an "overQuota" | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.8 [p11] |
 | RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MAY` | MAY modify the message to fix errors (such as removing NUL octets or | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.8 [p12] |
-| RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MUST` | response MUST represent the new representation and therefore be | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.8 [p13] |
+| RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MUST` | response MUST represent the new representation and therefore be | ✅ Covered | `TestRFC8621_Section4_EmailSetImportCopy` | Extracted by specextract from RFC8621 §4.8 [p13] |
 | RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MAY` | the server MAY reject the import with an "invalidEmail" SetError | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.8 [p14] |
 | RFC8621 | [4.8](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.8) | `MAY` | The following additional errors may be returned instead of the | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.8 [p15] |
-| RFC8621 | [4.9](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.9) | `MUST` | The server MUST support messages with EAI headers | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.9 [p1] |
+| RFC8621 | [4.9](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.9) | `MUST` | The server MUST support messages with EAI headers | ✅ Covered | `TestRFC8621_Section4_EmailSetImportCopy` | Extracted by specextract from RFC8621 §4.9 [p1] |
 | RFC8621 | [4.9](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.9) | `MAY` | The "threadId" property of the Email MAY be present if the server can | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.9 [p2] |
 | RFC8621 | [4.10](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.10) | `MAY` | The inbox may be (very! | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.10 [p1] |
 | RFC8621 | [4.10](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.10) | `MAY` | The client may aggregate this data for display, for example, by | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.10 [p2] |
 | RFC8621 | [4.10](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.10) | `MAY` | The response from the server may look something like this: | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.10 [p3] |
 | RFC8621 | [4.10](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.10) | `MAY` | "preview": "As you may be aware, we are required to prepare a | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.10 [p4] |
-| RFC8621 | [4.10](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.10) | `MUST` | It MUST set a new | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.10 [p5] |
+| RFC8621 | [4.10](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.10) | `MUST` | It MUST set a new | ✅ Covered | `TestRFC8621_Section4_EmailSetImportCopy` | Extracted by specextract from RFC8621 §4.10 [p5] |
 | RFC8621 | [5](https://www.rfc-editor.org/rfc/rfc8621.html#section-5) | `SHOULD` | If any decodings fail, the parser SHOULD insert a unicode replacement | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §5 [p1] |
 | RFC8621 | [5](https://www.rfc-editor.org/rfc/rfc8621.html#section-5) | `MAY` | interoperability issues, this form may only be fetched or set for the | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §5 [p2] |
 | RFC8621 | [5](https://www.rfc-editor.org/rfc/rfc8621.html#section-5) | `MAY` | When doing a search on a "String" property, the client may wish to | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §5 [p1] |

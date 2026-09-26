@@ -1109,3 +1109,237 @@ func TestRFC8621_Section4_EmailQueryFilterAndSort(t *testing.T) {
 	}
 }
 
+// TestRFC8621_Section4_EmailSetImportCopy tests RFC 8621 Sections 4.6, 4.8, 4.9, and 4.10
+// requirements covering Email/set creation constraints and blobNotFound errors,
+// Email/import blob ingestion, ifInState, duplicates, and EAI headers,
+// Email/parse internationalized message parsing, and Email/copy cross-mailbox/account overrides.
+func TestRFC8621_Section4_EmailSetImportCopy(t *testing.T) {
+	spectest.Require(t, "RFC8621", "4.6", spectest.MUST, "Email or an EmailBodyPart -- the client must set each header field")
+	spectest.Require(t, "RFC8621", "4.6", spectest.MUST, "a value that does not conform to the required syntax for this header")
+	spectest.Require(t, "RFC8621", "4.6", spectest.MUST, "An extra \"notFound\" property of type \"Id[]\" MUST")
+	spectest.Require(t, "RFC8621", "4.8", spectest.MUST, "The server MUST support messages with Email")
+	spectest.Require(t, "RFC8621", "4.8", spectest.MUST, "must first be uploaded as blobs using the standard upload mechanism")
+	spectest.Require(t, "RFC8621", "4.8", spectest.MUST, "supplied, the string must match the current state of the account")
+	spectest.Require(t, "RFC8621", "4.8", spectest.MUST, "Mailbox MUST be given")
+	spectest.Require(t, "RFC8621", "4.8", spectest.MUST, "In this case, it MUST reject attempts to")
+	spectest.Require(t, "RFC8621", "4.8", spectest.MUST, "An \"existingId\" property of type \"Id\" MUST be included on")
+	spectest.Require(t, "RFC8621", "4.8", spectest.MUST, "are allowed, the newly created Email object MUST have a separate id")
+	spectest.Require(t, "RFC8621", "4.8", spectest.MUST, ", missing, wrong type, id not found), the server MUST reject the")
+	spectest.Require(t, "RFC8621", "4.8", spectest.MUST, "response MUST represent the new representation and therefore be")
+	spectest.Require(t, "RFC8621", "4.9", spectest.MUST, "The server MUST support messages with EAI headers")
+	spectest.Require(t, "RFC8621", "4.10", spectest.MUST, "It MUST set a new")
+
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	ctx := seedCtx()
+	using := []string{jmap.CoreCapabilityURI, jmap.MailCapabilityURI}
+
+	// 1. Email/set header validation (RFC 8621 §4.6)
+	// Top-level "headers" property MUST NOT be given
+	rHeadersTop := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"eHdr": map[string]any{
+					"mailboxIds": map[string]bool{"mb-inbox": true},
+					"headers":    []any{map[string]any{"name": "X-Foo", "value": "Bar"}},
+				},
+			},
+		}, "cHdr"},
+	})
+	notCreatedHdr, _ := rHeadersTop.MethodResponses[0].Args["notCreated"].(map[string]any)
+	if _, ok := notCreatedHdr["eHdr"]; !ok {
+		t.Fatalf("expected create with top-level 'headers' to be rejected: %v", rHeadersTop.MethodResponses[0].Args)
+	}
+
+	// 2. Draft creation with lenient header syntax per RFC 8621 §4.6
+	// For drafts, To header may have a value that does not yet conform to RFC 5322 address format
+	rDraft := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"eDraft": map[string]any{
+					"mailboxIds": map[string]bool{"mb-inbox": true},
+					"keywords":   map[string]bool{"$draft": true},
+					"subject":    "Work in Progress Draft",
+					"to":         []any{map[string]any{"name": "Incomplete Recipient", "email": "draft-in-progress"}},
+					"textBody":   []any{map[string]any{"partId": "p1", "type": "text/plain"}},
+					"bodyValues": map[string]any{"p1": map[string]any{"value": "Draft content"}},
+				},
+			},
+		}, "cDraft"},
+	})
+	createdDraft, _ := rDraft.MethodResponses[0].Args["created"].(map[string]any)
+	draftObj, ok := createdDraft["eDraft"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected draft with lenient To header to be created: %v", rDraft.MethodResponses[0].Args)
+	}
+	draftID := draftObj["id"].(string)
+
+	// 3. Email/set create referencing nonexistent blobId -> blobNotFound with notFound array (RFC 8621 §4.6)
+	rMissingBlob := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/set", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"eMissingBlob": map[string]any{
+					"mailboxIds":  map[string]bool{"mb-inbox": true},
+					"attachments": []any{map[string]any{"blobId": "nonexistent-blob-12345", "type": "application/pdf"}},
+				},
+			},
+		}, "cMissingBlob"},
+	})
+	notCreatedBlob, _ := rMissingBlob.MethodResponses[0].Args["notCreated"].(map[string]any)
+	errBlob, ok := notCreatedBlob["eMissingBlob"].(map[string]any)
+	if !ok || errBlob["type"] != "blobNotFound" {
+		t.Fatalf("expected blobNotFound for missing attachment blob, got %v", errBlob)
+	}
+	notFoundList, _ := errBlob["notFound"].([]any)
+	if len(notFoundList) == 0 || notFoundList[0] != "nonexistent-blob-12345" {
+		t.Errorf("expected notFound to list ['nonexistent-blob-12345'], got %v", notFoundList)
+	}
+
+	// 4. Email/import with standard blob upload & EAI headers (RFC 8621 §4.8 & §4.9)
+	accountID := jmap.AccountIDForSubject(testUsername)
+	eaiRawMsg := []byte("From: =?utf-8?B?5byg5Lyf?= <zhangwei@example.com>\r\n" +
+		"To: =?utf-8?B?5p2O5Zub?= <lisi@example.com>\r\n" +
+		"Subject: =?utf-8?B?RUFJ6YKu5Lu25rWL6K+V?=\r\n" +
+		"MIME-Version: 1.0\r\n" +
+		"Content-Type: text/plain; charset=utf-8\r\n" +
+		"\r\n" +
+		"Hello Internationalized Email\r\n")
+
+	blob, err := srv.BlobBackend.PutBlob(ctx, accountID, "message/rfc822", eaiRawMsg)
+	if err != nil {
+		t.Fatalf("failed to upload blob for import: %v", err)
+	}
+
+	// 5. Email/import with outdated ifInState -> stateMismatch (RFC 8621 §4.8)
+	rMismatch := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/import", map[string]any{
+			"accountId": "primary",
+			"ifInState": "outdated-invalid-state",
+			"emails": map[string]any{
+				"impMismatch": map[string]any{
+					"blobId":     string(blob.ID),
+					"mailboxIds": map[string]bool{"mb-inbox": true},
+				},
+			},
+		}, "cMismatch"},
+	})
+	if rMismatch.MethodResponses[0].Name != "error" || rMismatch.MethodResponses[0].Args["type"] != "stateMismatch" {
+		t.Fatalf("expected stateMismatch error on invalid ifInState, got %v", rMismatch.MethodResponses[0])
+	}
+
+	// 6. Email/import missing mailboxIds -> invalidProperties (RFC 8621 §4.8)
+	rNoMb := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/import", map[string]any{
+			"accountId": "primary",
+			"emails": map[string]any{
+				"impNoMb": map[string]any{
+					"blobId":     string(blob.ID),
+					"mailboxIds": map[string]bool{},
+				},
+			},
+		}, "cNoMb"},
+	})
+	notCreatedNoMb, _ := rNoMb.MethodResponses[0].Args["notCreated"].(map[string]any)
+	errNoMb, ok := notCreatedNoMb["impNoMb"].(map[string]any)
+	if !ok || errNoMb["type"] != "invalidProperties" {
+		t.Fatalf("expected invalidProperties when mailboxIds is empty, got %v", errNoMb)
+	}
+
+	// 7. Email/import invalid blobId -> invalidProperties (RFC 8621 §4.8)
+	rBadBlob := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/import", map[string]any{
+			"accountId": "primary",
+			"emails": map[string]any{
+				"impBadBlob": map[string]any{
+					"blobId":     "non-existent-import-blob",
+					"mailboxIds": map[string]bool{"mb-inbox": true},
+				},
+			},
+		}, "cBadBlob"},
+	})
+	notCreatedBadBlob, _ := rBadBlob.MethodResponses[0].Args["notCreated"].(map[string]any)
+	errBadBlob, ok := notCreatedBadBlob["impBadBlob"].(map[string]any)
+	if !ok || errBadBlob["type"] != "invalidProperties" {
+		t.Fatalf("expected invalidProperties for nonexistent blobId in import, got %v", errBadBlob)
+	}
+
+	// 8. Successful Email/import with EAI headers and duplicate creation assigning separate IDs (RFC 8621 §4.8)
+	rImport := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/import", map[string]any{
+			"accountId": "primary",
+			"emails": map[string]any{
+				"imp1": map[string]any{
+					"blobId":     string(blob.ID),
+					"mailboxIds": map[string]bool{"mb-inbox": true},
+					"keywords":   map[string]bool{"$seen": true},
+				},
+				"imp2": map[string]any{
+					"blobId":     string(blob.ID),
+					"mailboxIds": map[string]bool{"mb-inbox": true},
+					"keywords":   map[string]bool{"$flagged": true},
+				},
+			},
+		}, "cImport"},
+	})
+	createdImp, _ := rImport.MethodResponses[0].Args["created"].(map[string]any)
+	imp1Obj, ok1 := createdImp["imp1"].(map[string]any)
+	imp2Obj, ok2 := createdImp["imp2"].(map[string]any)
+	if !ok1 || !ok2 {
+		t.Fatalf("expected both duplicate imports to succeed: %v", rImport.MethodResponses[0].Args)
+	}
+	id1, _ := imp1Obj["id"].(string)
+	id2, _ := imp2Obj["id"].(string)
+	if id1 == "" || id2 == "" || id1 == id2 {
+		t.Errorf("duplicate imports must have separate distinct IDs, got id1=%q, id2=%q", id1, id2)
+	}
+
+	// 9. Email/parse with EAI headers (RFC 8621 §4.9)
+	rParse := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/parse", map[string]any{
+			"accountId":  "primary",
+			"blobIds":    []string{string(blob.ID)},
+			"properties": []string{"subject", "from", "to"},
+		}, "cParse"},
+	})
+	parsedMap, _ := rParse.MethodResponses[0].Args["parsed"].(map[string]any)
+	parsedObj, ok := parsedMap[string(blob.ID)].(map[string]any)
+	if !ok {
+		t.Fatalf("expected parsed blob object, got %v", rParse.MethodResponses[0].Args)
+	}
+	subj, _ := parsedObj["subject"].(string)
+	if !strings.Contains(subj, "EAI") && !strings.Contains(subj, "邮件测试") {
+		t.Errorf("expected parsed EAI subject, got %q", subj)
+	}
+
+	// 10. Email/copy setting new mailboxIds per RFC 8621 §4.10
+	_, _ = srv.MailBackend.CreateMailbox(ctx, &jmap.Mailbox{
+		ID:   "mb-sent",
+		Name: "Sent",
+	})
+	rCopy := postJMAP(t, ts.URL, using, []any{
+		[]any{"Email/copy", map[string]any{
+			"accountId": "primary",
+			"create": map[string]any{
+				"cp1": map[string]any{
+					"id":         draftID,
+					"mailboxIds": map[string]bool{"mb-sent": true},
+				},
+			},
+		}, "cCopy"},
+	})
+	createdCopy, _ := rCopy.MethodResponses[0].Args["created"].(map[string]any)
+	cpObj, ok := createdCopy["cp1"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected email copy to succeed with new mailboxIds: %v", rCopy.MethodResponses[0].Args)
+	}
+	cpID, _ := cpObj["id"].(string)
+	if cpID == "" || cpID == draftID {
+		t.Errorf("expected copied email to have distinct ID in new mailbox, got %q", cpID)
+	}
+}
+

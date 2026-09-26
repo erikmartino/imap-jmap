@@ -23,7 +23,7 @@ func HandleEmailCopy(backend MailBackend) jmaphandler.MethodHandler {
 		}
 
 		onSuccessDestroy, _ := args["onSuccessDestroyOriginal"].(bool)
-		created := make(map[string]*Email)
+		created := make(map[string]any)
 		notCreated := make(map[string]any)
 		destroyOriginals := make([]jmapcore.Id, 0)
 		creationRefs := jmaphandler.NewSetCreationRefs(ctx)
@@ -40,6 +40,19 @@ func HandleEmailCopy(backend MailBackend) jmaphandler.MethodHandler {
 					notCreated[clientKey] = jmapcore.SetError{Type: "invalidProperties", Description: "missing id"}
 					continue
 				}
+
+				// Only mailboxIds, keywords, and receivedAt may be set during copy (RFC 8621 §4.7)
+				var invalidProps []string
+				for prop := range emData {
+					if prop != "id" && prop != "mailboxIds" && prop != "keywords" && prop != "receivedAt" {
+						invalidProps = append(invalidProps, prop)
+					}
+				}
+				if len(invalidProps) > 0 {
+					notCreated[clientKey] = jmapcore.SetError{Type: "invalidProperties", Properties: invalidProps}
+					continue
+				}
+
 				resolvedID := jmaphandler.ResolveCreationID(idStr, creationRefs)
 				list, notFound, _ := backend.GetEmails(srcCtx, []jmapcore.Id{jmapcore.Id(resolvedID)})
 				if len(list) == 0 || len(notFound) > 0 {
@@ -51,7 +64,7 @@ func HandleEmailCopy(backend MailBackend) jmaphandler.MethodHandler {
 				cp.ID = ""
 				cp.ThreadID = ""
 
-				// Apply property overrides if specified (RFC 8621 Section 4.6)
+				// Apply property overrides if specified (RFC 8621 Section 4.7)
 				if mbMap, ok := emData["mailboxIds"].(map[string]any); ok {
 					cp.MailboxIDs = make(map[jmapcore.Id]bool)
 					for k, v := range mbMap {
@@ -69,6 +82,9 @@ func HandleEmailCopy(backend MailBackend) jmaphandler.MethodHandler {
 						}
 					}
 				}
+				if rcptAt, ok := emData["receivedAt"].(string); ok && rcptAt != "" {
+					cp.ReceivedAt = rcptAt
+				}
 
 				createdEM, err := backend.CreateEmail(ctx, &cp)
 				if err != nil {
@@ -80,7 +96,12 @@ func HandleEmailCopy(backend MailBackend) jmaphandler.MethodHandler {
 						notCreated[clientKey] = jmapcore.SetError{Type: "serverFail", Description: err.Error()}
 					}
 				} else {
-					created[clientKey] = createdEM
+					created[clientKey] = map[string]any{
+						"id":       createdEM.ID,
+						"blobId":   createdEM.BlobID,
+						"threadId": createdEM.ThreadID,
+						"size":     createdEM.Size,
+					}
 					jmaphandler.RecordCreationRefs(ctx, creationRefs, clientKey, createdEM.ID)
 					destroyOriginals = append(destroyOriginals, jmapcore.Id(resolvedID))
 				}
@@ -126,6 +147,13 @@ func HandleEmailImport(backend MailBackend, blobBackend jmapblob.BlobBackend) jm
 
 		accountID, _ := args["accountId"].(string)
 		oldState := backend.EmailState(ctx)
+		if ifInStateRaw, hasState := args["ifInState"]; hasState && ifInStateRaw != nil {
+			if ifInState, ok := ifInStateRaw.(string); ok && ifInState != oldState {
+				return "error", map[string]any{
+					"type": "stateMismatch",
+				}
+			}
+		}
 		created := make(map[string]any)
 		notCreated := make(map[string]jmapcore.SetError)
 		creationRefs := jmaphandler.NewSetCreationRefs(ctx)
