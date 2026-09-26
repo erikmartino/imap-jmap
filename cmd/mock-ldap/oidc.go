@@ -20,7 +20,18 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/mcnijman/go-emailaddress"
 )
+
+// emailLocalPart returns the local part of an email address, or the input
+// unchanged when it is not a valid address.
+func emailLocalPart(username string) string {
+	if e, err := emailaddress.Parse(strings.TrimSpace(username)); err == nil {
+		return e.LocalPart
+	}
+	return username
+}
 
 type AuthCode struct {
 	Code                string
@@ -244,7 +255,7 @@ func (s *OIDCServer) handleAuth(w http.ResponseWriter, r *http.Request) {
 
 		// Ensure username has full email domain if not present
 		fullUser := username
-		if !strings.Contains(fullUser, "@") {
+		if _, err := emailaddress.Parse(fullUser); err != nil {
 			fullUser = fullUser + "@" + s.Domain
 		}
 
@@ -334,7 +345,7 @@ func (s *OIDCServer) handleToken(w http.ResponseWriter, r *http.Request) {
 		now := time.Now()
 		exp := now.Add(24 * time.Hour)
 		username := rtData.Username
-		cleanName := strings.Split(username, "@")[0]
+		cleanName := emailLocalPart(username)
 
 		encSec, _ := EncryptCredentialsPayload(username, rtData.Password, s.encSecretKey)
 
@@ -466,7 +477,7 @@ func (s *OIDCServer) handleToken(w http.ResponseWriter, r *http.Request) {
 	exp := now.Add(24 * time.Hour)
 
 	username := authCode.Username
-	cleanName := strings.Split(username, "@")[0]
+	cleanName := emailLocalPart(username)
 
 	encSec, _ := EncryptCredentialsPayload(username, authCode.Password, s.encSecretKey)
 
@@ -555,7 +566,7 @@ func (s *OIDCServer) handleUserInfo(w http.ResponseWriter, r *http.Request) {
 		username = "user@" + s.Domain
 	}
 
-	cleanName := strings.Split(username, "@")[0]
+	cleanName := emailLocalPart(username)
 
 	info := map[string]any{
 		"sub":                username,

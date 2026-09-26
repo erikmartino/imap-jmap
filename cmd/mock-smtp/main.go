@@ -14,6 +14,7 @@ import (
 
 	"github.com/emersion/go-sasl"
 	"github.com/emersion/go-smtp"
+	"github.com/mcnijman/go-emailaddress"
 )
 
 type Backend struct {
@@ -21,7 +22,6 @@ type Backend struct {
 }
 
 func (b *Backend) NewSession(c *smtp.Conn) (smtp.Session, error) {
-
 
 	return &Session{backend: b, remoteAddr: c.Conn().RemoteAddr().String()}, nil
 }
@@ -36,7 +36,6 @@ type Session struct {
 }
 
 var _ smtp.AuthSession = (*Session)(nil)
-
 
 func (s *Session) AuthMechanisms() []string {
 	return []string{sasl.Plain}
@@ -60,7 +59,6 @@ func (s *Session) Auth(mech string) (sasl.Server, error) {
 		return nil, smtp.ErrAuthUnsupported
 	}
 }
-
 
 func (s *Session) Mail(from string, opts *smtp.MailOptions) error {
 	s.from = from
@@ -158,9 +156,8 @@ func deliverLMTP(recipient, from string, data []byte) {
 }
 
 func getDomain(email string) string {
-	parts := strings.Split(email, "@")
-	if len(parts) > 1 {
-		return parts[1]
+	if e, err := emailaddress.Parse(strings.TrimSpace(email)); err == nil {
+		return e.Domain
 	}
 	return ""
 }
@@ -169,9 +166,8 @@ func main() {
 	port := os.Getenv("SMTP_LISTEN_PORT")
 	if port == "" {
 		envPort := os.Getenv("SMTP_PORT")
-		if strings.Contains(envPort, ":") {
-			parts := strings.Split(envPort, ":")
-			port = parts[len(parts)-1]
+		if _, p, err := net.SplitHostPort(envPort); err == nil {
+			port = p
 		} else {
 			port = envPort
 		}

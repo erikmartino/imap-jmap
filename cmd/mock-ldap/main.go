@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,9 +20,8 @@ func main() {
 	port := os.Getenv("LDAP_LISTEN_PORT")
 	if port == "" {
 		envPort := os.Getenv("LDAP_PORT")
-		if strings.Contains(envPort, ":") {
-			parts := strings.Split(envPort, ":")
-			port = parts[len(parts)-1]
+		if _, p, err := net.SplitHostPort(envPort); err == nil {
+			port = p
 		} else {
 			port = envPort
 		}

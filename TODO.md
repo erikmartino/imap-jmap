@@ -49,7 +49,10 @@ Audit and convert all ad-hoc serializers, manual string concatenations, and brit
 - [~] **1.9b `jmap/managesieve/client.go` — PUSH BACK**: ManageSieve (RFC 5804) framing/quoted-string handling has no canonical Go protocol client in the dependency set (`go-sieve` is a language parser/interpreter, not the wire protocol), so the minimal client is retained.
 - [~] **1.9c `imap/convert.go` — PUSH BACK**: `EmailIDFor`/`ParseEmailID` encode an internal composite id (`<base64url mailbox>-<uid>`), not a standard wire format; the `LastIndex` split is deliberate because base64url may contain `-`. No standard parser applies.
 - [x] **1.9d `jmap/jmapmail/email_get_helper.go`**: removed manual `"group:"`-stripping in `decodeHeaderAddresses` and rely on `net/mail.ParseAddressList`, which handles RFC 5322 group syntax (and no longer corrupts display names containing `:`); regression test added.
-- [ ] **1.9e Remaining audit**: `cmd/`/`tools/` utilities.
+- [x] **1.9e `cmd/` + `tools/` audit**
+  - `cmd/mock-smtp`: `getDomain` uses `go-emailaddress`; `SMTP_PORT` `host:port` parsed with `net.SplitHostPort`.
+  - `cmd/mock-ldap`: `LDAP_PORT` `host:port` parsed with `net.SplitHostPort`; OIDC username full-address/local-part handling uses `go-emailaddress`.
+  - [~] Push back: `cmd/mock-ldap` DN parsing (`extractUsername`) and `tools/specextract` RFC prose scanning have no lightweight standard library (`go-ldap/v3` would add 4 modules for a mock-only helper; prose extraction is inherently heuristic) — retained as documented mock/tooling code.
 - [x] **1.10 Regression tests for the parser/serializer conversion**
   - `jmap/jmapmail`: `StripBCCHeader` (incl. folded continuation), `EnsureValidMessageID` edge cases (empty/malformed/LF-only), `domainFromMailboxOrDomain`, `ensureCharsetUTF8`, `extractDomainFromAddress`.
   - `jmap/jmapauth`: `PrimaryDomainResolver.ResolveAccountID` (case-insensitive domain, foreign/invalid/default-domain cases).
