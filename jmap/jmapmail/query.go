@@ -266,13 +266,47 @@ func MatchesFilterWithThreadContext(em *Email, filter map[string]any, tc *Thread
 // prefix-wildcard that clients (e.g. Bulwark) append and surrounding quotes. JMAP
 // text filters are free-text, not literal substrings (RFC 8621 Section 4.4.1), so a
 // query like "core*" must match the word "Core".
+//
+// Text in double quotes is preserved as a single phrase token (RFC 8621 Section
+// 4.4.1): a quoted "quarterly figures" must match that exact sequence rather than
+// the two independent words. A backslash escapes the next character inside a
+// phrase, matching the RFC's rule for ', " and \.
 func searchTerms(q string) []string {
+	q = strings.ToLower(q)
 	var terms []string
-	for _, f := range strings.Fields(strings.ToLower(q)) {
-		if f = strings.Trim(f, "*\"'"); f != "" {
-			terms = append(terms, f)
+	var b strings.Builder
+	flush := func() {
+		if t := strings.Trim(b.String(), " \t\r\n*'\""); t != "" {
+			terms = append(terms, t)
+		}
+		b.Reset()
+	}
+	inQuote := false
+	escaped := false
+	for _, r := range q {
+		if escaped {
+			b.WriteRune(r)
+			escaped = false
+			continue
+		}
+		switch {
+		case r == '\\' && inQuote:
+			escaped = true
+		case r == '"':
+			if inQuote {
+				flush()
+				inQuote = false
+			} else {
+				flush()
+				inQuote = true
+			}
+		case !inQuote && (r == ' ' || r == '\t' || r == '\r' || r == '\n'):
+			flush()
+		default:
+			b.WriteRune(r)
 		}
 	}
+	flush()
 	return terms
 }
 

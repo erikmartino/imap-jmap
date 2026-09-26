@@ -1879,8 +1879,8 @@ var RFC8621Requirements = []Requirement{
 		Section: "4.4.1",
 		Level:   Level("SHOULD"),
 		Text:    "o Text SHOULD be matched in a case-insensitive manner",
-		Tests:   []string{},
-		Status:  Gap,
+		Tests:   []string{"TestRFC8621_EmailQueryTextSearchWildcard"},
+		Status:  Covered,
 		Note:    "Extracted by specextract from RFC8621 §4.4.1 [p26]",
 	},
 	{
@@ -1888,8 +1888,8 @@ var RFC8621Requirements = []Requirement{
 		Section: "4.4.1",
 		Level:   Level("SHOULD"),
 		Text:    "quotes SHOULD be treated as a *phrase search*; that is, a match is",
-		Tests:   []string{},
-		Status:  Gap,
+		Tests:   []string{"TestRFC8621_EmailQueryTextSearchWildcard"},
+		Status:  Covered,
 		Note:    "Extracted by specextract from RFC8621 §4.4.1 [p27]",
 	},
 	{
@@ -1915,8 +1915,8 @@ var RFC8621Requirements = []Requirement{
 		Section: "4.4.1",
 		Level:   Level("SHOULD"),
 		Text:    "o Outside of a phrase, white space SHOULD be treated as dividing",
-		Tests:   []string{},
-		Status:  Gap,
+		Tests:   []string{"TestRFC8621_EmailQueryTextSearchWildcard"},
+		Status:  Covered,
 		Note:    "Extracted by specextract from RFC8621 §4.4.1 [p30]",
 	},
 	{

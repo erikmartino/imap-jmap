@@ -18,7 +18,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [jscontact](#jscontact) | RFC9553, RFC9554, RFC9555 | 6 | 0 | 0 | 6 | 100.0% |
 | [smtp](#smtp) | RFC4954, RFC5228, RFC5232, RFC5321, RFC5429, RFC5546, RFC6047, RFC6376, RFC6409, RFC7208, RFC7489, RFC8601 | 46 | 0 | 0 | 46 | 100.0% |
 | [rfc8620-core](#rfc8620-core) | RFC8620 | 188 | 206 | 0 | 394 | 47.7% |
-| [rfc8621-mail](#rfc8621-mail) | RFC8621 | 150 | 268 | 0 | 418 | 35.9% |
+| [rfc8621-mail](#rfc8621-mail) | RFC8621 | 153 | 265 | 0 | 418 | 36.6% |
 | [rfc8887-websockets](#rfc8887-websockets) | RFC8887 | 0 | 40 | 0 | 40 | 0.0% |
 | [rfc9007-mdn](#rfc9007-mdn) | RFC9007 | 0 | 24 | 0 | 24 | 0.0% |
 | [rfc9219-smime](#rfc9219-smime) | RFC9219 | 0 | 24 | 0 | 24 | 0.0% |
@@ -29,7 +29,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [rfc9670-sharing](#rfc9670-sharing) | RFC9670 | 0 | 76 | 0 | 76 | 0.0% |
 | [rfc9698-jmapaccess](#rfc9698-jmapaccess) | RFC9698 | 0 | 14 | 0 | 14 | 0.0% |
 | [rfc9749-vapid](#rfc9749-vapid) | RFC9749 | 0 | 24 | 0 | 24 | 0.0% |
-| **Total** | | **505** | **887** | **0** | **1392** | **36.3%** |
+| **Total** | | **508** | **884** | **0** | **1392** | **36.5%** |
 
 ---
 
@@ -667,7 +667,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 ## rfc8621-mail
 
 * **Test Suite Directory**: [`jmap/`](../jmap/)
-* **Conformance**: 150 / 418 (35.9%)
+* **Conformance**: 153 / 418 (36.6%)
 
 | Spec | Section | Level | Requirement | Status | Tests | Note |
 | :--- | :---: | :---: | :--- | :---: | :--- | :--- |
@@ -879,11 +879,11 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8621 | [4.4.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.4.1) | `SHOULD` | fields with a known encoding SHOULD be decoded before attempting | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.4.1 [p23] |
 | RFC8621 | [4.4.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.4.1) | `SHOULD` | markup rather than content SHOULD be ignored, including HTML tags | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.4.1 [p24] |
 | RFC8621 | [4.4.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.4.1) | `SHOULD` | for presentation to the user such as "alt" and "title" SHOULD be | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.4.1 [p25] |
-| RFC8621 | [4.4.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.4.1) | `SHOULD` | o Text SHOULD be matched in a case-insensitive manner | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.4.1 [p26] |
-| RFC8621 | [4.4.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.4.1) | `SHOULD` | quotes SHOULD be treated as a *phrase search*; that is, a match is | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.4.1 [p27] |
+| RFC8621 | [4.4.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.4.1) | `SHOULD` | o Text SHOULD be matched in a case-insensitive manner | ✅ Covered | `TestRFC8621_EmailQueryTextSearchWildcard` | Extracted by specextract from RFC8621 §4.4.1 [p26] |
+| RFC8621 | [4.4.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.4.1) | `SHOULD` | quotes SHOULD be treated as a *phrase search*; that is, a match is | ✅ Covered | `TestRFC8621_EmailQueryTextSearchWildcard` | Extracted by specextract from RFC8621 §4.4.1 [p27] |
 | RFC8621 | [4.4.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.4.1) | `MUST` | required for that exact word or sequence of words, excluding the | ✅ Covered | `TestRFC8621_Section4_EmailQueryFilterAndSort` | Extracted by specextract from RFC8621 §4.4.1 [p28] |
 | RFC8621 | [4.4.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.4.1) | `MUST` | Within a phrase, to match one of the following characters you MUST | ✅ Covered | `TestRFC8621_Section4_EmailQueryFilterAndSort` | Extracted by specextract from RFC8621 §4.4.1 [p29] |
-| RFC8621 | [4.4.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.4.1) | `SHOULD` | o Outside of a phrase, white space SHOULD be treated as dividing | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.4.1 [p30] |
+| RFC8621 | [4.4.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.4.1) | `SHOULD` | o Outside of a phrase, white space SHOULD be treated as dividing | ✅ Covered | `TestRFC8621_EmailQueryTextSearchWildcard` | Extracted by specextract from RFC8621 §4.4.1 [p30] |
 | RFC8621 | [4.4.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.4.1) | `MUST` | separate tokens that may be searched for separately but MUST all | ✅ Covered | `TestRFC8621_Section4_EmailQueryFilterAndSort` | Extracted by specextract from RFC8621 §4.4.1 [p31] |
 | RFC8621 | [4.4.1](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.4.1) | `MAY` | o Tokens (not part of a phrase) MAY be matched on a whole-word basis | ⚠️ **Gap** | — | Extracted by specextract from RFC8621 §4.4.1 [p32] |
 | RFC8621 | [4.4.2](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.4.2) | `MUST` | MUST be supported for sorting: | ✅ Covered | `TestRFC8621_Section4_EmailQueryFilterAndSort` | Extracted by specextract from RFC8621 §4.4.2 [p1] |

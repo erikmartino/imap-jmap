@@ -15,6 +15,8 @@ import (
 func TestRFC8621_EmailQueryTextSearchWildcard(t *testing.T) {
 	spectest.Require(t, "RFC8621", "4.4.1", spectest.MUST,
 		"Email/query text/subject/body/from filters are free-text searches; a client prefix-wildcard term matches a word.")
+	spectest.Require(t, "RFC8621", "4.4.1", spectest.SHOULD,
+		"quotes SHOULD be treated as a *phrase search*; that is, a match is")
 
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
@@ -82,5 +84,13 @@ func TestRFC8621_EmailQueryTextSearchWildcard(t *testing.T) {
 	// Negative: a term present nowhere must not match.
 	if has(query(map[string]any{"text": "nonexistentterm*"})) {
 		t.Errorf(`text:"nonexistentterm*" must not match`)
+	}
+
+	// A double-quoted phrase is matched as an exact sequence (RFC 8621 §4.4.1).
+	if !has(query(map[string]any{"text": `"quarterly core"`})) {
+		t.Errorf(`text:"quarterly core" should match the subject phrase "Quarterly Core"`)
+	}
+	if has(query(map[string]any{"text": `"core quarterly"`})) {
+		t.Errorf(`text:"core quarterly" must not match out of order`)
 	}
 }
