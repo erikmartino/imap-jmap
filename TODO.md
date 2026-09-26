@@ -46,6 +46,10 @@ Audit and convert all ad-hoc serializers, manual string concatenations, and brit
 - [ ] **1.8 vCard serialization (`jmap/vcardconv/encode.go`)**
   - Migrate the hand-rolled vCard folding/escaping encoder to `github.com/emersion/go-vcard`.
 - [ ] **1.9 Remaining audit**: `jmap/imapsmtp/blob.go` (MIME by `Sprintf`), `jmap/managesieve/client.go`, `imap/convert.go`, `jmap/jmapmail/email_get_helper.go`, and `cmd/`/`tools/` utilities.
+- [x] **1.10 Regression tests for the parser/serializer conversion**
+  - `jmap/jmapmail`: `StripBCCHeader` (incl. folded continuation), `EnsureValidMessageID` edge cases (empty/malformed/LF-only), `domainFromMailboxOrDomain`, `ensureCharsetUTF8`, `extractDomainFromAddress`.
+  - `jmap/jmapauth`: `PrimaryDomainResolver.ResolveAccountID` (case-insensitive domain, foreign/invalid/default-domain cases).
+  - `smtp`: `addressDomain`, `organizationalDomain` fallback, `emailAddressMatches`, `sanitizeEnvelope`, and `AuthenticationResultsHeader` including the "no blank-line terminator" invariant.
 
 ---
 

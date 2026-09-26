@@ -1,6 +1,7 @@
 package jmapauth_test
 
 import (
+	"context"
 	"encoding/base64"
 	"testing"
 
@@ -44,4 +45,46 @@ func TestAuthPrimitives(t *testing.T) {
 	if _, err := jmapauth.DecodeBase64OrRaw("!!!not-base64!!!"); err == nil {
 		t.Fatalf("expected error for invalid base64 input")
 	}
+}
+
+func TestPrimaryDomainResolver(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("local domain resolves to account", func(t *testing.T) {
+		r := jmapauth.PrimaryDomainResolver{PrimaryDomain: "example.com"}
+		got, local := r.ResolveAccountID(ctx, "user@example.com")
+		if !local || got != jmapauth.AccountIDForSubject("user@example.com") {
+			t.Fatalf("ResolveAccountID = (%q, %v), want local account", got, local)
+		}
+	})
+
+	t.Run("domain match is case-insensitive", func(t *testing.T) {
+		r := jmapauth.PrimaryDomainResolver{PrimaryDomain: "example.com"}
+		if _, local := r.ResolveAccountID(ctx, "user@EXAMPLE.COM"); !local {
+			t.Fatalf("expected case-insensitive domain match")
+		}
+	})
+
+	t.Run("foreign domain is not local", func(t *testing.T) {
+		r := jmapauth.PrimaryDomainResolver{PrimaryDomain: "example.com"}
+		if got, local := r.ResolveAccountID(ctx, "user@external.org"); local || got != "" {
+			t.Fatalf("ResolveAccountID = (%q, %v), want non-local", got, local)
+		}
+	})
+
+	t.Run("invalid address is not local", func(t *testing.T) {
+		r := jmapauth.PrimaryDomainResolver{PrimaryDomain: "example.com"}
+		for _, addr := range []string{"", "not-an-address", "user@"} {
+			if got, local := r.ResolveAccountID(ctx, addr); local || got != "" {
+				t.Errorf("ResolveAccountID(%q) = (%q, %v), want non-local", addr, got, local)
+			}
+		}
+	})
+
+	t.Run("empty primary domain defaults to example.com", func(t *testing.T) {
+		r := jmapauth.PrimaryDomainResolver{}
+		if _, local := r.ResolveAccountID(ctx, "user@example.com"); !local {
+			t.Fatalf("expected default domain to accept example.com")
+		}
+	})
 }
