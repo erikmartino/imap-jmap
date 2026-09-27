@@ -187,6 +187,45 @@ func handleBlobUpload(backend BlobBackend) MethodHandler {
 			}
 
 			for _, src := range sources {
+				dataKeyCount := 0
+				if v, ok := src["data:asText"]; ok && v != nil {
+					dataKeyCount++
+				}
+				if v, ok := src["data:asBase64"]; ok && v != nil {
+					dataKeyCount++
+				}
+				if v, ok := src["blobId"]; ok && v != nil {
+					dataKeyCount++
+				}
+
+				if dataKeyCount != 1 {
+					uploadErr = &SetError{Type: "invalidProperties", Description: "exactly one of data:asText, data:asBase64, or blobId must be provided"}
+					break
+				}
+
+				hasUnknown := false
+				for k := range src {
+					switch k {
+					case "data:asText", "data:asBase64":
+						// only data:asText or data:asBase64 allowed
+					case "blobId":
+						// blobId allowed
+					case "offset", "length":
+						if _, ok := src["blobId"]; !ok {
+							hasUnknown = true
+						}
+					default:
+						hasUnknown = true
+					}
+					if hasUnknown {
+						break
+					}
+				}
+				if hasUnknown {
+					uploadErr = &SetError{Type: "invalidProperties", Description: "unknown or misplaced properties in DataSourceObject"}
+					break
+				}
+
 				if txt, ok := src["data:asText"].(string); ok {
 					if !utf8.ValidString(txt) {
 						uploadErr = &SetError{Type: "invalidProperties", Description: "invalid UTF-8 in data:asText"}
@@ -209,6 +248,10 @@ func handleBlobUpload(backend BlobBackend) MethodHandler {
 					refData := refBlob.Data
 					offset := 0
 					if offVal, ok := src["offset"].(float64); ok {
+						if offVal < 0 {
+							uploadErr = &SetError{Type: "invalidProperties", Description: "offset must be non-negative"}
+							break
+						}
 						offset = int(offVal)
 					}
 					if offset > len(refData) {
@@ -217,6 +260,10 @@ func handleBlobUpload(backend BlobBackend) MethodHandler {
 					}
 					length := len(refData) - offset
 					if lenVal, ok := src["length"].(float64); ok {
+						if lenVal < 0 {
+							uploadErr = &SetError{Type: "invalidProperties", Description: "length must be non-negative"}
+							break
+						}
 						length = int(lenVal)
 					}
 					if offset+length > len(refData) {

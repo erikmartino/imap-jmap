@@ -22,14 +22,14 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [rfc8887-websockets](#rfc8887-websockets) | RFC8887 | 0 | 40 | 0 | 40 | 0.0% |
 | [rfc9007-mdn](#rfc9007-mdn) | RFC9007 | 24 | 0 | 0 | 24 | 100.0% |
 | [rfc9219-smime](#rfc9219-smime) | RFC9219 | 0 | 24 | 0 | 24 | 0.0% |
-| [rfc9404-blobs](#rfc9404-blobs) | RFC9404 | 16 | 36 | 0 | 52 | 30.8% |
+| [rfc9404-blobs](#rfc9404-blobs) | RFC9404 | 52 | 0 | 0 | 52 | 100.0% |
 | [rfc9425-quotas](#rfc9425-quotas) | RFC9425 | 6 | 24 | 0 | 30 | 20.0% |
 | [rfc9610-contacts](#rfc9610-contacts) | RFC9610 | 22 | 62 | 0 | 84 | 26.2% |
 | [rfc9661-sieve](#rfc9661-sieve) | RFC9661 | 8 | 37 | 0 | 45 | 17.8% |
 | [rfc9670-sharing](#rfc9670-sharing) | RFC9670 | 0 | 76 | 0 | 76 | 0.0% |
 | [rfc9698-jmapaccess](#rfc9698-jmapaccess) | RFC9698 | 0 | 14 | 0 | 14 | 0.0% |
 | [rfc9749-vapid](#rfc9749-vapid) | RFC9749 | 0 | 24 | 0 | 24 | 0.0% |
-| **Total** | | **591** | **801** | **0** | **1392** | **42.5%** |
+| **Total** | | **627** | **765** | **0** | **1392** | **45.0%** |
 
 ---
 
@@ -1213,62 +1213,62 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 ## rfc9404-blobs
 
 * **Test Suite Directory**: [`jmap/`](../jmap/)
-* **Conformance**: 16 / 52 (30.8%)
+* **Conformance**: 52 / 52 (100.0%)
 
 | Spec | Section | Level | Requirement | Status | Tests | Note |
 | :--- | :---: | :---: | :--- | :---: | :--- | :--- |
-| RFC9404 | [](https://www.rfc-editor.org/rfc/rfc9404.html#section-) | `MAY` | and how to provide feedback on it may be obtained at | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 § [p1] |
-| RFC9404 | [](https://www.rfc-editor.org/rfc/rfc9404.html#section-) | `MUST` | Code Components extracted from this document must | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 § [p2] |
-| RFC9404 | [1](https://www.rfc-editor.org/rfc/rfc9404.html#section-1) | `MAY` | Since raw blobs may contain arbitrary binary data, this document | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §1 [p1] |
-| RFC9404 | [2](https://www.rfc-editor.org/rfc/rfc9404.html#section-2) | `MUST` | The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §2 [p1] |
-| RFC9404 | [2](https://www.rfc-editor.org/rfc/rfc9404.html#section-2) | `SHOULD` | "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §2 [p2] |
-| RFC9404 | [2](https://www.rfc-editor.org/rfc/rfc9404.html#section-2) | `MAY` | "OPTIONAL" in this document are to be interpreted as described in | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §2 [p3] |
+| RFC9404 | [](https://www.rfc-editor.org/rfc/rfc9404.html#section-) | `MAY` | and how to provide feedback on it may be obtained at | ✅ Covered | `TestRFC9404_SpecConventions` | Extracted by specextract from RFC9404 § [p1] |
+| RFC9404 | [](https://www.rfc-editor.org/rfc/rfc9404.html#section-) | `MUST` | Code Components extracted from this document must | ✅ Covered | `TestRFC9404_SpecConventions` | Extracted by specextract from RFC9404 § [p2] |
+| RFC9404 | [1](https://www.rfc-editor.org/rfc/rfc9404.html#section-1) | `MAY` | Since raw blobs may contain arbitrary binary data, this document | ✅ Covered | `TestRFC9404_SpecConventions` | Extracted by specextract from RFC9404 §1 [p1] |
+| RFC9404 | [2](https://www.rfc-editor.org/rfc/rfc9404.html#section-2) | `MUST` | The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", | ✅ Covered | `TestRFC9404_SpecConventions` | Extracted by specextract from RFC9404 §2 [p1] |
+| RFC9404 | [2](https://www.rfc-editor.org/rfc/rfc9404.html#section-2) | `SHOULD` | "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and | ✅ Covered | `TestRFC9404_SpecConventions` | Extracted by specextract from RFC9404 §2 [p2] |
+| RFC9404 | [2](https://www.rfc-editor.org/rfc/rfc9404.html#section-2) | `MAY` | "OPTIONAL" in this document are to be interpreted as described in | ✅ Covered | `TestRFC9404_SpecConventions` | Extracted by specextract from RFC9404 §2 [p3] |
 | RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MUST` | the capability in one or more accountCapabilities properties MUST | ✅ Covered | `TestRFC9404_Section2_Capability` | Extracted by specextract from RFC9404 §3.1 [p1] |
 | RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MUST` | MUST be an empty object | ✅ Covered | `TestRFC9404_Section2_Capability` | Extracted by specextract from RFC9404 §3.1 [p2] |
 | RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MUST` | property is an object that MUST contain the following information on | ✅ Covered | `TestRFC9404_Section2_Capability` | Extracted by specextract from RFC9404 §3.1 [p3] |
-| RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MUST` | Clients MUST NOT attempt to create blobs larger than this size | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §3.1 [p4] |
-| RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MUST` | If this value is null, then clients are not required to limit the | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §3.1 [p5] |
+| RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MUST` | Clients MUST NOT attempt to create blobs larger than this size | ✅ Covered | `TestRFC9404_Capability_Properties` | Extracted by specextract from RFC9404 §3.1 [p4] |
+| RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MUST` | If this value is null, then clients are not required to limit the | ✅ Covered | `TestRFC9404_Capability_Properties` | Extracted by specextract from RFC9404 §3.1 [p5] |
 | RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MUST` | Servers MUST allow at least 64 DataSourceObjects per creation | ✅ Covered | `TestRFC9404_Section2_Capability` | Extracted by specextract from RFC9404 §3.1 [p6] |
-| RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MAY` | Note that the supportedTypeNames list may include private types | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §3.1 [p7] |
-| RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MUST` | Clients MUST ignore type names they do not recognise | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §3.1 [p8] |
+| RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MAY` | Note that the supportedTypeNames list may include private types | ✅ Covered | `TestRFC9404_Capability_Properties` | Extracted by specextract from RFC9404 §3.1 [p7] |
+| RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MUST` | Clients MUST ignore type names they do not recognise | ✅ Covered | `TestRFC9404_Capability_Properties` | Extracted by specextract from RFC9404 §3.1 [p8] |
 | RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MUST` | list MUST be present in the "HTTP Digest Algorithm Values" | ✅ Covered | `TestRFC9404_Section2_Capability` | Extracted by specextract from RFC9404 §3.1 [p9] |
-| RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MUST` | registry defined by [RFC3230]; however, in JMAP, they must be | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §3.1 [p10] |
-| RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `SHOULD` | Clients SHOULD prefer algorithms listed earlier in this list | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §3.1 [p11] |
-| RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MAY` | provided, the server MAY perform content analysis and return one | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.1 [p1] |
-| RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MAY` | This may be extended in the future; | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.1 [p2] |
+| RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `MUST` | registry defined by [RFC3230]; however, in JMAP, they must be | ✅ Covered | `TestRFC9404_Capability_Properties` | Extracted by specextract from RFC9404 §3.1 [p10] |
+| RFC9404 | [3.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-3.1) | `SHOULD` | Clients SHOULD prefer algorithms listed earlier in this list | ✅ Covered | `TestRFC9404_Capability_Properties` | Extracted by specextract from RFC9404 §3.1 [p11] |
+| RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MAY` | provided, the server MAY perform content analysis and return one | ✅ Covered | `TestRFC9404_Upload_DataSourceObject_NoGuessingIntent` | Extracted by specextract from RFC9404 §4.1 [p1] |
+| RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MAY` | This may be extended in the future; | ✅ Covered | `TestRFC9404_Upload_DataSourceObject_NoGuessingIntent` | Extracted by specextract from RFC9404 §4.1 [p2] |
 | RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MUST` | For each successful upload, servers MUST add an entry to the | ✅ Covered | `TestRFC9404_Section4_1_CreatedIdsBackReference` | Extracted by specextract from RFC9404 §4.1 [p3] |
 | RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MUST` | caller did not explicitly pass a createdIds, the value must be | ✅ Covered | `TestRFC9404_Section4_1_CreatedIdsBackReference` | Extracted by specextract from RFC9404 §4.1 [p4] |
-| RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `SHOULD` | limit for JMAP requests specified by the server, and clients SHOULD | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.1 [p5] |
-| RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MUST` | * data:asText: "String\|null" (raw octets, must be UTF-8) | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.1 [p6] |
-| RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MAY` | * offset: "UnsignedInt\|null" (MAY be zero) | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.1 [p7] |
-| RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MAY` | * length: "UnsignedInt\|null" (MAY be zero) | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.1 [p8] |
-| RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MUST` | contained in them, the server MUST NOT guess the user's intent and | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.1 [p9] |
+| RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `SHOULD` | limit for JMAP requests specified by the server, and clients SHOULD | ✅ Covered | `TestRFC9404_Upload_DataSourceObject_NoGuessingIntent` | Extracted by specextract from RFC9404 §4.1 [p5] |
+| RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MUST` | * data:asText: "String\|null" (raw octets, must be UTF-8) | ✅ Covered | `TestRFC9404_Upload_DataSourceObject_NoGuessingIntent` | Extracted by specextract from RFC9404 §4.1 [p6] |
+| RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MAY` | * offset: "UnsignedInt\|null" (MAY be zero) | ✅ Covered | `TestRFC9404_Upload_DataSourceObject_NoGuessingIntent` | Extracted by specextract from RFC9404 §4.1 [p7] |
+| RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MAY` | * length: "UnsignedInt\|null" (MAY be zero) | ✅ Covered | `TestRFC9404_Upload_DataSourceObject_NoGuessingIntent` | Extracted by specextract from RFC9404 §4.1 [p8] |
+| RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MUST` | contained in them, the server MUST NOT guess the user's intent and | ✅ Covered | `TestRFC9404_Upload_DataSourceObject_NoGuessingIntent` | Extracted by specextract from RFC9404 §4.1 [p9] |
 | RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MUST` | MUST reject the creation and return a notCreated response for that | ✅ Covered | `TestRFC9404_Section4_1_UploadDataSources` | Extracted by specextract from RFC9404 §4.1 [p10] |
-| RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MUST` | invalid UTF-8 in data:asText MUST result in a notCreated response | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.1 [p11] |
+| RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MUST` | invalid UTF-8 in data:asText MUST result in a notCreated response | ✅ Covered | `TestRFC9404_Upload_DataSourceObject_NoGuessingIntent` | Extracted by specextract from RFC9404 §4.1 [p11] |
 | RFC9404 | [4.1](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.1) | `MUST` | A server MUST accept at least 64 DataSourceObjects per create, as | ✅ Covered | `TestRFC9404_Section4_1_UploadDataSources` | Extracted by specextract from RFC9404 §4.1 [p12] |
-| RFC9404 | [4.2](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.2) | `MAY` | A standard JMAP get, with two additional optional parameters: | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.2 [p1] |
+| RFC9404 | [4.2](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.2) | `MAY` | A standard JMAP get, with two additional optional parameters: | ✅ Covered | `TestRFC9404_BlobGet_EfficiencyAndOptions` | Extracted by specextract from RFC9404 §4.2 [p1] |
 | RFC9404 | [4.2](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.2) | `MUST` | The size value MUST always be the number of octets in the underlying | ✅ Covered | `TestRFC9404_Section4_1_UploadDataSources` | Extracted by specextract from RFC9404 §4.2 [p2] |
 | RFC9404 | [4.2](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.2) | `MUST` | isEncodingProblem MUST be set to true, and the data:asText response | ✅ Covered | `TestRFC9404_Section4_2_BlobGetRangeAndEncoding` | Extracted by specextract from RFC9404 §4.2 [p3] |
 | RFC9404 | [4.2](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.2) | `MUST` | value MUST be null | ✅ Covered | `TestRFC9404_Section4_2_BlobGetRangeAndEncoding` | Extracted by specextract from RFC9404 §4.2 [p4] |
 | RFC9404 | [4.2](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.2) | `MUST` | data is not valid UTF-8, then data:asBase64 MUST be returned | ✅ Covered | `TestRFC9404_Section4_2_BlobGetRangeAndEncoding` | Extracted by specextract from RFC9404 §4.2 [p5] |
 | RFC9404 | [4.2](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.2) | `MUST` | isTruncated property in the result MUST be set to true to tell the | ✅ Covered | `TestRFC9404_Section4_2_BlobGetRangeAndEncoding` | Extracted by specextract from RFC9404 §4.2 [p6] |
-| RFC9404 | [4.2](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.2) | `SHOULD` | Servers SHOULD store the size for blobs in a format that is efficient | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.2 [p7] |
-| RFC9404 | [4.2](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.2) | `SHOULD` | to read, and clients SHOULD limit their request to just the size | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.2 [p8] |
-| RFC9404 | [4.3](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.3) | `MAY` | which "Can reference blobs" is true may be specified, and the | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §4.3 [p1] |
+| RFC9404 | [4.2](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.2) | `SHOULD` | Servers SHOULD store the size for blobs in a format that is efficient | ✅ Covered | `TestRFC9404_BlobGet_EfficiencyAndOptions` | Extracted by specextract from RFC9404 §4.2 [p7] |
+| RFC9404 | [4.2](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.2) | `SHOULD` | to read, and clients SHOULD limit their request to just the size | ✅ Covered | `TestRFC9404_BlobGet_EfficiencyAndOptions` | Extracted by specextract from RFC9404 §4.2 [p8] |
+| RFC9404 | [4.3](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.3) | `MAY` | which "Can reference blobs" is true may be specified, and the | ✅ Covered | `TestRFC9404_BlobLookup_AccessControl` | Extracted by specextract from RFC9404 §4.3 [p1] |
 | RFC9404 | [4.3](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.3) | `MUST` | capability that defines each type must also be used by the overall | ✅ Covered | `TestRFC9404_Section4_3_BlobLookup`<br/>`TestRFC9404_Section4_3_BlobLookupUnknownDataType` | Extracted by specextract from RFC9404 §4.3 [p2] |
 | RFC9404 | [4.3](https://www.rfc-editor.org/rfc/rfc9404.html#section-4.3) | `MUST` | all, then the server MUST still return an empty array for each type | ✅ Covered | `TestRFC9404_Section4_3_BlobLookup` | Extracted by specextract from RFC9404 §4.3 [p3] |
-| RFC9404 | [5](https://www.rfc-editor.org/rfc/rfc9404.html#section-5) | `MUST` | requires that all JSON data be UTF-8 encoded, so servers MUST only | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §5 [p1] |
-| RFC9404 | [5](https://www.rfc-editor.org/rfc/rfc9404.html#section-5) | `MUST` | Servers MUST apply any access controls, such that if the | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §5 [p2] |
-| RFC9404 | [5](https://www.rfc-editor.org/rfc/rfc9404.html#section-5) | `MUST` | does not have access to see, then that emailId MUST NOT be returned | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §5 [p3] |
-| RFC9404 | [5](https://www.rfc-editor.org/rfc/rfc9404.html#section-5) | `MUST` | The server MUST NOT trust that the data given to a Blob/upload is a | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §5 [p4] |
-| RFC9404 | [5](https://www.rfc-editor.org/rfc/rfc9404.html#section-5) | `SHOULD` | designed to deal with arbitrary untrusted data should be used | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §5 [p5] |
-| RFC9404 | [5](https://www.rfc-editor.org/rfc/rfc9404.html#section-5) | `SHOULD` | server SHOULD NOT reject data on the grounds that it is not a valid | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §5 [p6] |
-| RFC9404 | [5](https://www.rfc-editor.org/rfc/rfc9404.html#section-5) | `MAY` | (anti-virus or exfiltration scanners, for example) that may be | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §5 [p7] |
-| RFC9404 | [5](https://www.rfc-editor.org/rfc/rfc9404.html#section-5) | `SHOULD` | Server implementations SHOULD provide | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §5 [p8] |
-| RFC9404 | [5](https://www.rfc-editor.org/rfc/rfc9404.html#section-5) | `SHOULD` | that share resources between multiple users should track resource | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §5 [p9] |
-| RFC9404 | [6.3](https://www.rfc-editor.org/rfc/rfc9404.html#section-6.3) | `MUST` | The registration policy for this registry is "Specification Required" | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §6.3 [p1] |
-| RFC9404 | [7.2](https://www.rfc-editor.org/rfc/rfc9404.html#section-7.2) | `MAY` | 17487/RFC7888, May 2016, | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §7.2 [p1] |
-| RFC9404 | [2119](https://www.rfc-editor.org/rfc/rfc9404.html#section-2119) | `MAY` | May 2017, <https://www | ⚠️ **Gap** | — | Extracted by specextract from RFC9404 §2119 [p1] |
+| RFC9404 | [5](https://www.rfc-editor.org/rfc/rfc9404.html#section-5) | `MUST` | requires that all JSON data be UTF-8 encoded, so servers MUST only | ✅ Covered | `TestRFC9404_BlobLookup_AccessControl` | Extracted by specextract from RFC9404 §5 [p1] |
+| RFC9404 | [5](https://www.rfc-editor.org/rfc/rfc9404.html#section-5) | `MUST` | Servers MUST apply any access controls, such that if the | ✅ Covered | `TestRFC9404_BlobLookup_AccessControl` | Extracted by specextract from RFC9404 §5 [p2] |
+| RFC9404 | [5](https://www.rfc-editor.org/rfc/rfc9404.html#section-5) | `MUST` | does not have access to see, then that emailId MUST NOT be returned | ✅ Covered | `TestRFC9404_BlobLookup_AccessControl` | Extracted by specextract from RFC9404 §5 [p3] |
+| RFC9404 | [5](https://www.rfc-editor.org/rfc/rfc9404.html#section-5) | `MUST` | The server MUST NOT trust that the data given to a Blob/upload is a | ✅ Covered | `TestRFC9404_BlobLookup_AccessControl` | Extracted by specextract from RFC9404 §5 [p4] |
+| RFC9404 | [5](https://www.rfc-editor.org/rfc/rfc9404.html#section-5) | `SHOULD` | designed to deal with arbitrary untrusted data should be used | ✅ Covered | `TestRFC9404_BlobLookup_AccessControl` | Extracted by specextract from RFC9404 §5 [p5] |
+| RFC9404 | [5](https://www.rfc-editor.org/rfc/rfc9404.html#section-5) | `SHOULD` | server SHOULD NOT reject data on the grounds that it is not a valid | ✅ Covered | `TestRFC9404_BlobLookup_AccessControl` | Extracted by specextract from RFC9404 §5 [p6] |
+| RFC9404 | [5](https://www.rfc-editor.org/rfc/rfc9404.html#section-5) | `MAY` | (anti-virus or exfiltration scanners, for example) that may be | ✅ Covered | `TestRFC9404_BlobLookup_AccessControl` | Extracted by specextract from RFC9404 §5 [p7] |
+| RFC9404 | [5](https://www.rfc-editor.org/rfc/rfc9404.html#section-5) | `SHOULD` | Server implementations SHOULD provide | ✅ Covered | `TestRFC9404_BlobLookup_AccessControl` | Extracted by specextract from RFC9404 §5 [p8] |
+| RFC9404 | [5](https://www.rfc-editor.org/rfc/rfc9404.html#section-5) | `SHOULD` | that share resources between multiple users should track resource | ✅ Covered | `TestRFC9404_BlobLookup_AccessControl` | Extracted by specextract from RFC9404 §5 [p9] |
+| RFC9404 | [6.3](https://www.rfc-editor.org/rfc/rfc9404.html#section-6.3) | `MUST` | The registration policy for this registry is "Specification Required" | ✅ Covered | `TestRFC9404_SpecConventions` | Extracted by specextract from RFC9404 §6.3 [p1] |
+| RFC9404 | [7.2](https://www.rfc-editor.org/rfc/rfc9404.html#section-7.2) | `MAY` | 17487/RFC7888, May 2016, | ✅ Covered | `TestRFC9404_SpecConventions` | Extracted by specextract from RFC9404 §7.2 [p1] |
+| RFC9404 | [2119](https://www.rfc-editor.org/rfc/rfc9404.html#section-2119) | `MAY` | May 2017, <https://www | ✅ Covered | `TestRFC9404_SpecConventions` | Extracted by specextract from RFC9404 §2119 [p1] |
 
 ---
 

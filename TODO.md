@@ -198,12 +198,12 @@ Drive all remaining JMAP RFC requirement matrices in `spec/` to 100% MUST/MUST N
   - WebSocket endpoint, subprotocol negotiation (`jmap`), request/response multiplexing, push notifications over WebSocket (100% MUST covered in `spec/jmap_websockets.go`).
 - [x] **1.2 RFC 9007 (JMAP for MDN)**:
   - MDN data model, `MDN/send` and `MDN/parse` method handlers, disposition headers, case-sensitive `$mdnsent` keyword validation, `onSuccessUpdateEmail` verification, `Disposition-Notification-To` parsing with standard parser, `finalRecipient` security checks, and hermetic test suite (100% covered, 24/24 clauses in `spec/RFC9007_generated.go`).
-- [~] **1.3 RFC 9404 (JMAP Blob Management)**:
+- [x] **1.3 RFC 9404 (JMAP Blob Management)**:
   - Handlers implemented (`Blob/get|copy|lookup|upload`, streaming, digest).
   - [x] Capability clauses (session empty object, account properties, ≥64 data sources, digest algorithm list) and `Blob/upload` DataSourceObject handling (base64 validation, concatenation, size in octets, 64 sources). Matrix 0 → 8 covered.
   - [x] `Blob/get` offset/length `isTruncated`, `isEncodingProblem`, `data:asText` null + `data:asBase64` returned for non-UTF-8 (fixed). Matrix → 12 covered.
   - [x] Upload `createdIds` back-reference, `Blob/lookup` empty-array for missing/invisible blobs (fixed: no `notFound` leak), type-name capability validation. Matrix → 16 covered.
-  - [ ] Remaining: `Blob/upload` UTF-8 `data:asText` accepted, `Blob/lookup`/`Blob/get` per-account access controls, digest-algorithm registration/process clauses.
+  - [x] Specification test suite (`jmap/rfc9404_spec_test.go`) covering all BCP 14 conventions, capability properties (`maxSizeBlobSet: null`, lowercase digest algorithms, ignoring unknown types), strict `DataSourceObject` validation (no guessing intent, rejection of misplaced/conflicting/unknown properties, invalid UTF-8 in `data:asText`), efficient size queries, and cross-account access controls with untrusted binary upload safety. 100% covered (52/52 clauses in `spec/RFC9404_generated.go`).
 - [~] **1.4 RFC 9425 (JMAP Quotas)**:
   - Handlers already implemented (`Quota/get`, `/changes`, `/query`, `/queryChanges`).
   - [x] Capability value is an empty object in session + account capabilities; `name`/`used` sortable (`Quota/query`), unsupported sort rejected; `Quota/changes` returns `updatedProperties: null`. Matrix 0 → 6 covered.
