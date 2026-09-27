@@ -9,15 +9,37 @@ import (
 
 	"imap-jmap/jmap/jmapauth"
 	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmapextstore"
 	"imap-jmap/jmap/jmapmail"
 )
 
 // PushSubscription (RFC 8620 Section 7.2)
 
+func (b *IMAPSMTPBackend) loadPushSubscriptionsLocked(ctx context.Context, accountID string) {
+	if b.pushSubscriptions == nil {
+		b.pushSubscriptions = make(map[string]map[jmapcore.Id]*jmapmail.PushSubscription)
+	}
+	if b.pushSubscriptions[accountID] != nil {
+		return
+	}
+	if loaded, ok, _ := jmapextstore.Load[map[jmapcore.Id]*jmapmail.PushSubscription](ctx, b.extStore, accountID, "push_subscriptions"); ok && loaded != nil {
+		b.pushSubscriptions[accountID] = *loaded
+		return
+	}
+	b.pushSubscriptions[accountID] = make(map[jmapcore.Id]*jmapmail.PushSubscription)
+}
+
+func (b *IMAPSMTPBackend) persistPushSubscriptionsLocked(ctx context.Context, accountID string) {
+	if b.extStore != nil && b.pushSubscriptions[accountID] != nil {
+		_ = jmapextstore.Save(ctx, b.extStore, accountID, "push_subscriptions", b.pushSubscriptions[accountID])
+	}
+}
+
 func (b *IMAPSMTPBackend) GetPushSubscriptions(ctx context.Context, ids []jmapcore.Id) ([]*jmapmail.PushSubscription, []jmapcore.Id, error) {
 	accountID, _ := jmapauth.AccountIDFromContext(ctx)
-	b.pushMu.RLock()
-	defer b.pushMu.RUnlock()
+	b.pushMu.Lock()
+	defer b.pushMu.Unlock()
+	b.loadPushSubscriptionsLocked(ctx, accountID)
 	m := b.pushSubscriptions[accountID]
 	var found []*jmapmail.PushSubscription
 	var notFound []jmapcore.Id
@@ -33,8 +55,9 @@ func (b *IMAPSMTPBackend) GetPushSubscriptions(ctx context.Context, ids []jmapco
 
 func (b *IMAPSMTPBackend) GetAllPushSubscriptions(ctx context.Context) ([]*jmapmail.PushSubscription, error) {
 	accountID, _ := jmapauth.AccountIDFromContext(ctx)
-	b.pushMu.RLock()
-	defer b.pushMu.RUnlock()
+	b.pushMu.Lock()
+	defer b.pushMu.Unlock()
+	b.loadPushSubscriptionsLocked(ctx, accountID)
 	m := b.pushSubscriptions[accountID]
 	var list []*jmapmail.PushSubscription
 	for _, sub := range m {
@@ -56,18 +79,14 @@ func (b *IMAPSMTPBackend) CreatePushSubscription(ctx context.Context, sub *jmapm
 
 	b.pushMu.Lock()
 	defer b.pushMu.Unlock()
-	if b.pushSubscriptions == nil {
-		b.pushSubscriptions = make(map[string]map[jmapcore.Id]*jmapmail.PushSubscription)
-	}
-	if b.pushSubscriptions[accountID] == nil {
-		b.pushSubscriptions[accountID] = make(map[jmapcore.Id]*jmapmail.PushSubscription)
-	}
+	b.loadPushSubscriptionsLocked(ctx, accountID)
 	// Limit maximum push subscriptions per user (RFC 8620 §8.6)
 	const maxPushSubscriptionsPerAccount = 50
 	if len(b.pushSubscriptions[accountID]) >= maxPushSubscriptionsPerAccount {
 		return nil, fmt.Errorf("maximum limit of push subscriptions reached for account")
 	}
 	b.pushSubscriptions[accountID][sub.ID] = sub
+	b.persistPushSubscriptionsLocked(ctx, accountID)
 	return sub, nil
 }
 
@@ -75,6 +94,7 @@ func (b *IMAPSMTPBackend) UpdatePushSubscription(ctx context.Context, id jmapcor
 	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.pushMu.Lock()
 	defer b.pushMu.Unlock()
+	b.loadPushSubscriptionsLocked(ctx, accountID)
 	if m, ok := b.pushSubscriptions[accountID]; ok {
 		if sub, ok := m[id]; ok {
 			if vCode, ok := patch["verificationCode"].(string); ok {
@@ -95,6 +115,7 @@ func (b *IMAPSMTPBackend) UpdatePushSubscription(ctx context.Context, id jmapcor
 			if exp, ok := patch["expires"].(string); ok {
 				sub.Expires = &exp
 			}
+			b.persistPushSubscriptionsLocked(ctx, accountID)
 			return sub, nil
 		}
 	}
@@ -105,6 +126,7 @@ func (b *IMAPSMTPBackend) DeletePushSubscription(ctx context.Context, id jmapcor
 	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.pushMu.Lock()
 	defer b.pushMu.Unlock()
+	b.loadPushSubscriptionsLocked(ctx, accountID)
 	if m, ok := b.pushSubscriptions[accountID]; ok {
 		if sub, ok := m[id]; ok {
 			// Securely erase URL and encryption keys per RFC 8620 §7.2 / §2.0
@@ -114,6 +136,7 @@ func (b *IMAPSMTPBackend) DeletePushSubscription(ctx context.Context, id jmapcor
 				sub.VerificationCode = nil
 			}
 			delete(m, id)
+			b.persistPushSubscriptionsLocked(ctx, accountID)
 			return true, nil
 		}
 	}

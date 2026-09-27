@@ -21,6 +21,10 @@ import (
 // message appended to the Trash folder by PutBlob.
 const blobStagingMarker = "[JMAP-BLOB:"
 
+// storeStagingMarker is the Subject prefix that identifies JMAP extension store
+// messages in Drafts.
+const storeStagingMarker = "[JMAP-STORE:"
+
 // blobStagingTTL is how old a [JMAP-BLOB:] staging message must be before the
 // lazy sweep removes it.
 const blobStagingTTL = time.Hour

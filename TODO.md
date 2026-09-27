@@ -156,8 +156,14 @@ Per `AGENTS.md` §1 ("Stateless Proxy & Zero Local Filesystem Sync"), the proxy 
   - Relied on IMAP `RENAME` for mailbox hierarchy and moves, deriving parent/child relationships directly from upstream folder delimiters and paths.
   - Deleted proxy-local authoritative `mailboxSubscribed` map.
   - Verified cross-instance persistence and hierarchy across independent fresh backend instances via `TestMailboxSubscriptionPersistenceAcrossInstances`.
-- [ ] **4.6 JMAP extension store** (new `jmap/*` + `imapsmtp`/`nextcloud` adapters)
-  - Implement the per-account upstream store and migrate `Identity`, `EmailSubmission`, `VacationResponse` (or Sieve-backed), `ParticipantIdentity`, `CalendarEventNotification`, `ShareNotification`, and `PushSubscription` onto it.
+- [x] **4.6 JMAP extension store** (new `jmap/jmapextstore` + `imapsmtp`/`nextcloud` adapters)
+  - Created `jmap/jmapextstore` package providing generic `Store` interface with JSON `Load[T]`, `Save[T]`, and `Delete` utilities.
+  - Implemented `IMAPExtensionStore` persisting state in dedicated `.jmap` user-scoped folder as RFC 822 JSON parts marked `\Seen` using standard `go-message/mail`, ignoring internal staging messages in all email/blob/query paths.
+  - Implemented `WebDAVExtensionStore` persisting state in Nextcloud user root at `.jmap/<accountID>/<key>.json` using standard `go-webdav`.
+  - Migrated authoritative state to upstream extension stores with cache demotion on miss/mutation:
+    - `imapsmtp`: `Identity`, `EmailSubmission`, `VacationResponse`, `PushSubscription`, `mailboxSortOrders`, `mailboxParentOverrides`.
+    - `nextcloud`: `ParticipantIdentity`, `CalendarEventNotification`, `ShareNotification`.
+  - Verified persistence across independent fresh backend instances with zero local caches via `TestExtensionStorePersistenceAcrossInstances` and `TestWebDAVExtensionStorePersistenceAcrossInstances`.
 - [ ] **4.7 Upstream change tokens everywhere** (extends Priority 3)
   - Replace the remaining in-memory `ChangeTracker`s (contacts, filenode, identities, notifications) with CardDAV/WebDAV ETag/CTag vectors or content-addressed states.
 - [ ] **4.8 Demote caches** (`nextcloud`, `imapsmtp`, `managesieve`)

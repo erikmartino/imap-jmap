@@ -10,6 +10,7 @@ import (
 
 	"imap-jmap/jmap/jmapauth"
 	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmapextstore"
 	"imap-jmap/jmap/jmapmail"
 )
 
@@ -103,6 +104,26 @@ func (t *subTracker) Changes(sinceState string, maxChanges *uint64) (created, up
 	}
 
 	return created, updated, destroyed, fmt.Sprintf("sub-state-%d", t.counter), false
+}
+
+func (b *IMAPSMTPBackend) loadSubmissionsLocked(ctx context.Context, accountID string) {
+	if b.submissions == nil {
+		b.submissions = make(map[string]map[jmapcore.Id]*jmapmail.EmailSubmission)
+	}
+	if b.submissions[accountID] != nil {
+		return
+	}
+	if loaded, ok, _ := jmapextstore.Load[map[jmapcore.Id]*jmapmail.EmailSubmission](ctx, b.extStore, accountID, "submissions"); ok && loaded != nil {
+		b.submissions[accountID] = *loaded
+		return
+	}
+	b.submissions[accountID] = make(map[jmapcore.Id]*jmapmail.EmailSubmission)
+}
+
+func (b *IMAPSMTPBackend) persistSubmissionsLocked(ctx context.Context, accountID string) {
+	if b.extStore != nil && b.submissions[accountID] != nil {
+		_ = jmapextstore.Save(ctx, b.extStore, accountID, "submissions", b.submissions[accountID])
+	}
 }
 
 func (b *IMAPSMTPBackend) getSubTrackerLocked(accountID string) *subTracker {
@@ -224,8 +245,10 @@ func (b *IMAPSMTPBackend) CreateSubmission(ctx context.Context, sub *jmapmail.Em
 
 	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.submissionsMu.Lock()
+	b.loadSubmissionsLocked(ctx, accountID)
 	m := b.getSubMapLocked(accountID)
 	m[sub.ID] = sub
+	b.persistSubmissionsLocked(ctx, accountID)
 	tr := b.getSubTrackerLocked(accountID)
 	tr.Record(sub.ID, "create")
 	b.submissionsMu.Unlock()
@@ -251,6 +274,7 @@ func (b *IMAPSMTPBackend) SubmissionState(ctx context.Context) string {
 	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.submissionsMu.Lock()
 	defer b.submissionsMu.Unlock()
+	b.loadSubmissionsLocked(ctx, accountID)
 	tr := b.getSubTrackerLocked(accountID)
 	return tr.State()
 }
@@ -259,6 +283,7 @@ func (b *IMAPSMTPBackend) SubmissionChanges(ctx context.Context, sinceState stri
 	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.submissionsMu.Lock()
 	defer b.submissionsMu.Unlock()
+	b.loadSubmissionsLocked(ctx, accountID)
 	tr := b.getSubTrackerLocked(accountID)
 	return tr.Changes(sinceState, maxChanges)
 }
@@ -266,6 +291,7 @@ func (b *IMAPSMTPBackend) SubmissionChanges(ctx context.Context, sinceState stri
 func (b *IMAPSMTPBackend) UpdateSubmission(ctx context.Context, id jmapcore.Id, patch map[string]any) (*jmapmail.EmailSubmission, error) {
 	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.submissionsMu.Lock()
+	b.loadSubmissionsLocked(ctx, accountID)
 
 	m := b.getSubMapLocked(accountID)
 	sub, ok := m[id]
@@ -304,6 +330,7 @@ func (b *IMAPSMTPBackend) UpdateSubmission(ctx context.Context, id jmapcore.Id, 
 		}
 	}
 
+	b.persistSubmissionsLocked(ctx, accountID)
 	tr := b.getSubTrackerLocked(accountID)
 	tr.Record(id, "update")
 	b.submissionsMu.Unlock()
@@ -315,6 +342,7 @@ func (b *IMAPSMTPBackend) UpdateSubmission(ctx context.Context, id jmapcore.Id, 
 func (b *IMAPSMTPBackend) DeleteSubmission(ctx context.Context, id jmapcore.Id) (bool, error) {
 	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.submissionsMu.Lock()
+	b.loadSubmissionsLocked(ctx, accountID)
 
 	m := b.getSubMapLocked(accountID)
 	if _, ok := m[id]; !ok {
@@ -322,6 +350,7 @@ func (b *IMAPSMTPBackend) DeleteSubmission(ctx context.Context, id jmapcore.Id) 
 		return false, nil
 	}
 	delete(m, id)
+	b.persistSubmissionsLocked(ctx, accountID)
 	tr := b.getSubTrackerLocked(accountID)
 	tr.Record(id, "destroy")
 	b.submissionsMu.Unlock()
@@ -332,9 +361,10 @@ func (b *IMAPSMTPBackend) DeleteSubmission(ctx context.Context, id jmapcore.Id) 
 
 func (b *IMAPSMTPBackend) GetSubmissions(ctx context.Context, ids []jmapcore.Id) ([]*jmapmail.EmailSubmission, []jmapcore.Id, error) {
 	accountID, _ := jmapauth.AccountIDFromContext(ctx)
-	b.submissionsMu.RLock()
-	defer b.submissionsMu.RUnlock()
+	b.submissionsMu.Lock()
+	defer b.submissionsMu.Unlock()
 
+	b.loadSubmissionsLocked(ctx, accountID)
 	m := b.getSubMapLocked(accountID)
 	var list []*jmapmail.EmailSubmission
 	var notFound []jmapcore.Id
@@ -351,9 +381,10 @@ func (b *IMAPSMTPBackend) GetSubmissions(ctx context.Context, ids []jmapcore.Id)
 
 func (b *IMAPSMTPBackend) GetAllSubmissions(ctx context.Context) ([]*jmapmail.EmailSubmission, error) {
 	accountID, _ := jmapauth.AccountIDFromContext(ctx)
-	b.submissionsMu.RLock()
-	defer b.submissionsMu.RUnlock()
+	b.submissionsMu.Lock()
+	defer b.submissionsMu.Unlock()
 
+	b.loadSubmissionsLocked(ctx, accountID)
 	m := b.getSubMapLocked(accountID)
 	list := make([]*jmapmail.EmailSubmission, 0, len(m))
 	for _, sub := range m {

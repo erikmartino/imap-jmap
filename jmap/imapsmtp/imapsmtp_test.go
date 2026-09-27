@@ -730,3 +730,152 @@ func TestMailboxSubscriptionPersistenceAcrossInstances(t *testing.T) {
 	_ = childMb
 }
 
+func TestExtensionStorePersistenceAcrossInstances(t *testing.T) {
+	b1, cleanup := NewEmbeddedBackend("user@example.com")
+	defer cleanup()
+
+	ctx := testContext()
+
+	// 1. Create Identity on b1
+	ident, err := b1.CreateIdentity(ctx, &jmapmail.Identity{
+		Name:  "Alice Work",
+		Email: "alice.work@example.com",
+	})
+	if err != nil {
+		t.Fatalf("b1.CreateIdentity failed: %v", err)
+	}
+
+	// 2. Update VacationResponse on b1
+	vacText := "I am out of the office until Monday."
+	_, err = b1.UpdateVacationResponse(ctx, map[string]any{
+		"isEnabled": true,
+		"textBody":  vacText,
+	})
+	if err != nil {
+		t.Fatalf("b1.UpdateVacationResponse failed: %v", err)
+	}
+
+	// 3. Create an email and submission on b1
+	inboxID := MailboxIDForName("INBOX")
+	em, err := b1.CreateEmail(ctx, &jmapmail.Email{
+		MailboxIDs: map[jmapcore.Id]bool{inboxID: true},
+		Subject:    "Outbound Test",
+		From:       []jmapmail.EmailAddress{{Name: "Alice Work", Email: "alice.work@example.com"}},
+		To:         []jmapmail.EmailAddress{{Name: "Bob", Email: "bob@example.com"}},
+		BodyValues: map[string]jmapmail.EmailBodyValue{"1": {Value: "Hello Bob"}},
+		TextBody:   []jmapmail.EmailBodyPart{{PartID: stringPtr("1"), Type: "text/plain"}},
+	})
+	if err != nil {
+		t.Fatalf("b1.CreateEmail failed: %v", err)
+	}
+
+	sub, err := b1.CreateSubmission(ctx, &jmapmail.EmailSubmission{
+		EmailID:    em.ID,
+		IdentityID: ident.ID,
+	})
+	if err != nil {
+		t.Fatalf("b1.CreateSubmission failed: %v", err)
+	}
+
+	// 4. Create PushSubscription on b1
+	pushSub, err := b1.CreatePushSubscription(ctx, &jmapmail.PushSubscription{
+		URL:   "https://push.example.com/endpoint1",
+		Types: []string{"Email", "EmailSubmission"},
+	})
+	if err != nil {
+		t.Fatalf("b1.CreatePushSubscription failed: %v", err)
+	}
+
+	// 5. Update Mailbox sort order on b1
+	_, err = b1.UpdateMailbox(ctx, inboxID, map[string]any{
+		"sortOrder": float64(42),
+	})
+	if err != nil {
+		t.Fatalf("b1.UpdateMailbox sortOrder failed: %v", err)
+	}
+
+	// 6. Instantiate completely fresh b2 pointing to the same IMAP server
+	b2 := New(b1.IMAPAddr(), "")
+	defer b2.Close()
+
+	// Verify Identity in b2
+	idents2, err := b2.GetIdentities(ctx)
+	if err != nil {
+		t.Fatalf("b2.GetIdentities failed: %v", err)
+	}
+	foundIdent := false
+	for _, idItem := range idents2 {
+		if idItem.Email == "alice.work@example.com" && idItem.Name == "Alice Work" {
+			foundIdent = true
+			break
+		}
+	}
+	if !foundIdent {
+		t.Errorf("expected fresh b2 to load identity alice.work@example.com from IMAP extension store")
+	}
+
+	// Verify VacationResponse in b2
+	vac2, err := b2.GetVacationResponse(ctx)
+	if err != nil {
+		t.Fatalf("b2.GetVacationResponse failed: %v", err)
+	}
+	if !vac2.IsEnabled {
+		t.Errorf("expected fresh b2 vacation isEnabled=true")
+	}
+	if vac2.TextBody == nil || *vac2.TextBody != vacText {
+		t.Errorf("expected fresh b2 vacation textBody=%q, got %v", vacText, vac2.TextBody)
+	}
+
+	// Verify Submission in b2
+	subs2, err := b2.GetAllSubmissions(ctx)
+	if err != nil {
+		t.Fatalf("b2.GetAllSubmissions failed: %v", err)
+	}
+	foundSub := false
+	for _, s := range subs2 {
+		if s.ID == sub.ID && s.EmailID == em.ID {
+			foundSub = true
+			break
+		}
+	}
+	if !foundSub {
+		t.Errorf("expected fresh b2 to load submission %s from IMAP extension store", sub.ID)
+	}
+
+	// Verify PushSubscription in b2
+	pushes2, err := b2.GetAllPushSubscriptions(ctx)
+	if err != nil {
+		t.Fatalf("b2.GetAllPushSubscriptions failed: %v", err)
+	}
+	foundPush := false
+	for _, p := range pushes2 {
+		if p.ID == pushSub.ID && p.URL == "https://push.example.com/endpoint1" {
+			foundPush = true
+			break
+		}
+	}
+	if !foundPush {
+		t.Errorf("expected fresh b2 to load push subscription %s from IMAP extension store", pushSub.ID)
+	}
+
+	// Verify Mailbox sort order in b2
+	mbs2, err := b2.GetAllMailboxes(ctx)
+	if err != nil {
+		t.Fatalf("b2.GetAllMailboxes failed: %v", err)
+	}
+	foundInbox := false
+	for _, mb := range mbs2 {
+		if mb.ID == inboxID {
+			foundInbox = true
+			if mb.SortOrder != 42 {
+				t.Errorf("expected fresh b2 to load mailbox sortOrder 42, got %d", mb.SortOrder)
+			}
+			break
+		}
+	}
+	if !foundInbox {
+		t.Errorf("mailbox inbox not found in b2")
+	}
+}
+
+

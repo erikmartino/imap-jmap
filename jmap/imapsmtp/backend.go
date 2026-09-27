@@ -11,6 +11,7 @@ import (
 	"imap-jmap/jmap/jmapauth"
 	"imap-jmap/jmap/jmapblob"
 	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmapextstore"
 	"imap-jmap/jmap/jmapmail"
 	"imap-jmap/jmap/jmappush"
 )
@@ -71,6 +72,8 @@ type IMAPSMTPBackend struct {
 	emailMutationsMu   sync.RWMutex
 	emailSeq           map[string]uint64
 	emailMutations     map[string][]itemChangeEntry
+
+	extStore jmapextstore.Store
 }
 
 var _ jmapmail.MailBackend = (*IMAPSMTPBackend)(nil)
@@ -87,7 +90,7 @@ func (b *IMAPSMTPBackend) HasSMTPServer() bool {
 // New creates a new IMAP/SMTP gateway backend.
 func New(imapHost, smtpHost string) *IMAPSMTPBackend {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &IMAPSMTPBackend{
+	b := &IMAPSMTPBackend{
 		imapHost:               imapHost,
 		smtpHost:               smtpHost,
 		pool:                   NewClientPoolWithSMTP(imapHost, smtpHost),
@@ -103,6 +106,7 @@ func New(imapHost, smtpHost string) *IMAPSMTPBackend {
 		movedIDs:               make(map[string]map[jmapcore.Id]jmapcore.Id),
 		mailboxMovedIDs:        make(map[jmapcore.Id]jmapcore.Id),
 		mailboxParentOverrides: make(map[string]map[jmapcore.Id]*jmapcore.Id),
+		mailboxSortOrders:      make(map[string]map[jmapcore.Id]uint64),
 		quotaTrackers:          make(map[string]*itemTracker),
 		identityTrackers:       make(map[string]*itemTracker),
 		vacationResponses:      make(map[string]*jmapmail.VacationResponse),
@@ -114,6 +118,18 @@ func New(imapHost, smtpHost string) *IMAPSMTPBackend {
 		emailSeq:               make(map[string]uint64),
 		emailMutations:         make(map[string][]itemChangeEntry),
 	}
+	b.extStore = NewIMAPExtensionStore(b)
+	return b
+}
+
+// SetExtensionStore configures a custom extension store.
+func (b *IMAPSMTPBackend) SetExtensionStore(s jmapextstore.Store) {
+	b.extStore = s
+}
+
+// ExtensionStore returns the configured extension store.
+func (b *IMAPSMTPBackend) ExtensionStore() jmapextstore.Store {
+	return b.extStore
 }
 
 func (b *IMAPSMTPBackend) trackMovedEmail(accountID string, oldID, newID jmapcore.Id) {
@@ -188,46 +204,74 @@ func (b *IMAPSMTPBackend) resolveMovedMailboxID(id jmapcore.Id) jmapcore.Id {
 	return curr
 }
 
-func (b *IMAPSMTPBackend) setMailboxParentOverride(accountID string, id jmapcore.Id, parentID *jmapcore.Id) {
-	b.mailboxMu.Lock()
-	defer b.mailboxMu.Unlock()
+func (b *IMAPSMTPBackend) loadMailboxParentOverridesLocked(ctx context.Context, accountID string) {
 	if b.mailboxParentOverrides == nil {
 		b.mailboxParentOverrides = make(map[string]map[jmapcore.Id]*jmapcore.Id)
 	}
-	if b.mailboxParentOverrides[accountID] == nil {
-		b.mailboxParentOverrides[accountID] = make(map[jmapcore.Id]*jmapcore.Id)
+	if b.mailboxParentOverrides[accountID] != nil {
+		return
 	}
-	b.mailboxParentOverrides[accountID][id] = parentID
+	if loaded, ok, _ := jmapextstore.Load[map[jmapcore.Id]*jmapcore.Id](ctx, b.extStore, accountID, "mailbox_parent_overrides"); ok && loaded != nil {
+		b.mailboxParentOverrides[accountID] = *loaded
+		return
+	}
+	b.mailboxParentOverrides[accountID] = make(map[jmapcore.Id]*jmapcore.Id)
 }
 
-func (b *IMAPSMTPBackend) getMailboxParentOverride(accountID string, id jmapcore.Id) (*jmapcore.Id, bool) {
-	b.mailboxMu.RLock()
-	defer b.mailboxMu.RUnlock()
-	if b.mailboxParentOverrides == nil || b.mailboxParentOverrides[accountID] == nil {
-		return nil, false
+func (b *IMAPSMTPBackend) persistMailboxParentOverridesLocked(ctx context.Context, accountID string) {
+	if b.extStore != nil && b.mailboxParentOverrides[accountID] != nil {
+		_ = jmapextstore.Save(ctx, b.extStore, accountID, "mailbox_parent_overrides", b.mailboxParentOverrides[accountID])
 	}
+}
+
+func (b *IMAPSMTPBackend) loadMailboxSortOrdersLocked(ctx context.Context, accountID string) {
+	if b.mailboxSortOrders == nil {
+		b.mailboxSortOrders = make(map[string]map[jmapcore.Id]uint64)
+	}
+	if b.mailboxSortOrders[accountID] != nil {
+		return
+	}
+	if loaded, ok, _ := jmapextstore.Load[map[jmapcore.Id]uint64](ctx, b.extStore, accountID, "mailbox_sort_orders"); ok && loaded != nil {
+		b.mailboxSortOrders[accountID] = *loaded
+		return
+	}
+	b.mailboxSortOrders[accountID] = make(map[jmapcore.Id]uint64)
+}
+
+func (b *IMAPSMTPBackend) persistMailboxSortOrdersLocked(ctx context.Context, accountID string) {
+	if b.extStore != nil && b.mailboxSortOrders[accountID] != nil {
+		_ = jmapextstore.Save(ctx, b.extStore, accountID, "mailbox_sort_orders", b.mailboxSortOrders[accountID])
+	}
+}
+
+func (b *IMAPSMTPBackend) setMailboxParentOverride(ctx context.Context, accountID string, id jmapcore.Id, parentID *jmapcore.Id) {
+	b.mailboxMu.Lock()
+	defer b.mailboxMu.Unlock()
+	b.loadMailboxParentOverridesLocked(ctx, accountID)
+	b.mailboxParentOverrides[accountID][id] = parentID
+	b.persistMailboxParentOverridesLocked(ctx, accountID)
+}
+
+func (b *IMAPSMTPBackend) getMailboxParentOverride(ctx context.Context, accountID string, id jmapcore.Id) (*jmapcore.Id, bool) {
+	b.mailboxMu.Lock()
+	defer b.mailboxMu.Unlock()
+	b.loadMailboxParentOverridesLocked(ctx, accountID)
 	p, ok := b.mailboxParentOverrides[accountID][id]
 	return p, ok
 }
 
-func (b *IMAPSMTPBackend) setMailboxSortOrder(accountID string, id jmapcore.Id, sortOrder uint64) {
+func (b *IMAPSMTPBackend) setMailboxSortOrder(ctx context.Context, accountID string, id jmapcore.Id, sortOrder uint64) {
 	b.mailboxMu.Lock()
 	defer b.mailboxMu.Unlock()
-	if b.mailboxSortOrders == nil {
-		b.mailboxSortOrders = make(map[string]map[jmapcore.Id]uint64)
-	}
-	if b.mailboxSortOrders[accountID] == nil {
-		b.mailboxSortOrders[accountID] = make(map[jmapcore.Id]uint64)
-	}
+	b.loadMailboxSortOrdersLocked(ctx, accountID)
 	b.mailboxSortOrders[accountID][id] = sortOrder
+	b.persistMailboxSortOrdersLocked(ctx, accountID)
 }
 
-func (b *IMAPSMTPBackend) getMailboxSortOrder(accountID string, id jmapcore.Id) (uint64, bool) {
-	b.mailboxMu.RLock()
-	defer b.mailboxMu.RUnlock()
-	if b.mailboxSortOrders == nil || b.mailboxSortOrders[accountID] == nil {
-		return 0, false
-	}
+func (b *IMAPSMTPBackend) getMailboxSortOrder(ctx context.Context, accountID string, id jmapcore.Id) (uint64, bool) {
+	b.mailboxMu.Lock()
+	defer b.mailboxMu.Unlock()
+	b.loadMailboxSortOrdersLocked(ctx, accountID)
 	so, ok := b.mailboxSortOrders[accountID][id]
 	return so, ok
 }

@@ -84,6 +84,9 @@ func (b *IMAPSMTPBackend) GetCurrentCompositeState(ctx context.Context) (*Compos
 	}
 
 	for _, fi := range folders {
+		if strings.HasPrefix(fi.Name, ".") {
+			continue
+		}
 		hasNoSelect := false
 		for _, attr := range fi.Attrs {
 			if strings.EqualFold(attr, "\\NoSelect") {

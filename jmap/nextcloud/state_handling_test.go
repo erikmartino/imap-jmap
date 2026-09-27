@@ -1079,3 +1079,89 @@ func TestCalendarStateChangesLifecycle(t *testing.T) {
 		t.Errorf("expected %s in Calendar/changes destroyed, got %v", cal.ID, destroyed)
 	}
 }
+
+func TestWebDAVExtensionStorePersistenceAcrossInstances(t *testing.T) {
+	client, be1, _, _, _, cleanup := NewEmbeddedBackend("user@example.com")
+	defer cleanup()
+	ctx := stateTestCtx("user@example.com")
+
+	// 1. Create ParticipantIdentity on be1
+	pi, err := be1.CreateParticipantIdentity(ctx, &jmapcalendar.ParticipantIdentity{
+		Name:            "Alice Calendar",
+		CalendarAddress: "mailto:alice.calendar@example.com",
+	})
+	if err != nil {
+		t.Fatalf("be1.CreateParticipantIdentity failed: %v", err)
+	}
+
+	// 2. Create CalendarEventNotification on be1
+	cen, err := be1.CreateCalendarEventNotification(ctx, &jmapcalendar.CalendarEventNotification{
+		Type:            "eventCreated",
+		CalendarEventID: "evt-test-123",
+	})
+	if err != nil {
+		t.Fatalf("be1.CreateCalendarEventNotification failed: %v", err)
+	}
+
+	// 3. Create ShareNotification on be1
+	sn, err := be1.CreateShareNotification(ctx, &jmapcalendar.ShareNotification{
+		ID:              "sn-test-share-1",
+		ObjectType:      "Calendar",
+		ObjectAccountID: "user@example.com",
+		ObjectID:        "cal-test-456",
+	})
+	if err != nil {
+		t.Fatalf("be1.CreateShareNotification failed: %v", err)
+	}
+
+	// 4. Create fresh be2 instance pointing to the same Client / WebDAV store
+	be2 := NewCalendarsBackend(client)
+
+	// Verify ParticipantIdentity in be2
+	pis2, err := be2.GetAllParticipantIdentities(ctx)
+	if err != nil {
+		t.Fatalf("be2.GetAllParticipantIdentities failed: %v", err)
+	}
+	foundPI := false
+	for _, item := range pis2 {
+		if item.ID == pi.ID && item.CalendarAddress == "mailto:alice.calendar@example.com" {
+			foundPI = true
+			break
+		}
+	}
+	if !foundPI {
+		t.Errorf("expected fresh be2 to load ParticipantIdentity from WebDAV extension store")
+	}
+
+	// Verify CalendarEventNotification in be2
+	cens2, err := be2.GetAllCalendarEventNotifications(ctx)
+	if err != nil {
+		t.Fatalf("be2.GetAllCalendarEventNotifications failed: %v", err)
+	}
+	foundCEN := false
+	for _, item := range cens2 {
+		if item.ID == cen.ID && item.CalendarEventID == "evt-test-123" {
+			foundCEN = true
+			break
+		}
+	}
+	if !foundCEN {
+		t.Errorf("expected fresh be2 to load CalendarEventNotification from WebDAV extension store")
+	}
+
+	// Verify ShareNotification in be2
+	sns2, err := be2.GetAllShareNotifications(ctx)
+	if err != nil {
+		t.Fatalf("be2.GetAllShareNotifications failed: %v", err)
+	}
+	foundSN := false
+	for _, item := range sns2 {
+		if item.ID == sn.ID && item.ObjectID == "cal-test-456" {
+			foundSN = true
+			break
+		}
+	}
+	if !foundSN {
+		t.Errorf("expected fresh be2 to load ShareNotification from WebDAV extension store")
+	}
+}

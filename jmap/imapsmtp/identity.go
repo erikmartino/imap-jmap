@@ -8,10 +8,31 @@ import (
 
 	"imap-jmap/jmap/jmapauth"
 	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmapextstore"
 	"imap-jmap/jmap/jmapmail"
 )
 
 // Identities (RFC 8621 Section 6)
+
+func (b *IMAPSMTPBackend) loadIdentitiesLocked(ctx context.Context, accountID string) {
+	if b.identities == nil {
+		b.identities = make(map[string]map[jmapcore.Id]*jmapmail.Identity)
+	}
+	if b.identities[accountID] != nil {
+		return
+	}
+	if loaded, ok, _ := jmapextstore.Load[map[jmapcore.Id]*jmapmail.Identity](ctx, b.extStore, accountID, "identities"); ok && loaded != nil {
+		b.identities[accountID] = *loaded
+		return
+	}
+	b.identities[accountID] = make(map[jmapcore.Id]*jmapmail.Identity)
+}
+
+func (b *IMAPSMTPBackend) persistIdentitiesLocked(ctx context.Context, accountID string) {
+	if b.extStore != nil && b.identities[accountID] != nil {
+		_ = jmapextstore.Save(ctx, b.extStore, accountID, "identities", b.identities[accountID])
+	}
+}
 
 func (b *IMAPSMTPBackend) IdentityState(ctx context.Context) string {
 	accountID, _ := jmapauth.AccountIDFromContext(ctx)
@@ -37,9 +58,7 @@ func (b *IMAPSMTPBackend) GetIdentities(ctx context.Context) ([]*jmapmail.Identi
 	b.identitiesMu.Lock()
 	defer b.identitiesMu.Unlock()
 
-	if b.identities[accountID] == nil {
-		b.identities[accountID] = make(map[jmapcore.Id]*jmapmail.Identity)
-	}
+	b.loadIdentitiesLocked(ctx, accountID)
 	m := b.identities[accountID]
 	if _, ok := m["id-primary"]; !ok {
 		m["id-primary"] = &jmapmail.Identity{
@@ -48,6 +67,7 @@ func (b *IMAPSMTPBackend) GetIdentities(ctx context.Context) ([]*jmapmail.Identi
 			Email:     email,
 			MayDelete: false,
 		}
+		b.persistIdentitiesLocked(ctx, accountID)
 	}
 
 	list := make([]*jmapmail.Identity, 0, len(m))
@@ -62,12 +82,7 @@ func (b *IMAPSMTPBackend) CreateIdentity(ctx context.Context, identity *jmapmail
 	b.identitiesMu.Lock()
 	defer b.identitiesMu.Unlock()
 
-	if b.identities == nil {
-		b.identities = make(map[string]map[jmapcore.Id]*jmapmail.Identity)
-	}
-	if b.identities[accountID] == nil {
-		b.identities[accountID] = make(map[jmapcore.Id]*jmapmail.Identity)
-	}
+	b.loadIdentitiesLocked(ctx, accountID)
 
 	// Ensure default primary identity exists for duplicate detection
 	if _, ok := b.identities[accountID]["id-primary"]; !ok {
@@ -99,6 +114,7 @@ func (b *IMAPSMTPBackend) CreateIdentity(ctx context.Context, identity *jmapmail
 		identity.ID = jmapcore.Id(fmt.Sprintf("id-%d", time.Now().UnixNano()))
 	}
 	b.identities[accountID][identity.ID] = identity
+	b.persistIdentitiesLocked(ctx, accountID)
 
 	b.getIdentityTracker(accountID).Record(identity.ID, "create")
 	b.publishStateChange(ctx)
@@ -109,6 +125,8 @@ func (b *IMAPSMTPBackend) UpdateIdentity(ctx context.Context, id jmapcore.Id, pa
 	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.identitiesMu.Lock()
 	defer b.identitiesMu.Unlock()
+
+	b.loadIdentitiesLocked(ctx, accountID)
 	if m, ok := b.identities[accountID]; ok {
 		if ident, ok := m[id]; ok {
 			if name, ok := patch["name"].(string); ok {
@@ -132,6 +150,7 @@ func (b *IMAPSMTPBackend) UpdateIdentity(ctx context.Context, id jmapcore.Id, pa
 			if mayDel, ok := patch["mayDelete"].(bool); ok {
 				ident.MayDelete = mayDel
 			}
+			b.persistIdentitiesLocked(ctx, accountID)
 			b.getIdentityTracker(accountID).Record(id, "update")
 			b.publishStateChange(ctx)
 			return ident, nil
@@ -144,9 +163,12 @@ func (b *IMAPSMTPBackend) DeleteIdentity(ctx context.Context, id jmapcore.Id) (b
 	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.identitiesMu.Lock()
 	defer b.identitiesMu.Unlock()
+
+	b.loadIdentitiesLocked(ctx, accountID)
 	if m, ok := b.identities[accountID]; ok {
 		if _, ok := m[id]; ok {
 			delete(m, id)
+			b.persistIdentitiesLocked(ctx, accountID)
 			b.getIdentityTracker(accountID).Record(id, "destroy")
 			b.publishStateChange(ctx)
 			return true, nil

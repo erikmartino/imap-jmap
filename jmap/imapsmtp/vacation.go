@@ -5,10 +5,30 @@ import (
 	"fmt"
 
 	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapextstore"
 	"imap-jmap/jmap/jmapmail"
 )
 
 // VacationResponse is a per-account singleton per RFC 8621 Section 8.
+
+func (b *IMAPSMTPBackend) loadVacationLocked(ctx context.Context, accountID string) {
+	if b.vacationResponses == nil {
+		b.vacationResponses = make(map[string]*jmapmail.VacationResponse)
+	}
+	if b.vacationResponses[accountID] != nil {
+		return
+	}
+	if loaded, ok, _ := jmapextstore.Load[jmapmail.VacationResponse](ctx, b.extStore, accountID, "vacation"); ok && loaded != nil {
+		b.vacationResponses[accountID] = loaded
+		return
+	}
+}
+
+func (b *IMAPSMTPBackend) persistVacationLocked(ctx context.Context, accountID string) {
+	if b.extStore != nil && b.vacationResponses[accountID] != nil {
+		_ = jmapextstore.Save(ctx, b.extStore, accountID, "vacation", *b.vacationResponses[accountID])
+	}
+}
 
 func (b *IMAPSMTPBackend) VacationResponseState(ctx context.Context) string {
 	accountID, _ := jmapauth.AccountIDFromContext(ctx)
@@ -25,13 +45,12 @@ func (b *IMAPSMTPBackend) GetVacationResponse(ctx context.Context) (*jmapmail.Va
 	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.vacationMu.Lock()
 	defer b.vacationMu.Unlock()
-	if b.vacationResponses == nil {
-		b.vacationResponses = make(map[string]*jmapmail.VacationResponse)
-	}
+	b.loadVacationLocked(ctx, accountID)
 	vr, ok := b.vacationResponses[accountID]
 	if !ok {
 		vr = &jmapmail.VacationResponse{ID: "singleton", IsEnabled: false}
 		b.vacationResponses[accountID] = vr
+		b.persistVacationLocked(ctx, accountID)
 	}
 	copyVR := *vr
 	return &copyVR, nil
@@ -41,9 +60,7 @@ func (b *IMAPSMTPBackend) UpdateVacationResponse(ctx context.Context, patch map[
 	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.vacationMu.Lock()
 	defer b.vacationMu.Unlock()
-	if b.vacationResponses == nil {
-		b.vacationResponses = make(map[string]*jmapmail.VacationResponse)
-	}
+	b.loadVacationLocked(ctx, accountID)
 	if b.vacationState == nil {
 		b.vacationState = make(map[string]uint64)
 	}
@@ -94,6 +111,7 @@ func (b *IMAPSMTPBackend) UpdateVacationResponse(ctx context.Context, patch map[
 		b.vacationState[accountID] = 1
 	}
 	b.vacationState[accountID]++
+	b.persistVacationLocked(ctx, accountID)
 	b.publishStateChange(ctx)
 	copyVR := *vr
 	return &copyVR, nil

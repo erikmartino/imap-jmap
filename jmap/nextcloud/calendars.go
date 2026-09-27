@@ -20,6 +20,7 @@ import (
 	"imap-jmap/jmap/jmapauth"
 	"imap-jmap/jmap/jmapcalendar"
 	"imap-jmap/jmap/jmapcore"
+	"imap-jmap/jmap/jmapextstore"
 	"imap-jmap/jmap/jmapprincipals"
 	"imap-jmap/jmap/jmappush"
 )
@@ -100,6 +101,7 @@ type CalendarsBackend struct {
 	shareNotificationTrackers map[string]*jmappush.ChangeTracker
 	userCalOverrides          map[string]map[jmapcore.Id]*jmapcalendar.Calendar
 	principalsBackend         jmapprincipals.PrincipalsBackend
+	extStore                  jmapextstore.Store
 }
 
 var _ jmapcalendar.CalendarsBackend = (*CalendarsBackend)(nil)
@@ -129,7 +131,22 @@ func NewCalendarsBackend(client *Client) *CalendarsBackend {
 		shareNotificationsCache:   make(map[string]map[jmapcore.Id]*jmapcalendar.ShareNotification),
 		shareNotificationTrackers: make(map[string]*jmappush.ChangeTracker),
 		userCalOverrides:          make(map[string]map[jmapcore.Id]*jmapcalendar.Calendar),
+		extStore:                  NewWebDAVExtensionStore(client),
 	}
+}
+
+// SetExtensionStore configures a custom extension store.
+func (b *CalendarsBackend) SetExtensionStore(s jmapextstore.Store) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.extStore = s
+}
+
+// ExtensionStore returns the configured extension store.
+func (b *CalendarsBackend) ExtensionStore() jmapextstore.Store {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.extStore
 }
 
 // SetCacheDisabled toggles cache between dummy (disabled) and memory.
@@ -954,10 +971,9 @@ func (b *CalendarsBackend) UpdateCalendar(ctx context.Context, id jmapcore.Id, p
 			NewRights:       ch.newR,
 			Name:            nil,
 		}
-		if b.shareNotificationsCache[ch.pUser] == nil {
-			b.shareNotificationsCache[ch.pUser] = make(map[jmapcore.Id]*jmapcalendar.ShareNotification)
-		}
+		b.loadShareNotificationsLocked(ctx, ch.pUser)
 		b.shareNotificationsCache[ch.pUser][notifID] = notif
+		b.persistShareNotificationsLocked(ctx, ch.pUser)
 		stNotif := b.getShareNotificationTracker(ch.pUser).Record(notifID, "create")
 		shareNotifs = append(shareNotifs, struct {
 			user  string
@@ -2533,6 +2549,73 @@ func (b *CalendarsBackend) QueryCalendarEvents(ctx context.Context, filter map[s
 }
 
 // ParticipantIdentities
+
+func (b *CalendarsBackend) loadParticipantIdentitiesLocked(ctx context.Context, u string) {
+	if b.identitiesCache == nil {
+		b.identitiesCache = make(map[string]map[jmapcore.Id]*jmapcalendar.ParticipantIdentity)
+	}
+	if b.identitiesCache[u] != nil {
+		return
+	}
+	if b.extStore != nil {
+		if loaded, ok, _ := jmapextstore.Load[map[jmapcore.Id]*jmapcalendar.ParticipantIdentity](ctx, b.extStore, u, "participant_identities"); ok && loaded != nil {
+			b.identitiesCache[u] = *loaded
+			return
+		}
+	}
+	b.identitiesCache[u] = make(map[jmapcore.Id]*jmapcalendar.ParticipantIdentity)
+}
+
+func (b *CalendarsBackend) persistParticipantIdentitiesLocked(ctx context.Context, u string) {
+	if b.extStore != nil && b.identitiesCache != nil && b.identitiesCache[u] != nil {
+		_ = jmapextstore.Save(ctx, b.extStore, u, "participant_identities", b.identitiesCache[u])
+	}
+}
+
+func (b *CalendarsBackend) loadCalendarEventNotificationsLocked(ctx context.Context, u string) {
+	if b.notificationsCache == nil {
+		b.notificationsCache = make(map[string]map[jmapcore.Id]*jmapcalendar.CalendarEventNotification)
+	}
+	if b.notificationsCache[u] != nil {
+		return
+	}
+	if b.extStore != nil {
+		if loaded, ok, _ := jmapextstore.Load[map[jmapcore.Id]*jmapcalendar.CalendarEventNotification](ctx, b.extStore, u, "calendar_event_notifications"); ok && loaded != nil {
+			b.notificationsCache[u] = *loaded
+			return
+		}
+	}
+	b.notificationsCache[u] = make(map[jmapcore.Id]*jmapcalendar.CalendarEventNotification)
+}
+
+func (b *CalendarsBackend) persistCalendarEventNotificationsLocked(ctx context.Context, u string) {
+	if b.extStore != nil && b.notificationsCache != nil && b.notificationsCache[u] != nil {
+		_ = jmapextstore.Save(ctx, b.extStore, u, "calendar_event_notifications", b.notificationsCache[u])
+	}
+}
+
+func (b *CalendarsBackend) loadShareNotificationsLocked(ctx context.Context, u string) {
+	if b.shareNotificationsCache == nil {
+		b.shareNotificationsCache = make(map[string]map[jmapcore.Id]*jmapcalendar.ShareNotification)
+	}
+	if b.shareNotificationsCache[u] != nil {
+		return
+	}
+	if b.extStore != nil {
+		if loaded, ok, _ := jmapextstore.Load[map[jmapcore.Id]*jmapcalendar.ShareNotification](ctx, b.extStore, u, "share_notifications"); ok && loaded != nil {
+			b.shareNotificationsCache[u] = *loaded
+			return
+		}
+	}
+	b.shareNotificationsCache[u] = make(map[jmapcore.Id]*jmapcalendar.ShareNotification)
+}
+
+func (b *CalendarsBackend) persistShareNotificationsLocked(ctx context.Context, u string) {
+	if b.extStore != nil && b.shareNotificationsCache != nil && b.shareNotificationsCache[u] != nil {
+		_ = jmapextstore.Save(ctx, b.extStore, u, "share_notifications", b.shareNotificationsCache[u])
+	}
+}
+
 func (b *CalendarsBackend) ParticipantIdentityState(ctx context.Context) string {
 	return b.getIdentityTracker(b.user(ctx)).State()
 }
@@ -2550,8 +2633,8 @@ func (b *CalendarsBackend) GetParticipantIdentities(ctx context.Context, ids []j
 	u := b.user(ctx)
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.identitiesCache[u] == nil {
-		b.identitiesCache[u] = make(map[jmapcore.Id]*jmapcalendar.ParticipantIdentity)
+	b.loadParticipantIdentitiesLocked(ctx, u)
+	if len(b.identitiesCache[u]) == 0 {
 		defaultID := jmapcore.Id("identity-default")
 		b.identitiesCache[u][defaultID] = &jmapcalendar.ParticipantIdentity{
 			ID:              defaultID,
@@ -2560,6 +2643,7 @@ func (b *CalendarsBackend) GetParticipantIdentities(ctx context.Context, ids []j
 			SendTo:          map[string]string{"imip": "mailto:" + u},
 			IsDefault:       true,
 		}
+		b.persistParticipantIdentitiesLocked(ctx, u)
 	}
 
 	var list []*jmapcalendar.ParticipantIdentity
@@ -2603,9 +2687,7 @@ func (b *CalendarsBackend) CreateParticipantIdentity(ctx context.Context, identi
 	u := b.user(ctx)
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.identitiesCache[u] == nil {
-		b.identitiesCache[u] = make(map[jmapcore.Id]*jmapcalendar.ParticipantIdentity)
-	}
+	b.loadParticipantIdentitiesLocked(ctx, u)
 
 	if identity.CalendarAddress != "" && !strings.HasPrefix(identity.CalendarAddress, "mailto:") {
 		identity.CalendarAddress = "mailto:" + identity.CalendarAddress
@@ -2653,6 +2735,7 @@ func (b *CalendarsBackend) CreateParticipantIdentity(ctx context.Context, identi
 		}
 	}
 	b.identitiesCache[u][identity.ID] = identity
+	b.persistParticipantIdentitiesLocked(ctx, u)
 	st := b.getIdentityTracker(u).Record(identity.ID, "create")
 
 	b.emitStateChange(u, "ParticipantIdentity", st)
@@ -2662,6 +2745,7 @@ func (b *CalendarsBackend) CreateParticipantIdentity(ctx context.Context, identi
 func (b *CalendarsBackend) UpdateParticipantIdentity(ctx context.Context, id jmapcore.Id, patch map[string]any) (*jmapcalendar.ParticipantIdentity, error) {
 	u := b.user(ctx)
 	b.mu.Lock()
+	b.loadParticipantIdentitiesLocked(ctx, u)
 	if pi, ok := b.identitiesCache[u][id]; ok {
 		if n, ok := patch["name"].(string); ok {
 			pi.Name = n
@@ -2677,6 +2761,7 @@ func (b *CalendarsBackend) UpdateParticipantIdentity(ctx context.Context, id jma
 				}
 			}
 		}
+		b.persistParticipantIdentitiesLocked(ctx, u)
 		st := b.getIdentityTracker(u).Record(id, "update")
 		b.mu.Unlock()
 		b.emitStateChange(u, "ParticipantIdentity", st)
@@ -2689,11 +2774,13 @@ func (b *CalendarsBackend) UpdateParticipantIdentity(ctx context.Context, id jma
 func (b *CalendarsBackend) DeleteParticipantIdentity(ctx context.Context, id jmapcore.Id) (bool, error) {
 	u := b.user(ctx)
 	b.mu.Lock()
+	b.loadParticipantIdentitiesLocked(ctx, u)
 	if _, ok := b.identitiesCache[u][id]; !ok {
 		b.mu.Unlock()
 		return false, fmt.Errorf("participant identity not found")
 	}
 	delete(b.identitiesCache[u], id)
+	b.persistParticipantIdentitiesLocked(ctx, u)
 	st := b.getIdentityTracker(u).Record(id, "destroy")
 	b.mu.Unlock()
 	b.emitStateChange(u, "ParticipantIdentity", st)
@@ -2703,6 +2790,7 @@ func (b *CalendarsBackend) DeleteParticipantIdentity(ctx context.Context, id jma
 func (b *CalendarsBackend) SetDefaultParticipantIdentity(ctx context.Context, id jmapcore.Id) error {
 	u := b.user(ctx)
 	b.mu.Lock()
+	b.loadParticipantIdentitiesLocked(ctx, u)
 	if _, ok := b.identitiesCache[u][id]; ok {
 		for otherID, other := range b.identitiesCache[u] {
 			wasDefault := other.IsDefault
@@ -2711,6 +2799,7 @@ func (b *CalendarsBackend) SetDefaultParticipantIdentity(ctx context.Context, id
 				b.getIdentityTracker(u).Record(otherID, "update")
 			}
 		}
+		b.persistParticipantIdentitiesLocked(ctx, u)
 		st := b.getIdentityTracker(u).State()
 		b.mu.Unlock()
 		b.emitStateChange(u, "ParticipantIdentity", st)
@@ -2736,8 +2825,9 @@ func (b *CalendarsBackend) GetAllCalendarEventNotifications(ctx context.Context)
 
 func (b *CalendarsBackend) GetCalendarEventNotifications(ctx context.Context, ids []jmapcore.Id) ([]*jmapcalendar.CalendarEventNotification, []jmapcore.Id, error) {
 	u := b.user(ctx)
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.loadCalendarEventNotificationsLocked(ctx, u)
 	var list []*jmapcalendar.CalendarEventNotification
 	var notFound []jmapcore.Id
 	if ids == nil {
@@ -2765,9 +2855,7 @@ func (b *CalendarsBackend) GetCalendarEventNotifications(ctx context.Context, id
 func (b *CalendarsBackend) CreateCalendarEventNotification(ctx context.Context, notification *jmapcalendar.CalendarEventNotification) (*jmapcalendar.CalendarEventNotification, error) {
 	u := b.user(ctx)
 	b.mu.Lock()
-	if b.notificationsCache[u] == nil {
-		b.notificationsCache[u] = make(map[jmapcore.Id]*jmapcalendar.CalendarEventNotification)
-	}
+	b.loadCalendarEventNotificationsLocked(ctx, u)
 	if notification.ID == "" {
 		notification.ID = jmapcore.Id(fmt.Sprintf("notif-%d", time.Now().UnixNano()))
 	}
@@ -2780,6 +2868,7 @@ func (b *CalendarsBackend) CreateCalendarEventNotification(ctx context.Context, 
 		b.notifSeq[u] = make(map[jmapcore.Id]uint64)
 	}
 	b.notifSeq[u][notification.ID] = b.nextNotifSeq
+	b.persistCalendarEventNotificationsLocked(ctx, u)
 	st := b.getNotificationTracker(u).Record(notification.ID, "create")
 	b.mu.Unlock()
 
@@ -2790,6 +2879,7 @@ func (b *CalendarsBackend) CreateCalendarEventNotification(ctx context.Context, 
 func (b *CalendarsBackend) DeleteCalendarEventNotification(ctx context.Context, id jmapcore.Id) (bool, error) {
 	u := b.user(ctx)
 	b.mu.Lock()
+	b.loadCalendarEventNotificationsLocked(ctx, u)
 	if b.notificationsCache[u] == nil {
 		b.mu.Unlock()
 		return false, nil
@@ -2802,6 +2892,7 @@ func (b *CalendarsBackend) DeleteCalendarEventNotification(ctx context.Context, 
 	if b.notifSeq[u] != nil {
 		delete(b.notifSeq[u], id)
 	}
+	b.persistCalendarEventNotificationsLocked(ctx, u)
 	st := b.getNotificationTracker(u).Record(id, "destroy")
 	b.mu.Unlock()
 
@@ -2920,8 +3011,9 @@ func (b *CalendarsBackend) ShareNotificationChanges(ctx context.Context, sinceSt
 // GetShareNotifications retrieves specific ShareNotifications by ID.
 func (b *CalendarsBackend) GetShareNotifications(ctx context.Context, ids []jmapcore.Id) (list []*jmapcalendar.ShareNotification, notFound []jmapcore.Id, err error) {
 	u := b.user(ctx)
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.loadShareNotificationsLocked(ctx, u)
 
 	var found []*jmapcalendar.ShareNotification
 	var missing []jmapcore.Id
@@ -2942,8 +3034,9 @@ func (b *CalendarsBackend) GetShareNotifications(ctx context.Context, ids []jmap
 // GetAllShareNotifications retrieves all ShareNotifications for the user.
 func (b *CalendarsBackend) GetAllShareNotifications(ctx context.Context) ([]*jmapcalendar.ShareNotification, error) {
 	u := b.user(ctx)
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.loadShareNotificationsLocked(ctx, u)
 
 	var list []*jmapcalendar.ShareNotification
 	if b.shareNotificationsCache[u] != nil {
@@ -3051,10 +3144,9 @@ func (b *CalendarsBackend) CreateShareNotification(ctx context.Context, notifica
 	}
 	u := b.user(ctx)
 	b.mu.Lock()
-	if b.shareNotificationsCache[u] == nil {
-		b.shareNotificationsCache[u] = make(map[jmapcore.Id]*jmapcalendar.ShareNotification)
-	}
+	b.loadShareNotificationsLocked(ctx, u)
 	b.shareNotificationsCache[u][notification.ID] = notification
+	b.persistShareNotificationsLocked(ctx, u)
 	st := b.getShareNotificationTracker(u).Record(notification.ID, "create")
 	b.mu.Unlock()
 
@@ -3066,8 +3158,10 @@ func (b *CalendarsBackend) CreateShareNotification(ctx context.Context, notifica
 func (b *CalendarsBackend) DeleteShareNotification(ctx context.Context, id jmapcore.Id) (bool, error) {
 	u := b.user(ctx)
 	b.mu.Lock()
+	b.loadShareNotificationsLocked(ctx, u)
 	if b.shareNotificationsCache[u] != nil {
 		delete(b.shareNotificationsCache[u], id)
+		b.persistShareNotificationsLocked(ctx, u)
 	}
 	st := b.getShareNotificationTracker(u).Record(id, "destroy")
 	b.mu.Unlock()

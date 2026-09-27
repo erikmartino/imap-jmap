@@ -49,6 +49,9 @@ func (b *IMAPSMTPBackend) GetAllMailboxes(ctx context.Context) ([]*jmapmail.Mail
 
 	var result []*jmapmail.Mailbox
 	for _, fi := range folders {
+		if strings.HasPrefix(fi.Name, ".") {
+			continue
+		}
 		hasNoSelect := false
 		for _, attr := range fi.Attrs {
 			if strings.EqualFold(attr, "\\NoSelect") {
@@ -85,10 +88,10 @@ func (b *IMAPSMTPBackend) GetAllMailboxes(ctx context.Context) ([]*jmapmail.Mail
 		}
 
 		accountID, _ := jmapauth.AccountIDFromContext(ctx)
-		if pOverride, ok := b.getMailboxParentOverride(accountID, mbID); ok {
+		if pOverride, ok := b.getMailboxParentOverride(ctx, accountID, mbID); ok {
 			parentID = pOverride
 		} else if role != "" {
-			if pOverride, ok := b.getMailboxParentOverride(accountID, jmapcore.Id("mb-"+role)); ok {
+			if pOverride, ok := b.getMailboxParentOverride(ctx, accountID, jmapcore.Id("mb-"+role)); ok {
 				parentID = pOverride
 			}
 		}
@@ -122,10 +125,10 @@ func (b *IMAPSMTPBackend) GetAllMailboxes(ctx context.Context) ([]*jmapmail.Mail
 				sortOrder = 80
 			}
 		}
-		if so, ok := b.getMailboxSortOrder(accountID, mbID); ok {
+		if so, ok := b.getMailboxSortOrder(ctx, accountID, mbID); ok {
 			sortOrder = so
 		} else if role != "" {
-			if so, ok := b.getMailboxSortOrder(accountID, jmapcore.Id("mb-"+role)); ok {
+			if so, ok := b.getMailboxSortOrder(ctx, accountID, jmapcore.Id("mb-"+role)); ok {
 				sortOrder = so
 			}
 		}
@@ -252,7 +255,7 @@ func (b *IMAPSMTPBackend) CreateMailbox(ctx context.Context, mb *jmapmail.Mailbo
 	mb.ID = MailboxIDForName(folderName)
 	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	if mb.SortOrder != 0 {
-		b.setMailboxSortOrder(accountID, mb.ID, mb.SortOrder)
+		b.setMailboxSortOrder(ctx, accountID, mb.ID, mb.SortOrder)
 	}
 
 	b.publishStateChange(ctx)
@@ -314,10 +317,10 @@ func (b *IMAPSMTPBackend) UpdateMailbox(ctx context.Context, id jmapcore.Id, pat
 
 	if so, ok := patch["sortOrder"].(float64); ok {
 		val := uint64(so)
-		b.setMailboxSortOrder(accountID, target.ID, val)
-		b.setMailboxSortOrder(accountID, origID, val)
+		b.setMailboxSortOrder(ctx, accountID, target.ID, val)
+		b.setMailboxSortOrder(ctx, accountID, origID, val)
 		target.SortOrder = val
-	} else if prevSO, ok := b.getMailboxSortOrder(accountID, target.ID); ok {
+	} else if prevSO, ok := b.getMailboxSortOrder(ctx, accountID, target.ID); ok {
 		target.SortOrder = prevSO
 	}
 
@@ -350,9 +353,9 @@ func (b *IMAPSMTPBackend) UpdateMailbox(ctx context.Context, id jmapcore.Id, pat
 
 	if isInbox {
 		if hasParentUpdate {
-			b.setMailboxParentOverride(accountID, target.ID, newParentID)
-			b.setMailboxParentOverride(accountID, origID, newParentID)
-			b.setMailboxParentOverride(accountID, "mb-inbox", newParentID)
+			b.setMailboxParentOverride(ctx, accountID, target.ID, newParentID)
+			b.setMailboxParentOverride(ctx, accountID, origID, newParentID)
+			b.setMailboxParentOverride(ctx, accountID, "mb-inbox", newParentID)
 			target.ParentID = newParentID
 		}
 		b.publishStateChange(ctx)
@@ -401,16 +404,16 @@ func (b *IMAPSMTPBackend) UpdateMailbox(ctx context.Context, id jmapcore.Id, pat
 		b.trackMovedMailbox(origID, newID)
 		b.trackMovedMailbox(id, newID)
 		b.trackMovedMailbox(target.ID, newID)
-		if so, ok := b.getMailboxSortOrder(accountID, target.ID); ok {
-			b.setMailboxSortOrder(accountID, newID, so)
+		if so, ok := b.getMailboxSortOrder(ctx, accountID, target.ID); ok {
+			b.setMailboxSortOrder(ctx, accountID, newID, so)
 		}
 		target.ID = newID
 		target.Name = newLeafName
 	}
 
 	if hasParentUpdate {
-		b.setMailboxParentOverride(accountID, target.ID, newParentID)
-		b.setMailboxParentOverride(accountID, origID, newParentID)
+		b.setMailboxParentOverride(ctx, accountID, target.ID, newParentID)
+		b.setMailboxParentOverride(ctx, accountID, origID, newParentID)
 		target.ParentID = newParentID
 	}
 

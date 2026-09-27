@@ -95,7 +95,7 @@ func (b *IMAPSMTPBackend) GetEmails(ctx context.Context, ids []jmapcore.Id) ([]*
 			if err != nil {
 				continue
 			}
-			if strings.HasPrefix(em.Subject, blobStagingMarker) {
+			if strings.HasPrefix(em.Subject, blobStagingMarker) || strings.HasPrefix(em.Subject, storeStagingMarker) {
 				continue
 			}
 
@@ -170,6 +170,9 @@ func (b *IMAPSMTPBackend) GetAllEmails(ctx context.Context) ([]*jmapmail.Email, 
 	var allEmails []*jmapmail.Email
 
 	for _, m := range folders {
+		if strings.HasPrefix(m.Name, ".") {
+			continue
+		}
 		hasNoSelect := false
 		for _, attr := range m.Attrs {
 			if strings.EqualFold(attr, "\\NoSelect") {
@@ -199,7 +202,7 @@ func (b *IMAPSMTPBackend) GetAllEmails(ctx context.Context) ([]*jmapmail.Email, 
 			if err != nil {
 				continue
 			}
-			if strings.HasPrefix(em.Subject, blobStagingMarker) {
+			if strings.HasPrefix(em.Subject, blobStagingMarker) || strings.HasPrefix(em.Subject, storeStagingMarker) {
 				continue
 			}
 
@@ -254,6 +257,9 @@ func (b *IMAPSMTPBackend) ITIPEmails(ctx context.Context, marker string) ([]jmap
 
 	var ids []jmapcore.Id
 	for _, m := range folders {
+		if strings.HasPrefix(m.Name, ".") {
+			continue
+		}
 		selectable := true
 		for _, attr := range m.Attrs {
 			if strings.EqualFold(attr, "\\NoSelect") {
