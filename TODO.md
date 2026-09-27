@@ -186,8 +186,9 @@ Per `AGENTS.md` §1 ("Stateless Proxy & Zero Local Filesystem Sync"), the proxy 
     - `jmap/nextcloud/constructor_invariants_test.go`
     - `jmap/managesieve/constructor_invariants_test.go`
     - `jmap/backend_constructor_invariants_test.go`
-- [ ] **4.9 Invariant gate**
-  - A test/lint that no backend package writes authoritative user data to disk and that a fresh process (new backend over the same upstream) returns the same `*/get` payloads and `state`s.
+- [x] **4.9 Invariant gate** (`jmap/invariant_gate_test.go`)
+  - Implemented `TestInvariantGate_ZeroDiskWritesLint` statically analyzing ASTs across all production backend packages (`imapsmtp`, `nextcloud`, `managesieve`) to verify that no backend code writes authoritative user data to local disk (`os.Create`, `os.WriteFile`, `os.Mkdir`, etc.).
+  - Implemented `TestInvariantGate_FreshBackendInstancesIdenticalPayloadsAndStates` spinning up independent fresh instances over identical upstream servers (IMAP, Nextcloud, ManageSieve) and asserting that all `*/get` payloads and content-addressed state tokens match exactly without local cache sharing.
 
 ---
 

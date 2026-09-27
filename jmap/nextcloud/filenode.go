@@ -123,10 +123,27 @@ func (b *FileNodeBackend) getNodeTracker(u string) *jmappush.ChangeTracker {
 }
 
 func fileNodeStateMap(nodes []*jmapfilenode.FileNode) map[string]string {
+	type fileNodeFingerprint struct {
+		ID       jmapcore.Id  `json:"id"`
+		Name     string       `json:"name"`
+		ParentID *jmapcore.Id `json:"parentId,omitempty"`
+		BlobID   *jmapcore.Id `json:"blobId,omitempty"`
+		Size     uint64       `json:"size"`
+		Type     string       `json:"type,omitempty"`
+		IsFolder bool         `json:"isFolder"`
+	}
 	fps := make(map[string]string, len(nodes))
 	for _, n := range nodes {
 		if n != nil {
-			fps[string(n.ID)] = jmappush.ObjectFingerprint(n)
+			fps[string(n.ID)] = jmappush.ObjectFingerprint(fileNodeFingerprint{
+				ID:       n.ID,
+				Name:     n.Name,
+				ParentID: n.ParentID,
+				BlobID:   n.BlobID,
+				Size:     n.Size,
+				Type:     n.Type,
+				IsFolder: n.IsFolder,
+			})
 		}
 	}
 	return fps
@@ -370,9 +387,9 @@ func (b *FileNodeBackend) syncFromWebDAV(ctx context.Context, u string) error {
 
 			nodeID := FileNodeIDForPath(clean)
 
-			nowStr := fi.ModTime.Format(time.RFC3339)
-			if nowStr == "" {
-				nowStr = time.Now().UTC().Format(time.RFC3339)
+			nowStr := time.Now().UTC().Format(time.RFC3339)
+			if !fi.ModTime.IsZero() {
+				nowStr = fi.ModTime.Format(time.RFC3339)
 			}
 
 			var node *jmapfilenode.FileNode
@@ -574,11 +591,9 @@ func (b *FileNodeBackend) CreateFileNode(ctx context.Context, node *jmapfilenode
 
 		wc, err := fs.Create(ctx, targetRel)
 		if err == nil && wc != nil {
-			var writtenData []byte
 			if node.BlobID != nil && bb != nil {
 				if blob, found, _ := bb.GetBlob(ctx, u, string(*node.BlobID)); found && blob != nil {
 					_, _ = wc.Write(blob.Data)
-					writtenData = blob.Data
 					node.Size = uint64(len(blob.Data))
 					if node.Type == "" || node.Type == "file" || node.Type == "folder" || node.Type == "directory" {
 						node.Type = blob.Type
@@ -588,7 +603,7 @@ func (b *FileNodeBackend) CreateFileNode(ctx context.Context, node *jmapfilenode
 			_ = wc.Close()
 
 			if node.BlobID == nil {
-				hash := sha256.Sum256(writtenData)
+				hash := sha256.Sum256([]byte(u + ":" + cleanRelPath(targetRel)))
 				bid := jmapcore.Id(hex.EncodeToString(hash[:]))
 				node.BlobID = &bid
 			}

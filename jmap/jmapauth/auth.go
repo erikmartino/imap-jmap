@@ -45,6 +45,9 @@ type AuthCredentials struct {
 
 // CredentialsFromContext retrieves the authenticated credentials from context if present.
 func CredentialsFromContext(ctx context.Context) (AuthCredentials, bool) {
+	if ctx == nil {
+		return AuthCredentials{}, false
+	}
 	creds, ok := ctx.Value(authCredentialsKey).(AuthCredentials)
 	return creds, ok && creds.Username != ""
 }
@@ -79,6 +82,9 @@ func SubjectForAccountID(accountID string) (string, bool) {
 // SubjectFromContext retrieves the authenticated subject (e.g. username/email) injected by the
 // auth middleware.
 func SubjectFromContext(ctx context.Context) (string, bool) {
+	if ctx == nil {
+		return "", false
+	}
 	subject, ok := ctx.Value(authSubjectKey).(string)
 	return subject, ok && subject != ""
 }
@@ -90,6 +96,9 @@ func ContextWithSubject(ctx context.Context, subject string) context.Context {
 
 // AccountIDFromContext retrieves the authenticated accountID injected by the auth middleware.
 func AccountIDFromContext(ctx context.Context) (string, bool) {
+	if ctx == nil {
+		return "", false
+	}
 	id, ok := ctx.Value(authAccountIDKey).(string)
 	return id, ok
 }
@@ -102,6 +111,9 @@ func ContextWithAccountID(ctx context.Context, accountID string) context.Context
 // PrincipalAccountIDFromContext retrieves the authenticated caller's accountID.
 // Falls back to AccountIDFromContext when no explicit principal account ID is set.
 func PrincipalAccountIDFromContext(ctx context.Context) (string, bool) {
+	if ctx == nil {
+		return "", false
+	}
 	if id, ok := ctx.Value(authPrincipalAccountIDKey).(string); ok && id != "" {
 		return id, true
 	}

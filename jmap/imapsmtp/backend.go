@@ -170,6 +170,11 @@ func (b *IMAPSMTPBackend) InvalidateCache(accountID string) {
 	delete(b.mailboxSortOrders, accountID)
 	delete(b.mailboxOverridesTime, accountID)
 	b.mailboxMu.Unlock()
+
+	b.emailMutationsMu.Lock()
+	delete(b.emailSeq, accountID)
+	delete(b.emailMutations, accountID)
+	b.emailMutationsMu.Unlock()
 }
 
 // SetExtensionStore configures a custom extension store.
@@ -546,12 +551,22 @@ func (t *itemTracker) Changes(sinceState string, maxChanges *uint64) (created, u
 	return created, updated, destroyed, fmt.Sprintf("%d", t.counter), false
 }
 
-func (b *IMAPSMTPBackend) recordEmailMutation(accountID string, id jmapcore.Id, action string) {
-	b.emailMutationsMu.Lock()
-	defer b.emailMutationsMu.Unlock()
+func (b *IMAPSMTPBackend) loadEmailSeqLocked(ctx context.Context, accountID string) {
 	if b.emailSeq == nil {
 		b.emailSeq = make(map[string]uint64)
 	}
+	if b.emailSeq[accountID] > 0 {
+		return
+	}
+	if loaded, ok, _ := jmapextstore.Load[uint64](ctx, b.extStore, accountID, "email_seq"); ok && loaded != nil {
+		b.emailSeq[accountID] = *loaded
+	}
+}
+
+func (b *IMAPSMTPBackend) recordEmailMutation(ctx context.Context, accountID string, id jmapcore.Id, action string) {
+	b.emailMutationsMu.Lock()
+	defer b.emailMutationsMu.Unlock()
+	b.loadEmailSeqLocked(ctx, accountID)
 	if b.emailMutations == nil {
 		b.emailMutations = make(map[string][]itemChangeEntry)
 	}
@@ -561,14 +576,15 @@ func (b *IMAPSMTPBackend) recordEmailMutation(accountID string, id jmapcore.Id, 
 		id:     id,
 		state:  b.emailSeq[accountID],
 	})
+	if b.extStore != nil {
+		_ = jmapextstore.Save(ctx, b.extStore, accountID, "email_seq", b.emailSeq[accountID])
+	}
 }
 
-func (b *IMAPSMTPBackend) getEmailSeq(accountID string) uint64 {
-	b.emailMutationsMu.RLock()
-	defer b.emailMutationsMu.RUnlock()
-	if b.emailSeq == nil {
-		return 0
-	}
+func (b *IMAPSMTPBackend) getEmailSeq(ctx context.Context, accountID string) uint64 {
+	b.emailMutationsMu.Lock()
+	defer b.emailMutationsMu.Unlock()
+	b.loadEmailSeqLocked(ctx, accountID)
 	return b.emailSeq[accountID]
 }
 

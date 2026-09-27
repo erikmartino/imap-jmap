@@ -99,7 +99,7 @@ func (b *IMAPSMTPBackend) CreateEmail(ctx context.Context, em *jmapmail.Email) (
 		}
 	}
 
-	b.recordEmailMutation(accountID, emailID, "create")
+	b.recordEmailMutation(ctx, accountID, emailID, "create")
 	b.recordEmailQuotaCreated(accountID, emailID, emailSize)
 	if originalBlobID != "" {
 		b.recordBlobRef(accountID, string(originalBlobID), emailID)
@@ -223,7 +223,7 @@ func (b *IMAPSMTPBackend) UpdateEmail(ctx context.Context, id jmapcore.Id, patch
 			}
 			emails, _, _ := b.GetEmails(ctx, []jmapcore.Id{origID})
 			accountID, _ := jmapauth.AccountIDFromContext(ctx)
-			b.recordEmailMutation(accountID, origID, "update")
+			b.recordEmailMutation(ctx, accountID, origID, "update")
 			b.publishStateChange(ctx)
 			if len(emails) > 0 {
 				return emails[0], nil
@@ -239,7 +239,7 @@ func (b *IMAPSMTPBackend) UpdateEmail(ctx context.Context, id jmapcore.Id, patch
 
 	// Fetch updated message
 	emails, _, err := b.GetEmails(ctx, []jmapcore.Id{origID})
-	b.recordEmailMutation(accountID, origID, "update")
+	b.recordEmailMutation(ctx, accountID, origID, "update")
 	b.publishStateChange(ctx)
 	if err == nil && len(emails) > 0 {
 		return emails[0], nil
@@ -275,7 +275,7 @@ func (b *IMAPSMTPBackend) DeleteEmail(ctx context.Context, id jmapcore.Id) (bool
 	}
 	b.pool.ReleaseClient(ctx, client)
 
-	b.recordEmailMutation(accountID, id, "destroy")
+	b.recordEmailMutation(ctx, accountID, id, "destroy")
 	b.recordEmailQuotaDeleted(accountID, id)
 	b.deleteBlobRefsForEmail(accountID, id)
 	b.publishStateChange(ctx)

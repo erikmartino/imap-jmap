@@ -80,7 +80,7 @@ func (b *IMAPSMTPBackend) GetCurrentCompositeState(ctx context.Context) (*Compos
 	cs := &CompositeState{
 		Version: 1,
 		Folders: make(map[string]FolderState),
-		Seq:     b.getEmailSeq(accountID),
+		Seq:     b.getEmailSeq(ctx, accountID),
 	}
 
 	for _, fi := range folders {
