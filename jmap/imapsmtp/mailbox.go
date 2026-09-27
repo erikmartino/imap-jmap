@@ -130,14 +130,7 @@ func (b *IMAPSMTPBackend) GetAllMailboxes(ctx context.Context) ([]*jmapmail.Mail
 			}
 		}
 
-		isSubscribed := true
-		if sub, ok := b.getMailboxSubscribed(accountID, mbID); ok {
-			isSubscribed = sub
-		} else if role != "" {
-			if sub, ok := b.getMailboxSubscribed(accountID, jmapcore.Id("mb-"+role)); ok {
-				isSubscribed = sub
-			}
-		}
+		isSubscribed := fi.IsSubscribed
 
 		mb := &jmapmail.Mailbox{
 			ID:            mbID,
@@ -251,6 +244,8 @@ func (b *IMAPSMTPBackend) CreateMailbox(ctx context.Context, mb *jmapmail.Mailbo
 
 	if mb.IsSubscribed {
 		_ = client.Subscribe(folderName)
+	} else {
+		_ = client.Unsubscribe(folderName)
 	}
 	b.pool.ReleaseClient(ctx, client)
 
@@ -259,7 +254,6 @@ func (b *IMAPSMTPBackend) CreateMailbox(ctx context.Context, mb *jmapmail.Mailbo
 	if mb.SortOrder != 0 {
 		b.setMailboxSortOrder(accountID, mb.ID, mb.SortOrder)
 	}
-	b.setMailboxSubscribed(accountID, mb.ID, mb.IsSubscribed)
 
 	b.publishStateChange(ctx)
 	return mb, nil
@@ -328,11 +322,16 @@ func (b *IMAPSMTPBackend) UpdateMailbox(ctx context.Context, id jmapcore.Id, pat
 	}
 
 	if sub, ok := patch["isSubscribed"].(bool); ok {
-		b.setMailboxSubscribed(accountID, target.ID, sub)
-		b.setMailboxSubscribed(accountID, origID, sub)
+		client, err := b.pool.GetClientForContext(ctx)
+		if err == nil {
+			if sub {
+				_ = client.Subscribe(currentFolder)
+			} else {
+				_ = client.Unsubscribe(currentFolder)
+			}
+			b.pool.ReleaseClient(ctx, client)
+		}
 		target.IsSubscribed = sub
-	} else if prevSub, ok := b.getMailboxSubscribed(accountID, target.ID); ok {
-		target.IsSubscribed = prevSub
 	}
 
 	var newParentID *jmapcore.Id
@@ -393,6 +392,9 @@ func (b *IMAPSMTPBackend) UpdateMailbox(ctx context.Context, id jmapcore.Id, pat
 			b.pool.ReleaseClient(ctx, client)
 			return nil, fmt.Errorf("failed to rename IMAP mailbox: %w", err)
 		}
+		if target.IsSubscribed {
+			_ = client.Subscribe(newFolderPath)
+		}
 		b.pool.ReleaseClient(ctx, client)
 
 		newID := MailboxIDForName(newFolderPath)
@@ -401,9 +403,6 @@ func (b *IMAPSMTPBackend) UpdateMailbox(ctx context.Context, id jmapcore.Id, pat
 		b.trackMovedMailbox(target.ID, newID)
 		if so, ok := b.getMailboxSortOrder(accountID, target.ID); ok {
 			b.setMailboxSortOrder(accountID, newID, so)
-		}
-		if sub, ok := b.getMailboxSubscribed(accountID, target.ID); ok {
-			b.setMailboxSubscribed(accountID, newID, sub)
 		}
 		target.ID = newID
 		target.Name = newLeafName

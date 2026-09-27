@@ -41,6 +41,12 @@ func (s *dynamicSession) Login(username, password string) error {
 		_ = u.Create("Trash", nil)
 		_ = u.Create("Junk", nil)
 		_ = u.Create("Archive", nil)
+		_ = u.Subscribe("INBOX")
+		_ = u.Subscribe("Drafts")
+		_ = u.Subscribe("Sent")
+		_ = u.Subscribe("Trash")
+		_ = u.Subscribe("Junk")
+		_ = u.Subscribe("Archive")
 		s.server.AddUser(u)
 		s.knownUsers[username] = true
 	}
@@ -73,6 +79,12 @@ func NewTestServer(usernames ...string) (*TestServer, func()) {
 		_ = user.Create("Trash", nil)
 		_ = user.Create("Junk", nil)
 		_ = user.Create("Archive", nil)
+		_ = user.Subscribe("INBOX")
+		_ = user.Subscribe("Drafts")
+		_ = user.Subscribe("Sent")
+		_ = user.Subscribe("Trash")
+		_ = user.Subscribe("Junk")
+		_ = user.Subscribe("Archive")
 		memServer.AddUser(user)
 		knownUsers[u] = true
 	}

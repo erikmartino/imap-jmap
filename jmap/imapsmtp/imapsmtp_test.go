@@ -587,3 +587,146 @@ func TestIMAPIdlePushNotification(t *testing.T) {
 func stringPtr(s string) *string {
 	return &s
 }
+
+// TestMailboxSubscriptionPersistenceAcrossInstances verifies that mailbox subscription
+// states (and hierarchy) are persisted upstream on IMAP via SUBSCRIBE/UNSUBSCRIBE and
+// RENAME, such that completely fresh backend instances with zero in-memory caches
+// see identical mailbox states.
+func TestMailboxSubscriptionPersistenceAcrossInstances(t *testing.T) {
+	b1, cleanup := NewEmbeddedBackend("user@example.com")
+	defer cleanup()
+
+	ctx := testContext()
+
+	// 1. Initial standard mailboxes must all be subscribed by default per RFC 8621 §2.
+	mbs1, err := b1.GetAllMailboxes(ctx)
+	if err != nil {
+		t.Fatalf("b1.GetAllMailboxes failed: %v", err)
+	}
+	var draftsID jmapcore.Id
+	for _, mb := range mbs1 {
+		if !mb.IsSubscribed {
+			t.Errorf("expected initial mailbox %s to be subscribed", mb.Name)
+		}
+		if mb.Name == "Drafts" || (mb.Role != nil && *mb.Role == "drafts") {
+			draftsID = mb.ID
+		}
+	}
+	if draftsID == "" {
+		t.Fatalf("Drafts mailbox not found")
+	}
+
+	// 2. Unsubscribe Drafts on b1.
+	_, err = b1.UpdateMailbox(ctx, draftsID, map[string]any{
+		"isSubscribed": false,
+	})
+	if err != nil {
+		t.Fatalf("b1.UpdateMailbox(Drafts, isSubscribed=false) failed: %v", err)
+	}
+
+	// 3. b2 is a completely fresh backend instance connected to the same IMAP server.
+	b2 := New(b1.IMAPAddr(), "")
+	defer b2.Close()
+
+	mbs2, err := b2.GetAllMailboxes(ctx)
+	if err != nil {
+		t.Fatalf("b2.GetAllMailboxes failed: %v", err)
+	}
+	foundDrafts2 := false
+	for _, mb := range mbs2 {
+		if mb.ID == draftsID || mb.Name == "Drafts" {
+			foundDrafts2 = true
+			if mb.IsSubscribed {
+				t.Errorf("fresh instance b2 expected Drafts to be unsubscribed (isSubscribed=false)")
+			}
+		}
+	}
+	if !foundDrafts2 {
+		t.Fatalf("Drafts not found in b2")
+	}
+
+	// 4. Re-subscribe Drafts using b2.
+	_, err = b2.UpdateMailbox(ctx, draftsID, map[string]any{
+		"isSubscribed": true,
+	})
+	if err != nil {
+		t.Fatalf("b2.UpdateMailbox(Drafts, isSubscribed=true) failed: %v", err)
+	}
+
+	// 5. b3 is another fresh backend instance confirming Drafts is now subscribed.
+	b3 := New(b1.IMAPAddr(), "")
+	defer b3.Close()
+
+	mbs3, err := b3.GetAllMailboxes(ctx)
+	if err != nil {
+		t.Fatalf("b3.GetAllMailboxes failed: %v", err)
+	}
+	for _, mb := range mbs3 {
+		if mb.ID == draftsID || mb.Name == "Drafts" {
+			if !mb.IsSubscribed {
+				t.Errorf("fresh instance b3 expected Drafts to be subscribed (isSubscribed=true)")
+			}
+		}
+	}
+
+	// 6. Create custom mailbox with isSubscribed: false on b1.
+	customUnsub, err := b1.CreateMailbox(ctx, &jmapmail.Mailbox{
+		Name:         "CustomUnsub",
+		IsSubscribed: false,
+	})
+	if err != nil {
+		t.Fatalf("b1.CreateMailbox(CustomUnsub) failed: %v", err)
+	}
+
+	// 7. Create parent and child mailboxes on b1.
+	parentMb, err := b1.CreateMailbox(ctx, &jmapmail.Mailbox{
+		Name:         "Projects",
+		IsSubscribed: true,
+	})
+	if err != nil {
+		t.Fatalf("b1.CreateMailbox(Projects) failed: %v", err)
+	}
+
+	childMb, err := b1.CreateMailbox(ctx, &jmapmail.Mailbox{
+		Name:         "JMAP",
+		ParentID:     &parentMb.ID,
+		IsSubscribed: true,
+	})
+	if err != nil {
+		t.Fatalf("b1.CreateMailbox(JMAP child) failed: %v", err)
+	}
+
+	// 8. b4 is a fresh instance verifying customUnsub is unsubscribed and childMb has parentMb as parent.
+	b4 := New(b1.IMAPAddr(), "")
+	defer b4.Close()
+
+	mbs4, err := b4.GetAllMailboxes(ctx)
+	if err != nil {
+		t.Fatalf("b4.GetAllMailboxes failed: %v", err)
+	}
+	var foundCustomUnsub, foundChild bool
+	for _, mb := range mbs4 {
+		if mb.Name == "CustomUnsub" {
+			foundCustomUnsub = true
+			if mb.IsSubscribed {
+				t.Errorf("fresh instance b4 expected CustomUnsub to have isSubscribed=false")
+			}
+		}
+		if mb.Name == "JMAP" {
+			foundChild = true
+			if mb.ParentID == nil || *mb.ParentID != parentMb.ID {
+				t.Errorf("fresh instance b4 expected JMAP parentID=%v, got %v", parentMb.ID, mb.ParentID)
+			}
+		}
+	}
+	if !foundCustomUnsub {
+		t.Errorf("CustomUnsub not found in b4")
+	}
+	if !foundChild {
+		t.Errorf("JMAP child mailbox not found in b4")
+	}
+
+	_ = customUnsub
+	_ = childMb
+}
+

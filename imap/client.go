@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/emersion/go-imap/v2"
@@ -192,27 +193,36 @@ func (c *Client) Idle() (res *IdleCmd, err error) {
 
 // MailboxInfo represents an IMAP mailbox / folder listing.
 type MailboxInfo struct {
-	Name        string
-	Attrs       []string
-	Delimiter   rune
-	Messages    uint32
-	Unseen      uint32
-	UIDValidity uint32
-	UIDNext     uint32
+	Name         string
+	Attrs        []string
+	Delimiter    rune
+	Messages     uint32
+	Unseen       uint32
+	UIDValidity  uint32
+	UIDNext      uint32
+	IsSubscribed bool
 }
 
 // ListFolders lists IMAP folders matching the given reference and pattern.
 func (c *Client) ListFolders(ref, pattern string) (res []MailboxInfo, err error) {
 	defer c.logCmd("LIST", "ref", ref, "pattern", pattern)(&err)
-	listCmd := c.cli.List(ref, pattern, nil)
+	listCmd := c.cli.List(ref, pattern, &imap.ListOptions{ReturnSubscribed: true})
 	mbs, err := listCmd.Collect()
 	if err != nil {
-		return nil, err
+		listCmd = c.cli.List(ref, pattern, nil)
+		mbs, err = listCmd.Collect()
+		if err != nil {
+			return nil, err
+		}
 	}
 	for _, m := range mbs {
 		var attrs []string
+		var isSubscribed bool
 		for _, a := range m.Attrs {
 			attrs = append(attrs, string(a))
+			if strings.EqualFold(string(a), "\\Subscribed") {
+				isSubscribed = true
+			}
 		}
 		var numMsgs, numUnseen, uidValidity, uidNext uint32
 		if statusCmd := c.cli.Status(m.Mailbox, &imap.StatusOptions{NumMessages: true, NumUnseen: true, UIDValidity: true, UIDNext: true}); statusCmd != nil {
@@ -232,15 +242,41 @@ func (c *Client) ListFolders(ref, pattern string) (res []MailboxInfo, err error)
 			}
 		}
 		res = append(res, MailboxInfo{
-			Name:        m.Mailbox,
-			Attrs:       attrs,
-			Delimiter:   m.Delim,
-			Messages:    numMsgs,
-			Unseen:      numUnseen,
-			UIDValidity: uidValidity,
-			UIDNext:     uidNext,
+			Name:         m.Mailbox,
+			Attrs:        attrs,
+			Delimiter:    m.Delim,
+			Messages:     numMsgs,
+			Unseen:       numUnseen,
+			UIDValidity:  uidValidity,
+			UIDNext:      uidNext,
+			IsSubscribed: isSubscribed,
 		})
 	}
+
+	// Fallback for servers that do not return \Subscribed attribute:
+	// If none of the folders were marked as subscribed, try listing subscribed folders.
+	var anySubscribed bool
+	for _, r := range res {
+		if r.IsSubscribed {
+			anySubscribed = true
+			break
+		}
+	}
+	if !anySubscribed && len(res) > 0 {
+		subCmd := c.cli.List(ref, pattern, &imap.ListOptions{SelectSubscribed: true})
+		if subMbs, subErr := subCmd.Collect(); subErr == nil && len(subMbs) > 0 {
+			subMap := make(map[string]bool, len(subMbs))
+			for _, sm := range subMbs {
+				subMap[sm.Mailbox] = true
+			}
+			for i := range res {
+				if subMap[res[i].Name] {
+					res[i].IsSubscribed = true
+				}
+			}
+		}
+	}
+
 	return res, nil
 }
 

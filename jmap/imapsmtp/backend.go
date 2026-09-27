@@ -53,7 +53,6 @@ type IMAPSMTPBackend struct {
 	mailboxMovedIDs        map[jmapcore.Id]jmapcore.Id
 	mailboxParentOverrides map[string]map[jmapcore.Id]*jmapcore.Id
 	mailboxSortOrders      map[string]map[jmapcore.Id]uint64
-	mailboxSubscribed      map[string]map[jmapcore.Id]bool
 
 	quotaTrackersMu    sync.RWMutex
 	quotaTrackers      map[string]*itemTracker
@@ -233,26 +232,9 @@ func (b *IMAPSMTPBackend) getMailboxSortOrder(accountID string, id jmapcore.Id) 
 	return so, ok
 }
 
-func (b *IMAPSMTPBackend) setMailboxSubscribed(accountID string, id jmapcore.Id, sub bool) {
-	b.mailboxMu.Lock()
-	defer b.mailboxMu.Unlock()
-	if b.mailboxSubscribed == nil {
-		b.mailboxSubscribed = make(map[string]map[jmapcore.Id]bool)
-	}
-	if b.mailboxSubscribed[accountID] == nil {
-		b.mailboxSubscribed[accountID] = make(map[jmapcore.Id]bool)
-	}
-	b.mailboxSubscribed[accountID][id] = sub
-}
-
-func (b *IMAPSMTPBackend) getMailboxSubscribed(accountID string, id jmapcore.Id) (bool, bool) {
-	b.mailboxMu.RLock()
-	defer b.mailboxMu.RUnlock()
-	if b.mailboxSubscribed == nil || b.mailboxSubscribed[accountID] == nil {
-		return false, false
-	}
-	sub, ok := b.mailboxSubscribed[accountID][id]
-	return sub, ok
+// IMAPAddr returns the configured IMAP server address.
+func (b *IMAPSMTPBackend) IMAPAddr() string {
+	return b.imapHost
 }
 
 // SetSMTPAddr updates the SMTP host address and reconfigures the client pool.

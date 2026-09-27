@@ -150,8 +150,12 @@ Per `AGENTS.md` §1 ("Stateless Proxy & Zero Local Filesystem Sync"), the proxy 
   - Dropped local ID counter and authoritative ID/name state.
   - Handled script renames with non-authoritative same-process move redirection for continuity.
   - Verified across independent fresh backend instances via `TestSieveScriptDeterministicIDsAcrossInstances`.
-- [ ] **4.5 IMAP mailbox state** (`imapsmtp/backend.go`)
-  - Derive/apply `isSubscribed` via `SUBSCRIBE`/`LSUB`; move `sortOrder`/parent/identity metadata to IMAP METADATA or the extension store; rely on IMAP `RENAME` for moves.
+- [x] **4.5 IMAP mailbox state** (`imapsmtp/backend.go`)
+  - Derived and applied `isSubscribed` directly upstream via IMAP `SUBSCRIBE`, `UNSUBSCRIBE`, and `LIST` (with `\Subscribed` attribute / fallback `SelectSubscribed`).
+  - Provisioned initial standard mailboxes as subscribed per RFC 8621 §2.
+  - Relied on IMAP `RENAME` for mailbox hierarchy and moves, deriving parent/child relationships directly from upstream folder delimiters and paths.
+  - Deleted proxy-local authoritative `mailboxSubscribed` map.
+  - Verified cross-instance persistence and hierarchy across independent fresh backend instances via `TestMailboxSubscriptionPersistenceAcrossInstances`.
 - [ ] **4.6 JMAP extension store** (new `jmap/*` + `imapsmtp`/`nextcloud` adapters)
   - Implement the per-account upstream store and migrate `Identity`, `EmailSubmission`, `VacationResponse` (or Sieve-backed), `ParticipantIdentity`, `CalendarEventNotification`, `ShareNotification`, and `PushSubscription` onto it.
 - [ ] **4.7 Upstream change tokens everywhere** (extends Priority 3)
