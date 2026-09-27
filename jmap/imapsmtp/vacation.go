@@ -2,6 +2,7 @@ package imapsmtp
 
 import (
 	"context"
+	"time"
 
 	"imap-jmap/jmap/jmapauth"
 	"imap-jmap/jmap/jmapextstore"
@@ -14,14 +15,17 @@ import (
 func (b *IMAPSMTPBackend) loadVacationLocked(ctx context.Context, accountID string) {
 	if b.vacationResponses == nil {
 		b.vacationResponses = make(map[string]*jmapmail.VacationResponse)
+		b.vacationTime = make(map[string]time.Time)
 	}
-	if b.vacationResponses[accountID] != nil {
+	if b.vacationResponses[accountID] != nil && b.vacationTime != nil && time.Now().Before(b.vacationTime[accountID]) {
 		return
 	}
 	if loaded, ok, _ := jmapextstore.Load[jmapmail.VacationResponse](ctx, b.extStore, accountID, "vacation"); ok && loaded != nil {
 		b.vacationResponses[accountID] = loaded
+		b.vacationTime[accountID] = time.Now().Add(defaultExtensionCacheTTL)
 		return
 	}
+	b.vacationTime[accountID] = time.Now().Add(defaultExtensionCacheTTL)
 }
 
 func (b *IMAPSMTPBackend) persistVacationLocked(ctx context.Context, accountID string) {

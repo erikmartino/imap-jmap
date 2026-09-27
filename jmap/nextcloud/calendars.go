@@ -74,7 +74,14 @@ type jmapCalendarPrefs struct {
 	DefaultAlertsWithoutTime map[string]*jmapcalendar.JSCalendarAlert `json:"defaultAlertsWithoutTime,omitempty"`
 }
 
-// CalendarsBackend implements jmapcalendar.CalendarsBackend backed by Nextcloud.
+// AGENTS.md §1 Architectural Invariant: Stateless Proxy & Non-Authoritative Caches.
+// In accordance with AGENTS.md §1, CalendarsBackend maintains zero local authoritative
+// state in process memory. All in-memory maps (identitiesCache, notificationsCache,
+// shareNotificationsCache, calProps, defaultCalendars) are strictly non-authoritative
+// caches with bounded TTL. Authoritative state resides exclusively upstream on the
+// Nextcloud CalDAV wire server or in the WebDAVExtensionStore (.jmap/ JSON storage).
+// Caches are invalidated on mutation and repopulated on miss. Constructors MUST NEVER
+// seed authoritative user data.
 type CalendarsBackend struct {
 	client      *Client
 	mu          sync.RWMutex
@@ -89,24 +96,28 @@ type CalendarsBackend struct {
 	calsFingerprint   map[string]string
 	eventsFingerprint map[string]string
 
-	cache                     backendCache
-	identitiesCache           map[string]map[jmapcore.Id]*jmapcalendar.ParticipantIdentity
-	notificationsCache        map[string]map[jmapcore.Id]*jmapcalendar.CalendarEventNotification
-	defaultCalendars          map[string]jmapcore.Id
-	calProps                  map[string]map[jmapcore.Id]*jmapcalendar.Calendar
-	notifSeq                  map[string]map[jmapcore.Id]uint64
-	nextNotifSeq              uint64
-	allowedAddresses          map[string]map[string]bool
-	shareNotificationsCache   map[string]map[jmapcore.Id]*jmapcalendar.ShareNotification
-	shareNotificationTrackers map[string]*jmappush.ChangeTracker
-	userCalOverrides          map[string]map[jmapcore.Id]*jmapcalendar.Calendar
-	principalsBackend         jmapprincipals.PrincipalsBackend
-	extStore                  jmapextstore.Store
+	cache                       backendCache
+	identitiesCache             map[string]map[jmapcore.Id]*jmapcalendar.ParticipantIdentity
+	identitiesCacheTime         map[string]time.Time
+	notificationsCache          map[string]map[jmapcore.Id]*jmapcalendar.CalendarEventNotification
+	notificationsCacheTime      map[string]time.Time
+	defaultCalendars            map[string]jmapcore.Id
+	calProps                    map[string]map[jmapcore.Id]*jmapcalendar.Calendar
+	notifSeq                    map[string]map[jmapcore.Id]uint64
+	nextNotifSeq                uint64
+	allowedAddresses            map[string]map[string]bool
+	shareNotificationsCache     map[string]map[jmapcore.Id]*jmapcalendar.ShareNotification
+	shareNotificationsCacheTime map[string]time.Time
+	shareNotificationTrackers   map[string]*jmappush.ChangeTracker
+	userCalOverrides            map[string]map[jmapcore.Id]*jmapcalendar.Calendar
+	principalsBackend           jmapprincipals.PrincipalsBackend
+	extStore                    jmapextstore.Store
 }
 
 var _ jmapcalendar.CalendarsBackend = (*CalendarsBackend)(nil)
 
 // NewCalendarsBackend initializes a new Nextcloud-backed CalendarsBackend.
+// In accordance with AGENTS.md §1, it initializes empty caches and seeds zero user data.
 func NewCalendarsBackend(client *Client) *CalendarsBackend {
 	var c backendCache = &dummyBackendCache{}
 	if !isCacheDisabledEnv() && client != nil && !client.IsCacheDisabled() {
@@ -114,24 +125,46 @@ func NewCalendarsBackend(client *Client) *CalendarsBackend {
 	}
 
 	return &CalendarsBackend{
-		client:                    client,
-		calTrackers:               make(map[string]*jmappush.ChangeTracker),
-		eventTrackers:             make(map[string]*jmappush.ChangeTracker),
-		identityTrackers:          make(map[string]*jmappush.ChangeTracker),
-		notificationTrackers:      make(map[string]*jmappush.ChangeTracker),
-		calsFingerprint:           make(map[string]string),
-		eventsFingerprint:         make(map[string]string),
-		cache:                     c,
-		identitiesCache:           make(map[string]map[jmapcore.Id]*jmapcalendar.ParticipantIdentity),
-		notificationsCache:        make(map[string]map[jmapcore.Id]*jmapcalendar.CalendarEventNotification),
-		defaultCalendars:          make(map[string]jmapcore.Id),
-		calProps:                  make(map[string]map[jmapcore.Id]*jmapcalendar.Calendar),
-		notifSeq:                  make(map[string]map[jmapcore.Id]uint64),
-		allowedAddresses:          make(map[string]map[string]bool),
-		shareNotificationsCache:   make(map[string]map[jmapcore.Id]*jmapcalendar.ShareNotification),
-		shareNotificationTrackers: make(map[string]*jmappush.ChangeTracker),
-		userCalOverrides:          make(map[string]map[jmapcore.Id]*jmapcalendar.Calendar),
-		extStore:                  NewWebDAVExtensionStore(client),
+		client:                      client,
+		calTrackers:                 make(map[string]*jmappush.ChangeTracker),
+		eventTrackers:               make(map[string]*jmappush.ChangeTracker),
+		identityTrackers:            make(map[string]*jmappush.ChangeTracker),
+		notificationTrackers:        make(map[string]*jmappush.ChangeTracker),
+		calsFingerprint:             make(map[string]string),
+		eventsFingerprint:           make(map[string]string),
+		cache:                       c,
+		identitiesCache:             make(map[string]map[jmapcore.Id]*jmapcalendar.ParticipantIdentity),
+		identitiesCacheTime:         make(map[string]time.Time),
+		notificationsCache:          make(map[string]map[jmapcore.Id]*jmapcalendar.CalendarEventNotification),
+		notificationsCacheTime:      make(map[string]time.Time),
+		defaultCalendars:            make(map[string]jmapcore.Id),
+		calProps:                    make(map[string]map[jmapcore.Id]*jmapcalendar.Calendar),
+		notifSeq:                    make(map[string]map[jmapcore.Id]uint64),
+		allowedAddresses:            make(map[string]map[string]bool),
+		shareNotificationsCache:     make(map[string]map[jmapcore.Id]*jmapcalendar.ShareNotification),
+		shareNotificationsCacheTime: make(map[string]time.Time),
+		shareNotificationTrackers:   make(map[string]*jmappush.ChangeTracker),
+		userCalOverrides:            make(map[string]map[jmapcore.Id]*jmapcalendar.Calendar),
+		extStore:                    NewWebDAVExtensionStore(client),
+	}
+}
+
+// InvalidateCache clears all cached in-memory state for a user.
+func (b *CalendarsBackend) InvalidateCache(u string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.identitiesCache, u)
+	delete(b.identitiesCacheTime, u)
+	delete(b.notificationsCache, u)
+	delete(b.notificationsCacheTime, u)
+	delete(b.shareNotificationsCache, u)
+	delete(b.shareNotificationsCacheTime, u)
+	delete(b.defaultCalendars, u)
+	delete(b.calProps, u)
+	delete(b.userCalOverrides, u)
+	delete(b.allowedAddresses, u)
+	if b.cache != nil {
+		b.cache.ClearCals(u)
 	}
 }
 
@@ -2560,17 +2593,20 @@ func (b *CalendarsBackend) QueryCalendarEvents(ctx context.Context, filter map[s
 func (b *CalendarsBackend) loadParticipantIdentitiesLocked(ctx context.Context, u string) {
 	if b.identitiesCache == nil {
 		b.identitiesCache = make(map[string]map[jmapcore.Id]*jmapcalendar.ParticipantIdentity)
+		b.identitiesCacheTime = make(map[string]time.Time)
 	}
-	if b.identitiesCache[u] != nil {
+	if b.identitiesCache[u] != nil && b.identitiesCacheTime != nil && time.Now().Before(b.identitiesCacheTime[u]) {
 		return
 	}
 	if b.extStore != nil {
 		if loaded, ok, _ := jmapextstore.Load[map[jmapcore.Id]*jmapcalendar.ParticipantIdentity](ctx, b.extStore, u, "participant_identities"); ok && loaded != nil {
 			b.identitiesCache[u] = *loaded
+			b.identitiesCacheTime[u] = time.Now().Add(defaultBackendCacheTTL)
 			return
 		}
 	}
 	b.identitiesCache[u] = make(map[jmapcore.Id]*jmapcalendar.ParticipantIdentity)
+	b.identitiesCacheTime[u] = time.Now().Add(defaultBackendCacheTTL)
 }
 
 func (b *CalendarsBackend) persistParticipantIdentitiesLocked(ctx context.Context, u string) {
@@ -2582,17 +2618,20 @@ func (b *CalendarsBackend) persistParticipantIdentitiesLocked(ctx context.Contex
 func (b *CalendarsBackend) loadCalendarEventNotificationsLocked(ctx context.Context, u string) {
 	if b.notificationsCache == nil {
 		b.notificationsCache = make(map[string]map[jmapcore.Id]*jmapcalendar.CalendarEventNotification)
+		b.notificationsCacheTime = make(map[string]time.Time)
 	}
-	if b.notificationsCache[u] != nil {
+	if b.notificationsCache[u] != nil && b.notificationsCacheTime != nil && time.Now().Before(b.notificationsCacheTime[u]) {
 		return
 	}
 	if b.extStore != nil {
 		if loaded, ok, _ := jmapextstore.Load[map[jmapcore.Id]*jmapcalendar.CalendarEventNotification](ctx, b.extStore, u, "calendar_event_notifications"); ok && loaded != nil {
 			b.notificationsCache[u] = *loaded
+			b.notificationsCacheTime[u] = time.Now().Add(defaultBackendCacheTTL)
 			return
 		}
 	}
 	b.notificationsCache[u] = make(map[jmapcore.Id]*jmapcalendar.CalendarEventNotification)
+	b.notificationsCacheTime[u] = time.Now().Add(defaultBackendCacheTTL)
 }
 
 func (b *CalendarsBackend) persistCalendarEventNotificationsLocked(ctx context.Context, u string) {
@@ -2604,17 +2643,20 @@ func (b *CalendarsBackend) persistCalendarEventNotificationsLocked(ctx context.C
 func (b *CalendarsBackend) loadShareNotificationsLocked(ctx context.Context, u string) {
 	if b.shareNotificationsCache == nil {
 		b.shareNotificationsCache = make(map[string]map[jmapcore.Id]*jmapcalendar.ShareNotification)
+		b.shareNotificationsCacheTime = make(map[string]time.Time)
 	}
-	if b.shareNotificationsCache[u] != nil {
+	if b.shareNotificationsCache[u] != nil && b.shareNotificationsCacheTime != nil && time.Now().Before(b.shareNotificationsCacheTime[u]) {
 		return
 	}
 	if b.extStore != nil {
 		if loaded, ok, _ := jmapextstore.Load[map[jmapcore.Id]*jmapcalendar.ShareNotification](ctx, b.extStore, u, "share_notifications"); ok && loaded != nil {
 			b.shareNotificationsCache[u] = *loaded
+			b.shareNotificationsCacheTime[u] = time.Now().Add(defaultBackendCacheTTL)
 			return
 		}
 	}
 	b.shareNotificationsCache[u] = make(map[jmapcore.Id]*jmapcalendar.ShareNotification)
+	b.shareNotificationsCacheTime[u] = time.Now().Add(defaultBackendCacheTTL)
 }
 
 func (b *CalendarsBackend) persistShareNotificationsLocked(ctx context.Context, u string) {

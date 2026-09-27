@@ -18,15 +18,18 @@ import (
 func (b *IMAPSMTPBackend) loadIdentitiesLocked(ctx context.Context, accountID string) {
 	if b.identities == nil {
 		b.identities = make(map[string]map[jmapcore.Id]*jmapmail.Identity)
+		b.identitiesTime = make(map[string]time.Time)
 	}
-	if b.identities[accountID] != nil {
+	if b.identities[accountID] != nil && b.identitiesTime != nil && time.Now().Before(b.identitiesTime[accountID]) {
 		return
 	}
 	if loaded, ok, _ := jmapextstore.Load[map[jmapcore.Id]*jmapmail.Identity](ctx, b.extStore, accountID, "identities"); ok && loaded != nil {
 		b.identities[accountID] = *loaded
+		b.identitiesTime[accountID] = time.Now().Add(defaultExtensionCacheTTL)
 		return
 	}
 	b.identities[accountID] = make(map[jmapcore.Id]*jmapmail.Identity)
+	b.identitiesTime[accountID] = time.Now().Add(defaultExtensionCacheTTL)
 }
 
 func (b *IMAPSMTPBackend) persistIdentitiesLocked(ctx context.Context, accountID string) {

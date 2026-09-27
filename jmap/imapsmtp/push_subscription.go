@@ -18,15 +18,18 @@ import (
 func (b *IMAPSMTPBackend) loadPushSubscriptionsLocked(ctx context.Context, accountID string) {
 	if b.pushSubscriptions == nil {
 		b.pushSubscriptions = make(map[string]map[jmapcore.Id]*jmapmail.PushSubscription)
+		b.pushSubscriptionsTime = make(map[string]time.Time)
 	}
-	if b.pushSubscriptions[accountID] != nil {
+	if b.pushSubscriptions[accountID] != nil && b.pushSubscriptionsTime != nil && time.Now().Before(b.pushSubscriptionsTime[accountID]) {
 		return
 	}
 	if loaded, ok, _ := jmapextstore.Load[map[jmapcore.Id]*jmapmail.PushSubscription](ctx, b.extStore, accountID, "push_subscriptions"); ok && loaded != nil {
 		b.pushSubscriptions[accountID] = *loaded
+		b.pushSubscriptionsTime[accountID] = time.Now().Add(defaultExtensionCacheTTL)
 		return
 	}
 	b.pushSubscriptions[accountID] = make(map[jmapcore.Id]*jmapmail.PushSubscription)
+	b.pushSubscriptionsTime[accountID] = time.Now().Add(defaultExtensionCacheTTL)
 }
 
 func (b *IMAPSMTPBackend) persistPushSubscriptionsLocked(ctx context.Context, accountID string) {

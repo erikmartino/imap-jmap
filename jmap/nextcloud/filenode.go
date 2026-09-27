@@ -24,7 +24,12 @@ import (
 // ErrForbidden is returned when the operation is not permitted or user is unauthenticated.
 var ErrForbidden = errors.New("forbidden")
 
-// FileNodeBackend implements jmapfilenode.FileNodeBackend backed by Nextcloud WebDAV via github.com/emersion/go-webdav.
+// AGENTS.md §1 Architectural Invariant: Stateless Proxy & Non-Authoritative Caches.
+// In accordance with AGENTS.md §1, FileNodeBackend maintains zero local authoritative
+// state in process memory. In-memory maps (nodesCache, movedIDs, destroyedIDs) are strictly
+// non-authoritative caches and transient mappings with bounded lifetime. Authoritative state
+// resides exclusively upstream on the Nextcloud WebDAV wire server. Caches are invalidated
+// on mutation and repopulated on miss. Constructors MUST NEVER seed authoritative user data.
 type FileNodeBackend struct {
 	client      *Client
 	mu          sync.RWMutex
@@ -32,23 +37,36 @@ type FileNodeBackend struct {
 	broadcaster *jmappush.Broadcaster
 	blobBackend *BlobBackend
 
-	nodeTrackers map[string]*jmappush.ChangeTracker
-	nodesCache   map[string]map[jmapcore.Id]*jmapfilenode.FileNode
-	movedIDs     map[string]map[jmapcore.Id]jmapcore.Id
-	destroyedIDs map[string]map[jmapcore.Id]jmapcore.Id
+	nodeTrackers   map[string]*jmappush.ChangeTracker
+	nodesCache     map[string]map[jmapcore.Id]*jmapfilenode.FileNode
+	nodesCacheTime map[string]time.Time
+	movedIDs       map[string]map[jmapcore.Id]jmapcore.Id
+	destroyedIDs   map[string]map[jmapcore.Id]jmapcore.Id
 }
 
 var _ jmapfilenode.FileNodeBackend = (*FileNodeBackend)(nil)
 
 // NewFileNodeBackend initializes a new Nextcloud-backed FileNodeBackend.
+// In accordance with AGENTS.md §1, it initializes empty caches and seeds zero user data.
 func NewFileNodeBackend(client *Client) *FileNodeBackend {
 	return &FileNodeBackend{
-		client:       client,
-		nodeTrackers: make(map[string]*jmappush.ChangeTracker),
-		nodesCache:   make(map[string]map[jmapcore.Id]*jmapfilenode.FileNode),
-		movedIDs:     make(map[string]map[jmapcore.Id]jmapcore.Id),
-		destroyedIDs: make(map[string]map[jmapcore.Id]jmapcore.Id),
+		client:         client,
+		nodeTrackers:   make(map[string]*jmappush.ChangeTracker),
+		nodesCache:     make(map[string]map[jmapcore.Id]*jmapfilenode.FileNode),
+		nodesCacheTime: make(map[string]time.Time),
+		movedIDs:       make(map[string]map[jmapcore.Id]jmapcore.Id),
+		destroyedIDs:   make(map[string]map[jmapcore.Id]jmapcore.Id),
 	}
+}
+
+// InvalidateCache clears all cached in-memory FileNode data for a user.
+func (b *FileNodeBackend) InvalidateCache(user string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.nodesCache, user)
+	delete(b.nodesCacheTime, user)
+	delete(b.movedIDs, user)
+	delete(b.destroyedIDs, user)
 }
 
 // SetBlobBackend sets the associated BlobBackend for content sync.

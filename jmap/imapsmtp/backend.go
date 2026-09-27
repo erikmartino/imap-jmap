@@ -16,6 +16,16 @@ import (
 	"imap-jmap/jmap/jmappush"
 )
 
+// AGENTS.md §1 Architectural Invariant: Stateless Proxy & Non-Authoritative Caches.
+// In accordance with AGENTS.md §1, IMAPSMTPBackend maintains zero local authoritative
+// state in process memory. All in-memory maps (identities, submissions, vacationResponses,
+// pushSubscriptions, mailboxParentOverrides, mailboxSortOrders) are strictly non-authoritative
+// caches with bounded TTL. Authoritative state resides exclusively upstream on the
+// IMAP and SMTP wire servers, or in the dedicated .jmap user-scoped mailbox managed by
+// IMAPExtensionStore. Caches are invalidated on mutation and repopulated on miss.
+// Constructors MUST NEVER seed authoritative user data.
+const defaultExtensionCacheTTL = 5 * time.Minute
+
 // IMAPSMTPBackend implements jmapmail.MailBackend and jmapblob.BlobBackend using external IMAP and SMTP servers.
 type IMAPSMTPBackend struct {
 	imapHost string
@@ -40,12 +50,14 @@ type IMAPSMTPBackend struct {
 	sweepMu   sync.Mutex
 	lastSweep map[string]time.Time
 
-	submissionsMu sync.RWMutex
-	submissions   map[string]map[jmapcore.Id]*jmapmail.EmailSubmission
-	subTrackers   map[string]*subTracker
+	submissionsMu   sync.RWMutex
+	submissions     map[string]map[jmapcore.Id]*jmapmail.EmailSubmission
+	submissionsTime map[string]time.Time
+	subTrackers     map[string]*subTracker
 
-	identitiesMu sync.RWMutex
-	identities   map[string]map[jmapcore.Id]*jmapmail.Identity
+	identitiesMu   sync.RWMutex
+	identities     map[string]map[jmapcore.Id]*jmapmail.Identity
+	identitiesTime map[string]time.Time
 
 	movedMu  sync.RWMutex
 	movedIDs map[string]map[jmapcore.Id]jmapcore.Id
@@ -54,24 +66,27 @@ type IMAPSMTPBackend struct {
 	mailboxMovedIDs        map[jmapcore.Id]jmapcore.Id
 	mailboxParentOverrides map[string]map[jmapcore.Id]*jmapcore.Id
 	mailboxSortOrders      map[string]map[jmapcore.Id]uint64
+	mailboxOverridesTime   map[string]time.Time
 
-	quotaTrackersMu    sync.RWMutex
-	quotaTrackers      map[string]*itemTracker
-	identityTrackersMu sync.RWMutex
-	identityTrackers   map[string]*itemTracker
-	vacationMu         sync.RWMutex
-	vacationResponses  map[string]*jmapmail.VacationResponse
-	vacationState      map[string]uint64
-	pushMu             sync.RWMutex
-	pushSubscriptions  map[string]map[jmapcore.Id]*jmapmail.PushSubscription
-	blobsMu            sync.RWMutex
-	blobs              map[string]*jmapblob.Blob
-	blobRefs           map[string]map[string]map[jmapcore.Id]bool
-	accountQuotasMu    sync.RWMutex
-	accountQuotas      map[string]*accountQuota
-	emailMutationsMu   sync.RWMutex
-	emailSeq           map[string]uint64
-	emailMutations     map[string][]itemChangeEntry
+	quotaTrackersMu       sync.RWMutex
+	quotaTrackers         map[string]*itemTracker
+	identityTrackersMu    sync.RWMutex
+	identityTrackers      map[string]*itemTracker
+	vacationMu            sync.RWMutex
+	vacationResponses     map[string]*jmapmail.VacationResponse
+	vacationTime          map[string]time.Time
+	vacationState         map[string]uint64
+	pushMu                sync.RWMutex
+	pushSubscriptions     map[string]map[jmapcore.Id]*jmapmail.PushSubscription
+	pushSubscriptionsTime map[string]time.Time
+	blobsMu               sync.RWMutex
+	blobs                 map[string]*jmapblob.Blob
+	blobRefs              map[string]map[string]map[jmapcore.Id]bool
+	accountQuotasMu       sync.RWMutex
+	accountQuotas         map[string]*accountQuota
+	emailMutationsMu      sync.RWMutex
+	emailSeq              map[string]uint64
+	emailMutations        map[string][]itemChangeEntry
 
 	extStore jmapextstore.Store
 }
@@ -88,6 +103,7 @@ func (b *IMAPSMTPBackend) HasSMTPServer() bool {
 }
 
 // New creates a new IMAP/SMTP gateway backend.
+// In accordance with AGENTS.md §1, it initializes empty caches and seeds zero user data.
 func New(imapHost, smtpHost string) *IMAPSMTPBackend {
 	ctx, cancel := context.WithCancel(context.Background())
 	b := &IMAPSMTPBackend{
@@ -101,17 +117,22 @@ func New(imapHost, smtpHost string) *IMAPSMTPBackend {
 		lastStates:             make(map[string]string),
 		lastSweep:              make(map[string]time.Time),
 		submissions:            make(map[string]map[jmapcore.Id]*jmapmail.EmailSubmission),
+		submissionsTime:        make(map[string]time.Time),
 		subTrackers:            make(map[string]*subTracker),
 		identities:             make(map[string]map[jmapcore.Id]*jmapmail.Identity),
+		identitiesTime:         make(map[string]time.Time),
 		movedIDs:               make(map[string]map[jmapcore.Id]jmapcore.Id),
 		mailboxMovedIDs:        make(map[jmapcore.Id]jmapcore.Id),
 		mailboxParentOverrides: make(map[string]map[jmapcore.Id]*jmapcore.Id),
 		mailboxSortOrders:      make(map[string]map[jmapcore.Id]uint64),
+		mailboxOverridesTime:   make(map[string]time.Time),
 		quotaTrackers:          make(map[string]*itemTracker),
 		identityTrackers:       make(map[string]*itemTracker),
 		vacationResponses:      make(map[string]*jmapmail.VacationResponse),
+		vacationTime:           make(map[string]time.Time),
 		vacationState:          make(map[string]uint64),
 		pushSubscriptions:      make(map[string]map[jmapcore.Id]*jmapmail.PushSubscription),
+		pushSubscriptionsTime:  make(map[string]time.Time),
 		blobs:                  make(map[string]*jmapblob.Blob),
 		blobRefs:               make(map[string]map[string]map[jmapcore.Id]bool),
 		accountQuotas:          make(map[string]*accountQuota),
@@ -120,6 +141,35 @@ func New(imapHost, smtpHost string) *IMAPSMTPBackend {
 	}
 	b.extStore = NewIMAPExtensionStore(b)
 	return b
+}
+
+// InvalidateCache evicts all cached in-memory extension store items for an account.
+func (b *IMAPSMTPBackend) InvalidateCache(accountID string) {
+	b.identitiesMu.Lock()
+	delete(b.identities, accountID)
+	delete(b.identitiesTime, accountID)
+	b.identitiesMu.Unlock()
+
+	b.submissionsMu.Lock()
+	delete(b.submissions, accountID)
+	delete(b.submissionsTime, accountID)
+	b.submissionsMu.Unlock()
+
+	b.vacationMu.Lock()
+	delete(b.vacationResponses, accountID)
+	delete(b.vacationTime, accountID)
+	b.vacationMu.Unlock()
+
+	b.pushMu.Lock()
+	delete(b.pushSubscriptions, accountID)
+	delete(b.pushSubscriptionsTime, accountID)
+	b.pushMu.Unlock()
+
+	b.mailboxMu.Lock()
+	delete(b.mailboxParentOverrides, accountID)
+	delete(b.mailboxSortOrders, accountID)
+	delete(b.mailboxOverridesTime, accountID)
+	b.mailboxMu.Unlock()
 }
 
 // SetExtensionStore configures a custom extension store.
@@ -207,15 +257,18 @@ func (b *IMAPSMTPBackend) resolveMovedMailboxID(id jmapcore.Id) jmapcore.Id {
 func (b *IMAPSMTPBackend) loadMailboxParentOverridesLocked(ctx context.Context, accountID string) {
 	if b.mailboxParentOverrides == nil {
 		b.mailboxParentOverrides = make(map[string]map[jmapcore.Id]*jmapcore.Id)
+		b.mailboxOverridesTime = make(map[string]time.Time)
 	}
-	if b.mailboxParentOverrides[accountID] != nil {
+	if b.mailboxParentOverrides[accountID] != nil && b.mailboxOverridesTime != nil && time.Now().Before(b.mailboxOverridesTime[accountID]) {
 		return
 	}
 	if loaded, ok, _ := jmapextstore.Load[map[jmapcore.Id]*jmapcore.Id](ctx, b.extStore, accountID, "mailbox_parent_overrides"); ok && loaded != nil {
 		b.mailboxParentOverrides[accountID] = *loaded
+		b.mailboxOverridesTime[accountID] = time.Now().Add(defaultExtensionCacheTTL)
 		return
 	}
 	b.mailboxParentOverrides[accountID] = make(map[jmapcore.Id]*jmapcore.Id)
+	b.mailboxOverridesTime[accountID] = time.Now().Add(defaultExtensionCacheTTL)
 }
 
 func (b *IMAPSMTPBackend) persistMailboxParentOverridesLocked(ctx context.Context, accountID string) {
@@ -227,15 +280,20 @@ func (b *IMAPSMTPBackend) persistMailboxParentOverridesLocked(ctx context.Contex
 func (b *IMAPSMTPBackend) loadMailboxSortOrdersLocked(ctx context.Context, accountID string) {
 	if b.mailboxSortOrders == nil {
 		b.mailboxSortOrders = make(map[string]map[jmapcore.Id]uint64)
+		if b.mailboxOverridesTime == nil {
+			b.mailboxOverridesTime = make(map[string]time.Time)
+		}
 	}
-	if b.mailboxSortOrders[accountID] != nil {
+	if b.mailboxSortOrders[accountID] != nil && b.mailboxOverridesTime != nil && time.Now().Before(b.mailboxOverridesTime[accountID]) {
 		return
 	}
 	if loaded, ok, _ := jmapextstore.Load[map[jmapcore.Id]uint64](ctx, b.extStore, accountID, "mailbox_sort_orders"); ok && loaded != nil {
 		b.mailboxSortOrders[accountID] = *loaded
+		b.mailboxOverridesTime[accountID] = time.Now().Add(defaultExtensionCacheTTL)
 		return
 	}
 	b.mailboxSortOrders[accountID] = make(map[jmapcore.Id]uint64)
+	b.mailboxOverridesTime[accountID] = time.Now().Add(defaultExtensionCacheTTL)
 }
 
 func (b *IMAPSMTPBackend) persistMailboxSortOrdersLocked(ctx context.Context, accountID string) {

@@ -54,32 +54,50 @@ type jmapAddressBookPrefs struct {
 	IsSubscribed *bool   `json:"isSubscribed,omitempty"`
 }
 
-// ContactsBackend implements jmapcontacts.ContactsBackend backed by Nextcloud CardDAV via github.com/emersion/go-webdav/carddav.
+// AGENTS.md §1 Architectural Invariant: Stateless Proxy & Non-Authoritative Caches.
+// In accordance with AGENTS.md §1, ContactsBackend maintains zero local authoritative
+// state in process memory. In-memory maps (cardsCache, cardPaths, abPaths) are strictly
+// non-authoritative caches with bounded TTL. Authoritative state resides exclusively
+// upstream on the Nextcloud CardDAV wire server. Caches are invalidated on mutation
+// and repopulated on miss. Constructors MUST NEVER seed authoritative user data.
 type ContactsBackend struct {
 	client      *Client
 	mu          sync.RWMutex
 	trackersMu  sync.Mutex
 	broadcaster *jmappush.Broadcaster
 
-	abTrackers   map[string]*jmappush.ChangeTracker
-	cardTrackers map[string]*jmappush.ChangeTracker
-	abPaths      map[string]map[jmapcore.Id]string
-	cardPaths    map[string]map[jmapcore.Id]string
-	cardsCache   map[string]map[jmapcore.Id]*jmapcontacts.Card
+	abTrackers     map[string]*jmappush.ChangeTracker
+	cardTrackers   map[string]*jmappush.ChangeTracker
+	abPaths        map[string]map[jmapcore.Id]string
+	cardPaths      map[string]map[jmapcore.Id]string
+	cardsCache     map[string]map[jmapcore.Id]*jmapcontacts.Card
+	cardsCacheTime map[string]time.Time
 }
 
 var _ jmapcontacts.ContactsBackend = (*ContactsBackend)(nil)
 
 // NewContactsBackend initializes a new Nextcloud-backed ContactsBackend.
+// In accordance with AGENTS.md §1, it initializes empty caches and seeds zero user data.
 func NewContactsBackend(client *Client) *ContactsBackend {
 	return &ContactsBackend{
-		client:       client,
-		abTrackers:   make(map[string]*jmappush.ChangeTracker),
-		cardTrackers: make(map[string]*jmappush.ChangeTracker),
-		abPaths:      make(map[string]map[jmapcore.Id]string),
-		cardPaths:    make(map[string]map[jmapcore.Id]string),
-		cardsCache:   make(map[string]map[jmapcore.Id]*jmapcontacts.Card),
+		client:         client,
+		abTrackers:     make(map[string]*jmappush.ChangeTracker),
+		cardTrackers:   make(map[string]*jmappush.ChangeTracker),
+		abPaths:        make(map[string]map[jmapcore.Id]string),
+		cardPaths:      make(map[string]map[jmapcore.Id]string),
+		cardsCache:     make(map[string]map[jmapcore.Id]*jmapcontacts.Card),
+		cardsCacheTime: make(map[string]time.Time),
 	}
+}
+
+// InvalidateCache clears all cached in-memory CardDAV data for a user.
+func (b *ContactsBackend) InvalidateCache(user string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.cardsCache, user)
+	delete(b.cardsCacheTime, user)
+	delete(b.cardPaths, user)
+	delete(b.abPaths, user)
 }
 
 

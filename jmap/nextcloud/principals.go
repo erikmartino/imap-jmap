@@ -18,7 +18,13 @@ import (
 	"imap-jmap/jmap/jmappush"
 )
 
-// PrincipalsBackend implements jmapprincipals.PrincipalsBackend backed by Nextcloud OCS Provisioning API.
+// AGENTS.md §1 Architectural Invariant: Stateless Proxy & Non-Authoritative Caches.
+// In accordance with AGENTS.md §1, PrincipalsBackend maintains zero local authoritative
+// state in process memory. In-memory maps (principalsCache, directoryCache) are strictly
+// non-authoritative caches with bounded TTL (principalsDirectoryTTL = 5m). Authoritative state
+// resides exclusively upstream on the Nextcloud OCS Provisioning and sharee search APIs.
+// Caches are invalidated on mutation and repopulated on miss. Constructors MUST NEVER
+// seed authoritative user data.
 type PrincipalsBackend struct {
 	client          *Client
 	calBackend      jmapcalendar.CalendarsBackend
@@ -48,6 +54,7 @@ const principalsDirectoryTTL = 5 * time.Minute
 var _ jmapprincipals.PrincipalsBackend = (*PrincipalsBackend)(nil)
 
 // NewPrincipalsBackend initializes a Nextcloud PrincipalsBackend without hardcoded accounts.
+// In accordance with AGENTS.md §1, it initializes empty caches and seeds zero user data.
 func NewPrincipalsBackend(client *Client, calBackend jmapcalendar.CalendarsBackend) *PrincipalsBackend {
 	return &PrincipalsBackend{
 		client:          client,
@@ -56,6 +63,13 @@ func NewPrincipalsBackend(client *Client, calBackend jmapcalendar.CalendarsBacke
 		tracker:         jmappush.NewChangeTracker(1000),
 		directoryCache:  make(map[string]*principalDirectory),
 	}
+}
+
+// InvalidateCache clears all cached in-memory principal directory data for a user.
+func (b *PrincipalsBackend) InvalidateCache(user string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.directoryCache, user)
 }
 
 // SetCalendarsBackend sets the CalendarsBackend used for free/busy availability computation.

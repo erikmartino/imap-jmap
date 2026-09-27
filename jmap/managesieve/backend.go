@@ -16,7 +16,12 @@ import (
 	"imap-jmap/jmap/jmapsieve"
 )
 
-// Backend implements jmapsieve.SieveBackend by communicating with a ManageSieve (RFC 5804) server.
+// AGENTS.md §1 Architectural Invariant: Stateless Proxy & Non-Authoritative Caches.
+// In accordance with AGENTS.md §1, Backend maintains zero local authoritative script state
+// in process memory. All script operations (list, get, set, update, delete) are proxied
+// directly to the upstream ManageSieve (RFC 5804) server over TCP. In-memory maps
+// (movedIDs) are strictly transient mappings for session rename continuity.
+// Constructors MUST NEVER seed authoritative user data.
 type Backend struct {
 	addr        string
 	mu          sync.RWMutex
@@ -29,12 +34,20 @@ type Backend struct {
 var _ jmapsieve.SieveBackend = (*Backend)(nil)
 
 // NewBackend creates a new ManageSieve-backed SieveBackend pointing at the given address.
+// In accordance with AGENTS.md §1, it initializes empty caches and seeds zero user data.
 func NewBackend(addr string) *Backend {
 	return &Backend{
 		addr:     addr,
 		trackers: make(map[string]*jmappush.ChangeTracker),
 		movedIDs: make(map[string]map[jmapcore.Id]jmapcore.Id),
 	}
+}
+
+// InvalidateCache clears transient session redirects for a user.
+func (b *Backend) InvalidateCache(user string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.movedIDs, user)
 }
 
 // NewEmbeddedBackend spins up an in-process ManageSieve server and returns a live Backend connected to it.

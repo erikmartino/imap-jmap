@@ -174,8 +174,18 @@ Per `AGENTS.md` §1 ("Stateless Proxy & Zero Local Filesystem Sync"), the proxy 
     - ManageSieve: `sieve-v1:` vector with name/hash diffing and script rename continuity.
     - IMAP/SMTP: `id-v1:` (Identity), `sub-v1:` (EmailSubmission), `vac-v1:` (VacationResponse), `quota-v1:` (Quota).
   - Maintained backward compatibility fallback to numeric change trackers for legacy tokens.
-- [ ] **4.8 Demote caches** (`nextcloud`, `imapsmtp`, `managesieve`)
-  - Any map kept must be explicitly a cache: bounded size/TTL, invalidated on write, and rebuilt from upstream; add an `AGENTS.md`-aligned comment and a guard test that no backend constructor seeds authoritative data.
+- [x] **4.8 Demote caches** (`nextcloud`, `imapsmtp`, `managesieve`)
+  - Added AGENTS.md §1 Architectural Invariant comments to all backend structs and constructors, establishing that all in-memory maps are strictly non-authoritative caches.
+  - Bounded all caches with TTL (5m) and eviction mechanisms:
+    - `nextcloud.memBackendCache`: added bounded TTL, eviction cap (500 entries), and per-user expiration.
+    - `nextcloud`: added timestamps and `InvalidateCache` across `CalendarsBackend`, `ContactsBackend`, `FileNodeBackend`, and `PrincipalsBackend`.
+    - `imapsmtp`: added timestamps and `InvalidateCache` across `identities`, `submissions`, `vacationResponses`, `pushSubscriptions`, and `mailboxParentOverrides`/`mailboxSortOrders`.
+    - `managesieve`: added `InvalidateCache` for transient session redirects.
+  - Created guard unit and integration tests verifying constructors seed zero authoritative data and that caches expire after TTL and evict on demand:
+    - `jmap/imapsmtp/constructor_invariants_test.go`
+    - `jmap/nextcloud/constructor_invariants_test.go`
+    - `jmap/managesieve/constructor_invariants_test.go`
+    - `jmap/backend_constructor_invariants_test.go`
 - [ ] **4.9 Invariant gate**
   - A test/lint that no backend package writes authoritative user data to disk and that a fresh process (new backend over the same upstream) returns the same `*/get` payloads and `state`s.
 

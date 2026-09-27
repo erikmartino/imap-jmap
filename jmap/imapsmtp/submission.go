@@ -110,15 +110,18 @@ func (t *subTracker) Changes(sinceState string, maxChanges *uint64) (created, up
 func (b *IMAPSMTPBackend) loadSubmissionsLocked(ctx context.Context, accountID string) {
 	if b.submissions == nil {
 		b.submissions = make(map[string]map[jmapcore.Id]*jmapmail.EmailSubmission)
+		b.submissionsTime = make(map[string]time.Time)
 	}
-	if b.submissions[accountID] != nil {
+	if b.submissions[accountID] != nil && b.submissionsTime != nil && time.Now().Before(b.submissionsTime[accountID]) {
 		return
 	}
 	if loaded, ok, _ := jmapextstore.Load[map[jmapcore.Id]*jmapmail.EmailSubmission](ctx, b.extStore, accountID, "submissions"); ok && loaded != nil {
 		b.submissions[accountID] = *loaded
+		b.submissionsTime[accountID] = time.Now().Add(defaultExtensionCacheTTL)
 		return
 	}
 	b.submissions[accountID] = make(map[jmapcore.Id]*jmapmail.EmailSubmission)
+	b.submissionsTime[accountID] = time.Now().Add(defaultExtensionCacheTTL)
 }
 
 func (b *IMAPSMTPBackend) persistSubmissionsLocked(ctx context.Context, accountID string) {
