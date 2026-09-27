@@ -232,6 +232,9 @@ func SeedAccountSampleData(ctx context.Context, accountID string, mb MailBackend
 				BlobID:            "blob-stub-1",
 				SMIMEStatus:       &stubStatus,
 				SMIMEVerifiedWith: &stubVerifiedWith,
+				Headers: []EmailHeader{
+					{Name: "Disposition-Notification-To", Value: "admin@example.com"},
+				},
 				BodyStructure:     EmailBodyPart{PartID: &p1, Type: "text/plain", Size: 40},
 				BodyValues:        map[string]EmailBodyValue{"1": {Value: "Welcome to your new JMAP mail server."}},
 			}
@@ -248,6 +251,9 @@ func SeedAccountSampleData(ctx context.Context, accountID string, mb MailBackend
 				SentAt:        &s2,
 				Preview:       "This email verifies that your server supports RFC 8620 (JMAP Core) and RFC 8621 (JMAP Mail).",
 				BlobID:        "blob-stub-2",
+				Headers: []EmailHeader{
+					{Name: "Disposition-Notification-To", Value: "noreply@ietf.org"},
+				},
 				BodyStructure: EmailBodyPart{PartID: &p1, Type: "text/plain", Size: 88},
 				BodyValues:    map[string]EmailBodyValue{"1": {Value: "This email verifies that your server supports RFC 8620 (JMAP Core) and RFC 8621 (JMAP Mail)."}},
 			}

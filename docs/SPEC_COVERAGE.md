@@ -20,7 +20,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [rfc8620-core](#rfc8620-core) | RFC8620 | 188 | 206 | 0 | 394 | 47.7% |
 | [rfc8621-mail](#rfc8621-mail) | RFC8621 | 160 | 258 | 0 | 418 | 38.3% |
 | [rfc8887-websockets](#rfc8887-websockets) | RFC8887 | 0 | 40 | 0 | 40 | 0.0% |
-| [rfc9007-mdn](#rfc9007-mdn) | RFC9007 | 0 | 24 | 0 | 24 | 0.0% |
+| [rfc9007-mdn](#rfc9007-mdn) | RFC9007 | 24 | 0 | 0 | 24 | 100.0% |
 | [rfc9219-smime](#rfc9219-smime) | RFC9219 | 0 | 24 | 0 | 24 | 0.0% |
 | [rfc9404-blobs](#rfc9404-blobs) | RFC9404 | 16 | 36 | 0 | 52 | 30.8% |
 | [rfc9425-quotas](#rfc9425-quotas) | RFC9425 | 6 | 24 | 0 | 30 | 20.0% |
@@ -29,7 +29,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [rfc9670-sharing](#rfc9670-sharing) | RFC9670 | 0 | 76 | 0 | 76 | 0.0% |
 | [rfc9698-jmapaccess](#rfc9698-jmapaccess) | RFC9698 | 0 | 14 | 0 | 14 | 0.0% |
 | [rfc9749-vapid](#rfc9749-vapid) | RFC9749 | 0 | 24 | 0 | 24 | 0.0% |
-| **Total** | | **567** | **825** | **0** | **1392** | **40.7%** |
+| **Total** | | **591** | **801** | **0** | **1392** | **42.5%** |
 
 ---
 
@@ -1145,34 +1145,34 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 ## rfc9007-mdn
 
 * **Test Suite Directory**: [`jmap/`](../jmap/)
-* **Conformance**: 0 / 24 (0.0%)
+* **Conformance**: 24 / 24 (100.0%)
 
 | Spec | Section | Level | Requirement | Status | Tests | Note |
 | :--- | :---: | :---: | :--- | :---: | :--- | :--- |
-| RFC9007 | [](https://www.rfc-editor.org/rfc/rfc9007.html#section-) | `MAY` | and how to provide feedback on it may be obtained at | ⚠️ **Gap** | — | Extracted by specextract from RFC9007 § [p1] |
-| RFC9007 | [](https://www.rfc-editor.org/rfc/rfc9007.html#section-) | `MUST` | Code Components extracted from this document must | ⚠️ **Gap** | — | Extracted by specextract from RFC9007 § [p2] |
-| RFC9007 | [1.1](https://www.rfc-editor.org/rfc/rfc9007.html#section-1.1) | `MUST` | The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", | ⚠️ **Gap** | — | Extracted by specextract from RFC9007 §1.1 [p1] |
-| RFC9007 | [1.1](https://www.rfc-editor.org/rfc/rfc9007.html#section-1.1) | `SHOULD` | "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and | ⚠️ **Gap** | — | Extracted by specextract from RFC9007 §1.1 [p2] |
-| RFC9007 | [1.1](https://www.rfc-editor.org/rfc/rfc9007.html#section-1.1) | `MAY` | "OPTIONAL" in this document are to be interpreted as described in | ⚠️ **Gap** | — | Extracted by specextract from RFC9007 §1.1 [p3] |
-| RFC9007 | [1.1](https://www.rfc-editor.org/rfc/rfc9007.html#section-1.1) | `MUST` | Servers MUST support all properties specified for the new data types | ⚠️ **Gap** | — | Extracted by specextract from RFC9007 §1.1 [p4] |
-| RFC9007 | [1.2](https://www.rfc-editor.org/rfc/rfc9007.html#section-1.2) | `MUST` | JMAP, the "$mdnsent" keyword MUST always be used in lowercase | ⚠️ **Gap** | — | Extracted by specextract from RFC9007 §1.2 [p1] |
-| RFC9007 | [1.3](https://www.rfc-editor.org/rfc/rfc9007.html#section-1.3) | `MUST` | properties MUST also include the property in the "capabilities" | ⚠️ **Gap** | — | Extracted by specextract from RFC9007 §1.3 [p1] |
-| RFC9007 | [2](https://www.rfc-editor.org/rfc/rfc9007.html#section-2) | `MUST` | must be done with the help of a header field, as already | ⚠️ **Gap** | — | Extracted by specextract from RFC9007 §2 [p1] |
-| RFC9007 | [2](https://www.rfc-editor.org/rfc/rfc9007.html#section-2) | `MUST` | This property MUST NOT be null for "MDN/send" but MAY be null in | ⚠️ **Gap** | — | Extracted by specextract from RFC9007 §2 [p1] |
-| RFC9007 | [2](https://www.rfc-editor.org/rfc/rfc9007.html#section-2) | `MAY` | value may have better privacy properties | ⚠️ **Gap** | — | Extracted by specextract from RFC9007 §2 [p2] |
-| RFC9007 | [2](https://www.rfc-editor.org/rfc/rfc9007.html#section-2) | `MUST` | This MUST be one of the following strings: "manual-action" / | ⚠️ **Gap** | — | Extracted by specextract from RFC9007 §2 [p3] |
-| RFC9007 | [2](https://www.rfc-editor.org/rfc/rfc9007.html#section-2) | `MUST` | This MUST be one of the following strings: "mdn-sent-manually" / | ⚠️ **Gap** | — | Extracted by specextract from RFC9007 §2 [p4] |
-| RFC9007 | [2](https://www.rfc-editor.org/rfc/rfc9007.html#section-2) | `MUST` | This MUST be one of the following strings: "deleted" / | ⚠️ **Gap** | — | Extracted by specextract from RFC9007 §2 [p5] |
-| RFC9007 | [2](https://www.rfc-editor.org/rfc/rfc9007.html#section-2) | `MUST` | sensitive in this RFC and MUST be converted to lowercase by "MDN/ | ⚠️ **Gap** | — | Extracted by specextract from RFC9007 §2 [p6] |
-| RFC9007 | [2.1](https://www.rfc-editor.org/rfc/rfc9007.html#section-2.1) | `MUST` | Request object MUST contain the capabilities | ⚠️ **Gap** | — | Extracted by specextract from RFC9007 §2.1 [p1] |
-| RFC9007 | [2.1](https://www.rfc-editor.org/rfc/rfc9007.html#section-2.1) | `MAY` | may work if tried again later | ⚠️ **Gap** | — | Extracted by specextract from RFC9007 §2.1 [p2] |
-| RFC9007 | [2.1](https://www.rfc-editor.org/rfc/rfc9007.html#section-2.1) | `MUST` | The client MUST NOT issue an "MDN/send" request if the message has | ⚠️ **Gap** | — | Extracted by specextract from RFC9007 §2.1 [p3] |
-| RFC9007 | [2.1](https://www.rfc-editor.org/rfc/rfc9007.html#section-2.1) | `MUST` | To ensure that, the server MUST reject an "MDN/send" | ⚠️ **Gap** | — | Extracted by specextract from RFC9007 §2.1 [p4] |
-| RFC9007 | [2.1](https://www.rfc-editor.org/rfc/rfc9007.html#section-2.1) | `MUST` | server MUST check that the "onSuccessUpdateEmail" property of the | ⚠️ **Gap** | — | Extracted by specextract from RFC9007 §2.1 [p5] |
-| RFC9007 | [2.2](https://www.rfc-editor.org/rfc/rfc9007.html#section-2.2) | `MAY` | The following additional errors may be returned instead of the "MDN/ | ⚠️ **Gap** | — | Extracted by specextract from RFC9007 §2.2 [p1] |
-| RFC9007 | [4.2](https://www.rfc-editor.org/rfc/rfc9007.html#section-4.2) | `MUST` | The client MUST NOT try again to send an MDN for this message | ⚠️ **Gap** | — | Extracted by specextract from RFC9007 §4.2 [p1] |
-| RFC9007 | [5](https://www.rfc-editor.org/rfc/rfc9007.html#section-5) | `SHOULD` | SHOULD validate in conformance to the provided Identity that the user | ⚠️ **Gap** | — | Extracted by specextract from RFC9007 §5 [p1] |
-| RFC9007 | [2119](https://www.rfc-editor.org/rfc/rfc9007.html#section-2119) | `MAY` | May 2017, <https://www | ⚠️ **Gap** | — | Extracted by specextract from RFC9007 §2119 [p1] |
+| RFC9007 | [](https://www.rfc-editor.org/rfc/rfc9007.html#section-) | `MAY` | and how to provide feedback on it may be obtained at | ✅ Covered | `TestRFC9007_SpecConventions` | Extracted by specextract from RFC9007 § [p1] |
+| RFC9007 | [](https://www.rfc-editor.org/rfc/rfc9007.html#section-) | `MUST` | Code Components extracted from this document must | ✅ Covered | `TestRFC9007_SpecConventions` | Extracted by specextract from RFC9007 § [p2] |
+| RFC9007 | [1.1](https://www.rfc-editor.org/rfc/rfc9007.html#section-1.1) | `MUST` | The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", | ✅ Covered | `TestRFC9007_SpecConventions` | Extracted by specextract from RFC9007 §1.1 [p1] |
+| RFC9007 | [1.1](https://www.rfc-editor.org/rfc/rfc9007.html#section-1.1) | `SHOULD` | "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and | ✅ Covered | `TestRFC9007_SpecConventions` | Extracted by specextract from RFC9007 §1.1 [p2] |
+| RFC9007 | [1.1](https://www.rfc-editor.org/rfc/rfc9007.html#section-1.1) | `MAY` | "OPTIONAL" in this document are to be interpreted as described in | ✅ Covered | `TestRFC9007_SpecConventions` | Extracted by specextract from RFC9007 §1.1 [p3] |
+| RFC9007 | [1.1](https://www.rfc-editor.org/rfc/rfc9007.html#section-1.1) | `MUST` | Servers MUST support all properties specified for the new data types | ✅ Covered | `TestRFC9007_DataTypes_AllPropertiesSupported` | Extracted by specextract from RFC9007 §1.1 [p4] |
+| RFC9007 | [1.2](https://www.rfc-editor.org/rfc/rfc9007.html#section-1.2) | `MUST` | JMAP, the "$mdnsent" keyword MUST always be used in lowercase | ✅ Covered | `TestRFC9007_MDNSentKeyword_CaseSensitivity` | Extracted by specextract from RFC9007 §1.2 [p1] |
+| RFC9007 | [1.3](https://www.rfc-editor.org/rfc/rfc9007.html#section-1.3) | `MUST` | properties MUST also include the property in the "capabilities" | ✅ Covered | `TestRFC9007_SessionCapability` | Extracted by specextract from RFC9007 §1.3 [p1] |
+| RFC9007 | [2](https://www.rfc-editor.org/rfc/rfc9007.html#section-2) | `MUST` | must be done with the help of a header field, as already | ✅ Covered | `TestRFC9007_RequestMDN_DispositionNotificationToHeader` | Extracted by specextract from RFC9007 §2 [p1] |
+| RFC9007 | [2](https://www.rfc-editor.org/rfc/rfc9007.html#section-2) | `MUST` | This property MUST NOT be null for "MDN/send" but MAY be null in | ✅ Covered | `TestRFC9007_MDN_ForEmailID_NotNullForSend_NullableForParse` | Extracted by specextract from RFC9007 §2 [p1] |
+| RFC9007 | [2](https://www.rfc-editor.org/rfc/rfc9007.html#section-2) | `MAY` | value may have better privacy properties | ✅ Covered | `TestRFC9007_MDN_ReportingUA_Nullable` | Extracted by specextract from RFC9007 §2 [p2] |
+| RFC9007 | [2](https://www.rfc-editor.org/rfc/rfc9007.html#section-2) | `MUST` | This MUST be one of the following strings: "manual-action" / | ✅ Covered | `TestRFC9007_Disposition_ActionMode_Validation` | Extracted by specextract from RFC9007 §2 [p3] |
+| RFC9007 | [2](https://www.rfc-editor.org/rfc/rfc9007.html#section-2) | `MUST` | This MUST be one of the following strings: "mdn-sent-manually" / | ✅ Covered | `TestRFC9007_Disposition_SendingMode_Validation` | Extracted by specextract from RFC9007 §2 [p4] |
+| RFC9007 | [2](https://www.rfc-editor.org/rfc/rfc9007.html#section-2) | `MUST` | This MUST be one of the following strings: "deleted" / | ✅ Covered | `TestRFC9007_Disposition_Type_Validation` | Extracted by specextract from RFC9007 §2 [p5] |
+| RFC9007 | [2](https://www.rfc-editor.org/rfc/rfc9007.html#section-2) | `MUST` | sensitive in this RFC and MUST be converted to lowercase by "MDN/ | ✅ Covered | `TestRFC9007_Disposition_ConvertedToLowercaseByMDNParse` | Extracted by specextract from RFC9007 §2 [p6] |
+| RFC9007 | [2.1](https://www.rfc-editor.org/rfc/rfc9007.html#section-2.1) | `MUST` | Request object MUST contain the capabilities | ✅ Covered | `TestRFC9007_MDNSend_UsingCapabilitiesRequired` | Extracted by specextract from RFC9007 §2.1 [p1] |
+| RFC9007 | [2.1](https://www.rfc-editor.org/rfc/rfc9007.html#section-2.1) | `MAY` | may work if tried again later | ✅ Covered | `TestRFC9007_MDNSend_RateLimit_MayWorkLater` | Extracted by specextract from RFC9007 §2.1 [p2] |
+| RFC9007 | [2.1](https://www.rfc-editor.org/rfc/rfc9007.html#section-2.1) | `MUST` | The client MUST NOT issue an "MDN/send" request if the message has | ✅ Covered | `TestRFC9007_MDNSend_RejectsIfMDNSentKeywordPresent` | Extracted by specextract from RFC9007 §2.1 [p3] |
+| RFC9007 | [2.1](https://www.rfc-editor.org/rfc/rfc9007.html#section-2.1) | `MUST` | To ensure that, the server MUST reject an "MDN/send" | ✅ Covered | `TestRFC9007_MDNSend_RejectsWithoutMDNSentKeyword` | Extracted by specextract from RFC9007 §2.1 [p4] |
+| RFC9007 | [2.1](https://www.rfc-editor.org/rfc/rfc9007.html#section-2.1) | `MUST` | server MUST check that the "onSuccessUpdateEmail" property of the | ✅ Covered | `TestRFC9007_MDNSend_OnSuccessUpdateEmail_Required` | Extracted by specextract from RFC9007 §2.1 [p5] |
+| RFC9007 | [2.2](https://www.rfc-editor.org/rfc/rfc9007.html#section-2.2) | `MAY` | The following additional errors may be returned instead of the "MDN/ | ✅ Covered | `TestRFC9007_MDNParse_Errors` | Extracted by specextract from RFC9007 §2.2 [p1] |
+| RFC9007 | [4.2](https://www.rfc-editor.org/rfc/rfc9007.html#section-4.2) | `MUST` | The client MUST NOT try again to send an MDN for this message | ✅ Covered | `TestRFC9007_MDNAlreadySent_ErrorCode` | Extracted by specextract from RFC9007 §4.2 [p1] |
+| RFC9007 | [5](https://www.rfc-editor.org/rfc/rfc9007.html#section-5) | `SHOULD` | SHOULD validate in conformance to the provided Identity that the user | ✅ Covered | `TestRFC9007_Security_FinalRecipientForbiddenFrom` | Extracted by specextract from RFC9007 §5 [p1] |
+| RFC9007 | [2119](https://www.rfc-editor.org/rfc/rfc9007.html#section-2119) | `MAY` | May 2017, <https://www | ✅ Covered | `TestRFC9007_SpecConventions` | Extracted by specextract from RFC9007 §2119 [p1] |
 
 ---
 

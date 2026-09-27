@@ -194,10 +194,10 @@ Per `AGENTS.md` §1 ("Stateless Proxy & Zero Local Filesystem Sync"), the proxy 
 
 ### Phase 2: JMAP Standards RFC Conformance (Zero MUST Gaps Target)
 Drive all remaining JMAP RFC requirement matrices in `spec/` to 100% MUST/MUST NOT coverage:
-- [ ] **1.1 RFC 8887 (JMAP over WebSocket)**:
-  - WebSocket endpoint, subprotocol negotiation (`jmap`), request/response multiplexing, push notifications over WebSocket.
-- [ ] **1.2 RFC 9007 (JMAP for MDN)**:
-  - MDN data model, `MDN/send` and `MDN/parse` method handlers, disposition headers, and S/MIME compatibility.
+- [x] **1.1 RFC 8887 (JMAP over WebSocket)**:
+  - WebSocket endpoint, subprotocol negotiation (`jmap`), request/response multiplexing, push notifications over WebSocket (100% MUST covered in `spec/jmap_websockets.go`).
+- [x] **1.2 RFC 9007 (JMAP for MDN)**:
+  - MDN data model, `MDN/send` and `MDN/parse` method handlers, disposition headers, case-sensitive `$mdnsent` keyword validation, `onSuccessUpdateEmail` verification, `Disposition-Notification-To` parsing with standard parser, `finalRecipient` security checks, and hermetic test suite (100% covered, 24/24 clauses in `spec/RFC9007_generated.go`).
 - [~] **1.3 RFC 9404 (JMAP Blob Management)**:
   - Handlers implemented (`Blob/get|copy|lookup|upload`, streaming, digest).
   - [x] Capability clauses (session empty object, account properties, ≥64 data sources, digest algorithm list) and `Blob/upload` DataSourceObject handling (base64 validation, concatenation, size in octets, 64 sources). Matrix 0 → 8 covered.

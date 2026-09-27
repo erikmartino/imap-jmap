@@ -533,6 +533,8 @@ func requiredCapabilityForMethod(name string) string {
 		return BlobCapabilityURI
 	case strings.HasPrefix(name, "Quota/"):
 		return QuotaCapabilityURI
+	case strings.HasPrefix(name, "MDN/"):
+		return MdnCapabilityURI
 	default:
 		return CoreCapabilityURI
 	}
@@ -659,6 +661,26 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 			respInv := Invocation{
 				Name:         "error",
 				Args:         MethodErrorArgs(MethodErrorUnknownMethod, "Method requires capability "+reqCap+" which is not in 'using'"),
+				ClientCallID: call.ClientCallID,
+			}
+			responses = append(responses, respInv)
+			executedMap[call.ClientCallID] = respInv
+			continue
+		}
+		if strings.HasPrefix(call.Name, "MDN/") && !usingSet[MdnCapabilityURI] {
+			respInv := Invocation{
+				Name:         "error",
+				Args:         MethodErrorArgs(MethodErrorUnknownMethod, "Method requires capability "+MdnCapabilityURI+" which is not in 'using'"),
+				ClientCallID: call.ClientCallID,
+			}
+			responses = append(responses, respInv)
+			executedMap[call.ClientCallID] = respInv
+			continue
+		}
+		if call.Name == "MDN/send" && !usingSet[MailCapabilityURI] {
+			respInv := Invocation{
+				Name:         "error",
+				Args:         MethodErrorArgs(MethodErrorUnknownMethod, "MDN/send requires capability "+MailCapabilityURI+" which is not in 'using'"),
 				ClientCallID: call.ClientCallID,
 			}
 			responses = append(responses, respInv)

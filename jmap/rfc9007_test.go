@@ -76,7 +76,7 @@ func TestRFC9007_MDNSend(t *testing.T) {
 		"methodCalls": []any{
 			[]any{"MDN/send", map[string]any{
 				"accountId":  "primary",
-				"identityId": "id-1",
+				"identityId": "id-primary",
 				"send": map[string]any{
 					"mdn1": map[string]any{
 						"forEmailId": targetEmailID,
@@ -94,6 +94,14 @@ func TestRFC9007_MDNSend(t *testing.T) {
 							"sendingMode": "MDN-sent-manually",
 							"type":        "displayed",
 						},
+					},
+				},
+				"onSuccessUpdateEmail": map[string]any{
+					"#mdn1": map[string]any{
+						"keywords/$mdnsent": true,
+					},
+					"#mdn2": map[string]any{
+						"keywords/$mdnsent": true,
 					},
 				},
 			}, "call-1"},

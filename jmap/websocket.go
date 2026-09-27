@@ -245,9 +245,44 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			}
 			reqCtx = WithCalendarsCapability(reqCtx, calCap)
 			reqCtx = WithRequestCache(reqCtx, s.newRequestCache())
-			reqCtx = WithRequestScope(reqCtx)
+			usingSet := make(map[string]bool, len(req.Using))
+			for _, capURI := range req.Using {
+				usingSet[capURI] = true
+			}
 
 			for _, call := range req.MethodCalls {
+				reqCap := requiredCapabilityForMethod(call.Name)
+				if !usingSet[reqCap] && !usingSet[CoreCapabilityURI] {
+					respInv := Invocation{
+						Name:         "error",
+						Args:         MethodErrorArgs(MethodErrorUnknownMethod, "Method requires capability "+reqCap+" which is not in 'using'"),
+						ClientCallID: call.ClientCallID,
+					}
+					responses = append(responses, respInv)
+					executedMap[call.ClientCallID] = respInv
+					continue
+				}
+				if strings.HasPrefix(call.Name, "MDN/") && !usingSet[MdnCapabilityURI] {
+					respInv := Invocation{
+						Name:         "error",
+						Args:         MethodErrorArgs(MethodErrorUnknownMethod, "Method requires capability "+MdnCapabilityURI+" which is not in 'using'"),
+						ClientCallID: call.ClientCallID,
+					}
+					responses = append(responses, respInv)
+					executedMap[call.ClientCallID] = respInv
+					continue
+				}
+				if call.Name == "MDN/send" && !usingSet[MailCapabilityURI] {
+					respInv := Invocation{
+						Name:         "error",
+						Args:         MethodErrorArgs(MethodErrorUnknownMethod, "MDN/send requires capability "+MailCapabilityURI+" which is not in 'using'"),
+						ClientCallID: call.ClientCallID,
+					}
+					responses = append(responses, respInv)
+					executedMap[call.ClientCallID] = respInv
+					continue
+				}
+
 				resolvedArgs, refErrType, refErr := s.resolveResultReferences(call.Args, executedMap)
 				if refErr != "" {
 					respInv := Invocation{
