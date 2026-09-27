@@ -145,16 +145,78 @@ func (b *Backend) recordMove(u string, oldID, newID jmapcore.Id) {
 	b.movedIDs[u][oldID] = newID
 }
 
+func sieveScriptStateMap(scripts []*jmapsieve.SieveScript) map[string]string {
+	fps := make(map[string]string, len(scripts))
+	for _, s := range scripts {
+		if s != nil {
+			fps[string(s.ID)] = jmappush.ObjectFingerprint(s)
+		}
+	}
+	return fps
+}
+
 // SieveScriptState returns the current state token for the user.
 func (b *Backend) SieveScriptState(ctx context.Context) string {
-	user, _ := b.userAndPass(ctx)
-	return b.getTracker(user).State()
+	scripts, err := b.GetAllSieveScripts(ctx)
+	if err != nil {
+		user, _ := b.userAndPass(ctx)
+		return b.getTracker(user).State()
+	}
+	return jmappush.EncodeStateVector("sieve-v1:", sieveScriptStateMap(scripts))
 }
 
 // SieveScriptChanges returns created, updated, destroyed scripts since sinceState.
 func (b *Backend) SieveScriptChanges(ctx context.Context, sinceState string) (created, updated, destroyed []jmapcore.Id, newState string, hasMore bool) {
 	user, _ := b.userAndPass(ctx)
-	return b.getTracker(user).Changes(sinceState)
+	if !strings.HasPrefix(sinceState, "sieve-v1:") {
+		return b.getTracker(user).Changes(sinceState)
+	}
+	old, err := jmappush.DecodeStateVector("sieve-v1:", sinceState)
+	if err != nil {
+		return nil, nil, nil, "", false
+	}
+	scripts, err := b.GetAllSieveScripts(ctx)
+	if err != nil {
+		return nil, nil, nil, "", false
+	}
+	cur := sieveScriptStateMap(scripts)
+	newState = jmappush.EncodeStateVector("sieve-v1:", cur)
+
+	b.mu.RLock()
+	moves := make(map[jmapcore.Id]jmapcore.Id)
+	if b.movedIDs[user] != nil {
+		for k, v := range b.movedIDs[user] {
+			moves[k] = v
+		}
+	}
+	b.mu.RUnlock()
+
+	remainingOld := make(map[string]string, len(old))
+	for k, v := range old {
+		remainingOld[k] = v
+	}
+	remainingCur := make(map[string]string, len(cur))
+	for k, v := range cur {
+		remainingCur[k] = v
+	}
+
+	for oldIDStr := range old {
+		oldID := jmapcore.Id(oldIDStr)
+		if targetID, ok := moves[oldID]; ok {
+			targetIDStr := string(targetID)
+			if _, inCur := remainingCur[targetIDStr]; inCur {
+				updated = append(updated, oldID)
+				delete(remainingOld, oldIDStr)
+				delete(remainingCur, targetIDStr)
+			}
+		}
+	}
+
+	createdDiff, updatedDiff, destroyedDiff := jmappush.DiffStateVectors(remainingOld, remainingCur)
+	updated = append(updated, updatedDiff...)
+	sort.Slice(updated, func(i, j int) bool { return updated[i] < updated[j] })
+
+	return createdDiff, updated, destroyedDiff, newState, false
 }
 
 // ValidateSieveScript validates Sieve script syntax using go-sieve.
@@ -289,7 +351,8 @@ func (b *Backend) CreateSieveScript(ctx context.Context, script *jmapsieve.Sieve
 	script.ID = SieveScriptIDForName(name)
 	script.Name = name
 
-	st := b.getTracker(user).Record(script.ID, "create")
+	b.getTracker(user).Record(script.ID, "create")
+	st := b.SieveScriptState(ctx)
 	b.emitStateChange(user, st)
 
 	return script, nil
@@ -382,7 +445,8 @@ func (b *Backend) UpdateSieveScript(ctx context.Context, id jmapcore.Id, patch m
 		}
 	}
 
-	st := b.getTracker(user).Record(newID, "update")
+	b.getTracker(user).Record(newID, "update")
+	st := b.SieveScriptState(ctx)
 	b.emitStateChange(user, st)
 
 	return &jmapsieve.SieveScript{
@@ -426,7 +490,8 @@ func (b *Backend) DeleteSieveScript(ctx context.Context, id jmapcore.Id) (bool, 
 		return false, nil
 	}
 
-	st := b.getTracker(user).Record(id, "destroy")
+	b.getTracker(user).Record(id, "destroy")
+	st := b.SieveScriptState(ctx)
 	b.emitStateChange(user, st)
 
 	return true, nil

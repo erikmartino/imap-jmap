@@ -35,6 +35,7 @@ type FileNodeBackend struct {
 	nodeTrackers map[string]*jmappush.ChangeTracker
 	nodesCache   map[string]map[jmapcore.Id]*jmapfilenode.FileNode
 	movedIDs     map[string]map[jmapcore.Id]jmapcore.Id
+	destroyedIDs map[string]map[jmapcore.Id]jmapcore.Id
 }
 
 var _ jmapfilenode.FileNodeBackend = (*FileNodeBackend)(nil)
@@ -46,6 +47,7 @@ func NewFileNodeBackend(client *Client) *FileNodeBackend {
 		nodeTrackers: make(map[string]*jmappush.ChangeTracker),
 		nodesCache:   make(map[string]map[jmapcore.Id]*jmapfilenode.FileNode),
 		movedIDs:     make(map[string]map[jmapcore.Id]jmapcore.Id),
+		destroyedIDs: make(map[string]map[jmapcore.Id]jmapcore.Id),
 	}
 }
 
@@ -102,12 +104,89 @@ func (b *FileNodeBackend) getNodeTracker(u string) *jmappush.ChangeTracker {
 	return b.nodeTrackers[u]
 }
 
+func fileNodeStateMap(nodes []*jmapfilenode.FileNode) map[string]string {
+	fps := make(map[string]string, len(nodes))
+	for _, n := range nodes {
+		if n != nil {
+			fps[string(n.ID)] = jmappush.ObjectFingerprint(n)
+		}
+	}
+	return fps
+}
+
+// FileNodeState returns an opaque JMAP state token for the user's file nodes.
 func (b *FileNodeBackend) FileNodeState(ctx context.Context) string {
-	return b.getNodeTracker(b.user(ctx)).State()
+	nodes, _, err := b.GetFileNodes(ctx, nil)
+	if err != nil {
+		return b.getNodeTracker(b.user(ctx)).State()
+	}
+	return jmappush.EncodeStateVector("fn-v1:", fileNodeStateMap(nodes))
 }
 
 func (b *FileNodeBackend) FileNodeChanges(ctx context.Context, sinceState string) ([]jmapcore.Id, []jmapcore.Id, []jmapcore.Id, string, bool) {
-	return b.getNodeTracker(b.user(ctx)).Changes(sinceState)
+	u := b.user(ctx)
+	if !strings.HasPrefix(sinceState, "fn-v1:") {
+		return b.getNodeTracker(u).Changes(sinceState)
+	}
+	old, err := jmappush.DecodeStateVector("fn-v1:", sinceState)
+	if err != nil {
+		return nil, nil, nil, "", false
+	}
+	nodes, _, err := b.GetFileNodes(ctx, nil)
+	if err != nil {
+		return nil, nil, nil, "", false
+	}
+	cur := fileNodeStateMap(nodes)
+	newState := jmappush.EncodeStateVector("fn-v1:", cur)
+
+	b.mu.RLock()
+	moves := make(map[jmapcore.Id]jmapcore.Id)
+	if b.movedIDs[u] != nil {
+		for k, v := range b.movedIDs[u] {
+			moves[k] = v
+		}
+	}
+	b.mu.RUnlock()
+
+	remainingOld := make(map[string]string, len(old))
+	for k, v := range old {
+		remainingOld[k] = v
+	}
+	remainingCur := make(map[string]string, len(cur))
+	for k, v := range cur {
+		remainingCur[k] = v
+	}
+
+	var updated []jmapcore.Id
+	for oldIDStr := range old {
+		oldID := jmapcore.Id(oldIDStr)
+		if targetID, ok := moves[oldID]; ok {
+			targetIDStr := string(targetID)
+			if _, inCur := remainingCur[targetIDStr]; inCur {
+				updated = append(updated, oldID)
+				delete(remainingOld, oldIDStr)
+				delete(remainingCur, targetIDStr)
+			}
+		}
+	}
+
+	createdDiff, updatedDiff, destroyedDiff := jmappush.DiffStateVectors(remainingOld, remainingCur)
+	updated = append(updated, updatedDiff...)
+	sort.Slice(updated, func(i, j int) bool { return updated[i] < updated[j] })
+
+	b.mu.RLock()
+	destroyedMap := b.destroyedIDs[u]
+	b.mu.RUnlock()
+	if len(destroyedMap) > 0 {
+		for i, d := range destroyedDiff {
+			if orig, ok := destroyedMap[d]; ok && orig != "" {
+				destroyedDiff[i] = orig
+			}
+		}
+		sort.Slice(destroyedDiff, func(i, j int) bool { return destroyedDiff[i] < destroyedDiff[j] })
+	}
+
+	return createdDiff, updated, destroyedDiff, newState, false
 }
 
 func cleanRelPath(p string) string {
@@ -507,9 +586,10 @@ func (b *FileNodeBackend) CreateFileNode(ctx context.Context, node *jmapfilenode
 		action = "update"
 	}
 	b.nodesCache[u][node.ID] = node
-	st := b.getNodeTracker(u).Record(node.ID, action)
+	b.getNodeTracker(u).Record(node.ID, action)
 	b.mu.Unlock()
 
+	st := b.FileNodeState(ctx)
 	b.emitStateChange(u, "FileNode", st)
 	return node, nil
 }
@@ -652,9 +732,10 @@ func (b *FileNodeBackend) UpdateFileNode(ctx context.Context, id jmapcore.Id, pa
 
 	b.mu.Lock()
 	b.nodesCache[u][node.ID] = node
-	st := b.getNodeTracker(u).Record(id, "update")
+	b.getNodeTracker(u).Record(id, "update")
 	b.mu.Unlock()
 
+	st := b.FileNodeState(ctx)
 	b.emitStateChange(u, "FileNode", st)
 	return node, nil
 }
@@ -694,19 +775,32 @@ func (b *FileNodeBackend) DeleteFileNode(ctx context.Context, rawID jmapcore.Id)
 	_ = fs.RemoveAll(ctx, targetRel)
 
 	b.mu.Lock()
+	if b.destroyedIDs == nil {
+		b.destroyedIDs = make(map[string]map[jmapcore.Id]jmapcore.Id)
+	}
+	if b.destroyedIDs[u] == nil {
+		b.destroyedIDs[u] = make(map[jmapcore.Id]jmapcore.Id)
+	}
+	if rawID != id {
+		b.destroyedIDs[u][id] = rawID
+	}
+	targetID := FileNodeIDForPath(targetRel)
+	if rawID != targetID {
+		b.destroyedIDs[u][targetID] = rawID
+	}
 	if b.nodesCache[u] != nil {
 		delete(b.nodesCache[u], id)
 		delete(b.nodesCache[u], rawID)
-		targetID := FileNodeIDForPath(targetRel)
 		delete(b.nodesCache[u], targetID)
 	}
 	if b.movedIDs[u] != nil {
 		delete(b.movedIDs[u], id)
 		delete(b.movedIDs[u], rawID)
 	}
-	st := b.getNodeTracker(u).Record(rawID, "destroy")
+	b.getNodeTracker(u).Record(rawID, "destroy")
 	b.mu.Unlock()
 
+	st := b.FileNodeState(ctx)
 	b.emitStateChange(u, "FileNode", st)
 	return true, nil
 }

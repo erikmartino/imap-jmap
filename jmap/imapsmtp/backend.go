@@ -379,10 +379,11 @@ func (b *IMAPSMTPBackend) publishStateChange(ctx context.Context) {
 	// Publish one atomic event so a subscriber cannot observe (and a
 	// closeafter=state client cannot close on) a partial change set.
 	b.broadcaster.PublishStateChanges(accountID, map[string]string{
-		"Email":   state,
-		"Mailbox": state,
-		"Thread":  state,
-		"Quota":   b.QuotaState(ctx),
+		"Email":    state,
+		"Mailbox":  state,
+		"Thread":   state,
+		"Quota":    b.QuotaState(ctx),
+		"Identity": b.IdentityState(ctx),
 	})
 }
 

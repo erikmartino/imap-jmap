@@ -12,6 +12,7 @@ import (
 	"imap-jmap/jmap/jmapcore"
 	"imap-jmap/jmap/jmapextstore"
 	"imap-jmap/jmap/jmapmail"
+	"imap-jmap/jmap/jmappush"
 )
 
 type subChangeEntry struct {
@@ -270,13 +271,29 @@ func (b *IMAPSMTPBackend) publishSubmissionStateChange(ctx context.Context) {
 	b.broadcaster.PublishStateChange(accountID, "EmailSubmission", state)
 }
 
+func submissionStateMap(items []*jmapmail.EmailSubmission) map[string]string {
+	fps := make(map[string]string, len(items))
+	for _, it := range items {
+		if it != nil {
+			fps[string(it.ID)] = jmappush.ObjectFingerprint(it)
+		}
+	}
+	return fps
+}
+
 func (b *IMAPSMTPBackend) SubmissionState(ctx context.Context) string {
 	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.submissionsMu.Lock()
 	defer b.submissionsMu.Unlock()
 	b.loadSubmissionsLocked(ctx, accountID)
-	tr := b.getSubTrackerLocked(accountID)
-	return tr.State()
+	m := b.getSubMapLocked(accountID)
+	items := make([]*jmapmail.EmailSubmission, 0, len(m))
+	for _, it := range m {
+		if it != nil {
+			items = append(items, it)
+		}
+	}
+	return jmappush.EncodeStateVector("sub-v1:", submissionStateMap(items))
 }
 
 func (b *IMAPSMTPBackend) SubmissionChanges(ctx context.Context, sinceState string, maxChanges *uint64) ([]jmapcore.Id, []jmapcore.Id, []jmapcore.Id, string, bool) {
@@ -284,8 +301,25 @@ func (b *IMAPSMTPBackend) SubmissionChanges(ctx context.Context, sinceState stri
 	b.submissionsMu.Lock()
 	defer b.submissionsMu.Unlock()
 	b.loadSubmissionsLocked(ctx, accountID)
-	tr := b.getSubTrackerLocked(accountID)
-	return tr.Changes(sinceState, maxChanges)
+	if !strings.HasPrefix(sinceState, "sub-v1:") {
+		tr := b.getSubTrackerLocked(accountID)
+		return tr.Changes(sinceState, maxChanges)
+	}
+	old, err := jmappush.DecodeStateVector("sub-v1:", sinceState)
+	if err != nil {
+		return nil, nil, nil, "", false
+	}
+	m := b.getSubMapLocked(accountID)
+	items := make([]*jmapmail.EmailSubmission, 0, len(m))
+	for _, it := range m {
+		if it != nil {
+			items = append(items, it)
+		}
+	}
+	cur := submissionStateMap(items)
+	newState := jmappush.EncodeStateVector("sub-v1:", cur)
+	created, updated, destroyed := jmappush.DiffStateVectors(old, cur)
+	return created, updated, destroyed, newState, false
 }
 
 func (b *IMAPSMTPBackend) UpdateSubmission(ctx context.Context, id jmapcore.Id, patch map[string]any) (*jmapmail.EmailSubmission, error) {

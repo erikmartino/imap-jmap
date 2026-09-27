@@ -151,14 +151,14 @@ func (b *PrincipalsBackend) EnsureUser(ctx context.Context, subject, password st
 	if allGroup, ok := b.principalsCache["p-all"]; ok && allGroup.Members != nil {
 		allGroup.Members[string(pid)] = true
 	}
-	var st string
 	if existed {
-		st = b.tracker.Record(pid, "update")
+		b.tracker.Record(pid, "update")
 	} else {
-		st = b.tracker.Record(pid, "create")
+		b.tracker.Record(pid, "create")
 	}
 	b.mu.Unlock()
 
+	st := b.PrincipalState(ctx)
 	b.emitStateChange(subject, "Principal", st)
 
 	if b.client != nil {
@@ -443,12 +443,40 @@ func groupDisplayName(gid, label string) string {
 	return sanitizeDisplayName(strings.Title(strings.ReplaceAll(gid, "-", " ")))
 }
 
+func principalStateMap(items []*jmapprincipals.Principal) map[string]string {
+	fps := make(map[string]string, len(items))
+	for _, it := range items {
+		if it != nil {
+			fps[string(it.ID)] = jmappush.ObjectFingerprint(it)
+		}
+	}
+	return fps
+}
+
 func (b *PrincipalsBackend) PrincipalState(ctx context.Context) string {
-	return b.tracker.State()
+	items, err := b.GetAllPrincipals(ctx)
+	if err != nil {
+		return b.tracker.State()
+	}
+	return jmappush.EncodeStateVector("princ-v1:", principalStateMap(items))
 }
 
 func (b *PrincipalsBackend) PrincipalChanges(ctx context.Context, sinceState string) (created, updated, destroyed []jmapcore.Id, newState string, hasMoreChanges bool) {
-	return b.tracker.Changes(sinceState)
+	if !strings.HasPrefix(sinceState, "princ-v1:") {
+		return b.tracker.Changes(sinceState)
+	}
+	old, err := jmappush.DecodeStateVector("princ-v1:", sinceState)
+	if err != nil {
+		return nil, nil, nil, "", false
+	}
+	items, err := b.GetAllPrincipals(ctx)
+	if err != nil {
+		return nil, nil, nil, "", false
+	}
+	cur := principalStateMap(items)
+	newState = jmappush.EncodeStateVector("princ-v1:", cur)
+	created, updated, destroyed = jmappush.DiffStateVectors(old, cur)
+	return created, updated, destroyed, newState, false
 }
 
 func (b *PrincipalsBackend) GetPrincipals(ctx context.Context, ids []jmapcore.Id) ([]*jmapprincipals.Principal, []jmapcore.Id, error) {
@@ -577,10 +605,11 @@ func (b *PrincipalsBackend) CreatePrincipal(ctx context.Context, p *jmapprincipa
 		b.principalsCache = make(map[jmapcore.Id]*jmapprincipals.Principal)
 	}
 	b.principalsCache[p.ID] = p
-	st := b.tracker.Record(p.ID, "create")
+	b.tracker.Record(p.ID, "create")
 	u := p.Email
 	b.mu.Unlock()
 
+	st := b.PrincipalState(ctx)
 	b.emitStateChange(u, "Principal", st)
 	return p, nil
 }
@@ -618,19 +647,30 @@ func (b *PrincipalsBackend) UpdatePrincipal(ctx context.Context, id jmapcore.Id,
 		p.MayShareWith = mayShare
 	}
 
-	st := b.tracker.Record(id, "update")
+	b.tracker.Record(id, "update")
 	u := p.Email
 	b.mu.Unlock()
 
+	st := b.PrincipalState(ctx)
 	b.emitStateChange(u, "Principal", st)
 	return p, nil
 }
 
 func (b *PrincipalsBackend) DeletePrincipal(ctx context.Context, id jmapcore.Id) (bool, error) {
 	b.mu.Lock()
+	p := b.principalsCache[id]
 	delete(b.principalsCache, id)
 	b.tracker.Record(id, "destroy")
+	u := ""
+	if p != nil {
+		u = p.Email
+	}
 	b.mu.Unlock()
+
+	st := b.PrincipalState(ctx)
+	if u != "" {
+		b.emitStateChange(u, "Principal", st)
+	}
 	return true, nil
 }
 

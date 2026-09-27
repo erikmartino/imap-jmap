@@ -133,13 +133,42 @@ func (b *ContactsBackend) getCardTracker(u string) *jmappush.ChangeTracker {
 	return b.cardTrackers[u]
 }
 
-// AddressBookState
+func addressBookStateMap(abs []*jmapcontacts.AddressBook) map[string]string {
+	fps := make(map[string]string, len(abs))
+	for _, ab := range abs {
+		if ab != nil {
+			fps[string(ab.ID)] = jmappush.ObjectFingerprint(ab)
+		}
+	}
+	return fps
+}
+
+// AddressBookState returns an opaque JMAP state token for the user's address books.
 func (b *ContactsBackend) AddressBookState(ctx context.Context) string {
-	return b.getABTracker(b.user(ctx)).State()
+	abs, _, err := b.GetAddressBooks(ctx, nil)
+	if err != nil {
+		return b.getABTracker(b.user(ctx)).State()
+	}
+	return jmappush.EncodeStateVector("ab-v1:", addressBookStateMap(abs))
 }
 
 func (b *ContactsBackend) AddressBookChanges(ctx context.Context, sinceState string) ([]jmapcore.Id, []jmapcore.Id, []jmapcore.Id, string, bool) {
-	return b.getABTracker(b.user(ctx)).Changes(sinceState)
+	u := b.user(ctx)
+	if !strings.HasPrefix(sinceState, "ab-v1:") {
+		return b.getABTracker(u).Changes(sinceState)
+	}
+	old, err := jmappush.DecodeStateVector("ab-v1:", sinceState)
+	if err != nil {
+		return nil, nil, nil, "", false
+	}
+	abs, _, err := b.GetAddressBooks(ctx, nil)
+	if err != nil {
+		return nil, nil, nil, "", false
+	}
+	cur := addressBookStateMap(abs)
+	newState := jmappush.EncodeStateVector("ab-v1:", cur)
+	created, updated, destroyed := jmappush.DiffStateVectors(old, cur)
+	return created, updated, destroyed, newState, false
 }
 
 func (b *ContactsBackend) GetAllAddressBooks(ctx context.Context) ([]*jmapcontacts.AddressBook, error) {
@@ -320,9 +349,10 @@ func (b *ContactsBackend) CreateAddressBook(ctx context.Context, ab *jmapcontact
 		b.abPaths[u] = make(map[jmapcore.Id]string)
 	}
 	b.abPaths[u][ab.ID] = abPath
-	st := b.getABTracker(u).Record(ab.ID, "create")
+	b.getABTracker(u).Record(ab.ID, "create")
 	b.mu.Unlock()
 
+	st := b.AddressBookState(ctx)
 	b.emitStateChange(u, "AddressBook", st)
 	return ab, nil
 }
@@ -366,9 +396,10 @@ func (b *ContactsBackend) UpdateAddressBook(ctx context.Context, id jmapcore.Id,
 
 	u := b.user(ctx)
 	b.mu.Lock()
-	st := b.getABTracker(u).Record(id, "update")
+	b.getABTracker(u).Record(id, "update")
 	b.mu.Unlock()
 
+	st := b.AddressBookState(ctx)
 	b.emitStateChange(u, "AddressBook", st)
 	return ab, nil
 }
@@ -414,9 +445,10 @@ func (b *ContactsBackend) DeleteAddressBook(ctx context.Context, id jmapcore.Id,
 	if b.abPaths[u] != nil {
 		delete(b.abPaths[u], id)
 	}
-	st := b.getABTracker(u).Record(id, "destroy")
+	b.getABTracker(u).Record(id, "destroy")
 	b.mu.Unlock()
 
+	st := b.AddressBookState(ctx)
 	b.emitStateChange(u, "AddressBook", st)
 	return true, nil
 }
@@ -448,13 +480,42 @@ func (b *ContactsBackend) AddressBookHasContents(ctx context.Context, id jmapcor
 	return false, nil
 }
 
-// CardState
+func cardStateMap(cards []*jmapcontacts.Card) map[string]string {
+	fps := make(map[string]string, len(cards))
+	for _, c := range cards {
+		if c != nil {
+			fps[string(c.ID)] = jmappush.ObjectFingerprint(c)
+		}
+	}
+	return fps
+}
+
+// CardState returns an opaque JMAP state token for the user's cards.
 func (b *ContactsBackend) CardState(ctx context.Context) string {
-	return b.getCardTracker(b.user(ctx)).State()
+	cards, _, err := b.GetCards(ctx, nil)
+	if err != nil {
+		return b.getCardTracker(b.user(ctx)).State()
+	}
+	return jmappush.EncodeStateVector("card-v1:", cardStateMap(cards))
 }
 
 func (b *ContactsBackend) CardChanges(ctx context.Context, sinceState string) ([]jmapcore.Id, []jmapcore.Id, []jmapcore.Id, string, bool) {
-	return b.getCardTracker(b.user(ctx)).Changes(sinceState)
+	u := b.user(ctx)
+	if !strings.HasPrefix(sinceState, "card-v1:") {
+		return b.getCardTracker(u).Changes(sinceState)
+	}
+	old, err := jmappush.DecodeStateVector("card-v1:", sinceState)
+	if err != nil {
+		return nil, nil, nil, "", false
+	}
+	cards, _, err := b.GetCards(ctx, nil)
+	if err != nil {
+		return nil, nil, nil, "", false
+	}
+	cur := cardStateMap(cards)
+	newState := jmappush.EncodeStateVector("card-v1:", cur)
+	created, updated, destroyed := jmappush.DiffStateVectors(old, cur)
+	return created, updated, destroyed, newState, false
 }
 
 func (b *ContactsBackend) GetAllCards(ctx context.Context) ([]*jmapcontacts.Card, error) {
@@ -686,9 +747,10 @@ func (b *ContactsBackend) CreateCard(ctx context.Context, card *jmapcontacts.Car
 		action = "update"
 	}
 	b.cardsCache[u][card.ID] = card
-	st := b.getCardTracker(u).Record(card.ID, action)
+	b.getCardTracker(u).Record(card.ID, action)
 	b.mu.Unlock()
 
+	st := b.CardState(ctx)
 	b.emitStateChange(u, "Card", st)
 	return card, nil
 }
@@ -850,9 +912,10 @@ func (b *ContactsBackend) DeleteCard(ctx context.Context, id jmapcore.Id) (bool,
 	if b.cardsCache[u] != nil {
 		delete(b.cardsCache[u], id)
 	}
-	st := b.getCardTracker(u).Record(id, "destroy")
+	b.getCardTracker(u).Record(id, "destroy")
 	b.mu.Unlock()
 
+	st := b.CardState(ctx)
 	b.emitStateChange(u, "Card", st)
 	return true, nil
 }

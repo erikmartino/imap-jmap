@@ -10,6 +10,7 @@ import (
 	"imap-jmap/jmap/jmapcore"
 	"imap-jmap/jmap/jmapextstore"
 	"imap-jmap/jmap/jmapmail"
+	"imap-jmap/jmap/jmappush"
 )
 
 // Identities (RFC 8621 Section 6)
@@ -34,14 +35,42 @@ func (b *IMAPSMTPBackend) persistIdentitiesLocked(ctx context.Context, accountID
 	}
 }
 
+func identityStateMap(items []*jmapmail.Identity) map[string]string {
+	fps := make(map[string]string, len(items))
+	for _, it := range items {
+		if it != nil {
+			fps[string(it.ID)] = jmappush.ObjectFingerprint(it)
+		}
+	}
+	return fps
+}
+
 func (b *IMAPSMTPBackend) IdentityState(ctx context.Context) string {
-	accountID, _ := jmapauth.AccountIDFromContext(ctx)
-	return b.getIdentityTracker(accountID).State()
+	items, err := b.GetIdentities(ctx)
+	if err != nil {
+		accountID, _ := jmapauth.AccountIDFromContext(ctx)
+		return b.getIdentityTracker(accountID).State()
+	}
+	return jmappush.EncodeStateVector("id-v1:", identityStateMap(items))
 }
 
 func (b *IMAPSMTPBackend) IdentityChanges(ctx context.Context, sinceState string, maxChanges *uint64) ([]jmapcore.Id, []jmapcore.Id, []jmapcore.Id, string, bool) {
 	accountID, _ := jmapauth.AccountIDFromContext(ctx)
-	return b.getIdentityTracker(accountID).Changes(sinceState, maxChanges)
+	if !strings.HasPrefix(sinceState, "id-v1:") {
+		return b.getIdentityTracker(accountID).Changes(sinceState, maxChanges)
+	}
+	old, err := jmappush.DecodeStateVector("id-v1:", sinceState)
+	if err != nil {
+		return nil, nil, nil, "", false
+	}
+	items, err := b.GetIdentities(ctx)
+	if err != nil {
+		return nil, nil, nil, "", false
+	}
+	cur := identityStateMap(items)
+	newState := jmappush.EncodeStateVector("id-v1:", cur)
+	created, updated, destroyed := jmappush.DiffStateVectors(old, cur)
+	return created, updated, destroyed, newState, false
 }
 
 func (b *IMAPSMTPBackend) GetIdentities(ctx context.Context) ([]*jmapmail.Identity, error) {
@@ -80,7 +109,6 @@ func (b *IMAPSMTPBackend) GetIdentities(ctx context.Context) ([]*jmapmail.Identi
 func (b *IMAPSMTPBackend) CreateIdentity(ctx context.Context, identity *jmapmail.Identity) (*jmapmail.Identity, error) {
 	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.identitiesMu.Lock()
-	defer b.identitiesMu.Unlock()
 
 	b.loadIdentitiesLocked(ctx, accountID)
 
@@ -102,6 +130,7 @@ func (b *IMAPSMTPBackend) CreateIdentity(ctx context.Context, identity *jmapmail
 
 	for existingID, existing := range b.identities[accountID] {
 		if strings.EqualFold(existing.Email, identity.Email) {
+			b.identitiesMu.Unlock()
 			return nil, jmapcore.SetError{
 				Type:        "alreadyExists",
 				ExistingID:  existingID,
@@ -117,6 +146,8 @@ func (b *IMAPSMTPBackend) CreateIdentity(ctx context.Context, identity *jmapmail
 	b.persistIdentitiesLocked(ctx, accountID)
 
 	b.getIdentityTracker(accountID).Record(identity.ID, "create")
+	b.identitiesMu.Unlock()
+
 	b.publishStateChange(ctx)
 	return identity, nil
 }
@@ -124,7 +155,6 @@ func (b *IMAPSMTPBackend) CreateIdentity(ctx context.Context, identity *jmapmail
 func (b *IMAPSMTPBackend) UpdateIdentity(ctx context.Context, id jmapcore.Id, patch map[string]any) (*jmapmail.Identity, error) {
 	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.identitiesMu.Lock()
-	defer b.identitiesMu.Unlock()
 
 	b.loadIdentitiesLocked(ctx, accountID)
 	if m, ok := b.identities[accountID]; ok {
@@ -152,17 +182,18 @@ func (b *IMAPSMTPBackend) UpdateIdentity(ctx context.Context, id jmapcore.Id, pa
 			}
 			b.persistIdentitiesLocked(ctx, accountID)
 			b.getIdentityTracker(accountID).Record(id, "update")
+			b.identitiesMu.Unlock()
 			b.publishStateChange(ctx)
 			return ident, nil
 		}
 	}
+	b.identitiesMu.Unlock()
 	return nil, jmapcore.ErrNotFound
 }
 
 func (b *IMAPSMTPBackend) DeleteIdentity(ctx context.Context, id jmapcore.Id) (bool, error) {
 	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	b.identitiesMu.Lock()
-	defer b.identitiesMu.Unlock()
 
 	b.loadIdentitiesLocked(ctx, accountID)
 	if m, ok := b.identities[accountID]; ok {
@@ -170,9 +201,11 @@ func (b *IMAPSMTPBackend) DeleteIdentity(ctx context.Context, id jmapcore.Id) (b
 			delete(m, id)
 			b.persistIdentitiesLocked(ctx, accountID)
 			b.getIdentityTracker(accountID).Record(id, "destroy")
+			b.identitiesMu.Unlock()
 			b.publishStateChange(ctx)
 			return true, nil
 		}
 	}
+	b.identitiesMu.Unlock()
 	return false, nil
 }

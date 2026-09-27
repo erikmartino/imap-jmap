@@ -1,7 +1,12 @@
 package jmappush
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
@@ -172,3 +177,84 @@ func (t *ChangeTracker) Changes(sinceState string, maxChanges ...*uint64) (creat
 
 	return created, updated, destroyed, newState, hasMore
 }
+
+// ObjectFingerprint computes a canonical SHA-256 hex digest of the JSON representation of an object.
+func ObjectFingerprint(v any) string {
+	if v == nil {
+		return ""
+	}
+	data, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+// EncodeStateVector serializes a content-addressed state map with the given prefix (e.g. "ab-v1:").
+// The encoding uses canonical JSON ordering and Base64 RawURLEncoding to produce stable opaque tokens across restarts.
+func EncodeStateVector(prefix string, fps map[string]string) string {
+	if len(fps) == 0 {
+		return prefix + "empty"
+	}
+	data, err := json.Marshal(fps)
+	if err != nil {
+		return prefix + "empty"
+	}
+	return prefix + base64.RawURLEncoding.EncodeToString(data)
+}
+
+// DecodeStateVector deserializes a content-addressed state map with the specified prefix.
+func DecodeStateVector(prefix, state string) (map[string]string, error) {
+	if !strings.HasPrefix(state, prefix) {
+		return nil, fmt.Errorf("state does not have prefix %q", prefix)
+	}
+	raw := strings.TrimPrefix(state, prefix)
+	if raw == "empty" || raw == "" {
+		return make(map[string]string), nil
+	}
+	data, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return nil, err
+	}
+	var fps map[string]string
+	if err := json.Unmarshal(data, &fps); err != nil {
+		return nil, err
+	}
+	if fps == nil {
+		fps = make(map[string]string)
+	}
+	return fps, nil
+}
+
+// DiffStateVectors computes sorted created, updated, and destroyed IDs between two state maps.
+func DiffStateVectors(old, cur map[string]string) (created, updated, destroyed []jmapcore.Id) {
+	for idStr, fp := range cur {
+		id := jmapcore.Id(idStr)
+		oldFp, ok := old[idStr]
+		if !ok {
+			created = append(created, id)
+		} else if oldFp != fp {
+			updated = append(updated, id)
+		}
+	}
+	for idStr := range old {
+		if _, ok := cur[idStr]; !ok {
+			destroyed = append(destroyed, jmapcore.Id(idStr))
+		}
+	}
+	sort.Slice(created, func(i, j int) bool { return created[i] < created[j] })
+	sort.Slice(updated, func(i, j int) bool { return updated[i] < updated[j] })
+	sort.Slice(destroyed, func(i, j int) bool { return destroyed[i] < destroyed[j] })
+	if created == nil {
+		created = []jmapcore.Id{}
+	}
+	if updated == nil {
+		updated = []jmapcore.Id{}
+	}
+	if destroyed == nil {
+		destroyed = []jmapcore.Id{}
+	}
+	return created, updated, destroyed
+}
+

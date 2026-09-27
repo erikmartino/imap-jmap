@@ -2,11 +2,11 @@ package imapsmtp
 
 import (
 	"context"
-	"fmt"
 
 	"imap-jmap/jmap/jmapauth"
 	"imap-jmap/jmap/jmapextstore"
 	"imap-jmap/jmap/jmapmail"
+	"imap-jmap/jmap/jmappush"
 )
 
 // VacationResponse is a per-account singleton per RFC 8621 Section 8.
@@ -31,14 +31,11 @@ func (b *IMAPSMTPBackend) persistVacationLocked(ctx context.Context, accountID s
 }
 
 func (b *IMAPSMTPBackend) VacationResponseState(ctx context.Context) string {
-	accountID, _ := jmapauth.AccountIDFromContext(ctx)
-	b.vacationMu.RLock()
-	defer b.vacationMu.RUnlock()
-	st := b.vacationState[accountID]
-	if st == 0 {
-		return "1"
+	vr, err := b.GetVacationResponse(ctx)
+	if err != nil || vr == nil {
+		return "vac-v1:empty"
 	}
-	return fmt.Sprintf("%d", st)
+	return "vac-v1:" + jmappush.ObjectFingerprint(vr)
 }
 
 func (b *IMAPSMTPBackend) GetVacationResponse(ctx context.Context) (*jmapmail.VacationResponse, error) {

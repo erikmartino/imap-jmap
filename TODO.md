@@ -164,8 +164,16 @@ Per `AGENTS.md` §1 ("Stateless Proxy & Zero Local Filesystem Sync"), the proxy 
     - `imapsmtp`: `Identity`, `EmailSubmission`, `VacationResponse`, `PushSubscription`, `mailboxSortOrders`, `mailboxParentOverrides`.
     - `nextcloud`: `ParticipantIdentity`, `CalendarEventNotification`, `ShareNotification`.
   - Verified persistence across independent fresh backend instances with zero local caches via `TestExtensionStorePersistenceAcrossInstances` and `TestWebDAVExtensionStorePersistenceAcrossInstances`.
-- [ ] **4.7 Upstream change tokens everywhere** (extends Priority 3)
-  - Replace the remaining in-memory `ChangeTracker`s (contacts, filenode, identities, notifications) with CardDAV/WebDAV ETag/CTag vectors or content-addressed states.
+- [x] **4.7 Upstream change tokens everywhere** (extends Priority 3)
+  - Implemented content-addressed state vector primitives (`EncodeStateVector`, `DecodeStateVector`, `DiffStateVectors`, `ObjectFingerprint`) in `jmap/jmappush`.
+  - Replaced proxy-local change tracking across all remaining domain models with content-addressed upstream state vectors:
+    - CardDAV Contacts: `ab-v1:` (AddressBook) and `card-v1:` (ContactCard) vectors with CTag/ETag/digest fingerprinting.
+    - WebDAV FileNodes: `fn-v1:` vector with path/modtime/size/ETag hashing and move/destroy origin ID preservation.
+    - Calendar & Sharing: `pi-v1:` (ParticipantIdentity), `cen-v1:` (CalendarEventNotification), `sn-v1:` (ShareNotification).
+    - Principals: `princ-v1:` vector.
+    - ManageSieve: `sieve-v1:` vector with name/hash diffing and script rename continuity.
+    - IMAP/SMTP: `id-v1:` (Identity), `sub-v1:` (EmailSubmission), `vac-v1:` (VacationResponse), `quota-v1:` (Quota).
+  - Maintained backward compatibility fallback to numeric change trackers for legacy tokens.
 - [ ] **4.8 Demote caches** (`nextcloud`, `imapsmtp`, `managesieve`)
   - Any map kept must be explicitly a cache: bounded size/TTL, invalidated on write, and rebuilt from upstream; add an `AGENTS.md`-aligned comment and a guard test that no backend constructor seeds authoritative data.
 - [ ] **4.9 Invariant gate**
