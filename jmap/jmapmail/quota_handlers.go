@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"imap-jmap/jmap/jmapcore"
 	"imap-jmap/jmap/jmaphandler"
@@ -12,6 +13,64 @@ import (
 // quotaSortableProperties are the Quota properties that MUST be supported for
 // sorting (RFC 9425 Section 4.4).
 var quotaSortableProperties = map[string]bool{"name": true, "used": true}
+
+// capabilityForQuotaType maps a JMAP Type name to its defining capability URI per RFC 9425 Section 4.1.
+func capabilityForQuotaType(typeName string) string {
+	switch typeName {
+	case "Email", "Mailbox", "Thread":
+		return "urn:ietf:params:jmap:mail"
+	case "Submission":
+		return "urn:ietf:params:jmap:submission"
+	case "Calendar", "CalendarEvent":
+		return "urn:ietf:params:jmap:calendars"
+	case "Card", "ContactCard", "AddressBook":
+		return "urn:ietf:params:jmap:contacts"
+	case "FileNode":
+		return "urn:ietf:params:jmap:filenode"
+	case "SieveScript":
+		return "urn:ietf:params:jmap:sieve"
+	case "Blob":
+		return "urn:ietf:params:jmap:blob"
+	default:
+		return ""
+	}
+}
+
+// filterQuotaTypes filters out any types for which the client did not request the associated capability
+// in the "using" section of the request (RFC 9425 Section 4.1). Returns nil if no recognized types remain.
+func filterQuotaTypes(ctx context.Context, q *Quota) *Quota {
+	if q == nil {
+		return nil
+	}
+	srcTypes := q.Types
+	if len(srcTypes) == 0 {
+		srcTypes = q.DataTypes
+	}
+	if len(srcTypes) == 0 {
+		return nil
+	}
+
+	var filtered []string
+	for _, t := range srcTypes {
+		capURI := capabilityForQuotaType(t)
+		if capURI == "" || jmapcore.IsUsingCapability(ctx, capURI) {
+			filtered = append(filtered, t)
+		}
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+
+	clone := *q
+	clone.Types = filtered
+	clone.DataTypes = filtered
+
+	// Ensure description is valid UTF-8 if present (RFC 9425 Section 4.1)
+	if clone.Description != nil && !utf8.ValidString(*clone.Description) {
+		clone.Description = nil
+	}
+	return &clone
+}
 
 // sortQuotas applies the (already validated) comparators in order.
 func sortQuotas(list []*Quota, comparators []jmapcore.Comparator) {
@@ -56,7 +115,7 @@ func HandleQuotaGet(backend MailBackend) jmaphandler.MethodHandler {
 		idsRaw, hasIDs := args["ids"].([]any)
 		props := jmaphandler.ParseProperties(args)
 
-		var list []*Quota
+		var visibleList []*Quota
 		var notFound []jmapcore.Id
 		var err error
 
@@ -67,13 +126,29 @@ func HandleQuotaGet(backend MailBackend) jmaphandler.MethodHandler {
 					ids = append(ids, jmapcore.Id(idStr))
 				}
 			}
+			var list []*Quota
 			list, notFound, err = backend.GetQuotas(ctx, ids)
+			for _, q := range list {
+				fq := filterQuotaTypes(ctx, q)
+				if fq != nil {
+					visibleList = append(visibleList, fq)
+				} else {
+					notFound = append(notFound, q.ID)
+				}
+			}
 		} else {
+			var list []*Quota
 			list, err = backend.GetAllQuotas(ctx)
+			for _, q := range list {
+				fq := filterQuotaTypes(ctx, q)
+				if fq != nil {
+					visibleList = append(visibleList, fq)
+				}
+			}
 		}
 
-		if err != nil || list == nil {
-			list = []*Quota{}
+		if err != nil || visibleList == nil {
+			visibleList = []*Quota{}
 		}
 		if notFound == nil {
 			notFound = []jmapcore.Id{}
@@ -82,7 +157,7 @@ func HandleQuotaGet(backend MailBackend) jmaphandler.MethodHandler {
 		return "Quota/get", map[string]any{
 			"accountId": accountID,
 			"state":     backend.QuotaState(ctx),
-			"list":      jmaphandler.FilterList(list, props),
+			"list":      jmaphandler.FilterList(visibleList, props),
 			"notFound":  notFound,
 		}
 	}
@@ -140,6 +215,18 @@ func matchQuotaFilter(q *Quota, filter map[string]any) bool {
 	if resType, ok := filter["resourceType"].(string); ok && q.ResourceType != resType {
 		return false
 	}
+	if t, ok := filter["type"].(string); ok {
+		found := false
+		for _, d := range q.Types {
+			if strings.EqualFold(d, t) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
 	if dt, ok := filter["dataTypes"].(string); ok {
 		found := false
 		for _, d := range q.DataTypes {
@@ -166,6 +253,14 @@ func HandleQuotaQuery(backend MailBackend) jmaphandler.MethodHandler {
 		}
 
 		all, _ := backend.GetAllQuotas(ctx)
+		var visible []*Quota
+		for _, q := range all {
+			fq := filterQuotaTypes(ctx, q)
+			if fq != nil {
+				visible = append(visible, fq)
+			}
+		}
+		all = visible
 
 		if filterVal, exists := args["filter"]; exists && filterVal != nil {
 			filterMap, ok := filterVal.(map[string]any)

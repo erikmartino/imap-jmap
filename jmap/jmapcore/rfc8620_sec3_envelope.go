@@ -1,6 +1,7 @@
 package jmapcore
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 )
@@ -48,6 +49,33 @@ func (inv *Invocation) UnmarshalJSON(data []byte) error {
 	}
 
 	return nil
+}
+
+type usingCtxKey struct{}
+
+// WithUsingCapabilities stores the using capability URIs in the request context.
+func WithUsingCapabilities(ctx context.Context, using []string) context.Context {
+	return context.WithValue(ctx, usingCtxKey{}, using)
+}
+
+// UsingCapabilitiesFromContext retrieves the using capability URIs from context.
+func UsingCapabilitiesFromContext(ctx context.Context) ([]string, bool) {
+	using, ok := ctx.Value(usingCtxKey{}).([]string)
+	return using, ok
+}
+
+// IsUsingCapability checks if a capability URI is in the context's using set.
+func IsUsingCapability(ctx context.Context, capURI string) bool {
+	using, ok := UsingCapabilitiesFromContext(ctx)
+	if !ok {
+		return true // Default to true when context not set in unit tests
+	}
+	for _, u := range using {
+		if u == capURI {
+			return true
+		}
+	}
+	return false
 }
 
 // Request represents a JMAP Request object per RFC 8620 Section 3.1.

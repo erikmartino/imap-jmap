@@ -984,7 +984,7 @@ func TestRFC8620_Section5_1_GetProperties(t *testing.T) {
 		srv := newTestServer()
 		ts := httptest.NewServer(srv.Handler())
 		defer ts.Close()
-		list := get(ts, []string{jmap.CoreCapabilityURI, jmap.QuotaCapabilityURI}, "Quota/get", map[string]any{
+		list := get(ts, []string{jmap.CoreCapabilityURI, jmap.QuotaCapabilityURI, jmap.MailCapabilityURI}, "Quota/get", map[string]any{
 			"properties": []string{"name"},
 		})
 		obj := assertFiltered(t, list, "name")

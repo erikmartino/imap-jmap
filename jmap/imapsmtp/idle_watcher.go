@@ -145,6 +145,7 @@ func (b *IMAPSMTPBackend) runIdleLoop(idleCtx context.Context, accountID string,
 						"Email":   token,
 						"Mailbox": token,
 						"Thread":  token,
+						"Quota":   b.QuotaState(ctx),
 					})
 				}
 			}

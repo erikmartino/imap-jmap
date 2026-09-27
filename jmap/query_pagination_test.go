@@ -393,7 +393,7 @@ func TestQueryAnchorAllMethods(t *testing.T) {
 		},
 		{
 			name:   "Quota/query",
-			using:  []string{jmap.CoreCapabilityURI, jmap.QuotaCapabilityURI},
+			using:  []string{jmap.CoreCapabilityURI, jmap.QuotaCapabilityURI, jmap.MailCapabilityURI},
 			method: "Quota/query",
 		},
 		{

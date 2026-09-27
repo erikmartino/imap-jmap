@@ -6,6 +6,7 @@ import (
 
 	"imap-jmap/jmap/jmapcalendar"
 	"imap-jmap/jmap/jmapcontacts"
+	"imap-jmap/jmap/jmapcore"
 	"imap-jmap/jmap/jmapfilenode"
 	"imap-jmap/jmap/jmapsession"
 	"imap-jmap/jmap/jmapsieve"
@@ -346,26 +347,14 @@ func sessionFor(baseURL, username, accountID string) *Session {
 	}
 }
 
-type usingCtxKey struct{}
-
 func WithUsingCapabilities(ctx context.Context, using []string) context.Context {
-	return context.WithValue(ctx, usingCtxKey{}, using)
+	return jmapcore.WithUsingCapabilities(ctx, using)
 }
 
 func UsingCapabilitiesFromContext(ctx context.Context) ([]string, bool) {
-	using, ok := ctx.Value(usingCtxKey{}).([]string)
-	return using, ok
+	return jmapcore.UsingCapabilitiesFromContext(ctx)
 }
 
 func IsUsingCapability(ctx context.Context, capURI string) bool {
-	using, ok := UsingCapabilitiesFromContext(ctx)
-	if !ok {
-		return true // Default to true when context not set in unit tests
-	}
-	for _, u := range using {
-		if u == capURI {
-			return true
-		}
-	}
-	return false
+	return jmapcore.IsUsingCapability(ctx, capURI)
 }

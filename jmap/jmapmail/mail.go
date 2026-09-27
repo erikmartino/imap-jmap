@@ -259,6 +259,7 @@ type Quota struct {
 	Name         string        `json:"name"`
 	Description  *string       `json:"description,omitempty"`
 	AccountIDs   []jmapcore.Id `json:"accountIds,omitempty"`
+	Types        []string      `json:"types"`
 	DataTypes    []string      `json:"dataTypes,omitempty"`
 }
 

@@ -742,6 +742,7 @@ func (b *IMAPSMTPBackend) getAccountQuotas(accountID string) []*jmapmail.Quota {
 			Used:         octetsUsed,
 			HardLimit:    octetsLimit,
 			Scope:        "account",
+			Types:        []string{"Email"},
 			DataTypes:    []string{"Email"},
 		},
 		{
@@ -751,6 +752,7 @@ func (b *IMAPSMTPBackend) getAccountQuotas(accountID string) []*jmapmail.Quota {
 			Used:         messagesUsed,
 			HardLimit:    messagesLimit,
 			Scope:        "account",
+			Types:        []string{"Email"},
 			DataTypes:    []string{"Email"},
 		},
 	}

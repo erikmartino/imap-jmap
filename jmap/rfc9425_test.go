@@ -58,7 +58,7 @@ func TestRFC9425_Section4_QuotaGet(t *testing.T) {
 	defer ts.Close()
 
 	reqPayload := map[string]any{
-		"using": []string{jmap.CoreCapabilityURI, jmap.QuotaCapabilityURI},
+		"using": []string{jmap.CoreCapabilityURI, jmap.QuotaCapabilityURI, jmap.MailCapabilityURI},
 		"methodCalls": []any{
 			[]any{"Quota/get", map[string]any{
 				"accountId": "primary",
@@ -96,7 +96,7 @@ func TestRFC9425_Section5_QuotaQuery(t *testing.T) {
 	defer ts.Close()
 
 	reqPayload := map[string]any{
-		"using": []string{jmap.CoreCapabilityURI, jmap.QuotaCapabilityURI},
+		"using": []string{jmap.CoreCapabilityURI, jmap.QuotaCapabilityURI, jmap.MailCapabilityURI},
 		"methodCalls": []any{
 			[]any{"Quota/query", map[string]any{
 				"accountId": "primary",

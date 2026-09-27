@@ -204,10 +204,13 @@ Drive all remaining JMAP RFC requirement matrices in `spec/` to 100% MUST/MUST N
   - [x] `Blob/get` offset/length `isTruncated`, `isEncodingProblem`, `data:asText` null + `data:asBase64` returned for non-UTF-8 (fixed). Matrix → 12 covered.
   - [x] Upload `createdIds` back-reference, `Blob/lookup` empty-array for missing/invisible blobs (fixed: no `notFound` leak), type-name capability validation. Matrix → 16 covered.
   - [x] Specification test suite (`jmap/rfc9404_spec_test.go`) covering all BCP 14 conventions, capability properties (`maxSizeBlobSet: null`, lowercase digest algorithms, ignoring unknown types), strict `DataSourceObject` validation (no guessing intent, rejection of misplaced/conflicting/unknown properties, invalid UTF-8 in `data:asText`), efficient size queries, and cross-account access controls with untrusted binary upload safety. 100% covered (52/52 clauses in `spec/RFC9404_generated.go`).
-- [~] **1.4 RFC 9425 (JMAP Quotas)**:
-  - Handlers already implemented (`Quota/get`, `/changes`, `/query`, `/queryChanges`).
-  - [x] Capability value is an empty object in session + account capabilities; `name`/`used` sortable (`Quota/query`), unsupported sort rejected; `Quota/changes` returns `updatedProperties: null`. Matrix 0 → 6 covered.
-  - [ ] Remaining: filter out `types` the client did not request a capability for (and omit quotas with no recognized types); UTF-8 `description`; push coverage.
+- [x] **1.4 RFC 9425 (JMAP Quotas)**:
+  - Handlers implemented (`Quota/get`, `/changes`, `/query`, `/queryChanges`).
+  - [x] Capability value is an empty object in session + account capabilities; `name`/`used` sortable (`Quota/query`), unsupported sort rejected; `Quota/changes` returns `updatedProperties: null`.
+  - [x] Request capability filtering per RFC 9425 §4.1: filters out quota `types` whose defining capability is omitted from request `using`, and drops Quota objects completely when no recognized types remain.
+  - [x] Quota model update: standard RFC 9425 `types` list (with backward-compatible `dataTypes`), `type` filter condition, UTF-8 `description` validation, explicit missing ID mapping to `notFound`.
+  - [x] Push notifications: integrated `"Quota"` state broadcasting on IMAP IDLE events.
+  - [x] Full specification test suite (`jmap/rfc9425_spec_test.go`) covering all 30/30 clauses (100% covered in `spec/RFC9425_generated.go`).
 - [~] **1.5 RFC 9610 (JMAP for Contacts / JSContact RFC 9553)**:
   - Handlers + CardDAV round-trip implemented.
   - [x] §3.3.1 `text` filter now tokenises + supports quoted phrases (all tokens must be present); tests cover `inAddressBook`/`uid`/`kind`/created+updated bounds/empty/AND/token/phrase, and `created`/`updated` sorting. Matrix 0 → 12 covered.
