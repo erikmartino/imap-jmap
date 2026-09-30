@@ -143,6 +143,9 @@ services:
       - "1587:587"
     environment:
       - ALLOWED_SENDER_DOMAINS=example.com example.org profundo.dk localhost
+      - POSTFIX_myhostname=smtp.profundo.dk
+      - POSTFIX_inet_protocols=ipv4
+      - POSTFIX_smtp_address_preference=ipv4
       - POSTFIX_virtual_mailbox_domains=example.com, example.org, profundo.dk, localhost
       - POSTFIX_virtual_transport=lmtp:dovecot:24
       - POSTFIX_mynetworks=127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
