@@ -4,14 +4,18 @@ import (
 	"context"
 	"encoding/base64"
 	"io"
+	"net"
 	"net/http"
 	"runtime"
 	"testing"
 
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/imapsmtp"
+	"imap-jmap/jmap/jmapauth"
+	"imap-jmap/jmap/jmapmail"
 	"imap-jmap/jmap/managesieve"
 	"imap-jmap/jmap/nextcloud"
+	jmapsmtp "imap-jmap/smtp"
 )
 
 // testUsername is the default account every test client authenticates as. The memory
@@ -114,4 +118,74 @@ func newTestServer(opts ...jmap.Option) *jmap.Server {
 	})
 
 	return srv
+}
+
+func newTestServerWithSMTP(opts ...jmap.Option) *jmap.Server {
+	gwBackend, _ := imapsmtp.NewEmbeddedBackend(testUsername)
+	_, cal, contacts, fb, principals, cleanupNC := nextcloud.NewEmbeddedBackend(testUsername)
+	_, sieve, cleanupSieve := managesieve.NewEmbeddedBackend(testUsername)
+	imap := jmap.NewMemoryIMAPAccessBackend()
+	memAuth := jmap.NewMemoryAuthBackend()
+
+	allOpts := []jmap.Option{
+		jmap.WithMailBackend(gwBackend),
+		jmap.WithBlobBackend(gwBackend),
+		jmap.WithFileNodeBackend(fb),
+		jmap.WithCalendarsBackend(cal),
+		jmap.WithContactsBackend(contacts),
+		jmap.WithPrincipalsBackend(principals),
+		jmap.WithSieveBackend(sieve),
+		jmap.WithIMAPAccessBackend(imap),
+		jmap.WithAuthBackend(memAuth),
+	}
+	allOpts = append(allOpts, opts...)
+
+	srv := jmap.NewServer(nil, allOpts...)
+	if srvAuth, ok := srv.AuthBackend.(*jmap.MemoryAuthBackend); ok {
+		if srvAuth == memAuth {
+			srvAuth.SetBackends(gwBackend, srv.BlobBackend, nil, nil, nil)
+		} else {
+			srvAuth.SetBackends(gwBackend, srv.BlobBackend, cal, contacts, fb)
+		}
+	}
+	gwBackend.SetBroadcaster(srv.Broadcaster)
+	cal.SetBroadcaster(srv.Broadcaster)
+	contacts.SetBroadcaster(srv.Broadcaster)
+	principals.SetCalendarsBackend(cal)
+	principals.SetBroadcaster(srv.Broadcaster)
+	sieve.SetBroadcaster(srv.Broadcaster)
+	fb.SetBroadcaster(srv.Broadcaster)
+
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	var cleanupSMTP func() = func() {}
+	if err == nil {
+		smtpAddr := l.Addr().String()
+		smtpSrv := jmapsmtp.NewServer(smtpAddr, gwBackend, gwBackend, nil,
+			jmapsmtp.WithTransportMode(jmapsmtp.TransportModeSubmission),
+			jmapsmtp.WithAuthenticator(jmapsmtp.NewAuthBackendAuthenticator(memAuth)),
+			jmapsmtp.WithAccountResolver(jmapauth.PrimaryDomainResolver{PrimaryDomain: "example.com"}),
+			jmapsmtp.WithOutboundSender(&testOutboundSender{}),
+		)
+		go func() { _ = smtpSrv.Serve(l) }()
+		gwBackend.SetSMTPAddr(smtpAddr)
+		cleanupSMTP = func() { _ = smtpSrv.Close() }
+	}
+
+	runtime.SetFinalizer(srv, func(*jmap.Server) {
+		cleanupSMTP()
+		cleanupNC()
+		cleanupSieve()
+	})
+
+	return srv
+}
+
+type testOutboundSender struct{}
+
+func (s *testOutboundSender) SendMail(ctx context.Context, from string, recipients []string, rawMessage []byte) map[string]jmapmail.OutboundDeliveryResult {
+	res := make(map[string]jmapmail.OutboundDeliveryResult, len(recipients))
+	for _, r := range recipients {
+		res[r] = jmapmail.OutboundDeliveryResult{Delivered: true, SmtpReply: "250 2.0.0 OK"}
+	}
+	return res
 }

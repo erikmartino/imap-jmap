@@ -47,7 +47,7 @@ func TestRFC8984_SameServerInviteAcceptRoundTrip(t *testing.T) {
 	spectest.Require(t, "draft-ietf-jmap-calendars-27", "5.9.2.3", spectest.MUST,
 		"When the invited participant accepts, the organizer's copy reflects the acceptance.")
 
-	srv := newTestServer()
+	srv := newTestServerWithSMTP()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -139,7 +139,7 @@ func TestRFC8984_SEC7_ScheduleStatusReporting(t *testing.T) {
 	spectest.Require(t, "draft-ietf-jmap-calendars-27", "4.2.7", spectest.MUST,
 		"The scheduleStatus property represents the status of scheduling message delivery as a STATCODE string.")
 
-	srv := newTestServer()
+	srv := newTestServerWithSMTP()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -183,9 +183,9 @@ func TestRFC8984_SEC7_ScheduleStatusReporting(t *testing.T) {
 		t.Fatalf("event not found")
 	}
 
-	// Bob is local -> delivered directly into his calendar
-	if got := scheduleStatus(aliceEvent, bob); got != "2.0;delivered" {
-		t.Errorf("Bob scheduleStatus = %q, want '2.0;delivered'", got)
+	// Bob was dispatched via iMIP email over SMTP
+	if got := scheduleStatus(aliceEvent, bob); got != "1.1;sent" {
+		t.Errorf("Bob scheduleStatus = %q, want '1.1;sent'", got)
 	}
 
 	// Charlie is external -> dispatched via iMIP email

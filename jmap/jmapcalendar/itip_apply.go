@@ -101,6 +101,7 @@ func ApplyITIP(ctx context.Context, backend CalendarsBackend, icsBody, envelopeS
 			"participants/" + partKey + "/participationStatus": status,
 			"participants/" + partKey + "/status":              status,
 			"participants/" + partKey + "/scheduleStatus":      "2.0;delivered",
+			"sequence":                                         ev.Sequence,
 		}
 		if msg.Sequence > ev.Sequence {
 			patch["sequence"] = msg.Sequence
@@ -152,6 +153,12 @@ func ApplyITIP(ctx context.Context, backend CalendarsBackend, icsBody, envelopeS
 		ensureOwnerParticipant(imported, envelopeSender)
 		createdEv, err := backend.CreateCalendarEvent(ctx, imported)
 		if err == nil && createdEv != nil {
+			_, _ = backend.CreateCalendarEventNotification(ctx, &CalendarEventNotification{
+				Type:            "created",
+				CalendarEventID: createdEv.ID,
+				ChangedBy:       notificationChangedBy(createdEv),
+				Event:           createdEv,
+			})
 			log.Printf("iTIP: auto-imported invitation into calendar event %s (%s)", createdEv.ID, createdEv.Title)
 			return true
 		}
@@ -184,7 +191,7 @@ func ApplyITIP(ctx context.Context, backend CalendarsBackend, icsBody, envelopeS
 		}
 		fromEmail := envelopeSender
 		backend.CreateCalendarEventNotification(ctx, &CalendarEventNotification{
-			Type:            "deleted",
+			Type:            "updated",
 			CalendarEventID: ev.ID,
 			ChangedBy: CalendarEventNotificationPerson{
 				Email:           &fromEmail,

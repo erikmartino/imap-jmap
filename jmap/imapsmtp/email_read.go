@@ -270,6 +270,10 @@ func (b *IMAPSMTPBackend) ITIPEmails(ctx context.Context, marker string) ([]jmap
 		if !selectable {
 			continue
 		}
+		role := DetectRole(m.Name, m.Attrs)
+		if role == "sent" || role == "drafts" || role == "trash" {
+			continue
+		}
 		uids, err := client.SearchITIP(m.Name, marker)
 		if err != nil {
 			continue

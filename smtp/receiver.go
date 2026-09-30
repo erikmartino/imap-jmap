@@ -232,10 +232,25 @@ func (s *Session) Mail(from string, opts *smtp.MailOptions) error {
 		// authorized with the authenticated identity (550 5.7.1). This is how the
 		// submission boundary binds the sender to the authenticated user.
 		if s.authenticatedAs != "" && !emailAddressMatches(from, s.authenticatedAs) {
-			return &smtp.SMTPError{
-				Code:         550,
-				EnhancedCode: smtp.EnhancedCode{5, 7, 1},
-				Message:      fmt.Sprintf("MAIL FROM does not match the authenticated user %s", s.authenticatedAs),
+			authorized := false
+			if s.backend.MailBackend != nil {
+				authCtx := jmapauth.ContextWithSubject(context.Background(), s.authenticatedAs)
+				authCtx = jmapauth.ContextWithAccountID(authCtx, jmapauth.AccountIDForSubject(s.authenticatedAs))
+				if idents, err := s.backend.MailBackend.GetIdentities(authCtx); err == nil {
+					for _, ident := range idents {
+						if ident != nil && emailAddressMatches(from, ident.Email) {
+							authorized = true
+							break
+						}
+					}
+				}
+			}
+			if !authorized {
+				return &smtp.SMTPError{
+					Code:         550,
+					EnhancedCode: smtp.EnhancedCode{5, 7, 1},
+					Message:      fmt.Sprintf("MAIL FROM does not match the authenticated user %s", s.authenticatedAs),
+				}
 			}
 		}
 	}
@@ -257,7 +272,7 @@ func (s *Session) Rcpt(to string, opts *smtp.RcptOptions) error {
 	// 550 5.7.1 (RFC 3463: "Delivery not authorized, message refused" — the code real
 	// MTAs use for relaying-denied). Without a resolver the server acts as a
 	// catch-all receiver and accepts every recipient (legacy single-account mode).
-	if s.backend.AccountResolver != nil {
+	if s.backend.AccountResolver != nil && !(s.mode == TransportModeSubmission && s.authenticated && s.backend.OutboundSender != nil) {
 		if _, local := s.backend.AccountResolver.ResolveAccountID(context.Background(), to); !local {
 			log.Printf("SMTP receiver: rejecting RCPT TO <%s>: address is not local and no relay is configured", to)
 			return &smtp.SMTPError{
@@ -339,6 +354,7 @@ func (s *Session) Data(r io.Reader) error {
 
 	// 1. Determine target accountIDs per recipient
 	targetAccountIDs := make(map[string]bool)
+	var externalRecipients []string
 	if s.backend.AccountResolver != nil {
 		for _, rcpt := range s.to {
 			accountID, local := s.backend.AccountResolver.ResolveAccountID(context.Background(), rcpt)
@@ -346,13 +362,14 @@ func (s *Session) Data(r io.Reader) error {
 				targetAccountIDs[accountID] = true
 				log.Printf("SMTP receiver: recipient %q resolved to local account %s", rcpt, accountID)
 			} else {
-				log.Printf("SMTP receiver: recipient %q is NOT local (no account resolved)", rcpt)
+				log.Printf("SMTP receiver: recipient %q is NOT local (external recipient)", rcpt)
+				externalRecipients = append(externalRecipients, rcpt)
 			}
 		}
 	} else {
 		log.Printf("SMTP receiver: no AccountResolver configured; skipping per-recipient resolution")
 	}
-	if len(targetAccountIDs) == 0 {
+	if len(targetAccountIDs) == 0 && len(externalRecipients) == 0 {
 		if s.backend.AccountID != "" {
 			targetAccountIDs[s.backend.AccountID] = true
 			log.Printf("SMTP receiver: no local recipient; delivering to fallback account %s", s.backend.AccountID)
@@ -367,6 +384,12 @@ func (s *Session) Data(r io.Reader) error {
 
 	// 2. Deliver message copy for each target accountID
 	deliveredAny := false
+	if len(externalRecipients) > 0 {
+		if s.backend.OutboundSender != nil {
+			s.backend.OutboundSender.SendMail(context.Background(), s.from, externalRecipients, data)
+		}
+		deliveredAny = true
+	}
 	var firstFailure error
 	// SEC-1: sender authentication is evaluated once per message (not once per
 	// recipient account) and cached for the delivery loop.

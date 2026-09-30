@@ -372,29 +372,37 @@ func (c *Client) SearchSubject(folder string, query string) (res []uint32, err e
 }
 
 // SearchITIP returns the UIDs of messages that look like iMIP/iTIP mail: a server-side
-// SEARCH for the literal "text/calendar" anywhere in the message, excluding messages
-// already marked processed with the given keyword. No Sieve tag is required; the marker
-// keyword is set by imap-jmap itself and is what stops rescanning.
+// SEARCH for iCalendar markers (Content-Type header, BEGIN:VCALENDAR, or text/calendar),
+// excluding messages already marked processed with the given keyword.
 func (c *Client) SearchITIP(folder, marker string) (res []uint32, err error) {
 	defer c.logCmd("SEARCH", "folder", folder, "itip", true)(&err)
 	if _, err := c.cli.Select(folder, nil).Wait(); err != nil {
 		return nil, err
 	}
-	criteria := &imap.SearchCriteria{
-		Text: []string{"text/calendar"},
+
+	seen := make(map[uint32]bool)
+	queries := []*imap.SearchCriteria{
+		{Text: []string{"BEGIN:VCALENDAR"}},
+		{Header: []imap.SearchCriteriaHeaderField{{Key: "Content-Type", Value: "text/calendar"}}},
+		{Text: []string{"text/calendar"}},
 	}
-	if marker != "" {
-		criteria.NotFlag = []imap.Flag{imap.Flag(marker)}
-	}
-	searchCmd := c.cli.UIDSearch(criteria, nil)
-	data, err := searchCmd.Wait()
-	if err != nil {
-		return nil, err
-	}
-	uids := data.AllUIDs()
-	res = make([]uint32, 0, len(uids))
-	for _, u := range uids {
-		res = append(res, uint32(u))
+
+	for _, criteria := range queries {
+		if marker != "" {
+			criteria.NotFlag = []imap.Flag{imap.Flag(marker)}
+		}
+		searchCmd := c.cli.UIDSearch(criteria, nil)
+		data, err := searchCmd.Wait()
+		if err != nil {
+			continue
+		}
+		for _, u := range data.AllUIDs() {
+			uidNum := uint32(u)
+			if !seen[uidNum] {
+				seen[uidNum] = true
+				res = append(res, uidNum)
+			}
+		}
 	}
 	return res, nil
 }

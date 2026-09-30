@@ -377,7 +377,7 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend jmapmail.MailB
 							orgEmail = subj
 						}
 					}
-					dispatchITIPRequests(ctx, mailBackend, backend, principalsBackend, resolver, createdEv, "Invitation: ", orgEmail)
+					dispatchITIPRequests(ctx, mailBackend, backend, principalsBackend, createdEv, "Invitation: ", orgEmail)
 				}
 				// A scheduling change (iTIP dispatch) is recorded as a CalendarEventNotification
 				// (Section 7): the event data after creation.
@@ -566,8 +566,8 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend jmapmail.MailB
 								orgEmail = subj
 							}
 						}
-						if !dispatchITIPRepliesForPatch(ctx, mailBackend, backend, resolver, updatedEv, patch) {
-							dispatchITIPRequests(ctx, mailBackend, backend, principalsBackend, resolver, updatedEv, "Updated Invitation: ", orgEmail)
+						if !dispatchITIPRepliesForPatch(ctx, mailBackend, updatedEv, patch) {
+							dispatchITIPRequests(ctx, mailBackend, backend, principalsBackend, updatedEv, "Updated Invitation: ", orgEmail)
 						}
 					}
 				}
@@ -636,7 +636,7 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend jmapmail.MailB
 									orgEmail = subj
 								}
 							}
-							dispatchITIPCancels(ctx, mailBackend, backend, principalsBackend, resolver, events[0], orgEmail)
+							dispatchITIPCancels(ctx, mailBackend, principalsBackend, events[0], orgEmail)
 						}
 					}
 				}

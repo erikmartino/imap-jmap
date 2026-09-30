@@ -71,6 +71,13 @@ func (b *IMAPSMTPBackend) CreateEmail(ctx context.Context, em *jmapmail.Email) (
 
 	uid, err := client.AppendAndGetUID(folderName, rawBytes, flags, msgTime)
 	if err != nil {
+		errLower := strings.ToLower(err.Error())
+		if strings.Contains(errLower, "exist") || strings.Contains(errLower, "trycreate") || strings.Contains(errLower, "not found") {
+			_ = client.Create(folderName)
+			uid, err = client.AppendAndGetUID(folderName, rawBytes, flags, msgTime)
+		}
+	}
+	if err != nil {
 		b.pool.ReleaseClient(ctx, client)
 		return nil, fmt.Errorf("failed to append message to IMAP %s: %w", folderName, err)
 	}

@@ -3,6 +3,7 @@ package jmap_test
 import (
 	"bytes"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,9 +11,11 @@ import (
 
 	"imap-jmap/jmap"
 	"imap-jmap/jmap/imapsmtp"
+	"imap-jmap/jmap/jmapauth"
 	"imap-jmap/jmap/managesieve"
 	"imap-jmap/jmap/nextcloud"
 	"imap-jmap/jmap/spectest"
+	jmapsmtp "imap-jmap/smtp"
 )
 
 func postJMAPAs(t *testing.T, url, user string, using []string, calls []any) jmap.Response {
@@ -68,6 +71,19 @@ func TestStalwart_CalendarEventNotifications(t *testing.T) {
 		jmap.WithIMAPAccessBackend(imap),
 		jmap.WithAuthBackend(memAuth),
 	)
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err == nil {
+		smtpAddr := l.Addr().String()
+		smtpSrv := jmapsmtp.NewServer(smtpAddr, gwBackend, gwBackend, nil,
+			jmapsmtp.WithTransportMode(jmapsmtp.TransportModeSubmission),
+			jmapsmtp.WithAuthenticator(jmapsmtp.NewAuthBackendAuthenticator(memAuth)),
+			jmapsmtp.WithAccountResolver(jmapauth.PrimaryDomainResolver{PrimaryDomain: "example.com"}),
+		)
+		go func() { _ = smtpSrv.Serve(l) }()
+		defer smtpSrv.Close()
+		gwBackend.SetSMTPAddr(smtpAddr)
+	}
+
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 

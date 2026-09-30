@@ -2,6 +2,7 @@ package smtp
 
 import (
 	"log"
+	"net"
 	"time"
 
 	gosmtp "github.com/emersion/go-smtp"
@@ -152,6 +153,12 @@ func (s *Server) Addr() string {
 func (s *Server) ListenAndServe() error {
 	log.Printf("Starting SMTP server on %s", s.addr)
 	return s.server.ListenAndServe()
+}
+
+// Serve starts the SMTP receiver server on an existing net.Listener.
+func (s *Server) Serve(l net.Listener) error {
+	log.Printf("Starting SMTP server on %s", l.Addr().String())
+	return s.server.Serve(l)
 }
 
 // Close gracefully stops the SMTP receiver server.

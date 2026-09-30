@@ -3,6 +3,7 @@ package jmap
 import (
 	"context"
 	"log"
+	"strings"
 
 	"imap-jmap/jmap/jmapauth"
 	"imap-jmap/jmap/jmapcalendar"
@@ -25,10 +26,16 @@ type itipMailScanner interface {
 // for iTIP mail. Processing is request-driven because there is no background job (and no
 // credentials outside a request).
 var itipTriggerMethods = map[string]bool{
-	"Email/changes":         true,
-	"Email/query":           true,
-	"CalendarEvent/changes": true,
-	"CalendarEvent/query":   true,
+	"Email/changes":                     true,
+	"Email/query":                       true,
+	"Email/get":                         true,
+	"CalendarEvent/changes":             true,
+	"CalendarEvent/query":               true,
+	"CalendarEvent/get":                 true,
+	"Calendar/get":                      true,
+	"CalendarEventNotification/changes": true,
+	"CalendarEventNotification/query":   true,
+	"CalendarEventNotification/get":     true,
 }
 
 // ProcessMailboxITIP applies iMIP/iTIP mail found in the mailbox and marks each message
@@ -58,6 +65,25 @@ func (s *Server) ProcessMailboxITIP(ctx context.Context) {
 		return
 	}
 
+	skipMailboxIDs := make(map[jmapcore.Id]bool)
+	if mbs, err := s.MailBackend.GetAllMailboxes(ctx); err == nil {
+		for _, mb := range mbs {
+			if mb == nil {
+				continue
+			}
+			if mb.Role != nil {
+				r := strings.ToLower(*mb.Role)
+				if r == "sent" || r == "drafts" || r == "trash" {
+					skipMailboxIDs[mb.ID] = true
+				}
+			}
+			lower := strings.ToLower(mb.Name)
+			if lower == "sent" || lower == "drafts" || lower == "trash" {
+				skipMailboxIDs[mb.ID] = true
+			}
+		}
+	}
+
 	accountID, _ := jmapauth.AccountIDFromContext(ctx)
 	emails, _, err := s.MailBackend.GetEmails(ctx, ids)
 	if err != nil {
@@ -66,6 +92,19 @@ func (s *Server) ProcessMailboxITIP(ctx context.Context) {
 	for _, em := range emails {
 		if em == nil {
 			continue
+		}
+		if len(em.MailboxIDs) > 0 {
+			allSkipped := true
+			for mbID := range em.MailboxIDs {
+				if !skipMailboxIDs[mbID] {
+					allSkipped = false
+					break
+				}
+			}
+			if allSkipped {
+				s.markITIPProcessed(ctx, em)
+				continue
+			}
 		}
 		blob, found, berr := s.BlobBackend.GetBlob(ctx, accountID, string(em.BlobID))
 		if berr != nil || !found || blob == nil {
