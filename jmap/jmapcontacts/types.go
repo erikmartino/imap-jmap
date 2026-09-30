@@ -148,11 +148,12 @@ type JSContactLink struct {
 
 // JSContactMedia defines a photo, video, or audio media attachment per RFC 9553 Section 2.6.2.
 type JSContactMedia struct {
-	BlobID   jmapcore.Id     `json:"blobId,omitempty"`
-	URI      string          `json:"uri,omitempty"`
-	Contexts map[string]bool `json:"contexts,omitempty"`
-	Kind     string          `json:"kind,omitempty"` // "photo", "logo", "sound"
-	Pref     uint32          `json:"pref,omitempty"`
+	BlobID    jmapcore.Id     `json:"blobId,omitempty"`
+	URI       string          `json:"uri,omitempty"`
+	MediaType string          `json:"mediaType,omitempty"`
+	Contexts  map[string]bool `json:"contexts,omitempty"`
+	Kind      string          `json:"kind,omitempty"` // "photo", "logo", "sound"
+	Pref      uint32          `json:"pref,omitempty"`
 }
 
 // JSContactSpeakToAs defines grammatical gender / pronouns per RFC 9553 Section 2.2.4.

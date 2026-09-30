@@ -5,8 +5,12 @@ import (
 )
 
 // RegisterContactsHandlers registers RFC 9610 JMAP for Contacts method handlers into MethodRegistry.
-func RegisterContactsHandlers(r *MethodRegistry, backend ContactsBackend) {
-	jmapcontacts.RegisterContactsHandlers(r, backend)
+func RegisterContactsHandlers(r *MethodRegistry, backend ContactsBackend, blobBackend ...BlobBackend) {
+	if len(blobBackend) > 0 {
+		jmapcontacts.RegisterContactsHandlers(r, backend, blobBackend[0])
+	} else {
+		jmapcontacts.RegisterContactsHandlers(r, backend)
+	}
 }
 
 var (

@@ -1106,7 +1106,17 @@ func applyMedia(out map[string]any, card vcard.Card) {
 	for _, name := range []string{"PHOTO", "LOGO", "SOUND"} {
 		for _, f := range card[name] {
 			id := propID(out, "media", name, f)
-			obj := map[string]any{"kind": strings.ToLower(name), "uri": f.Value}
+			obj := map[string]any{"kind": strings.ToLower(name)}
+			if strings.HasPrefix(f.Value, "blob:") {
+				obj["blobId"] = strings.TrimPrefix(f.Value, "blob:")
+			} else {
+				obj["uri"] = f.Value
+			}
+			if mt := param(f, "MEDIATYPE"); mt != "" {
+				obj["mediaType"] = mt
+			} else if mt := param(f, "TYPE"); mt != "" && strings.Contains(mt, "/") {
+				obj["mediaType"] = mt
+			}
 			applyContextsAndPref(obj, f)
 			media[id] = obj
 		}

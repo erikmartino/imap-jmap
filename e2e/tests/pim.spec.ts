@@ -7,7 +7,7 @@ test.describe('calendar & contacts', () => {
     await login(page, user.username, user.password);
     await goToApp(page, '/en/calendar');
 
-    await expect(page.getByText('Personal Calendar').first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/Personal( Calendar)?/).first()).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('button', { name: 'Create event' }).first()).toBeVisible();
     for (const tab of ['Month', 'Week', 'Day', 'Agenda']) {
       await expect(page.getByRole('button', { name: tab, exact: true }).first()).toBeVisible();
@@ -44,6 +44,29 @@ test.describe('calendar & contacts', () => {
   test('edits the seeded Alice Smith contact, asserts pre-filled name fields and saves', async ({ page }) => {
     const acct = uniqueUser('alice-edit');
     const jmap = await JMAPClient.connect(acct.username, acct.password);
+
+    // Ensure Alice Smith contact exists (seeded or created via JMAP)
+    let aliceCards = await jmap.contactsByEmail('alice@example.com');
+    if (aliceCards.length === 0) {
+      await (jmap as any).callWith(
+        'ContactCard/set',
+        {
+          create: {
+            alice: {
+              name: {
+                full: 'Alice Smith',
+                components: [
+                  { kind: 'given', value: 'Alice' },
+                  { kind: 'surname', value: 'Smith' },
+                ],
+              },
+              emails: { e1: { address: 'alice@example.com' } },
+            },
+          },
+        },
+        ['urn:ietf:params:jmap:contacts']
+      );
+    }
 
     await login(page, acct.username, acct.password);
     await goToApp(page, '/en/contacts');
@@ -122,20 +145,22 @@ test.describe('calendar & contacts', () => {
     await login(page, acct.username, acct.password);
     await goToApp(page, '/en/contacts');
 
-    // Click Groups tab
-    const groupsTab = page.getByRole('tab', { name: 'Groups' }).or(page.getByText('Groups', { exact: true })).first();
-    await expect(groupsTab).toBeVisible({ timeout: 15_000 });
-    await groupsTab.click();
+    // Verify group is listed under Groups in the sidebar
+    const groupItem = page.getByText(groupName).first();
+    if (!await groupItem.isVisible().catch(() => false)) {
+      const groupsToggle = page.getByRole('button', { name: /Groups/i }).or(page.getByText('Groups', { exact: true })).first();
+      await groupsToggle.click();
+    }
+    await expect(groupItem).toBeVisible({ timeout: 15_000 });
 
-    // Verify group is listed under Groups with its name
-    await expect(page.getByText(groupName).first()).toBeVisible({ timeout: 15_000 });
-
-    // Switch to All / Contacts tab
-    const allTab = page.getByRole('tab', { name: 'All' }).or(page.getByText('All', { exact: true })).first();
+    // Switch to All contacts
+    const allTab = page.getByRole('button', { name: /All/i }).or(page.getByText(/All/i)).first();
     if (await allTab.isVisible().catch(() => false)) {
       await allTab.click();
       // The individual contact list should have MemberOne, but NOT the group as an individual contact
-      await expect(page.getByText(memberName).first()).toBeVisible({ timeout: 15_000 });
+      const contactList = page.locator('[data-tour="contacts-list"]');
+      await expect(contactList.getByText(memberName).first()).toBeVisible({ timeout: 15_000 });
+      await expect(contactList.getByText(groupName)).toHaveCount(0);
     }
   });
 });

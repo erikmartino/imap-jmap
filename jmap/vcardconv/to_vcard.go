@@ -1064,10 +1064,20 @@ func (c *converter) convertMedia() []vcardField {
 		if kind == "" {
 			kind = "photo"
 		}
+		val := strField(obj, "uri")
+		if val == "" {
+			if blobID := strField(obj, "blobId"); blobID != "" {
+				val = "blob:" + blobID
+			}
+		}
+		params := commonParams(obj, id)
+		if mt := strField(obj, "mediaType"); mt != "" {
+			params = append(params, vcardParam{Name: "MEDIATYPE", Value: mt})
+		}
 		fields = append(fields, vcardField{
 			Name:   strings.ToUpper(kind),
-			Params: commonParams(obj, id),
-			Value:  strField(obj, "uri"),
+			Params: params,
+			Value:  val,
 		})
 	}
 	return fields
