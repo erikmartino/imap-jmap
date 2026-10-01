@@ -31,6 +31,7 @@ var (
 	BuildITIPAdd              = jmapcalendar.BuildITIPAdd
 	BuildITIPRefresh          = jmapcalendar.BuildITIPRefresh
 	BuildITIPCounter          = jmapcalendar.BuildITIPCounter
+	BuildITIPDeclineCounter   = jmapcalendar.BuildITIPDeclineCounter
 	ParseITIPMessage            = jmapcalendar.ParseITIPMessage
 	ParseICalendar              = jmapcalendar.ParseICalendar
 	CalendarEventsFromICalendar = jmapcalendar.CalendarEventsFromICalendar

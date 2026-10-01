@@ -6,6 +6,8 @@ import (
 	"io"
 	"log"
 	"mime"
+	stdmail "net/mail"
+	"net/url"
 	"strings"
 
 	"github.com/emersion/go-message/mail"
@@ -105,7 +107,8 @@ func ApplyITIP(ctx context.Context, backend CalendarsBackend, icsBody, envelopeS
 	//    is an attendee (not the organizer).
 	isRSVPStatus := strings.EqualFold(msg.Status, "ACCEPTED") ||
 		strings.EqualFold(msg.Status, "DECLINED") ||
-		strings.EqualFold(msg.Status, "TENTATIVE")
+		strings.EqualFold(msg.Status, "TENTATIVE") ||
+		strings.EqualFold(msg.Status, "DELEGATED")
 	isReply := strings.EqualFold(msg.Method, "REPLY") ||
 		(isRSVPStatus && (orgClean == "" || (senderClean != "" && senderClean != orgClean)))
 
@@ -252,11 +255,168 @@ func ApplyITIP(ctx context.Context, backend CalendarsBackend, icsBody, envelopeS
 		})
 		log.Printf("iTIP: cancelled event %s from CANCEL", ev.ID)
 		return true
+
+	case strings.EqualFold(msg.Method, "COUNTER"):
+		attendeeEmail := envelopeSender
+		if len(msg.Attendees) > 0 {
+			matched := false
+			for _, att := range msg.Attendees {
+				if cleanAddress(att.Email) == senderClean {
+					attendeeEmail = att.Email
+					matched = true
+					break
+				}
+			}
+			if !matched && envelopeSender == "" {
+				attendeeEmail = msg.Attendees[0].Email
+			}
+		}
+		attendeeClean := cleanAddress(attendeeEmail)
+		if senderClean != "" && attendeeClean != "" && senderClean != attendeeClean {
+			log.Printf("iTIP: ignoring COUNTER: sender %q does not match attendee %q", envelopeSender, attendeeEmail)
+			return false
+		}
+		ev := findEventByUID(ctx, backend, msg.UID)
+		if ev == nil {
+			log.Printf("iTIP: ignoring COUNTER for unknown event UID %q", msg.UID)
+			return false
+		}
+		partKey := findParticipantKey(ev, attendeeEmail)
+		if partKey == "" {
+			log.Printf("iTIP: ignoring COUNTER: attendee %q is not a participant on event %s", attendeeEmail, ev.ID)
+			return false
+		}
+		patch := map[string]any{
+			"participants/" + partKey + "/scheduleStatus": "2.0;delivered",
+		}
+		if msg.Start != "" {
+			patch["proposedStart"] = msg.Start
+		}
+		replyEmail := attendeeEmail
+		backend.CreateCalendarEventNotification(ctx, &CalendarEventNotification{
+			Type:            "updated",
+			CalendarEventID: ev.ID,
+			ChangedBy: CalendarEventNotificationPerson{
+				Email:           &replyEmail,
+				CalendarAddress: &replyEmail,
+			},
+			Event:      ev,
+			EventPatch: patch,
+		})
+		log.Printf("iTIP: recorded COUNTER for event %s from attendee %s", ev.ID, attendeeEmail)
+		return true
+
+	case strings.EqualFold(msg.Method, "ADD"):
+		if orgClean == "" || (senderClean != "" && senderClean != orgClean) {
+			log.Printf("iTIP: ignoring ADD: sender %q does not match organizer %q", envelopeSender, msg.Organizer)
+			return false
+		}
+		ev := findEventByUID(ctx, backend, msg.UID)
+		if ev == nil {
+			log.Printf("iTIP: ignoring ADD for unknown event UID %q", msg.UID)
+			return false
+		}
+		imported := parseImportedEvent(icsBody, msg)
+		patch := map[string]any{"title": imported.Title, "start": imported.Start}
+		if imported.Duration != "" {
+			patch["duration"] = imported.Duration
+		}
+		_, _ = backend.UpdateCalendarEvent(ctx, ev.ID, patch)
+		return true
+
+	case strings.EqualFold(msg.Method, "REFRESH"):
+		attendeeEmail := envelopeSender
+		if len(msg.Attendees) > 0 && msg.Attendees[0].Email != "" {
+			attendeeEmail = msg.Attendees[0].Email
+		}
+		ev := findEventByUID(ctx, backend, msg.UID)
+		if ev == nil {
+			return false
+		}
+		partKey := findParticipantKey(ev, attendeeEmail)
+		if partKey == "" {
+			log.Printf("iTIP: ignoring REFRESH: attendee %q is not a participant on event %s", attendeeEmail, ev.ID)
+			return false
+		}
+		log.Printf("iTIP: received valid REFRESH for event %s from attendee %s", ev.ID, attendeeEmail)
+		return true
+
+	case strings.EqualFold(msg.Method, "PUBLISH"):
+		if orgClean == "" || (senderClean != "" && senderClean != orgClean) {
+			log.Printf("iTIP: ignoring PUBLISH: sender %q does not match organizer %q", envelopeSender, msg.Organizer)
+			return false
+		}
+		imported := parseImportedEvent(icsBody, msg)
+		if existing := findEventByUID(ctx, backend, imported.UID); existing != nil {
+			patch := map[string]any{"title": imported.Title, "start": imported.Start}
+			if imported.Duration != "" {
+				patch["duration"] = imported.Duration
+			}
+			if msg.Sequence >= existing.Sequence {
+				patch["sequence"] = msg.Sequence
+			}
+			_, _ = backend.UpdateCalendarEvent(ctx, existing.ID, patch)
+			return true
+		}
+		imported.ID = ""
+		imported.CalendarIDs = map[jmapcore.Id]bool{"cal-default": true}
+		if imported.Status == "" {
+			imported.Status = "confirmed"
+		}
+		createdEv, err := backend.CreateCalendarEvent(ctx, imported)
+		if err == nil && createdEv != nil {
+			_, _ = backend.CreateCalendarEventNotification(ctx, &CalendarEventNotification{
+				Type:            "created",
+				CalendarEventID: createdEv.ID,
+				ChangedBy:       notificationChangedBy(createdEv),
+				Event:           createdEv,
+			})
+			log.Printf("iTIP: imported published event %s (%s)", createdEv.ID, createdEv.Title)
+			return true
+		}
+		return false
+
+	case strings.EqualFold(msg.Method, "DECLINECOUNTER"):
+		if orgClean == "" || (senderClean != "" && senderClean != orgClean) {
+			log.Printf("iTIP: ignoring DECLINECOUNTER: sender %q does not match organizer %q", envelopeSender, msg.Organizer)
+			return false
+		}
+		ev := findEventByUID(ctx, backend, msg.UID)
+		if ev == nil {
+			return false
+		}
+		fromEmail := envelopeSender
+		backend.CreateCalendarEventNotification(ctx, &CalendarEventNotification{
+			Type:            "updated",
+			CalendarEventID: ev.ID,
+			ChangedBy: CalendarEventNotificationPerson{
+				Email:           &fromEmail,
+				CalendarAddress: &fromEmail,
+			},
+			Event:      ev,
+			EventPatch: map[string]any{"counterProposal": "declined"},
+		})
+		log.Printf("iTIP: received DECLINECOUNTER for event %s from organizer %s", ev.ID, envelopeSender)
+		return true
 	}
 	return false
 }
 
 func cleanAddress(addr string) string {
+	if addr == "" {
+		return ""
+	}
+	trimmed := strings.TrimSpace(addr)
+	u, err := url.Parse(trimmed)
+	if err == nil && strings.EqualFold(u.Scheme, "mailto") {
+		trimmed = u.Opaque
+		if trimmed == "" {
+			trimmed = u.Path
+		}
+	}
+	if parsed, err := stdmail.ParseAddress(trimmed); err == nil {
+		return strings.ToLower(parsed.Address)
+	}
 	return strings.ToLower(strings.TrimSpace(strings.TrimPrefix(addr, "mailto:")))
 }
 

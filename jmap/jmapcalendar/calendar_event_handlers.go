@@ -443,6 +443,7 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend jmapmail.MailB
 				if notUpdated[string(resolvedID)] != nil {
 					continue
 				}
+				rawPatch, _ := patchRaw.(map[string]any)
 				if isSharedCaller {
 					baseLookupID := string(resolvedID)
 					if strings.Contains(baseLookupID, "#") {
@@ -450,12 +451,33 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend jmapmail.MailB
 					}
 					events, _, _ := backend.GetCalendarEvents(ctx, []jmapcore.Id{jmapcore.Id(baseLookupID)})
 					if len(events) > 0 && events[0] != nil {
+						isOnlyRSVPPatch := len(rawPatch) > 0
+						for pKey := range rawPatch {
+							if !strings.HasPrefix(pKey, "participants/") ||
+								(!strings.HasSuffix(pKey, "/participationStatus") &&
+									!strings.HasSuffix(pKey, "/status") &&
+									!strings.HasSuffix(pKey, "/scheduleStatus")) {
+								isOnlyRSVPPatch = false
+								break
+							}
+						}
 						allowed := true
 						for cid := range events[0].CalendarIDs {
 							cals, _, _ := backend.GetCalendars(ctx, []jmapcore.Id{cid})
-							if len(cals) == 0 || !cals[0].MyRights.MayWriteAll {
+							if len(cals) == 0 {
 								allowed = false
 								break
+							}
+							if isOnlyRSVPPatch {
+								if !cals[0].MyRights.MayWriteAll && !cals[0].MyRights.MayRSVP {
+									allowed = false
+									break
+								}
+							} else {
+								if !cals[0].MyRights.MayWriteAll {
+									allowed = false
+									break
+								}
 							}
 						}
 						if !allowed {
@@ -467,7 +489,6 @@ func handleCalendarEventSet(backend CalendarsBackend, mailBackend jmapmail.MailB
 						}
 					}
 				}
-				rawPatch, _ := patchRaw.(map[string]any)
 
 				if strings.Contains(idStr, "#") {
 					parts := strings.SplitN(idStr, "#", 2)

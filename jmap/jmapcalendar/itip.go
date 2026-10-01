@@ -186,6 +186,40 @@ func BuildITIPCounter(event *CalendarEvent, attendeeEmail, proposedStart string)
 	return buf.String(), nil
 }
 
+// BuildITIPDeclineCounter generates an iCalendar RFC 5546 string for a METHOD:DECLINECOUNTER notice.
+func BuildITIPDeclineCounter(event *CalendarEvent, organizerEmail, attendeeEmail string) (string, error) {
+	if event == nil {
+		return "", fmt.Errorf("event cannot be nil")
+	}
+	cal := ical.NewCalendar()
+	cal.Props.SetText(ical.PropProductID, "-//IMAP-JMAP Server//NONSGML v1.0//EN")
+	cal.Props.SetText(ical.PropVersion, "2.0")
+	cal.Props.SetText(ical.PropMethod, "DECLINECOUNTER")
+
+	comp := ical.NewComponent(ical.CompEvent)
+	comp.Props.SetText(ical.PropUID, eventUID(event))
+	comp.Props.SetDateTime(ical.PropDateTimeStamp, time.Now().UTC())
+
+	if event.Title != "" {
+		comp.Props.SetText(ical.PropSummary, event.Title)
+	}
+	if organizerEmail != "" {
+		comp.Props.Set(newRawProp(ical.PropOrganizer, "mailto:"+organizerEmail))
+	}
+
+	attProp := ical.NewProp(ical.PropAttendee)
+	attProp.Value = "mailto:" + attendeeEmail
+	comp.Props.Add(attProp)
+
+	cal.Children = append(cal.Children, comp)
+
+	var buf bytes.Buffer
+	if err := ical.NewEncoder(&buf).Encode(cal); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
 // ParseITIPMessage parses an iCalendar RFC 5546 string and extracts key fields using go-ical.
 // An optional mimeMethod parameter (from Content-Type: text/calendar; method=...) can be provided.
 func ParseITIPMessage(icsContent string, mimeMethod ...string) (*ITIPMessage, error) {

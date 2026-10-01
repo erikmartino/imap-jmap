@@ -11,7 +11,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 
 | Matrix | Spec(s) | Covered | Gaps | Non-Goals | Total | Conformance |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
-| [jmap-calendars](#jmap-calendars) | RFC5545, RFC5546, RFC6047, RFC8620, RFC8984, draft-ietf-jmap-calendars-27 | 60 | 0 | 0 | 60 | 100.0% |
+| [jmap-calendars](#jmap-calendars) | RFC5545, RFC5546, RFC6047, RFC8620, RFC8984, draft-ietf-jmap-calendars-27 | 67 | 0 | 0 | 67 | 100.0% |
 | [jmap-mail](#jmap-mail) | RFC2045, RFC5228, RFC5322, RFC8620, RFC8621, RFC9007, RFC9219, RFC9661 | 39 | 0 | 0 | 39 | 100.0% |
 | [jmap-sharing](#jmap-sharing) | RFC9670 | 9 | 0 | 0 | 9 | 100.0% |
 | [jmap-websockets](#jmap-websockets) | RFC8887 | 7 | 0 | 0 | 7 | 100.0% |
@@ -29,24 +29,31 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | [rfc9670-sharing](#rfc9670-sharing) | RFC9670 | 0 | 76 | 0 | 76 | 0.0% |
 | [rfc9698-jmapaccess](#rfc9698-jmapaccess) | RFC9698 | 0 | 14 | 0 | 14 | 0.0% |
 | [rfc9749-vapid](#rfc9749-vapid) | RFC9749 | 0 | 24 | 0 | 24 | 0.0% |
-| **Total** | | **651** | **741** | **0** | **1392** | **46.8%** |
+| **Total** | | **658** | **741** | **0** | **1399** | **47.0%** |
 
 ---
 
 ## jmap-calendars
 
 * **Test Suite Directory**: [`jmap/`](../jmap/)
-* **Conformance**: 60 / 60 (100.0%)
+* **Conformance**: 67 / 67 (100.0%)
 
 | Spec | Section | Level | Requirement | Status | Tests |
 | :--- | :---: | :---: | :--- | :---: | :--- |
 | RFC5545 | [3.3.11](https://www.rfc-editor.org/rfc/rfc5545.html#section-3.3.11) | `MUST` | TEXT values escape backslash, comma, semicolon and newline on write and unescape on read. | ✅ Covered | `TestRFC5545_TextEscapingRoundTrip` |
 | RFC5545 | [3.6.1](https://www.rfc-editor.org/rfc/rfc5545.html#section-3.6.1) | `MUST` | VEVENT properties (recurrence, participants, alarms, location, timezone, duration) round-trip losslessly to and from JSCalendar. | ✅ Covered | `TestRFC5546_ITIPRoundTripFullFidelity` |
 | RFC5546 | [2.1.5](https://www.rfc-editor.org/rfc/rfc5546.html#section-2.1.5) | `MUST` | iTIP messages use the event's uid (with SEQUENCE) as the cross-system correlation key, not the server-assigned JMAP id. | ✅ Covered | `TestRFC5546_ITIPUsesEventUIDAndSequence` |
-| RFC5546 | [3.2.2](https://www.rfc-editor.org/rfc/rfc5546.html#section-3.2.2) | `MUST` | A REQUEST invitation carries the event's UID, SEQUENCE, ORGANIZER, and ATTENDEE lines. | ✅ Covered | `TestRFC5546_BuildRequestAndCancel`<br/>`TestRFC5546_ITIPRoundTripFullFidelity`<br/>`TestRFC5546_ITIPUsesEventUIDAndSequence`<br/>`TestRFC8984_SchedulingRequestExcludesOwner` |
-| RFC5546 | [3.2.3](https://www.rfc-editor.org/rfc/rfc5546.html#section-3.2.3) | `MUST` | A REPLY carries the ORGANIZER being answered and the replying ATTENDEE with its PARTSTAT. | ✅ Covered | `TestRFC5546_BuildAndParseReply`<br/>`TestRFC5546_ITIPUsesEventUIDAndSequence`<br/>`TestRFC5546_RSVPResponsesNeverInterpretedAsInvitations`<br/>`TestRFC8984_SchedulingReplyOnRSVP` |
-| RFC5546 | [3.2.5](https://www.rfc-editor.org/rfc/rfc5546.html#section-3.2.5) | `MUST` | A CANCEL carries STATUS:CANCELLED with the event's UID and SEQUENCE. | ✅ Covered | `TestRFC5546_BuildRequestAndCancel`<br/>`TestRFC6047_AutoSendInvitationAndCancellation` |
+| RFC5546 | [3.2.1](https://www.rfc-editor.org/rfc/rfc5546.html#section-3.2.1) | `MUST` | A PUBLISH carries an informational event published by an organizer with no associated attendees requiring reply. | ✅ Covered | `TestITIP_AllMethods_And_Permissions` |
+| RFC5546 | [3.2.2](https://www.rfc-editor.org/rfc/rfc5546.html#section-3.2.2) | `MUST` | A REQUEST invitation carries the event's UID, SEQUENCE, ORGANIZER, and ATTENDEE lines. | ✅ Covered | `TestITIP_AllMethods_And_Permissions`<br/>`TestRFC5546_BuildRequestAndCancel`<br/>`TestRFC5546_ITIPRoundTripFullFidelity`<br/>`TestRFC5546_ITIPUsesEventUIDAndSequence`<br/>`TestRFC8984_SchedulingRequestExcludesOwner` |
+| RFC5546 | [3.2.3](https://www.rfc-editor.org/rfc/rfc5546.html#section-3.2.3) | `MUST` | A REPLY carries the ORGANIZER being answered and the replying ATTENDEE with its PARTSTAT. | ✅ Covered | `TestITIP_AllMethods_And_Permissions`<br/>`TestRFC5546_BuildAndParseReply`<br/>`TestRFC5546_ITIPUsesEventUIDAndSequence`<br/>`TestRFC5546_RSVPResponsesNeverInterpretedAsInvitations`<br/>`TestRFC8984_SchedulingReplyOnRSVP` |
+| RFC5546 | [3.2.4](https://www.rfc-editor.org/rfc/rfc5546.html#section-3.2.4) | `MUST` | An ADD method adds components to an existing event and is restricted to the organizer. | ✅ Covered | `TestITIP_AllMethods_And_Permissions` |
+| RFC5546 | [3.2.5](https://www.rfc-editor.org/rfc/rfc5546.html#section-3.2.5) | `MUST` | A CANCEL carries STATUS:CANCELLED with the event's UID and SEQUENCE. | ✅ Covered | `TestITIP_AllMethods_And_Permissions`<br/>`TestRFC5546_BuildRequestAndCancel`<br/>`TestRFC6047_AutoSendInvitationAndCancellation` |
+| RFC5546 | [3.2.6](https://www.rfc-editor.org/rfc/rfc5546.html#section-3.2.6) | `MUST` | A REFRESH method requests the latest version of an event from the organizer and is restricted to attendees. | ✅ Covered | `TestITIP_AllMethods_And_Permissions` |
+| RFC5546 | [3.2.7](https://www.rfc-editor.org/rfc/rfc5546.html#section-3.2.7) | `MUST` | A COUNTER method proposes changes to an event and must not alter event terms before organizer acceptance. | ✅ Covered | `TestITIP_AllMethods_And_Permissions` |
+| RFC5546 | [3.2.8](https://www.rfc-editor.org/rfc/rfc5546.html#section-3.2.8) | `MUST` | A DECLINECOUNTER method rejects a counter-proposal and is restricted to the organizer. | ✅ Covered | `TestITIP_AllMethods_And_Permissions` |
+| RFC5546 | [5.1](https://www.rfc-editor.org/rfc/rfc5546.html#section-5.1) | `MUST` | Strangers or non-participants are forbidden from replying, updating, or modifying calendar events. | ✅ Covered | `TestITIP_AllMethods_And_Permissions` |
 | RFC6047 | [2.4](https://www.rfc-editor.org/rfc/rfc6047.html#section-2.4) | `MUST` | The iMIP body part is text/calendar with a method parameter matching the iCalendar METHOD. | ✅ Covered | `TestRFC6047_AutoSendInvitationAndCancellation`<br/>`TestRFC8984_SchedulingRequestExcludesOwner` |
+| RFC6047 | [3](https://www.rfc-editor.org/rfc/rfc6047.html#section-3) | `MUST` | iTIP processing enforces identity binding between envelope sender and iCalendar actors. | ✅ Covered | `TestITIP_AllMethods_And_Permissions`<br/>`TestITIP_MailboxDelivery_And_Processing` |
 | RFC8620 | [3.6.2](https://www.rfc-editor.org/rfc/rfc8620.html#section-3.6.2) | `MUST` | forbidden error is returned when accessing an account or calling a method without permission. | ✅ Covered | `TestStalwart_CalendarACL` |
 | RFC8620 | [5.3](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.3) | `MUST` | A */set update response value is null unless the server changed properties beyond those the client sent. | ✅ Covered | `TestRFC8984_ParticipantIdentityLifecycle`<br/>`TestStalwart_CalendarLifecycleAndProperties` |
 | RFC8620 | [5.4](https://www.rfc-editor.org/rfc/rfc8620.html#section-5.4) | `MUST` | Foo/copy reads sources from fromAccountId and supports onSuccessDestroyOriginal / destroyFromIfInState. | ✅ Covered | `TestRFC8984_CalendarEventCopyDestroyOriginal`<br/>`TestRFC8984_CalendarEventCopyRoundTrip` |
@@ -59,7 +66,7 @@ UPDATE_DOCS=1 go test -run TestSpecMarkdownGolden ./spec
 | RFC8984 | [4.3.5](https://www.rfc-editor.org/rfc/rfc8984.html#section-4.3.5) | `MUST` | recurrenceOverrides apply to instances; excluded:true removes an instance. | ✅ Covered | `TestRFC8984_RecurrenceOverrideExcluded` |
 | RFC8984 | [4.4.2](https://www.rfc-editor.org/rfc/rfc8984.html#section-4.4.2) | `MUST` | Event status is limited to confirmed/tentative/cancelled. | ✅ Covered | `TestRFC8984_EventStatusEnum` |
 | RFC8984 | [5.2.5](https://www.rfc-editor.org/rfc/rfc8984.html#section-5.2.5) | `MUST` | Task progress is limited to needs-action/in-process/completed/failed/pending/cancelled. | ✅ Covered | `TestRFC8984_TaskProgressEnum` |
-| draft-ietf-jmap-calendars-27 | [1.4](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-1.4) | `MUST` | Calendar shareWith defines access rights granted to users, and myRights reflects the caller's rights. | ✅ Covered | `TestStalwart_CalendarACL` |
+| draft-ietf-jmap-calendars-27 | [1.4](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-1.4) | `MUST` | Calendar shareWith defines access rights granted to users, and myRights reflects the caller's rights. | ✅ Covered | `TestITIP_SharedCalendar_ACL_Permissions`<br/>`TestStalwart_CalendarACL` |
 | draft-ietf-jmap-calendars-27 | [3.1](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-3.1) | `MUST` | A ParticipantIdentity represents an identity for sending/receiving calendar scheduling messages. | ✅ Covered | `TestStalwart_ParticipantIdentity` |
 | draft-ietf-jmap-calendars-27 | [3.2](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-3.2) | `MUST` | ParticipantIdentity/get returns requested properties for identities. | ✅ Covered | `TestStalwart_ParticipantIdentity` |
 | draft-ietf-jmap-calendars-27 | [3.3](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-27#section-3.3) | `MUST` | ParticipantIdentity isDefault is server-set; changed only via onSuccessSetIsDefault. | ✅ Covered | `TestRFC8984_ParticipantIdentityLifecycle`<br/>`TestStalwart_ParticipantIdentity` |
