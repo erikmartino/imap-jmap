@@ -39,7 +39,7 @@ var JMAPCalendarsRequirements = []Requirement{
 		Section: "3.2.3",
 		Level:   Level("MUST"),
 		Text:    "A REPLY carries the ORGANIZER being answered and the replying ATTENDEE with its PARTSTAT.",
-		Tests:   []string{"TestRFC5546_BuildAndParseReply", "TestRFC5546_ITIPUsesEventUIDAndSequence", "TestRFC8984_SchedulingReplyOnRSVP"},
+		Tests:   []string{"TestRFC5546_BuildAndParseReply", "TestRFC5546_ITIPUsesEventUIDAndSequence", "TestRFC5546_RSVPResponsesNeverInterpretedAsInvitations", "TestRFC8984_SchedulingReplyOnRSVP"},
 		Status:  Covered,
 	},
 	{

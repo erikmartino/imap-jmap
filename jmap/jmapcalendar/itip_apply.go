@@ -17,16 +17,22 @@ import (
 // text/calendar body, so a pathological message cannot cause unbounded work.
 const maxITIPMIMEParts = 100
 
-// ExtractCalendarBody returns the decoded body of the message's text/calendar MIME part
-// (RFC 6047 Section 2.4), using a real MIME reader that also decodes any
-// Content-Transfer-Encoding (base64 / quoted-printable). Only a genuine text/calendar
+// ExtractCalendarPart returns the decoded body and MIME method parameter of the message's
+// text/calendar MIME part (RFC 6047 Section 2.4), using a real MIME reader that also
+// decodes any Content-Transfer-Encoding (base64 / quoted-printable). Only a genuine text/calendar
 // part is honoured, so scheduling logic can never be driven by iCalendar-looking text
-// smuggled into an unrelated part. Returns "" when the message carries no calendar part.
-func ExtractCalendarBody(raw []byte) string {
+// smuggled into an unrelated part. Returns ("", "") when the message carries no calendar part.
+func ExtractCalendarPart(raw []byte) (string, string) {
 	mr, err := mail.CreateReader(bytes.NewReader(raw))
 	if err != nil {
-		return ""
+		return "", ""
 	}
+	topMediaType, topParams, _ := mime.ParseMediaType(mr.Header.Get("Content-Type"))
+	topMethod := ""
+	if topParams != nil {
+		topMethod = strings.ToUpper(strings.TrimSpace(topParams["method"]))
+	}
+
 	partsCount := 0
 	for {
 		if partsCount >= maxITIPMIMEParts {
@@ -37,16 +43,36 @@ func ExtractCalendarBody(raw []byte) string {
 			break
 		}
 		partsCount++
-		mediaType, _, _ := mime.ParseMediaType(p.Header.Get("Content-Type"))
+		mediaType, params, _ := mime.ParseMediaType(p.Header.Get("Content-Type"))
+		if mediaType == "" && strings.EqualFold(topMediaType, "text/calendar") {
+			mediaType = topMediaType
+			if params == nil {
+				params = topParams
+			}
+		}
 		if strings.EqualFold(mediaType, "text/calendar") {
+			partMethod := ""
+			if params != nil {
+				partMethod = strings.ToUpper(strings.TrimSpace(params["method"]))
+			}
+			if partMethod == "" {
+				partMethod = topMethod
+			}
 			body, err := io.ReadAll(p.Body)
 			if err != nil {
-				return ""
+				return "", ""
 			}
-			return string(body)
+			return string(body), partMethod
 		}
 	}
-	return ""
+	return "", ""
+}
+
+// ExtractCalendarBody returns the decoded body of the message's text/calendar MIME part
+// (RFC 6047 Section 2.4).
+func ExtractCalendarBody(raw []byte) string {
+	body, _ := ExtractCalendarPart(raw)
+	return body
 }
 
 // ApplyITIP applies an iMIP/iTIP message body to the account's calendars (RFC 6047 /
@@ -59,21 +85,45 @@ func ExtractCalendarBody(raw []byte) string {
 // on identity binding: a REPLY is only applied when the sender matches the attendee,
 // a REQUEST only when the sender matches the organizer, and a CANCEL only from the
 // organizer. Replay/out-of-order messages (lower SEQUENCE) are ignored.
-func ApplyITIP(ctx context.Context, backend CalendarsBackend, icsBody, envelopeSender string) bool {
+// An RSVP response (REPLY) MUST NEVER be interpreted as an invitation (REQUEST).
+func ApplyITIP(ctx context.Context, backend CalendarsBackend, icsBody, envelopeSender string, mimeMethod ...string) bool {
 	if backend == nil || icsBody == "" {
 		return false
 	}
-	msg, err := ParseITIPMessage(icsBody)
+	msg, err := ParseITIPMessage(icsBody, mimeMethod...)
 	if err != nil || msg == nil || msg.UID == "" {
 		return false
 	}
 	senderClean := cleanAddress(envelopeSender)
+	orgClean := cleanAddress(msg.Organizer)
+
+	// An RSVP response conveys an attendee's participation status (ACCEPTED, DECLINED, TENTATIVE)
+	// to the organizer (RFC 5546 Section 3.2.3). It MUST NEVER be interpreted as an invitation (REQUEST).
+	// A message is classified as an RSVP REPLY if:
+	// 1) msg.Method is explicitly REPLY (from VCALENDAR, VEVENT, or MIME Content-Type method parameter), OR
+	// 2) The message carries an RSVP participation status (ACCEPTED, DECLINED, TENTATIVE) and the sender
+	//    is an attendee (not the organizer).
+	isRSVPStatus := strings.EqualFold(msg.Status, "ACCEPTED") ||
+		strings.EqualFold(msg.Status, "DECLINED") ||
+		strings.EqualFold(msg.Status, "TENTATIVE")
+	isReply := strings.EqualFold(msg.Method, "REPLY") ||
+		(isRSVPStatus && (orgClean == "" || (senderClean != "" && senderClean != orgClean)))
 
 	switch {
-	case strings.EqualFold(msg.Method, "REPLY"):
+	case isReply:
 		attendeeEmail := envelopeSender
-		if len(msg.Attendees) > 0 && msg.Attendees[0].Email != "" {
-			attendeeEmail = msg.Attendees[0].Email
+		if len(msg.Attendees) > 0 {
+			matched := false
+			for _, att := range msg.Attendees {
+				if cleanAddress(att.Email) == senderClean {
+					attendeeEmail = att.Email
+					matched = true
+					break
+				}
+			}
+			if !matched && envelopeSender == "" {
+				attendeeEmail = msg.Attendees[0].Email
+			}
 		}
 		attendeeClean := cleanAddress(attendeeEmail)
 		if senderClean != "" && attendeeClean != "" && senderClean != attendeeClean {
@@ -82,6 +132,7 @@ func ApplyITIP(ctx context.Context, backend CalendarsBackend, icsBody, envelopeS
 		}
 		ev := findEventByUID(ctx, backend, msg.UID)
 		if ev == nil {
+			log.Printf("iTIP: ignoring REPLY for unknown event UID %q (not creating invitation)", msg.UID)
 			return false
 		}
 		partKey := findParticipantKey(ev, attendeeEmail)
@@ -124,8 +175,7 @@ func ApplyITIP(ctx context.Context, backend CalendarsBackend, icsBody, envelopeS
 		return true
 
 	case strings.EqualFold(msg.Method, "REQUEST"):
-		orgClean := cleanAddress(msg.Organizer)
-		if senderClean != "" && orgClean != "" && senderClean != orgClean {
+		if orgClean == "" || (senderClean != "" && senderClean != orgClean) {
 			log.Printf("iTIP: ignoring REQUEST: sender %q does not match organizer %q", envelopeSender, msg.Organizer)
 			return false
 		}

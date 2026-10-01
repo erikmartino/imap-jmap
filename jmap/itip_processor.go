@@ -111,7 +111,7 @@ func (s *Server) ProcessMailboxITIP(ctx context.Context) {
 			// Transient failure: leave the message unmarked so the next sync retries.
 			continue
 		}
-		icsBody := jmapcalendar.ExtractCalendarBody(blob.Data)
+		icsBody, icsMethod := jmapcalendar.ExtractCalendarPart(blob.Data)
 		if icsBody == "" {
 			// Not a calendar message (or not parseable): mark it so it is not rescanned.
 			s.markITIPProcessed(ctx, em)
@@ -123,7 +123,7 @@ func (s *Server) ProcessMailboxITIP(ctx context.Context) {
 		}
 		// Mark regardless of the outcome: re-applying is idempotent, and marking avoids
 		// rescanning (and re-importing a deleted invitation) on every sync.
-		_ = jmapcalendar.ApplyITIP(ctx, s.CalendarsBackend, icsBody, sender)
+		_ = jmapcalendar.ApplyITIP(ctx, s.CalendarsBackend, icsBody, sender, icsMethod)
 		s.markITIPProcessed(ctx, em)
 	}
 }

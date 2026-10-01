@@ -549,7 +549,7 @@ func (s *Session) Data(r io.Reader) error {
 		//    SEC-1 sender authentication is evaluated once per message and must pass before
 		//    any iTIP is auto-applied; fail closed.
 		if s.backend.CalendarsBackend != nil {
-			if icsBody := jmapcalendar.ExtractCalendarBody(data); icsBody != "" {
+			if icsBody, icsMethod := jmapcalendar.ExtractCalendarPart(data); icsBody != "" {
 				if !authChecked {
 					authChecked = true
 					authOK, authReason = s.checkSenderAuth(rawData)
@@ -557,7 +557,7 @@ func (s *Session) Data(r io.Reader) error {
 				if !authOK {
 					log.Printf("SMTP receiver: not applying iTIP for account %s: %s", targetAccountID, authReason)
 				} else {
-					jmapcalendar.ApplyITIP(rcptCtx, s.backend.CalendarsBackend, icsBody, s.from)
+					jmapcalendar.ApplyITIP(rcptCtx, s.backend.CalendarsBackend, icsBody, s.from, icsMethod)
 				}
 			}
 		}

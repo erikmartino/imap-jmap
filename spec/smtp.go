@@ -135,7 +135,7 @@ var SMTPRequirements = []Requirement{
 		Section: "3.2.3",
 		Level:   Level("MUST"),
 		Text:    "An inbound REPLY updates the replying attendee's participationStatus on the UID-correlated event, not the event-level status.",
-		Tests:   []string{"TestRFC6047_InboundReplyUpdatesParticipationStatus"},
+		Tests:   []string{"TestRFC6047_InboundRSVPNeverCreatesInvitation", "TestRFC6047_InboundReplyUpdatesParticipationStatus"},
 		Status:  Covered,
 	},
 	{

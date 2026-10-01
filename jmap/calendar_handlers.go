@@ -39,4 +39,7 @@ var (
 	IcalDurationBetween       = jmapcalendar.IcalDurationBetween
 	ExpandGroupRecipients     = jmapcalendar.ExpandGroupRecipients
 	expandGroupRecipients     = jmapcalendar.ExpandGroupRecipients
+	ExtractCalendarPart       = jmapcalendar.ExtractCalendarPart
+	ExtractCalendarBody       = jmapcalendar.ExtractCalendarBody
+	ApplyITIP                 = jmapcalendar.ApplyITIP
 )

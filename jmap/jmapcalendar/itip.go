@@ -187,17 +187,16 @@ func BuildITIPCounter(event *CalendarEvent, attendeeEmail, proposedStart string)
 }
 
 // ParseITIPMessage parses an iCalendar RFC 5546 string and extracts key fields using go-ical.
-func ParseITIPMessage(icsContent string) (*ITIPMessage, error) {
+// An optional mimeMethod parameter (from Content-Type: text/calendar; method=...) can be provided.
+func ParseITIPMessage(icsContent string, mimeMethod ...string) (*ITIPMessage, error) {
 	cal, err := ical.NewDecoder(strings.NewReader(icsContent)).Decode()
 	if err != nil {
 		return nil, fmt.Errorf("invalid iTIP message: %w", err)
 	}
 
-	msg := &ITIPMessage{
-		Method: "REQUEST",
-	}
-	if m := cal.Props.Get(ical.PropMethod); m != nil && m.Value != "" {
-		msg.Method = strings.ToUpper(m.Value)
+	msg := &ITIPMessage{}
+	if m := cal.Props.Get(ical.PropMethod); m != nil && strings.TrimSpace(m.Value) != "" {
+		msg.Method = strings.ToUpper(strings.TrimSpace(m.Value))
 	}
 
 	var evComp *ical.Component
@@ -209,6 +208,15 @@ func ParseITIPMessage(icsContent string) (*ITIPMessage, error) {
 	}
 	if evComp == nil {
 		return nil, fmt.Errorf("invalid iTIP message: missing VEVENT")
+	}
+
+	if msg.Method == "" {
+		if m := evComp.Props.Get(ical.PropMethod); m != nil && strings.TrimSpace(m.Value) != "" {
+			msg.Method = strings.ToUpper(strings.TrimSpace(m.Value))
+		}
+	}
+	if msg.Method == "" && len(mimeMethod) > 0 && strings.TrimSpace(mimeMethod[0]) != "" {
+		msg.Method = strings.ToUpper(strings.TrimSpace(mimeMethod[0]))
 	}
 
 	if uidProp := evComp.Props.Get(ical.PropUID); uidProp != nil && uidProp.Value != "" {
@@ -243,6 +251,7 @@ func ParseITIPMessage(icsContent string) (*ITIPMessage, error) {
 		}
 		msg.Organizer = org
 	}
+	hasRSVPPartStat := false
 	for _, attProp := range evComp.Props[ical.PropAttendee] {
 		addr := attProp.Value
 		if strings.HasPrefix(strings.ToLower(addr), "mailto:") {
@@ -251,8 +260,25 @@ func ParseITIPMessage(icsContent string) (*ITIPMessage, error) {
 		if addr != "" {
 			msg.Attendees = append(msg.Attendees, jmapmail.EmailAddress{Email: addr})
 		}
-		if partStat := attProp.Params.Get("PARTSTAT"); partStat != "" && msg.Status == "" {
-			msg.Status = partStat
+		partStat := strings.ToUpper(strings.TrimSpace(attProp.Params.Get("PARTSTAT")))
+		if partStat != "" {
+			if msg.Status == "" || partStat == "ACCEPTED" || partStat == "DECLINED" || partStat == "TENTATIVE" {
+				msg.Status = partStat
+			}
+			if partStat == "ACCEPTED" || partStat == "DECLINED" || partStat == "TENTATIVE" {
+				hasRSVPPartStat = true
+			}
+		}
+	}
+
+	// An RSVP response conveys an attendee's participation status (ACCEPTED, DECLINED, TENTATIVE)
+	// to the organizer (RFC 5546 Section 3.2.3). It MUST NEVER be interpreted as an invitation (REQUEST).
+	// If the method was not explicitly defined, any RSVP participation status classifies the message as a REPLY.
+	if msg.Method == "" {
+		if hasRSVPPartStat {
+			msg.Method = "REPLY"
+		} else {
+			msg.Method = "REQUEST"
 		}
 	}
 
